@@ -118,7 +118,7 @@ When `FORGE_CONTROL_URL` is set, Runtime polls Control each reconcile interval:
 1. Prefer `GET /v1/deployments?nodeId=&desired=true` (documented contract).
 2. If that endpoint is missing (404), walk `GET /v1/projects` + `?expand=tree` and treat every deployment with `desiredReplicas > 0` as desired for this single node.
 3. Converge: idempotent ensure for desired ids; delete managed containers not in the desired set.
-4. Report: with `FORGE_CONTROL_REPORT_MODE=push`, `POST /v1/deployments/{id}/status` with `{status,nodeId,endpoint:{hostPort}}` (404 is tolerated — pull via `/v1/node/state` is the interim until Control implements the endpoint).
+4. Report: with `FORGE_CONTROL_REPORT_MODE=push`, `POST /v1/deployments/{id}/status` with `{status,nodeId,endpoint:{hostPort}}` (Control implements this as of demo `04.08`; a 404 is still tolerated and `/v1/node/state` remains available for pull).
 
 Runtime status maps to Control as: `ready`/`running`→`active`, `failed`/`unhealthy`→`failed`, `stopped`→`stopped`, `starting`→`pending`.
 

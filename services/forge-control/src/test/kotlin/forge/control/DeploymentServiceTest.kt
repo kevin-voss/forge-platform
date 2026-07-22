@@ -66,6 +66,37 @@ class DeploymentServiceTest {
     }
 
     @Test
+    fun reportStatusUpdatesAndAudits() {
+        val deployments = FakeDeployments()
+        val audit = FakeAudit()
+        val deploymentService = service(deployments, audit)
+        val created = deploymentService.create(serviceId, "registry.local/api:1", 1, environmentId)
+
+        val active = deploymentService.reportStatus(created.id, "active", "node-1", 49152)
+        assertEquals("active", active.status)
+        assertEquals(listOf("create", "status_change"), audit.entries.map { it.action })
+
+        assertFailsWith<ApiException.BadRequest> {
+            deploymentService.reportStatus(created.id, "bogus", "node-1", null)
+        }
+        assertFailsWith<ApiException.BadRequest> {
+            deploymentService.reportStatus(created.id, "failed", " ", null)
+        }
+    }
+
+    @Test
+    fun deleteRemovesDeploymentAndAudits() {
+        val deployments = FakeDeployments()
+        val audit = FakeAudit()
+        val deploymentService = service(deployments, audit)
+        val created = deploymentService.create(serviceId, "registry.local/api:1", 1, environmentId)
+
+        deploymentService.delete(created.id)
+        assertFailsWith<ApiException.NotFound> { deploymentService.get(created.id) }
+        assertEquals(listOf("create", "delete"), audit.entries.map { it.action })
+    }
+
+    @Test
     fun assemblesCompleteProjectTree() {
         val deployment = Deployment(
             UUID.randomUUID(),
@@ -151,8 +182,24 @@ class DeploymentServiceTest {
 
         override fun findById(id: UUID): Deployment? = rows.find { it.id == id }
         override fun listByService(serviceId: UUID): List<Deployment> = rows.filter { it.serviceId == serviceId }
-        override fun update(id: UUID, image: String?, desiredReplicas: Int?, status: String?): Deployment = error("not used")
-        override fun delete(id: UUID) = error("not used")
+        override fun update(id: UUID, image: String?, desiredReplicas: Int?, status: String?): Deployment {
+            val idx = rows.indexOfFirst { it.id == id }
+            if (idx < 0) throw forge.control.repo.RepositoryException.NotFound("deployment", id)
+            val existing = rows[idx]
+            val updated = existing.copy(
+                image = image ?: existing.image,
+                desiredReplicas = desiredReplicas ?: existing.desiredReplicas,
+                status = status ?: existing.status,
+                updatedAt = NOW,
+            )
+            rows[idx] = updated
+            return updated
+        }
+        override fun delete(id: UUID) {
+            if (!rows.removeIf { it.id == id }) {
+                throw forge.control.repo.RepositoryException.NotFound("deployment", id)
+            }
+        }
     }
 
     private class FakeAudit : AuditRepository {

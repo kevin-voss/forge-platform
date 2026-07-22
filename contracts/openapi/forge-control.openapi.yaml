@@ -30,6 +30,9 @@ paths:
     post: {$ref: '#/components/x-create-deployment'}
   /v1/deployments/{deploymentId}:
     get: {$ref: '#/components/x-get-deployment'}
+    delete: {$ref: '#/components/x-delete-deployment'}
+  /v1/deployments/{deploymentId}/status:
+    post: {$ref: '#/components/x-report-deployment-status'}
 components:
   parameters:
     ProjectId: {name: projectId, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}
@@ -63,3 +66,5 @@ components:
   x-get-application: {operationId: getApplication, parameters: [{$ref: '#/components/parameters/ApplicationId'}], responses: {'200': {description: Application, content: {application/json: {schema: {$ref: '#/components/schemas/Application'}}}}, '404': {$ref: '#/components/responses/Error'}}}
   x-get-service: {operationId: getService, parameters: [{$ref: '#/components/parameters/ServiceId'}], responses: {'200': {description: Service, content: {application/json: {schema: {$ref: '#/components/schemas/Service'}}}}, '404': {$ref: '#/components/responses/Error'}}}
   x-get-deployment: {operationId: getDeployment, parameters: [{$ref: '#/components/parameters/DeploymentId'}], responses: {'200': {description: Deployment, content: {application/json: {schema: {$ref: '#/components/schemas/Deployment'}}}}, '404': {$ref: '#/components/responses/Error'}}}
+  x-delete-deployment: {operationId: deleteDeployment, parameters: [{$ref: '#/components/parameters/DeploymentId'}], responses: {'204': {description: Deleted}, '404': {$ref: '#/components/responses/Error'}}}
+  x-report-deployment-status: {operationId: reportDeploymentStatus, parameters: [{$ref: '#/components/parameters/DeploymentId'}], requestBody: {required: true, content: {application/json: {schema: {type: object, required: [status, nodeId], properties: {status: {type: string, enum: [pending, active, failed, stopped]}, nodeId: {type: string}, endpoint: {type: object, properties: {hostPort: {type: integer, minimum: 1, maximum: 65535}}}}}}}}, responses: {'200': {description: Updated deployment, content: {application/json: {schema: {$ref: '#/components/schemas/Deployment'}}}}, '400': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}}}

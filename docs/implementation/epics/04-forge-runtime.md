@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Goal
 
@@ -69,7 +69,7 @@ Forge CLI → Forge Control → Forge Runtime → Docker Engine → demo-go cont
 | [04.05](../steps/04-forge-runtime/04.05-log-streaming.md) | Log streaming | Complete | Bounded + SSE follow via Docker logs |
 | [04.06](../steps/04-forge-runtime/04.06-stop-delete-no-duplicates.md) | Stop/delete; no duplicate containers | Complete | Idempotent POST + graceful DELETE |
 | [04.07](../steps/04-forge-runtime/04.07-control-integration.md) | Control integration (desired→actual) | Complete | Poll Control, converge, `/v1/node/state`, status push contract |
-| [04.08](../steps/04-forge-runtime/04.08-demo-runtime-and-gate.md) | Demo `04-runtime` + gate | Not started | Depends on all prior |
+| [04.08](../steps/04-forge-runtime/04.08-demo-runtime-and-gate.md) | Demo `04-runtime` + gate | Complete | `demos/04-runtime` acceptance gate |
 
 ## Assumptions
 
@@ -91,4 +91,4 @@ Forge CLI → Forge Control → Forge Runtime → Docker Engine → demo-go cont
 
 ## Next step to implement
 
-**[04.08](../steps/04-forge-runtime/04.08-demo-runtime-and-gate.md) — Demo `04-runtime` + gate**.
+Epic complete. Next queue item is epic 05 (`05.01` / `N = 30`).

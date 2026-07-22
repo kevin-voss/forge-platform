@@ -1,6 +1,7 @@
 package forge.control.http
 
 import forge.control.http.dto.CreateDeploymentRequest
+import forge.control.http.dto.DeploymentStatusReportRequest
 import forge.control.http.dto.toResponse
 import forge.control.service.DeploymentService
 import forge.control.repo.IdempotencyStore
@@ -8,6 +9,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
@@ -33,6 +35,22 @@ fun Route.deploymentRoutes(deployments: DeploymentService, idempotency: Idempote
     get("/v1/deployments/{deploymentId}") {
         val deploymentId = call.parameters.requireUuid("deploymentId")
         call.respond(deployments.get(deploymentId).toResponse())
+    }
+    post("/v1/deployments/{deploymentId}/status") {
+        val deploymentId = call.parameters.requireUuid("deploymentId")
+        val body = call.receive<DeploymentStatusReportRequest>()
+        val updated = deployments.reportStatus(
+            deploymentId,
+            body.status,
+            body.nodeId,
+            body.endpoint?.hostPort,
+        )
+        call.respond(updated.toResponse())
+    }
+    delete("/v1/deployments/{deploymentId}") {
+        val deploymentId = call.parameters.requireUuid("deploymentId")
+        deployments.delete(deploymentId)
+        call.respond(HttpStatusCode.NoContent)
     }
 }
 

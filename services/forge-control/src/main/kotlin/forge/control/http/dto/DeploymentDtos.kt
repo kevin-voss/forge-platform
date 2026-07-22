@@ -10,6 +10,19 @@ data class CreateDeploymentRequest(
     val environmentId: String? = null,
 )
 
+/** Runtime → Control actual-state report (`04.07` / `04.08` contract). */
+@Serializable
+data class DeploymentStatusReportRequest(
+    val status: String? = null,
+    val nodeId: String? = null,
+    val endpoint: EndpointReport? = null,
+)
+
+@Serializable
+data class EndpointReport(
+    val hostPort: Int? = null,
+)
+
 @Serializable
 data class DeploymentResponse(
     val id: String,

@@ -122,6 +122,8 @@ request handling.
 | `POST` | `/v1/services/{serviceId}/deployments` | Body `{"image","desiredReplicas?","environmentId"}`; replicas default to `1`, status starts `pending` |
 | `GET` | `/v1/services/{serviceId}/deployments` | List deployments for a service |
 | `GET` | `/v1/deployments/{deploymentId}` | Get deployment |
+| `POST` | `/v1/deployments/{deploymentId}/status` | Runtime actual-state report: `{"status","nodeId","endpoint":{"hostPort"?}}` → `pending`/`active`/`failed`/`stopped` |
+| `DELETE` | `/v1/deployments/{deploymentId}` | Remove desired deployment (`204`); Runtime orphan cleanup removes the container |
 | `GET` | `/v1/projects/{projectId}?expand=tree` | Project, environments, applications, services, and deployments |
 
 The machine-readable API contract is
