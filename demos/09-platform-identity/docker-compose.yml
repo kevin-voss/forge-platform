@@ -1,0 +1,31 @@
+# Demo 09 overlay — Identity + Control enforce mode + short introspection cache.
+# Used with the root compose file:
+#   docker compose -f compose.yaml -f demos/09-platform-identity/docker-compose.yml up -d ...
+#
+# This demo must NOT use FORGE_AUTH_MODE=dev — enforce is the acceptance gate.
+
+services:
+  forge-control:
+    environment:
+      FORGE_AUTH_MODE: enforce
+      # In-network URL — do not interpolate a host-side FORGE_IDENTITY_URL.
+      FORGE_IDENTITY_URL: http://forge-identity:8080
+      FORGE_INTROSPECT_CACHE_TTL_S: ${FORGE_INTROSPECT_CACHE_TTL_S:-2}
+      FORGE_AUTHZ_CACHE_TTL_S: ${FORGE_AUTHZ_CACHE_TTL_S:-2}
+      FORGE_RECONCILE_INTERVAL_MS: ${FORGE_RECONCILE_INTERVAL_MS:-2000}
+      FORGE_RUNTIME_URL: http://forge-runtime:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      forge-identity:
+        condition: service_healthy
+
+  forge-runtime:
+    environment:
+      FORGE_LIFECYCLE_OWNER: ${FORGE_LIFECYCLE_OWNER:-control}
+      FORGE_PROBE_INTERVAL_SECONDS: ${FORGE_PROBE_INTERVAL_SECONDS:-2}
+      FORGE_PROBE_FAILURE_THRESHOLD: ${FORGE_PROBE_FAILURE_THRESHOLD:-2}
+      FORGE_STOP_GRACE_SECONDS: ${FORGE_STOP_GRACE_SECONDS:-2}
+    depends_on:
+      forge-control:
+        condition: service_healthy

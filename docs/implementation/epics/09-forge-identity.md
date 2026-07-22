@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Goal
 
@@ -72,7 +72,7 @@ make demo DEMO=09
 | [09.05](../steps/09-forge-identity/09.05-api-tokens-service-accounts-revocation.md) | API tokens + service accounts + revocation | Complete | Machine identity + revoke |
 | [09.06](../steps/09-forge-identity/09.06-control-authz-middleware.md) | Control authz middleware | Complete | End `FORGE_AUTH_MODE=dev` default |
 | [09.07](../steps/09-forge-identity/09.07-cli-login-and-token-profile.md) | CLI `forge login` + token profile | Complete | Store + use token |
-| [09.08](../steps/09-forge-identity/09.08-demo-09-platform-identity.md) | Demo `09-platform-identity` + gate | Not started | Full scenario; epic gate |
+| [09.08](../steps/09-forge-identity/09.08-demo-09-platform-identity.md) | Demo `09-platform-identity` + gate | Complete | Full scenario; epic gate; `FORGE_AUTH_MODE=dev` removed from default path |
 
 ## Assumptions
 
@@ -92,4 +92,4 @@ make demo DEMO=09
 
 ## Next step to implement
 
-**[09.08](../steps/09-forge-identity/09.08-demo-09-platform-identity.md) — Demo `09-platform-identity` + epic gate**.
+Epic complete. Dev auth bypass (`FORGE_AUTH_MODE=dev`) is opt-in only; default Control path is `enforce`. Next roadmap epic: [`10-forge-secrets`](10-forge-secrets.md).
