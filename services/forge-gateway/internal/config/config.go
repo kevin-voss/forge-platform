@@ -32,6 +32,12 @@ type Config struct {
 	UpstreamFailureThreshold int
 	UpstreamSuccessThreshold int
 	UpstreamTrustRuntime     bool
+
+	RequestIDHeader            string
+	ProxyConnectTimeout        time.Duration
+	ProxyResponseHeaderTimeout time.Duration
+	ProxyOverallTimeout        time.Duration
+	TrustInboundXFF            bool
 }
 
 // Load reads configuration from the process environment.
@@ -172,26 +178,77 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("FORGE_UPSTREAM_TRUST_RUNTIME_STATUS must be true|false, got %q", trustRaw)
 	}
 
+	requestIDHeader := strings.TrimSpace(os.Getenv("FORGE_REQUEST_ID_HEADER"))
+	if requestIDHeader == "" {
+		requestIDHeader = "X-Request-Id"
+	}
+
+	connectRaw := strings.TrimSpace(os.Getenv("FORGE_PROXY_CONNECT_TIMEOUT_SECONDS"))
+	if connectRaw == "" {
+		connectRaw = "5"
+	}
+	connectSecs, err := strconv.Atoi(connectRaw)
+	if err != nil || connectSecs < 0 {
+		return Config{}, fmt.Errorf("FORGE_PROXY_CONNECT_TIMEOUT_SECONDS must be a non-negative integer, got %q", connectRaw)
+	}
+
+	respHdrRaw := strings.TrimSpace(os.Getenv("FORGE_PROXY_RESPONSE_HEADER_TIMEOUT_SECONDS"))
+	if respHdrRaw == "" {
+		respHdrRaw = "15"
+	}
+	respHdrSecs, err := strconv.Atoi(respHdrRaw)
+	if err != nil || respHdrSecs < 0 {
+		return Config{}, fmt.Errorf("FORGE_PROXY_RESPONSE_HEADER_TIMEOUT_SECONDS must be a non-negative integer, got %q", respHdrRaw)
+	}
+
+	overallRaw := strings.TrimSpace(os.Getenv("FORGE_PROXY_OVERALL_TIMEOUT_SECONDS"))
+	if overallRaw == "" {
+		overallRaw = "30"
+	}
+	overallSecs, err := strconv.Atoi(overallRaw)
+	if err != nil || overallSecs < 0 {
+		return Config{}, fmt.Errorf("FORGE_PROXY_OVERALL_TIMEOUT_SECONDS must be a non-negative integer, got %q", overallRaw)
+	}
+
+	xffTrustRaw := strings.ToLower(strings.TrimSpace(os.Getenv("FORGE_TRUST_INBOUND_XFF")))
+	if xffTrustRaw == "" {
+		xffTrustRaw = "false"
+	}
+	var trustInboundXFF bool
+	switch xffTrustRaw {
+	case "true", "1", "yes":
+		trustInboundXFF = true
+	case "false", "0", "no":
+		trustInboundXFF = false
+	default:
+		return Config{}, fmt.Errorf("FORGE_TRUST_INBOUND_XFF must be true|false, got %q", xffTrustRaw)
+	}
+
 	return Config{
-		Port:                     port,
-		ServiceName:              name,
-		ServiceVersion:           version,
-		LogLevel:                 level,
-		Env:                      env,
-		AuthMode:                 authMode,
-		ShutdownGrace:            time.Duration(graceSecs) * time.Second,
-		StaticRoutesPath:         strings.TrimSpace(os.Getenv("FORGE_GATEWAY_STATIC_ROUTES")),
-		ControlURL:               controlURL,
-		RuntimeURL:               runtimeURL,
-		RouteSource:              routeSource,
-		RouteSyncInterval:        time.Duration(syncSecs) * time.Second,
-		HostPattern:              hostPattern,
-		UpstreamHost:             upstreamHost,
-		SyncEnabled:              syncEnabled,
-		UpstreamProbeInterval:    time.Duration(probeIntervalSecs) * time.Second,
-		UpstreamProbePath:        probePath,
-		UpstreamFailureThreshold: failThreshold,
-		UpstreamSuccessThreshold: successThreshold,
-		UpstreamTrustRuntime:     trustRuntime,
+		Port:                       port,
+		ServiceName:                name,
+		ServiceVersion:             version,
+		LogLevel:                   level,
+		Env:                        env,
+		AuthMode:                   authMode,
+		ShutdownGrace:              time.Duration(graceSecs) * time.Second,
+		StaticRoutesPath:           strings.TrimSpace(os.Getenv("FORGE_GATEWAY_STATIC_ROUTES")),
+		ControlURL:                 controlURL,
+		RuntimeURL:                 runtimeURL,
+		RouteSource:                routeSource,
+		RouteSyncInterval:          time.Duration(syncSecs) * time.Second,
+		HostPattern:                hostPattern,
+		UpstreamHost:               upstreamHost,
+		SyncEnabled:                syncEnabled,
+		UpstreamProbeInterval:      time.Duration(probeIntervalSecs) * time.Second,
+		UpstreamProbePath:          probePath,
+		UpstreamFailureThreshold:   failThreshold,
+		UpstreamSuccessThreshold:   successThreshold,
+		UpstreamTrustRuntime:       trustRuntime,
+		RequestIDHeader:            requestIDHeader,
+		ProxyConnectTimeout:        time.Duration(connectSecs) * time.Second,
+		ProxyResponseHeaderTimeout: time.Duration(respHdrSecs) * time.Second,
+		ProxyOverallTimeout:        time.Duration(overallSecs) * time.Second,
+		TrustInboundXFF:            trustInboundXFF,
 	}, nil
 }

@@ -1,17 +1,21 @@
 package proxy
 
 import (
+	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"forge.local/services/forge-gateway/internal/health"
 	"forge.local/services/forge-gateway/internal/httperr"
+	"forge.local/services/forge-gateway/internal/middleware"
 	"forge.local/services/forge-gateway/internal/routes"
 )
 
@@ -20,21 +24,54 @@ var (
 	errNoHealthyUpstream = errors.New("no healthy upstream")
 )
 
+// Config holds proxy timeout and header behavior.
+type Config struct {
+	RequestIDHeader       string
+	ConnectTimeout        time.Duration
+	ResponseHeaderTimeout time.Duration
+	OverallTimeout        time.Duration
+	TrustInboundXFF       bool
+}
+
 // Handler dispatches matched requests to upstreams via httputil.ReverseProxy.
 type Handler struct {
-	table   *routes.Table
-	tracker *health.UpstreamTracker
-	log     *slog.Logger
-	pickers sync.Map // routeKey -> *roundRobin
+	table     *routes.Table
+	tracker   *health.UpstreamTracker
+	log       *slog.Logger
+	cfg       Config
+	transport http.RoundTripper
+	pickers   sync.Map // routeKey -> *roundRobin
 }
 
 // NewHandler returns a data-plane proxy handler bound to table.
 // tracker may be nil (all upstreams treated as ready).
-func NewHandler(table *routes.Table, log *slog.Logger, tracker *health.UpstreamTracker) *Handler {
+func NewHandler(table *routes.Table, log *slog.Logger, tracker *health.UpstreamTracker, cfg Config) *Handler {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Handler{table: table, tracker: tracker, log: log}
+	if cfg.RequestIDHeader == "" {
+		cfg.RequestIDHeader = middleware.DefaultRequestIDHeader
+	}
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   cfg.ConnectTimeout,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   cfg.ConnectTimeout,
+		ResponseHeaderTimeout: cfg.ResponseHeaderTimeout,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+	return &Handler{
+		table:     table,
+		tracker:   tracker,
+		log:       log,
+		cfg:       cfg,
+		transport: transport,
+	}
 }
 
 // ServeHTTP matches a route and reverse-proxies to a chosen upstream.
@@ -55,17 +92,43 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req := r
+	cancel := func() {}
+	if !route.TimeoutExempt && h.cfg.OverallTimeout > 0 {
+		var ctx context.Context
+		ctx, cancel = context.WithTimeout(r.Context(), h.cfg.OverallTimeout)
+		req = r.WithContext(ctx)
+	}
+	defer cancel()
+
+	// Capture client view before Director rewrites Host/URL.
+	originalHost := r.Host
+	requestID := middleware.RequestIDFromContext(r.Context())
+	if requestID == "" {
+		requestID = r.Header.Get(h.cfg.RequestIDHeader)
+	}
+
 	start := time.Now()
 	rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	upstreamURL := upstream.String()
 	proxy := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
-			req.URL.Scheme = upstream.Scheme
-			req.URL.Host = upstream.Host
-			req.Host = upstream.Host
-			// Preserve original path/query; only configured upstreams are targeted.
+		Transport: h.transport,
+		// Rewrite (not Director) so we fully own X-Forwarded-* without ReverseProxy appending again.
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(upstream)
+			pr.Out.Host = upstream.Host
+			middleware.StripHopByHop(pr.Out.Header)
+			middleware.ApplyForwardedFrom(pr.Out, pr.In, middleware.ForwardedOptions{
+				TrustInboundXFF: h.cfg.TrustInboundXFF,
+			})
+			if requestID != "" {
+				pr.Out.Header.Set(h.cfg.RequestIDHeader, requestID)
+			}
 		},
 		ModifyResponse: func(resp *http.Response) error {
+			if requestID != "" {
+				resp.Header.Set(h.cfg.RequestIDHeader, requestID)
+			}
 			if h.tracker == nil {
 				return nil
 			}
@@ -80,8 +143,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if h.tracker != nil {
 				h.tracker.RecordPassiveFailure(upstreamURL)
 			}
+			elapsed := time.Since(start)
+			if isTimeout(err) {
+				h.log.Warn("upstream timeout",
+					"requestId", requestID,
+					"host", originalHost,
+					"path", req.URL.Path,
+					"upstream", upstreamURL,
+					"elapsed_ms", elapsed.Milliseconds(),
+					"error", err.Error(),
+				)
+				httperr.Write(rw, http.StatusGatewayTimeout, "gateway_timeout", "upstream request timed out")
+				return
+			}
 			h.log.Warn("upstream error",
-				"host", req.Host,
+				"requestId", requestID,
+				"host", originalHost,
 				"path", req.URL.Path,
 				"upstream", upstreamURL,
 				"error", err.Error(),
@@ -89,9 +166,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			httperr.Write(rw, http.StatusBadGateway, "bad_gateway", "upstream connection error")
 		},
 	}
-	proxy.ServeHTTP(rw, r)
+	proxy.ServeHTTP(rw, req)
 
 	h.log.Info("proxied request",
+		"requestId", requestID,
 		"route_host", route.Host,
 		"route_path_prefix", route.PathPrefix,
 		"upstream", upstreamURL,
@@ -99,8 +177,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"duration_ms", time.Since(start).Milliseconds(),
 		"method", r.Method,
 		"path", r.URL.Path,
-		"host", r.Host,
+		"host", originalHost,
 	)
+}
+
+func isTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline exceeded")
 }
 
 func (h *Handler) pick(route routes.Route) (*url.URL, error) {

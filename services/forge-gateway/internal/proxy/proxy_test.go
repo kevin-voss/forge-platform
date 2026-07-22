@@ -10,10 +10,12 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"forge.local/services/forge-gateway/internal/admin"
 	"forge.local/services/forge-gateway/internal/health"
 	"forge.local/services/forge-gateway/internal/httperr"
+	"forge.local/services/forge-gateway/internal/middleware"
 	"forge.local/services/forge-gateway/internal/proxy"
 	"forge.local/services/forge-gateway/internal/routes"
 )
@@ -34,7 +36,7 @@ func TestProxyMatchAndNoMatch(t *testing.T) {
 		t.Fatalf("Replace: %v", err)
 	}
 
-	h := proxy.NewHandler(table, slog.Default(), nil)
+	h := proxy.NewHandler(table, slog.Default(), nil, proxy.Config{})
 	mux := http.NewServeMux()
 	admin.NewRoutesHandler(table, h, slog.Default()).Register(mux)
 	mux.Handle("/", h)
@@ -94,7 +96,7 @@ func TestProxyRoundRobinAlternates(t *testing.T) {
 		t.Fatalf("Replace: %v", err)
 	}
 
-	h := proxy.NewHandler(table, slog.Default(), nil)
+	h := proxy.NewHandler(table, slog.Default(), nil, proxy.Config{})
 	var bodies string
 	for i := 0; i < 4; i++ {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -131,7 +133,7 @@ func TestProxyUpstreamError502(t *testing.T) {
 		t.Fatalf("Replace: %v", err)
 	}
 
-	h := proxy.NewHandler(table, slog.Default(), nil)
+	h := proxy.NewHandler(table, slog.Default(), nil, proxy.Config{})
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Host = "bad.demo.localhost"
 	rr := httptest.NewRecorder()
@@ -155,7 +157,7 @@ func TestAdminPutGetAndContractShapes(t *testing.T) {
 	t.Cleanup(upstream.Close)
 
 	table := routes.NewTable()
-	h := proxy.NewHandler(table, slog.Default(), nil)
+	h := proxy.NewHandler(table, slog.Default(), nil, proxy.Config{})
 	mux := http.NewServeMux()
 	admin.NewRoutesHandler(table, h, slog.Default()).Register(mux)
 	mux.Handle("/", h)
@@ -237,7 +239,7 @@ func TestProxySkipsUnreadyAnd503WhenNoneReady(t *testing.T) {
 		t.Fatalf("Replace: %v", err)
 	}
 
-	h := proxy.NewHandler(table, slog.Default(), tracker)
+	h := proxy.NewHandler(table, slog.Default(), tracker, proxy.Config{})
 	for i := 0; i < 4; i++ {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		req.Host = "health.demo.localhost"
@@ -295,7 +297,7 @@ func TestProxyPassiveMarkingFromConnectionErrors(t *testing.T) {
 		t.Fatalf("Replace: %v", err)
 	}
 
-	h := proxy.NewHandler(table, slog.Default(), tracker)
+	h := proxy.NewHandler(table, slog.Default(), tracker, proxy.Config{})
 
 	// First failure: still ready → 502
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -355,7 +357,7 @@ func TestProxyPassiveMarkingFrom5xx(t *testing.T) {
 		t.Fatalf("Replace: %v", err)
 	}
 
-	h := proxy.NewHandler(table, slog.Default(), tracker)
+	h := proxy.NewHandler(table, slog.Default(), tracker, proxy.Config{})
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Host = "fivexx.demo.localhost"
 	rr := httptest.NewRecorder()
@@ -365,5 +367,136 @@ func TestProxyPassiveMarkingFrom5xx(t *testing.T) {
 	}
 	if tracker.IsReady(up.URL) {
 		t.Fatal("5xx should passively mark unready")
+	}
+}
+
+func TestProxyPropagatesRequestIDAndForwardedHeaders(t *testing.T) {
+	var gotID, gotXFF, gotProto, gotHost, gotForwarded string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotID = r.Header.Get("X-Request-Id")
+		gotXFF = r.Header.Get("X-Forwarded-For")
+		gotProto = r.Header.Get("X-Forwarded-Proto")
+		gotHost = r.Header.Get("X-Forwarded-Host")
+		gotForwarded = r.Header.Get("Forwarded")
+		_, _ = io.WriteString(w, "ok")
+	}))
+	t.Cleanup(upstream.Close)
+
+	table := routes.NewTable()
+	if err := table.Replace([]routes.Route{{
+		Host:      "echo.demo.localhost",
+		Upstreams: []routes.Upstream{{URL: upstream.URL}},
+		Strategy:  routes.StrategyRoundRobin,
+	}}); err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+
+	h := middleware.RequestID("")(proxy.NewHandler(table, slog.Default(), nil, proxy.Config{}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = "echo.demo.localhost"
+	req.RemoteAddr = "203.0.113.9:4000"
+	req.Header.Set("X-Request-Id", "client-req-1")
+	req.Header.Set("X-Forwarded-For", "1.2.3.4")
+	req.Header.Set("Connection", "keep-alive")
+	req.Header.Set("Keep-Alive", "timeout=5")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("X-Request-Id"); got != "client-req-1" {
+		t.Fatalf("response X-Request-Id=%q", got)
+	}
+	if gotID != "client-req-1" {
+		t.Fatalf("upstream X-Request-Id=%q", gotID)
+	}
+	if gotXFF != "203.0.113.9" {
+		t.Fatalf("upstream X-Forwarded-For=%q (trust disabled)", gotXFF)
+	}
+	if gotProto != "http" || gotHost != "echo.demo.localhost" {
+		t.Fatalf("proto=%q host=%q", gotProto, gotHost)
+	}
+	if !strings.Contains(gotForwarded, "for=203.0.113.9") || !strings.Contains(gotForwarded, "proto=http") {
+		t.Fatalf("Forwarded=%q", gotForwarded)
+	}
+}
+
+func TestProxyOverallTimeoutReturns504(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(500 * time.Millisecond)
+		_, _ = io.WriteString(w, "slow")
+	}))
+	t.Cleanup(upstream.Close)
+
+	table := routes.NewTable()
+	if err := table.Replace([]routes.Route{{
+		Host:      "slow.demo.localhost",
+		Upstreams: []routes.Upstream{{URL: upstream.URL}},
+		Strategy:  routes.StrategyRoundRobin,
+	}}); err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+
+	h := middleware.RequestID("")(proxy.NewHandler(table, slog.Default(), nil, proxy.Config{
+		OverallTimeout: 100 * time.Millisecond,
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = "slow.demo.localhost"
+	rr := httptest.NewRecorder()
+	start := time.Now()
+	h.ServeHTTP(rr, req)
+	elapsed := time.Since(start)
+
+	if rr.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status=%d body=%s, want 504", rr.Code, rr.Body.String())
+	}
+	if elapsed > 400*time.Millisecond {
+		t.Fatalf("elapsed=%v, expected timeout near 100ms", elapsed)
+	}
+	var env httperr.Envelope
+	if err := json.Unmarshal(rr.Body.Bytes(), &env); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if env.Error.Code != "gateway_timeout" {
+		t.Fatalf("code=%q", env.Error.Code)
+	}
+	if env.Error.RequestID == "" {
+		t.Fatal("requestId required in 504 envelope")
+	}
+	if rr.Header().Get("X-Request-Id") == "" {
+		t.Fatal("X-Request-Id required on 504 response")
+	}
+	if env.Error.RequestID != rr.Header().Get("X-Request-Id") {
+		t.Fatalf("envelope requestId=%q header=%q", env.Error.RequestID, rr.Header().Get("X-Request-Id"))
+	}
+}
+
+func TestProxyTimeoutExemptSkipsOverallDeadline(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(150 * time.Millisecond)
+		_, _ = io.WriteString(w, "stream")
+	}))
+	t.Cleanup(upstream.Close)
+
+	table := routes.NewTable()
+	if err := table.Replace([]routes.Route{{
+		Host:          "stream.demo.localhost",
+		Upstreams:     []routes.Upstream{{URL: upstream.URL}},
+		Strategy:      routes.StrategyRoundRobin,
+		TimeoutExempt: true,
+	}}); err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+
+	h := proxy.NewHandler(table, slog.Default(), nil, proxy.Config{
+		OverallTimeout: 50 * time.Millisecond,
+	})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = "stream.demo.localhost"
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK || rr.Body.String() != "stream" {
+		t.Fatalf("status=%d body=%q, want 200 stream (timeout exempt)", rr.Code, rr.Body.String())
 	}
 }

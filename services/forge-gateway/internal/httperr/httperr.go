@@ -26,7 +26,13 @@ func Write(w http.ResponseWriter, status int, code, message string) {
 }
 
 // WriteDetails sends a JSON error envelope with optional details.
+// Reuses X-Request-Id already set on the response (e.g. by middleware) when present.
 func WriteDetails(w http.ResponseWriter, status int, code, message string, details map[string]string) {
+	requestID := w.Header().Get("X-Request-Id")
+	if requestID == "" {
+		requestID = newRequestID()
+		w.Header().Set("X-Request-Id", requestID)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(Envelope{
@@ -34,7 +40,7 @@ func WriteDetails(w http.ResponseWriter, status int, code, message string, detai
 			Code:      code,
 			Message:   message,
 			Details:   details,
-			RequestID: newRequestID(),
+			RequestID: requestID,
 		},
 	})
 }
@@ -42,7 +48,7 @@ func WriteDetails(w http.ResponseWriter, status int, code, message string, detai
 func newRequestID() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return "00000000000000000000000000000000"
+		return "req_00000000000000000000000000000000"
 	}
-	return hex.EncodeToString(b[:])
+	return "req_" + hex.EncodeToString(b[:])
 }

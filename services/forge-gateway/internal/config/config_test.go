@@ -25,6 +25,11 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FORGE_UPSTREAM_FAILURE_THRESHOLD", "")
 	t.Setenv("FORGE_UPSTREAM_SUCCESS_THRESHOLD", "")
 	t.Setenv("FORGE_UPSTREAM_TRUST_RUNTIME_STATUS", "")
+	t.Setenv("FORGE_REQUEST_ID_HEADER", "")
+	t.Setenv("FORGE_PROXY_CONNECT_TIMEOUT_SECONDS", "")
+	t.Setenv("FORGE_PROXY_RESPONSE_HEADER_TIMEOUT_SECONDS", "")
+	t.Setenv("FORGE_PROXY_OVERALL_TIMEOUT_SECONDS", "")
+	t.Setenv("FORGE_TRUST_INBOUND_XFF", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -81,6 +86,15 @@ func TestLoadDefaults(t *testing.T) {
 	if !cfg.UpstreamTrustRuntime {
 		t.Fatal("UpstreamTrustRuntime should default true")
 	}
+	if cfg.RequestIDHeader != "X-Request-Id" {
+		t.Fatalf("RequestIDHeader = %q", cfg.RequestIDHeader)
+	}
+	if cfg.ProxyConnectTimeout != 5*time.Second || cfg.ProxyResponseHeaderTimeout != 15*time.Second || cfg.ProxyOverallTimeout != 30*time.Second {
+		t.Fatalf("proxy timeouts: connect=%v resp=%v overall=%v", cfg.ProxyConnectTimeout, cfg.ProxyResponseHeaderTimeout, cfg.ProxyOverallTimeout)
+	}
+	if cfg.TrustInboundXFF {
+		t.Fatal("TrustInboundXFF should default false")
+	}
 }
 
 func TestLoadInvalidPort(t *testing.T) {
@@ -115,6 +129,11 @@ func TestLoadCustomValues(t *testing.T) {
 	t.Setenv("FORGE_UPSTREAM_FAILURE_THRESHOLD", "5")
 	t.Setenv("FORGE_UPSTREAM_SUCCESS_THRESHOLD", "4")
 	t.Setenv("FORGE_UPSTREAM_TRUST_RUNTIME_STATUS", "false")
+	t.Setenv("FORGE_REQUEST_ID_HEADER", "X-Correlation-Id")
+	t.Setenv("FORGE_PROXY_CONNECT_TIMEOUT_SECONDS", "2")
+	t.Setenv("FORGE_PROXY_RESPONSE_HEADER_TIMEOUT_SECONDS", "8")
+	t.Setenv("FORGE_PROXY_OVERALL_TIMEOUT_SECONDS", "12")
+	t.Setenv("FORGE_TRUST_INBOUND_XFF", "true")
 
 	cfg, err := Load()
 	if err != nil {
@@ -149,6 +168,15 @@ func TestLoadCustomValues(t *testing.T) {
 	}
 	if cfg.UpstreamTrustRuntime {
 		t.Fatal("UpstreamTrustRuntime should be false")
+	}
+	if cfg.RequestIDHeader != "X-Correlation-Id" {
+		t.Fatalf("RequestIDHeader = %q", cfg.RequestIDHeader)
+	}
+	if cfg.ProxyConnectTimeout != 2*time.Second || cfg.ProxyResponseHeaderTimeout != 8*time.Second || cfg.ProxyOverallTimeout != 12*time.Second {
+		t.Fatalf("proxy timeouts: %+v", cfg)
+	}
+	if !cfg.TrustInboundXFF {
+		t.Fatal("TrustInboundXFF should be true")
 	}
 }
 

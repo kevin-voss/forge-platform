@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 34`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 35`**.
 
 ## Epics
 
@@ -13,7 +13,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [02](epics/02-forge-control.md) | Forge Control | Complete | 8/8 steps complete; demo 02 acceptance gate passed |
 | [03](epics/03-forge-cli.md) | Forge CLI | Complete | 6/6 steps complete; demo 03 CLI control-plane acceptance gate passed |
 | [04](epics/04-forge-runtime.md) | Forge Runtime | Complete | 8/8 steps complete; demo 04 runtime acceptance gate passed |
-| [05](epics/05-forge-gateway.md) | Forge Gateway | In progress | 4/7 steps; health-aware upstream selection |
+| [05](epics/05-forge-gateway.md) | Forge Gateway | In progress | 5/7 steps; request IDs, forwarded headers, timeouts |
 | [06](epics/06-forge-build.md) | Forge Build | Planning | 7 steps |
 | [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | Planning | 6 steps |
 | [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | Planning | 6 steps |
@@ -67,7 +67,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **31** | [Route table + reverse proxy core](steps/05-forge-gateway/05.02-route-table-and-proxy-core.md) | Complete |  | In-memory routes, RR proxy, `GET/PUT /admin/routes` |
 | **32** | [Sync routes from Control](steps/05-forge-gateway/05.03-sync-routes-from-control.md) | Complete |  | Control `/v1/endpoints` + Runtime interim sync, `POST /admin/routes/refresh` |
 | **33** | [Health-aware upstreams](steps/05-forge-gateway/05.04-health-aware-upstreams.md) | Complete |  | Ready filter, active/passive probes, `503 no_healthy_upstream` |
-| **34** | [Request IDs, forwarded headers, timeouts](steps/05-forge-gateway/05.05-request-ids-headers-timeouts.md) | Not started |  |  |
+| **34** | [Request IDs, forwarded headers, timeouts](steps/05-forge-gateway/05.05-request-ids-headers-timeouts.md) | Complete |  | Request IDs, X-Forwarded-*/Forwarded, connect/response/overall timeouts → 504 |
 | **35** | [WebSocket + SSE proxy](steps/05-forge-gateway/05.06-websocket-and-sse-proxy.md) | Not started |  |  |
 | **36** | [Demo `05-routed-service` + gate](steps/05-forge-gateway/05.07-demo-routed-service-and-gate.md) | Not started |  |  |
 | **37** | [Skeleton + Docker + workspace](steps/06-forge-build/06.01-skeleton-docker-workspace.md) | Not started |  |  |

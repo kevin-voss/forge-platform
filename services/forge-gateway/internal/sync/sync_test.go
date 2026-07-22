@@ -115,7 +115,7 @@ func TestSyncOnceLastGoodRetention(t *testing.T) {
 	src := &staticSource{n: "test", err: errors.New("source down")}
 	syncer := New(Config{
 		Table:  table,
-		Proxy:  proxy.NewHandler(table, slog.Default(), nil),
+		Proxy:  proxy.NewHandler(table, slog.Default(), nil, proxy.Config{}),
 		Source: src,
 		Log:    slog.Default(),
 	})
@@ -390,7 +390,7 @@ func TestProxyReachableAfterSync(t *testing.T) {
 			Upstreams: []UpstreamRef{{URL: upstream.URL}},
 		}},
 	}
-	ph := proxy.NewHandler(table, slog.Default(), nil)
+	ph := proxy.NewHandler(table, slog.Default(), nil, proxy.Config{})
 	syncer := New(Config{Table: table, Proxy: ph, Source: src, Log: slog.Default()})
 	if r := syncer.SyncOnce(context.Background()); !r.OK {
 		t.Fatalf("sync: %s", r.Error)

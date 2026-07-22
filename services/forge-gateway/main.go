@@ -16,6 +16,7 @@ import (
 	"forge.local/services/forge-gateway/internal/admin"
 	"forge.local/services/forge-gateway/internal/config"
 	"forge.local/services/forge-gateway/internal/health"
+	"forge.local/services/forge-gateway/internal/middleware"
 	"forge.local/services/forge-gateway/internal/proxy"
 	"forge.local/services/forge-gateway/internal/routes"
 	gwync "forge.local/services/forge-gateway/internal/sync"
@@ -52,6 +53,11 @@ func run() error {
 		"upstream_failure_threshold", cfg.UpstreamFailureThreshold,
 		"upstream_success_threshold", cfg.UpstreamSuccessThreshold,
 		"upstream_trust_runtime_status", cfg.UpstreamTrustRuntime,
+		"request_id_header", cfg.RequestIDHeader,
+		"proxy_connect_timeout_seconds", int(cfg.ProxyConnectTimeout.Seconds()),
+		"proxy_response_header_timeout_seconds", int(cfg.ProxyResponseHeaderTimeout.Seconds()),
+		"proxy_overall_timeout_seconds", int(cfg.ProxyOverallTimeout.Seconds()),
+		"trust_inbound_xff", cfg.TrustInboundXFF,
 	)
 
 	table := routes.NewTable()
@@ -80,7 +86,13 @@ func run() error {
 		tracker.Reconcile(urls)
 	}
 
-	proxyHandler := proxy.NewHandler(table, log, tracker)
+	proxyHandler := proxy.NewHandler(table, log, tracker, proxy.Config{
+		RequestIDHeader:       cfg.RequestIDHeader,
+		ConnectTimeout:        cfg.ProxyConnectTimeout,
+		ResponseHeaderTimeout: cfg.ProxyResponseHeaderTimeout,
+		OverallTimeout:        cfg.ProxyOverallTimeout,
+		TrustInboundXFF:       cfg.TrustInboundXFF,
+	})
 
 	var syncer *gwync.Syncer
 	if cfg.SyncEnabled {
@@ -117,9 +129,12 @@ func run() error {
 	syncer.Register(mux)
 	mux.Handle("/", proxyHandler)
 
+	var handler http.Handler = mux
+	handler = middleware.RequestID(cfg.RequestIDHeader)(handler)
+
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

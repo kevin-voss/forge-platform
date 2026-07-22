@@ -19,6 +19,8 @@ type Route struct {
 	PathPrefix string     `json:"pathPrefix,omitempty"`
 	Upstreams  []Upstream `json:"upstreams"`
 	Strategy   string     `json:"strategy"`
+	// TimeoutExempt skips the overall proxy deadline (for long-lived streams; 05.06).
+	TimeoutExempt bool `json:"timeoutExempt,omitempty"`
 }
 
 // Validate checks a route snapshot for use in the route table.
@@ -58,10 +60,11 @@ func (r Route) Validate() error {
 // Normalized returns a copy with trimmed fields and default strategy.
 func (r Route) Normalized() Route {
 	out := Route{
-		Host:       strings.ToLower(strings.TrimSpace(r.Host)),
-		PathPrefix: strings.TrimSpace(r.PathPrefix),
-		Strategy:   strings.TrimSpace(r.Strategy),
-		Upstreams:  make([]Upstream, len(r.Upstreams)),
+		Host:          strings.ToLower(strings.TrimSpace(r.Host)),
+		PathPrefix:    strings.TrimSpace(r.PathPrefix),
+		Strategy:      strings.TrimSpace(r.Strategy),
+		TimeoutExempt: r.TimeoutExempt,
+		Upstreams:     make([]Upstream, len(r.Upstreams)),
 	}
 	if out.Strategy == "" {
 		out.Strategy = StrategyRoundRobin

@@ -27,6 +27,11 @@ dev:
 	FORGE_UPSTREAM_FAILURE_THRESHOLD=$${FORGE_UPSTREAM_FAILURE_THRESHOLD:-3} \
 	FORGE_UPSTREAM_SUCCESS_THRESHOLD=$${FORGE_UPSTREAM_SUCCESS_THRESHOLD:-2} \
 	FORGE_UPSTREAM_TRUST_RUNTIME_STATUS=$${FORGE_UPSTREAM_TRUST_RUNTIME_STATUS:-true} \
+	FORGE_REQUEST_ID_HEADER=$${FORGE_REQUEST_ID_HEADER:-X-Request-Id} \
+	FORGE_PROXY_CONNECT_TIMEOUT_SECONDS=$${FORGE_PROXY_CONNECT_TIMEOUT_SECONDS:-5} \
+	FORGE_PROXY_RESPONSE_HEADER_TIMEOUT_SECONDS=$${FORGE_PROXY_RESPONSE_HEADER_TIMEOUT_SECONDS:-15} \
+	FORGE_PROXY_OVERALL_TIMEOUT_SECONDS=$${FORGE_PROXY_OVERALL_TIMEOUT_SECONDS:-30} \
+	FORGE_TRUST_INBOUND_XFF=$${FORGE_TRUST_INBOUND_XFF:-false} \
 	go run .
 
 build:
@@ -73,6 +78,12 @@ test-integration: run
 		code="$$(curl -s -o /tmp/forge-gateway-nohealthy.json -w '%{http_code}' -H 'Host: go.demo.localhost' "http://127.0.0.1:$(HOST_PORT)/")"; \
 		test "$$code" = "503"; \
 		grep -q '"code":"no_healthy_upstream"' /tmp/forge-gateway-nohealthy.json
+	@# Request id echoed on responses (generated when absent).
+	@curl -si -H 'Host: nope.localhost' "http://127.0.0.1:$(HOST_PORT)/" \
+		| tee /tmp/forge-gateway-reqid.headers | grep -qi '^x-request-id:'
+	@# Client-provided request id preserved on 404 envelope path.
+	@curl -si -H 'Host: nope.localhost' -H 'X-Request-Id: test-123' "http://127.0.0.1:$(HOST_PORT)/" \
+		| tee /tmp/forge-gateway-reqid-reuse.headers | grep -qi '^x-request-id: test-123'
 	@# Force sync refresh (Control /v1/endpoints missing → Runtime interim fallback).
 	@curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/admin/routes/refresh" \
 		| tee /tmp/forge-gateway-refresh.json | grep -q '"routesLoaded"'
@@ -89,7 +100,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (health + admin routes + refresh sync + no_route/502/503 + probe loop + structured logs + invalid PORT + graceful SIGTERM)."
+	@echo "Integration checks passed (health + admin routes + refresh sync + no_route/502/503 + request-id + probe loop + structured logs + invalid PORT + graceful SIGTERM)."
 
 lint:
 	@go vet ./...
@@ -107,4 +118,5 @@ clean:
 	rm -rf bin
 	@rm -f /tmp/forge-gateway-bad-port.out /tmp/forge-gateway-gofmt.out \
 		/tmp/forge-gateway-nomatch.json /tmp/forge-gateway-badup.json \
-		/tmp/forge-gateway-nohealthy.json /tmp/forge-gateway-refresh.json
+		/tmp/forge-gateway-nohealthy.json /tmp/forge-gateway-refresh.json \
+		/tmp/forge-gateway-reqid.headers /tmp/forge-gateway-reqid-reuse.headers

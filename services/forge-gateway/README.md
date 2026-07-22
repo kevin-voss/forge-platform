@@ -2,10 +2,10 @@
 
 HTTP edge gateway for Forge Platform (Go + `net/http` + `httputil.ReverseProxy`).
 
-This step (`05.04`) makes upstream selection health-aware: the balancer only sends
-traffic to ready backends, combining Runtime/Control readiness from route sync with
-active `/health/ready` probes and passive failure marking (connection errors / 5xx).
-Request IDs/timeouts and WebSocket/SSE arrive later.
+This step (`05.05`) adds request-id propagation, forwarded headers, and proxy
+timeouts so proxied traffic is correlatable and hung upstreams cannot stall the
+gateway. WebSocket/SSE support arrives in `05.06` (streaming routes can set
+`timeoutExempt` to skip the overall deadline).
 
 ## Quick start
 
@@ -53,6 +53,11 @@ make dev
 | `FORGE_UPSTREAM_FAILURE_THRESHOLD` | `3` | Consecutive probe/passive failures → unready. |
 | `FORGE_UPSTREAM_SUCCESS_THRESHOLD` | `2` | Consecutive successes → ready again. |
 | `FORGE_UPSTREAM_TRUST_RUNTIME_STATUS` | `true` | When true, sync `ready` is authoritative. |
+| `FORGE_REQUEST_ID_HEADER` | `X-Request-Id` | Header reused/generated and echoed (aligned with Control). |
+| `FORGE_PROXY_CONNECT_TIMEOUT_SECONDS` | `5` | Dial timeout to upstream. |
+| `FORGE_PROXY_RESPONSE_HEADER_TIMEOUT_SECONDS` | `15` | Time to first response header. |
+| `FORGE_PROXY_OVERALL_TIMEOUT_SECONDS` | `30` | Per-request deadline; `0` disables. Streaming routes may set `timeoutExempt`. |
+| `FORGE_TRUST_INBOUND_XFF` | `false` | When false, discard client `X-Forwarded-For` and set observed peer only. |
 
 Sync is enabled when `FORGE_CONTROL_URL` is set (`runtime` source also requires `FORGE_RUNTIME_URL`).
 
@@ -74,8 +79,17 @@ route table:
 4. No match → `404` with `{"error":{"code":"no_route",...}}`.
 5. Upstream connection errors → `502` with `{"error":{"code":"bad_gateway",...}}` (also count as passive failures).
 6. No ready upstreams → `503` with `{"error":{"code":"no_healthy_upstream",...}}`.
+7. Overall / response-header / connect timeout → `504` with `{"error":{"code":"gateway_timeout",...}}`.
 
 Only configured upstream URLs are targeted (no open-proxy / client-chosen targets).
+
+### Request IDs, forwarded headers, timeouts (05.05)
+
+* Every request gets `X-Request-Id` (reuse valid inbound value, else generate `req_…`).
+* The id is echoed to the client, forwarded upstream, included in access logs, and present in error envelopes.
+* Proxied requests receive `X-Forwarded-For` (append peer; inbound trust configurable), `X-Forwarded-Proto`, `X-Forwarded-Host`, and RFC 7239 `Forwarded`.
+* Hop-by-hop headers are stripped before forwarding (RFC 7230).
+* Routes may set `"timeoutExempt": true` to skip the overall deadline (for long-lived streams in 05.06). Connect/response-header timeouts still apply unless set to `0`.
 
 ### Health-aware upstreams (05.04)
 
@@ -129,7 +143,8 @@ Route object:
   "host": "go.demo.localhost",
   "pathPrefix": "/",
   "upstreams": [{"url": "http://127.0.0.1:49173"}],
-  "strategy": "round_robin"
+  "strategy": "round_robin",
+  "timeoutExempt": false
 }
 ```
 
@@ -139,7 +154,7 @@ Example:
 # after a Runtime-deployed workload (or force refresh)
 curl -sf -X POST http://127.0.0.1:4000/admin/routes/refresh
 curl -sf http://127.0.0.1:4000/admin/routes | python3 -m json.tool
-curl -sf -H 'Host: api.acme.demo.localhost' http://127.0.0.1:4000/
+curl -sf -H 'Host: api.acme.demo.localhost' -H 'X-Request-Id: test-123' http://127.0.0.1:4000/
 
 # manual override still works
 curl -sf -X PUT http://127.0.0.1:4000/admin/routes -H 'content-type: application/json' \
@@ -153,20 +168,23 @@ curl -sf -X PUT http://127.0.0.1:4000/admin/routes -H 'content-type: application
 * Upstream URLs are validated (`http`/`https` + host required) before entering the table.
 * Only endpoints from trusted Control/Runtime sources become routes (no client-driven injection on the data plane).
 * Active probes hit only configured upstreams; probe results log status transitions, not bodies.
+* Inbound `X-Forwarded-For` is not trusted by default (`FORGE_TRUST_INBOUND_XFF=false`).
+* Request ids are correlation only — never an authorization signal.
 
 ## Observability
 
 Structured JSON logs (`timestamp`, `level`, `service`, `message`). Proxied
-requests log matched route, chosen upstream, status, and duration. Sync cycles
-log source, routes built, and added/removed host diffs. Upstream ready↔unready
-transitions log the reason (`sync` / `probe` / `passive`). Sync failures retain the
+requests log `requestId`, matched route, chosen upstream, status, and duration.
+Timeouts log distinctly with upstream and elapsed time. Sync cycles log source,
+routes built, and added/removed host diffs. Upstream ready↔unready transitions
+log the reason (`sync` / `probe` / `passive`). Sync failures retain the
 last-good table.
 
 ## Development
 
 ```bash
-make test-unit          # config, matcher, table, proxy, sync, health, admin contract tests
-make test-integration   # Compose build/run, health, refresh sync, 502/503, probe loop, SIGTERM exit 0
+make test-unit          # config, matcher, table, proxy, sync, health, middleware, admin contract tests
+make test-integration   # Compose build/run, health, refresh sync, 502/503, request-id, probe loop, SIGTERM exit 0
 make lint
 make format
 ```
