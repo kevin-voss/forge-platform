@@ -16,6 +16,10 @@ data class ReconcileStatusResponse(
     val plan: List<PlanActionView>,
     val lastRunAt: String? = null,
     val controllerHealthy: Boolean,
+    val phase: String = "idle",
+    val updatedReplicas: String? = null,
+    val currentImage: String? = null,
+    val targetImage: String? = null,
 )
 
 @Serializable
@@ -40,6 +44,7 @@ data class ActualView(
 data class ReplicaView(
     val replicaId: String,
     val status: String,
+    val image: String? = null,
 )
 
 @Serializable
@@ -61,7 +66,9 @@ fun RolloutPolicy.toView(): RolloutView =
 
 fun ActualState.toView(): ActualView =
     ActualView(
-        replicas = replicas.map { ReplicaView(replicaId = it.replicaId, status = it.status) },
+        replicas = replicas.map {
+            ReplicaView(replicaId = it.replicaId, status = it.status, image = it.image)
+        },
     )
 
 fun ReconcilePlan.toView(): List<PlanActionView> =
@@ -70,12 +77,19 @@ fun ReconcilePlan.toView(): List<PlanActionView> =
 fun ReconcileActionItem.toView(): PlanActionView =
     PlanActionView(action = action, reason = reason, replicaId = replicaId)
 
-fun ReconcileSnapshot.toResponse(): ReconcileStatusResponse =
-    ReconcileStatusResponse(
+fun ReconcileSnapshot.toResponse(): ReconcileStatusResponse {
+    val updated = plan.updatedReplicas
+    val total = plan.totalReplicas.takeIf { it > 0 } ?: desired.replicas
+    return ReconcileStatusResponse(
         deploymentId = deploymentId.toString(),
         desired = desired.toView(),
         actual = actual.toView(),
         plan = plan.toView(),
         lastRunAt = lastRunAt.toString(),
         controllerHealthy = controllerHealthy,
+        phase = plan.phase,
+        updatedReplicas = "$updated/$total",
+        currentImage = plan.currentImage,
+        targetImage = plan.targetImage,
     )
+}

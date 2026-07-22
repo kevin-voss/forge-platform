@@ -87,6 +87,7 @@ class HttpRuntimeClient(
                     replicaIndex = index,
                     restartCount = restart,
                     workloadName = "forge-${workload.deploymentId}",
+                    image = workload.image?.takeIf { it.isNotBlank() },
                 )
             }
             .sortedBy { it.replicaIndex ?: Int.MAX_VALUE }
@@ -131,11 +132,14 @@ class HttpRuntimeClient(
         val existing = findWorkload(runtimeId)
         if (existing != null) {
             val status = runCatching { ReplicaStatus.parse(existing.status) }.getOrNull()
-            if (status == ReplicaStatus.Running || status == ReplicaStatus.Ready || status == ReplicaStatus.Pending) {
-                // Idempotent: healthy workload already present — skip create.
+            val imageMatches = existing.image.isNullOrBlank() || existing.image == request.image
+            if (imageMatches &&
+                (status == ReplicaStatus.Running || status == ReplicaStatus.Ready || status == ReplicaStatus.Pending)
+            ) {
+                // Idempotent: healthy workload already present with desired image — skip create.
                 return EnsureOutcome.Adopted
             }
-            // Crashed/stopped: recreate by delete + create (Runtime ensure would also restart).
+            // Crashed/stopped or image mismatch: recreate by delete + create.
             stopWorkload(runtimeId)
             restartCounts.merge(runtimeId, 1, Int::plus)
             createWorkload(runtimeId, request)

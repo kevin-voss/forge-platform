@@ -64,12 +64,20 @@ class AppConfigTest {
                 "FORGE_RECONCILE_INTERVAL_MS" to "500",
                 "FORGE_RECONCILE_MAX_ACTIONS_PER_TICK" to "3",
                 "FORGE_RUNTIME_URL" to "http://127.0.0.1:4102",
+                "FORGE_GATEWAY_URL" to "http://127.0.0.1:4000",
+                "FORGE_ROLLOUT_BATCH_SIZE" to "2",
+                "FORGE_READINESS_POLL_MS" to "250",
+                "FORGE_READINESS_MAX_WAIT_S" to "30",
             ),
         )
         assertEquals(false, cfg.reconcileEnabled)
         assertEquals(500L, cfg.reconcileIntervalMs)
         assertEquals(3, cfg.reconcileMaxActionsPerTick)
         assertEquals("http://127.0.0.1:4102", cfg.runtimeUrl)
+        assertEquals("http://127.0.0.1:4000", cfg.gatewayUrl)
+        assertEquals(2, cfg.rolloutBatchSizeOverride)
+        assertEquals(250L, cfg.readinessPollMs)
+        assertEquals(30L, cfg.readinessMaxWaitSeconds)
     }
 
     @Test

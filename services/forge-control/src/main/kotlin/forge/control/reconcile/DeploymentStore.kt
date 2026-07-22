@@ -15,22 +15,31 @@ interface DeploymentStore {
 class RepositoryDeploymentStore(
     private val deployments: DeploymentRepository,
     private val services: ServiceRepository? = null,
+    private val rolloutBatchSizeOverride: Int? = null,
 ) : DeploymentStore {
     override fun listDesired(): List<DesiredState> =
-        deployments.listAll().map { it.toDesiredState(services?.findById(it.serviceId)) }
+        deployments.listAll().map {
+            it.toDesiredState(services?.findById(it.serviceId), rolloutBatchSizeOverride)
+        }
 
     override fun findDesired(deploymentId: UUID): DesiredState? {
         val deployment = deployments.findById(deploymentId) ?: return null
-        return deployment.toDesiredState(services?.findById(deployment.serviceId))
+        return deployment.toDesiredState(
+            services?.findById(deployment.serviceId),
+            rolloutBatchSizeOverride,
+        )
     }
 }
 
-fun Deployment.toDesiredState(service: Service? = null): DesiredState =
+fun Deployment.toDesiredState(
+    service: Service? = null,
+    batchSizeOverride: Int? = null,
+): DesiredState =
     DesiredState.of(
         deploymentId = id,
         image = image,
         replicas = desiredReplicas,
-        batchSize = rolloutBatchSize,
+        batchSize = batchSizeOverride ?: rolloutBatchSize,
         timeoutSeconds = rolloutTimeoutSeconds,
         serviceId = serviceId,
         serviceSlug = service?.name ?: "svc",

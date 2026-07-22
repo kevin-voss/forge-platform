@@ -1,12 +1,14 @@
 package forge.control.reconcile
 
 /**
- * Pure desired-vs-actual diff for epic 07.
+ * Pure desired-vs-actual diff for epic 07 (single-version).
  *
  * Counts only replicas that satisfy desired capacity (`pending`/`running`/`ready`).
  * `failed` and `stopped` do not satisfy desired; crashed slots are preferred
  * recreate targets (StartReplica with that index) before allocating new indices.
  * Scale-down stops the highest-index satisfying replica first.
+ *
+ * Version changes use [computeRollingPlan] / [computeReconcilePlan] instead.
  */
 fun computePlan(desired: DesiredState, actual: ActualState): ReconcilePlan {
     val satisfying = actual.replicas.filter { it.statusEnum() in SATISFYING }
@@ -58,7 +60,15 @@ fun computePlan(desired: DesiredState, actual: ActualState): ReconcilePlan {
         }
     }
 
-    return ReconcilePlan(actions)
+    val phase = if (actions.isEmpty()) RolloutPhase.Idle else RolloutPhase.Converging
+    return ReconcilePlan(
+        actions = actions,
+        phase = phase.wire(),
+        updatedReplicas = satisfyingCount.coerceAtMost(desired.replicas),
+        totalReplicas = desired.replicas,
+        currentImage = desired.image,
+        targetImage = desired.image,
+    )
 }
 
 private val SATISFYING = setOf(

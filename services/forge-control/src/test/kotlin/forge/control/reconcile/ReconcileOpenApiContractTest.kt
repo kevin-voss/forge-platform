@@ -32,22 +32,42 @@ class ReconcileOpenApiContractTest {
             {
               "deploymentId": "11111111-1111-1111-1111-111111111111",
               "desired": {
-                "image": "registry.local/demo:v1",
+                "image": "registry.local/demo:v2",
                 "replicas": 2,
                 "rollout": { "batchSize": 1, "timeoutSeconds": 120 }
               },
               "actual": {
-                "replicas": [ { "replicaId": "r1", "status": "running" } ]
+                "replicas": [
+                  { "replicaId": "0", "status": "ready", "image": "registry.local/demo:v1" },
+                  { "replicaId": "2", "status": "ready", "image": "registry.local/demo:v2" }
+                ]
               },
-              "plan": [ { "action": "StartReplica", "reason": "desired=2 actual=1" } ],
+              "plan": [ { "action": "ShiftTraffic", "reason": "rolling shift", "replicaId": "2" } ],
               "lastRunAt": "2026-07-22T14:00:00Z",
-              "controllerHealthy": true
+              "controllerHealthy": true,
+              "phase": "rolling",
+              "updatedReplicas": "1/2",
+              "currentImage": "registry.local/demo:v1",
+              "targetImage": "registry.local/demo:v2"
             }
         """.trimIndent()
         val decoded = Json { ignoreUnknownKeys = true }
             .decodeFromString(ReconcileStatusResponse.serializer(), example)
         assertTrue(decoded.controllerHealthy)
-        assertTrue(decoded.plan.any { it.action == "StartReplica" })
+        assertTrue(decoded.plan.any { it.action == "ShiftTraffic" })
         assertTrue(decoded.desired.replicas == 2)
+        assertTrue(decoded.phase == "rolling")
+        assertTrue(decoded.updatedReplicas == "1/2")
+    }
+
+    @Test
+    fun openApiDeclaresRollingActionsAndPhase() {
+        val yaml = Files.readString(openApiPath)
+        assertTrue(yaml.contains("WaitReady"))
+        assertTrue(yaml.contains("ShiftTraffic"))
+        assertTrue(yaml.contains("DrainReplica"))
+        assertTrue(yaml.contains("updatedReplicas"))
+        assertTrue(yaml.contains("currentImage"))
+        assertTrue(yaml.contains("targetImage"))
     }
 }

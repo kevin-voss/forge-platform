@@ -18,10 +18,13 @@ import forge.control.http.serviceRoutes
 import forge.control.http.toEnvelope
 import forge.control.http.installRequestId
 import forge.control.logging.JsonLog
+import forge.control.reconcile.HttpGatewayClient
 import forge.control.reconcile.HttpRuntimeClient
 import forge.control.reconcile.JdbcReconcileStatusStore
+import forge.control.reconcile.ReadinessGate
 import forge.control.reconcile.ReconciliationController
 import forge.control.reconcile.RepositoryDeploymentStore
+import forge.control.reconcile.TrafficShifter
 import forge.control.repo.JdbcApplicationRepository
 import forge.control.repo.JdbcAuditRepository
 import forge.control.repo.JdbcDeploymentRepository
@@ -107,8 +110,18 @@ fun main() {
     val deploymentRepo = JdbcDeploymentRepository(db.dataSource)
     val auditRepo = JdbcAuditRepository(db.dataSource)
     val relationships = RelationshipValidator(projectRepo, applicationRepo)
-    val deploymentStore = RepositoryDeploymentStore(deploymentRepo, serviceRepo)
+    val deploymentStore = RepositoryDeploymentStore(
+        deploymentRepo,
+        serviceRepo,
+        rolloutBatchSizeOverride = cfg.rolloutBatchSizeOverride,
+    )
     val runtimeClient = HttpRuntimeClient(cfg.runtimeUrl)
+    val readinessGate = ReadinessGate(
+        runtimeClient = runtimeClient,
+        pollMs = cfg.readinessPollMs,
+        maxWaitSeconds = cfg.readinessMaxWaitSeconds,
+    )
+    val trafficShifter = TrafficShifter(HttpGatewayClient(cfg.gatewayUrl))
     val reconcileStatusStore = JdbcReconcileStatusStore(db.dataSource)
     val reconcileController = ReconciliationController(
         deploymentStore = deploymentStore,
@@ -119,6 +132,9 @@ fun main() {
         enabled = cfg.reconcileEnabled,
         maxActionsPerTick = cfg.reconcileMaxActionsPerTick,
         telemetry = telemetry,
+        readinessGate = readinessGate,
+        trafficShifter = trafficShifter,
+        readinessMaxWaitSeconds = cfg.readinessMaxWaitSeconds,
     )
     val services = ControlServices(
         projects = ProjectService(projectRepo, auditRepo, actor = actor),

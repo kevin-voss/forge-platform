@@ -33,6 +33,7 @@ data class ReplicaObservation(
     val replicaIndex: Int? = null,
     val restartCount: Int = 0,
     val workloadName: String? = null,
+    val image: String? = null,
 ) {
     init {
         require(replicaId.isNotBlank()) { "replicaId must not be blank" }

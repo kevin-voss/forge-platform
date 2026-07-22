@@ -24,6 +24,10 @@ data class AppConfig(
     val reconcileIntervalMs: Long = 2_000,
     val reconcileMaxActionsPerTick: Int = 5,
     val runtimeUrl: String = "http://forge-runtime:4102",
+    val gatewayUrl: String = "http://forge-gateway:4000",
+    val rolloutBatchSizeOverride: Int? = null,
+    val readinessPollMs: Long = 1_000,
+    val readinessMaxWaitSeconds: Long = 60,
 )
 
 fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
@@ -128,6 +132,52 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         )
     }
 
+    val gatewayUrl = env["FORGE_GATEWAY_URL"]?.trim().orEmpty()
+        .ifEmpty { "http://forge-gateway:4000" }
+    if (!gatewayUrl.startsWith("http://") && !gatewayUrl.startsWith("https://")) {
+        throw IllegalArgumentException(
+            "FORGE_GATEWAY_URL must be an http(s) URL, got '$gatewayUrl'",
+        )
+    }
+
+    val batchOverrideRaw = env["FORGE_ROLLOUT_BATCH_SIZE"]?.trim().orEmpty()
+    val rolloutBatchSizeOverride = if (batchOverrideRaw.isEmpty()) {
+        null
+    } else {
+        val parsed = batchOverrideRaw.toIntOrNull()
+            ?: throw IllegalArgumentException(
+                "FORGE_ROLLOUT_BATCH_SIZE must be a positive integer, got '$batchOverrideRaw'",
+            )
+        if (parsed < 1) {
+            throw IllegalArgumentException(
+                "FORGE_ROLLOUT_BATCH_SIZE must be a positive integer, got '$batchOverrideRaw'",
+            )
+        }
+        parsed
+    }
+
+    val readinessPollRaw = env["FORGE_READINESS_POLL_MS"]?.trim().orEmpty().ifEmpty { "1000" }
+    val readinessPollMs = readinessPollRaw.toLongOrNull()
+        ?: throw IllegalArgumentException(
+            "FORGE_READINESS_POLL_MS must be a positive integer, got '$readinessPollRaw'",
+        )
+    if (readinessPollMs < 1) {
+        throw IllegalArgumentException(
+            "FORGE_READINESS_POLL_MS must be a positive integer, got '$readinessPollRaw'",
+        )
+    }
+
+    val readinessMaxRaw = env["FORGE_READINESS_MAX_WAIT_S"]?.trim().orEmpty().ifEmpty { "60" }
+    val readinessMaxWaitSeconds = readinessMaxRaw.toLongOrNull()
+        ?: throw IllegalArgumentException(
+            "FORGE_READINESS_MAX_WAIT_S must be a positive integer, got '$readinessMaxRaw'",
+        )
+    if (readinessMaxWaitSeconds < 1) {
+        throw IllegalArgumentException(
+            "FORGE_READINESS_MAX_WAIT_S must be a positive integer, got '$readinessMaxRaw'",
+        )
+    }
+
     return AppConfig(
         port = port,
         serviceName = env["FORGE_SERVICE_NAME"]?.trim().orEmpty().ifEmpty { "forge-control" },
@@ -152,5 +202,9 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         reconcileIntervalMs = reconcileIntervalMs,
         reconcileMaxActionsPerTick = reconcileMaxActionsPerTick,
         runtimeUrl = runtimeUrl,
+        gatewayUrl = gatewayUrl,
+        rolloutBatchSizeOverride = rolloutBatchSizeOverride,
+        readinessPollMs = readinessPollMs,
+        readinessMaxWaitSeconds = readinessMaxWaitSeconds,
     )
 }

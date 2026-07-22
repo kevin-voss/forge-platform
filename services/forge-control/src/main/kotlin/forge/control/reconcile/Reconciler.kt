@@ -3,14 +3,19 @@ package forge.control.reconcile
 import forge.control.logging.JsonLog
 import forge.control.telemetry.Telemetry
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 enum class ActionResult {
     Created,
     Adopted,
     Recreated,
     Stopped,
+    Ready,
+    Shifted,
+    Drained,
     Skipped,
     Failed,
+    Held,
 }
 
 data class ExecutedAction(
@@ -22,15 +27,22 @@ data class ExecutedAction(
 )
 
 /**
- * Applies a [ReconcilePlan] via Runtime, idempotently.
+ * Applies a [ReconcilePlan] via Runtime (+ Gateway for rolling), idempotently.
  * Bounds work per tick with [maxActionsPerTick].
+ * Rolling steps stop the chain when WaitReady is not yet satisfied or traffic
+ * shift/drain fails (fail-closed — do not stop old replicas).
  */
 class Reconciler(
     private val runtimeClient: RuntimeClient,
     private val log: JsonLog,
     private val maxActionsPerTick: Int = 5,
     private val telemetry: Telemetry = Telemetry.current(),
+    private val readinessGate: ReadinessGate = ReadinessGate(runtimeClient),
+    private val trafficShifter: TrafficShifter = TrafficShifter(NoOpGatewayClient()),
+    private val readinessMaxWaitSeconds: Long = 60,
 ) {
+    private val waitStartedAt = ConcurrentHashMap<String, Long>()
+
     fun execute(desired: DesiredState, actual: ActualState, plan: ReconcilePlan): List<ExecutedAction> {
         val deploymentId = UUID.fromString(desired.deploymentId)
         val results = mutableListOf<ExecutedAction>()
@@ -44,6 +56,12 @@ class Reconciler(
                         executeStart(desired, actual, item)
                     ReconcileAction.StopReplica.name ->
                         executeStop(desired, item)
+                    ReconcileAction.WaitReady.name ->
+                        executeWaitReady(desired, item)
+                    ReconcileAction.ShiftTraffic.name ->
+                        executeShift(item)
+                    ReconcileAction.DrainReplica.name ->
+                        executeDrain(item)
                     ReconcileAction.NoOp.name ->
                         ExecutedAction(
                             action = item.action,
@@ -72,9 +90,34 @@ class Reconciler(
             results += executed.copy(durationMs = System.currentTimeMillis() - started)
             logExecuted(deploymentId, executed)
             recordMetrics(executed)
+
+            // Fail-closed / hold: do not continue to drain/stop after a hold or shift failure.
+            if (shouldHaltPlan(executed)) break
         }
         return results
     }
+
+    /** True when a WaitReady held past max wait (rollout should surface degraded). */
+    fun isWaitTimedOut(desired: DesiredState, replicaIndex: Int): Boolean {
+        val key = waitKey(desired.deploymentId, replicaIndex)
+        val started = waitStartedAt[key] ?: return false
+        return System.currentTimeMillis() - started >= readinessMaxWaitSeconds * 1_000
+    }
+
+    fun clearWait(deploymentId: String, replicaIndex: Int) {
+        waitStartedAt.remove(waitKey(deploymentId, replicaIndex))
+    }
+
+    private fun shouldHaltPlan(executed: ExecutedAction): Boolean =
+        when (executed.result) {
+            ActionResult.Held, ActionResult.Failed ->
+                executed.action in setOf(
+                    ReconcileAction.WaitReady.name,
+                    ReconcileAction.ShiftTraffic.name,
+                    ReconcileAction.DrainReplica.name,
+                )
+            else -> false
+        }
 
     private fun executeStart(
         desired: DesiredState,
@@ -124,12 +167,132 @@ class Reconciler(
                 index,
             )
             runtimeClient.stopWorkload(runtimeId)
+            clearWait(desired.deploymentId, index)
             ExecutedAction(
                 action = ReconcileAction.StopReplica.name,
                 replicaIndex = index,
                 result = ActionResult.Stopped,
                 durationMs = 0,
             )
+        }
+    }
+
+    private fun executeWaitReady(
+        desired: DesiredState,
+        item: ReconcileActionItem,
+    ): ExecutedAction {
+        val index = item.replicaId?.toIntOrNull()
+            ?: WorkloadNamer.parseReplicaIndex(item.replicaId)
+            ?: throw IllegalArgumentException("WaitReady missing replica index")
+        val deploymentId = UUID.fromString(desired.deploymentId)
+        val runtimeId = WorkloadNamer.runtimeDeploymentId(
+            desired.serviceSlug,
+            deploymentId,
+            index,
+        )
+        return telemetry.inSpan("reconcile.wait_ready") {
+            val key = waitKey(desired.deploymentId, index)
+            waitStartedAt.putIfAbsent(key, System.currentTimeMillis())
+            val waitedMs = System.currentTimeMillis() - (waitStartedAt[key] ?: System.currentTimeMillis())
+            val check = readinessGate.checkOnce(runtimeId)
+            when (check.outcome) {
+                ReadinessOutcome.Ready -> {
+                    clearWait(desired.deploymentId, index)
+                    ExecutedAction(
+                        action = ReconcileAction.WaitReady.name,
+                        replicaIndex = index,
+                        result = ActionResult.Ready,
+                        durationMs = waitedMs,
+                        detail = "ready",
+                    )
+                }
+                ReadinessOutcome.TimedOut, ReadinessOutcome.NotReady -> {
+                    val timedOut = waitedMs >= readinessMaxWaitSeconds * 1_000
+                    ExecutedAction(
+                        action = ReconcileAction.WaitReady.name,
+                        replicaIndex = index,
+                        result = ActionResult.Held,
+                        durationMs = waitedMs,
+                        detail = if (timedOut) "readiness_timeout" else "not_ready",
+                    )
+                }
+                ReadinessOutcome.Unreachable ->
+                    ExecutedAction(
+                        action = ReconcileAction.WaitReady.name,
+                        replicaIndex = index,
+                        result = ActionResult.Held,
+                        durationMs = waitedMs,
+                        detail = "runtime_unreachable",
+                    )
+            }
+        }
+    }
+
+    private fun executeShift(item: ReconcileActionItem): ExecutedAction {
+        val index = item.replicaId?.toIntOrNull()
+            ?: WorkloadNamer.parseReplicaIndex(item.replicaId)
+        return telemetry.inSpan("reconcile.shift_traffic") {
+            val result = trafficShifter.shiftToReady(item.replicaId ?: index?.toString().orEmpty())
+            when (result.outcome) {
+                ShiftOutcome.Shifted ->
+                    ExecutedAction(
+                        action = ReconcileAction.ShiftTraffic.name,
+                        replicaIndex = index,
+                        result = ActionResult.Shifted,
+                        durationMs = 0,
+                        detail = result.detail,
+                    )
+                ShiftOutcome.GatewayUnreachable ->
+                    ExecutedAction(
+                        action = ReconcileAction.ShiftTraffic.name,
+                        replicaIndex = index,
+                        result = ActionResult.Failed,
+                        durationMs = 0,
+                        detail = "gateway_unreachable",
+                    )
+                else ->
+                    ExecutedAction(
+                        action = ReconcileAction.ShiftTraffic.name,
+                        replicaIndex = index,
+                        result = ActionResult.Failed,
+                        durationMs = 0,
+                        detail = result.detail,
+                    )
+            }
+        }
+    }
+
+    private fun executeDrain(item: ReconcileActionItem): ExecutedAction {
+        val index = item.replicaId?.toIntOrNull()
+            ?: WorkloadNamer.parseReplicaIndex(item.replicaId)
+        return telemetry.inSpan("reconcile.drain_replica") {
+            val result = trafficShifter.drain(item.replicaId ?: index?.toString().orEmpty())
+            when (result.outcome) {
+                ShiftOutcome.Drained, ShiftOutcome.Shifted ->
+                    ExecutedAction(
+                        action = ReconcileAction.DrainReplica.name,
+                        replicaIndex = index,
+                        result = ActionResult.Drained,
+                        durationMs = 0,
+                        detail = result.detail,
+                    )
+                ShiftOutcome.GatewayUnreachable ->
+                    ExecutedAction(
+                        action = ReconcileAction.DrainReplica.name,
+                        replicaIndex = index,
+                        result = ActionResult.Failed,
+                        durationMs = 0,
+                        detail = "gateway_unreachable",
+                    )
+                else ->
+                    ExecutedAction(
+                        action = ReconcileAction.DrainReplica.name,
+                        replicaIndex = index,
+                        result = ActionResult.Failed,
+                        durationMs = 0,
+                        detail = result.detail,
+                    )
+            }
         }
     }
 
@@ -141,7 +304,6 @@ class Reconciler(
         item.replicaId?.toIntOrNull()?.let { return it }
         WorkloadNamer.parseReplicaIndex(item.replicaId)?.let { return it }
 
-        // Prefer crashed slots still within the desired range.
         val crashed = CrashDetector.crashedReplicas(actual)
             .mapNotNull { it.resolvedIndex() }
             .filter { it in 0 until desired.replicas }
@@ -174,10 +336,26 @@ class Reconciler(
             ActionResult.Created, ActionResult.Adopted -> "start"
             ActionResult.Recreated -> "recreate"
             ActionResult.Stopped -> "stop"
-            ActionResult.Skipped, ActionResult.Failed -> return
+            ActionResult.Ready -> "wait_ready"
+            ActionResult.Shifted -> "shift"
+            ActionResult.Drained -> "drain"
+            ActionResult.Skipped, ActionResult.Failed, ActionResult.Held -> return
         }
         telemetry.recordReconcileAction(metricAction)
+        if (executed.action in setOf(
+                ReconcileAction.StartReplica.name,
+                ReconcileAction.WaitReady.name,
+                ReconcileAction.ShiftTraffic.name,
+                ReconcileAction.DrainReplica.name,
+                ReconcileAction.StopReplica.name,
+            ) && executed.result != ActionResult.Held
+        ) {
+            telemetry.recordRolloutStep(executed.action)
+        }
     }
+
+    private fun waitKey(deploymentId: String, replicaIndex: Int): String =
+        "$deploymentId:$replicaIndex"
 
     companion object {
         private val SATISFYING = setOf(

@@ -9,7 +9,7 @@ import forge.control.reconcile.ReconcilePlan
 import forge.control.reconcile.ReconcileStatusStore
 import forge.control.reconcile.RuntimeClient
 import forge.control.reconcile.RuntimeUnreachableException
-import forge.control.reconcile.computePlan
+import forge.control.reconcile.computeReconcilePlan
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
@@ -36,10 +36,12 @@ fun Route.reconcileStatusRoutes(
         // No controller tick yet — compute a live view without persisting.
         val (actual, plan, healthy) = try {
             val loaded = runtimeClient.loadActual(deploymentId)
-            Triple(loaded, computePlan(desired, loaded), true)
+            Triple(loaded, computeReconcilePlan(desired, loaded), true)
         } catch (_: RuntimeUnreachableException) {
             Triple(ActualState(), ReconcilePlan.EMPTY, false)
         }
+        val updated = plan.updatedReplicas
+        val total = plan.totalReplicas.takeIf { it > 0 } ?: desired.replicas
         call.respond(
             ReconcileStatusResponse(
                 deploymentId = deploymentId.toString(),
@@ -48,6 +50,10 @@ fun Route.reconcileStatusRoutes(
                 plan = plan.toView(),
                 lastRunAt = null,
                 controllerHealthy = healthy,
+                phase = plan.phase,
+                updatedReplicas = "$updated/$total",
+                currentImage = plan.currentImage,
+                targetImage = plan.targetImage,
             ),
         )
     }

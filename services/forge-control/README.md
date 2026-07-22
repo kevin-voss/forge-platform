@@ -98,8 +98,12 @@ make dev
 | `FORGE_IDEMPOTENCY_TTL_HOURS` | `24` | Retention target for idempotency records; cleanup is deferred |
 | `FORGE_RECONCILE_ENABLED` | `true` | Master switch for the reconcile controller loop |
 | `FORGE_RECONCILE_INTERVAL_MS` | `2000` | Controller tick interval |
-| `FORGE_RECONCILE_MAX_ACTIONS_PER_TICK` | `5` | Max start/stop actions applied per deployment per tick |
+| `FORGE_RECONCILE_MAX_ACTIONS_PER_TICK` | `5` | Max start/stop/rollout actions applied per deployment per tick |
 | `FORGE_RUNTIME_URL` | `http://forge-runtime:4102` | Base URL for Runtime observe/create/stop |
+| `FORGE_GATEWAY_URL` | `http://forge-gateway:4000` | Base URL for Gateway admin refresh during rolling traffic shift |
+| `FORGE_ROLLOUT_BATCH_SIZE` | _(unset)_ | When set, overrides per-deployment `rollout_batch_size` |
+| `FORGE_READINESS_POLL_MS` | `1000` | Readiness poll interval for rolling updates |
+| `FORGE_READINESS_MAX_WAIT_S` | `60` | Max wait for a new replica to become ready before holding the rollout |
 
 See `.env.example`.
 
@@ -111,12 +115,18 @@ include matching `traceId` and `spanId`. With OTEL enabled, HTTP request and JDB
 repository spans plus request count, duration, and error metrics are exported to
 the foundation Collector. Reconcile ticks emit `forge_reconcile_ticks_total` /
 `forge_reconcile_plan_actions`, executed-action counter
-`forge_reconcile_actions_total{action=start|stop|recreate}`, and spans
-`reconcile.tick` / `reconcile.start_replica` / `reconcile.stop_replica`.
+`forge_reconcile_actions_total{action=start|stop|recreate|…}`,
+`forge_rollout_step_total{step=…}`, and spans
+`reconcile.tick` / `reconcile.rolling_update` /
+`reconcile.start_replica` / `reconcile.wait_ready` /
+`reconcile.shift_traffic` / `reconcile.drain_replica` /
+`reconcile.stop_replica`.
 From 07.02 the controller executes start/stop/recreate against Runtime using
 deterministic per-replica workload ids
-(`forge-<service_slug>-<deployment_short>-<index>`). Exporter failures are
-asynchronous and do not stop request handling.
+(`forge-<service_slug>-<deployment_short>-<index>`). From 07.03 image changes
+roll one batch at a time (start → ready → Gateway shift → drain → stop old)
+while keeping at least `desired - batch_size` ready replicas. Exporter failures
+are asynchronous and do not stop request handling.
 
 ## HTTP API (02.05)
 
@@ -140,7 +150,7 @@ asynchronous and do not stop request handling.
 | `GET` | `/v1/deployments/{deploymentId}` | Get deployment |
 | `POST` | `/v1/deployments/{deploymentId}/status` | Runtime actual-state report: `{"status","nodeId","endpoint":{"hostPort"?}}` → `pending`/`active`/`failed`/`stopped` |
 | `DELETE` | `/v1/deployments/{deploymentId}` | Remove desired deployment (`204`); Runtime orphan cleanup removes the container |
-| `GET` | `/v1/deployments/{deploymentId}/reconcile` | Desired/actual snapshot, computed plan, controller health (`07.01`; plan is not executed) |
+| `GET` | `/v1/deployments/{deploymentId}/reconcile` | Desired/actual snapshot, plan, `phase`, `updatedReplicas`, `currentImage`/`targetImage`, controller health (`07.01`–`07.03`) |
 | `GET` | `/v1/projects/{projectId}?expand=tree` | Project, environments, applications, services, and deployments |
 
 The machine-readable API contract is

@@ -11,8 +11,9 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Interval reconciliation loop. Loads desired + actual, computes a plan,
- * executes start/stop/recreate actions, re-observes, and persists a status snapshot.
+ * Interval reconciliation loop. Loads desired + actual, computes a plan
+ * (single-version or rolling), executes start/wait/shift/drain/stop actions,
+ * re-observes, and persists a status snapshot.
  */
 class ReconciliationController(
     private val deploymentStore: DeploymentStore,
@@ -24,6 +25,9 @@ class ReconciliationController(
     private val maxActionsPerTick: Int = 5,
     private val clock: Clock = Clock.systemUTC(),
     private val telemetry: Telemetry = Telemetry.current(),
+    private val readinessGate: ReadinessGate = ReadinessGate(runtimeClient),
+    private val trafficShifter: TrafficShifter = TrafficShifter(NoOpGatewayClient()),
+    private val readinessMaxWaitSeconds: Long = 60,
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "forge-reconcile").apply { isDaemon = true }
     },
@@ -32,6 +36,9 @@ class ReconciliationController(
         log = log,
         maxActionsPerTick = maxActionsPerTick,
         telemetry = telemetry,
+        readinessGate = readinessGate,
+        trafficShifter = trafficShifter,
+        readinessMaxWaitSeconds = readinessMaxWaitSeconds,
     ),
 ) : AutoCloseable {
     private val running = AtomicBoolean(false)
@@ -113,7 +120,7 @@ class ReconciliationController(
 
         val (actualBefore, plan, healthy) = try {
             val loaded = runtimeClient.observe(deploymentId)
-            val computed = computePlan(desired, loaded)
+            val computed = computeReconcilePlan(desired, loaded)
             Triple(loaded, computed, true)
         } catch (e: RuntimeUnreachableException) {
             log.warn(
@@ -126,9 +133,17 @@ class ReconciliationController(
             Triple(keptActual, keptPlan, false)
         }
 
+        var executed = emptyList<ExecutedAction>()
         if (healthy && plan.actions.isNotEmpty()) {
             try {
-                reconciler.execute(desired, actualBefore, plan)
+                val spanName = if (needsRollingUpdate(desired, actualBefore)) {
+                    "reconcile.rolling_update"
+                } else {
+                    "reconcile.execute"
+                }
+                executed = telemetry.inSpan(spanName) {
+                    reconciler.execute(desired, actualBefore, plan)
+                }
             } catch (e: Exception) {
                 log.error(
                     "reconcile execute failed",
@@ -143,7 +158,7 @@ class ReconciliationController(
         } else {
             try {
                 val reloaded = runtimeClient.observe(deploymentId)
-                val recomputed = computePlan(desired, reloaded)
+                val recomputed = computeReconcilePlan(desired, reloaded)
                 Triple(reloaded, recomputed, true)
             } catch (e: RuntimeUnreachableException) {
                 log.warn(
@@ -155,17 +170,40 @@ class ReconciliationController(
             }
         }
 
+        val degraded = executed.any {
+            it.action == ReconcileAction.WaitReady.name &&
+                it.result == ActionResult.Held &&
+                it.detail == "readiness_timeout"
+        }
+        val finalPlan = if (degraded) {
+            planAfter.copy(phase = RolloutPhase.Degraded.wire())
+        } else {
+            planAfter
+        }
+
         val readyCount = actualAfter.replicas.count {
-            it.statusEnum() == ReplicaStatus.Ready || it.statusEnum() == ReplicaStatus.Running
+            it.statusEnum() == ReplicaStatus.Ready
         }
         telemetry.recordReplicasReady(readyCount)
+
+        if (finalPlan.phaseEnum() == RolloutPhase.Rolling) {
+            log.info(
+                "reconcile rolling",
+                "deployment_id" to desired.deploymentId,
+                "from_image" to (finalPlan.currentImage ?: ""),
+                "to_image" to (finalPlan.targetImage ?: desired.image),
+                "updated_replicas" to finalPlan.updatedReplicas,
+                "total_replicas" to finalPlan.totalReplicas,
+                "phase" to finalPlan.phase,
+            )
+        }
 
         val snapshot = ReconcileSnapshot(
             deploymentId = deploymentId,
             lastRunAt = Instant.now(clock),
             desired = desired,
             actual = actualAfter,
-            plan = planAfter,
+            plan = finalPlan,
             controllerHealthy = healthyAfter,
         )
         statusStore.upsert(snapshot)
@@ -176,10 +214,12 @@ class ReconciliationController(
             "deployment_id" to desired.deploymentId,
             "desired_replicas" to desired.replicas,
             "actual_replicas" to actualAfter.replicas.size,
-            "plan_size" to planAfter.size,
+            "plan_size" to finalPlan.size,
+            "phase" to finalPlan.phase,
+            "updated_replicas" to finalPlan.updatedReplicas,
             "tick_duration_ms" to durationMs,
             "controller_healthy" to healthyAfter,
         )
-        telemetry.recordReconcileTick(planAfter.size, healthyAfter)
+        telemetry.recordReconcileTick(finalPlan.size, healthyAfter)
     }
 }
