@@ -16,6 +16,9 @@ data class ReconcileSnapshot(
     val actual: ActualState,
     val plan: ReconcilePlan,
     val controllerHealthy: Boolean,
+    val deploymentStatus: String = DeploymentLifecycle.Pending.wire(),
+    val lastHealthyImage: String? = null,
+    val rolloutStartedAt: Instant? = null,
 )
 
 interface ReconcileStatusStore {
@@ -36,14 +39,18 @@ class JdbcReconcileStatusStore(
                 conn.prepareStatement(
                     """
                     INSERT INTO reconcile_status (
-                        deployment_id, last_run_at, desired_json, actual_json, plan_json, controller_healthy
-                    ) VALUES (?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?)
+                        deployment_id, last_run_at, desired_json, actual_json, plan_json, controller_healthy,
+                        deployment_status, last_healthy_image, rollout_started_at
+                    ) VALUES (?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?, ?, ?)
                     ON CONFLICT (deployment_id) DO UPDATE SET
                         last_run_at = EXCLUDED.last_run_at,
                         desired_json = EXCLUDED.desired_json,
                         actual_json = EXCLUDED.actual_json,
                         plan_json = EXCLUDED.plan_json,
-                        controller_healthy = EXCLUDED.controller_healthy
+                        controller_healthy = EXCLUDED.controller_healthy,
+                        deployment_status = EXCLUDED.deployment_status,
+                        last_healthy_image = EXCLUDED.last_healthy_image,
+                        rollout_started_at = EXCLUDED.rollout_started_at
                     """.trimIndent(),
                 ).use { ps ->
                     ps.setObject(1, snapshot.deploymentId)
@@ -52,6 +59,13 @@ class JdbcReconcileStatusStore(
                     ps.setString(4, json.encodeToString(ActualState.serializer(), snapshot.actual))
                     ps.setString(5, json.encodeToString(ReconcilePlan.serializer(), snapshot.plan))
                     ps.setBoolean(6, snapshot.controllerHealthy)
+                    ps.setString(7, snapshot.deploymentStatus)
+                    ps.setString(8, snapshot.lastHealthyImage)
+                    if (snapshot.rolloutStartedAt != null) {
+                        ps.setTimestamp(9, java.sql.Timestamp.from(snapshot.rolloutStartedAt))
+                    } else {
+                        ps.setTimestamp(9, null)
+                    }
                     ps.executeUpdate()
                 }
             }
@@ -62,7 +76,8 @@ class JdbcReconcileStatusStore(
         dataSource.withConnection { conn ->
             conn.prepareStatement(
                 """
-                SELECT deployment_id, last_run_at, desired_json, actual_json, plan_json, controller_healthy
+                SELECT deployment_id, last_run_at, desired_json, actual_json, plan_json, controller_healthy,
+                       deployment_status, last_healthy_image, rollout_started_at
                 FROM reconcile_status WHERE deployment_id = ?
                 """.trimIndent(),
             ).use { ps ->
@@ -85,6 +100,10 @@ class JdbcReconcileStatusStore(
                             rs.getString("plan_json"),
                         ),
                         controllerHealthy = rs.getBoolean("controller_healthy"),
+                        deploymentStatus = rs.getString("deployment_status")
+                            ?: DeploymentLifecycle.Pending.wire(),
+                        lastHealthyImage = rs.getString("last_healthy_image"),
+                        rolloutStartedAt = rs.getTimestamp("rollout_started_at")?.toInstant(),
                     )
                 }
             }

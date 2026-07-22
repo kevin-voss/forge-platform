@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 47`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 48`**.
 
 ## Epics
 
@@ -15,7 +15,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [04](epics/04-forge-runtime.md) | Forge Runtime | Complete | 8/8 steps complete; demo 04 runtime acceptance gate passed |
 | [05](epics/05-forge-gateway.md) | Forge Gateway | Complete | 7/7 steps complete; demo 05 routed-service acceptance gate passed |
 | [06](epics/06-forge-build.md) | Forge Build | Complete | 7/7 steps complete; demo 06 source-to-deployment acceptance gate passed |
-| [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | In progress | 3/6 steps complete; zero-downtime rolling update (start→ready→shift→stop) |
+| [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | In progress | 4/6 steps complete; unhealthy rollout auto-rollback to last healthy |
 | [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | Planning | 6 steps |
 | [09](epics/09-forge-identity.md) | Forge Identity | Planning | 8 steps |
 | [10](epics/10-forge-secrets.md) | Forge Secrets | Planning | 7 steps |
@@ -80,7 +80,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **44** | [Desired/actual replica model + controller skeleton](steps/07-deployment-reconciliation/07.01-desired-actual-model-and-controller-skeleton.md) | Complete |  | Migration + `computePlan` + inert controller + `GET …/reconcile` |
 | **45** | [Single-replica reconcile loop](steps/07-deployment-reconciliation/07.02-single-replica-reconcile-loop.md) | Complete |  | Idempotent start/stop/recreate via Runtime; max actions/tick |
 | **46** | [Rolling update (start new → ready → shift → stop old)](steps/07-deployment-reconciliation/07.03-rolling-update.md) | Complete |  | Rolling planner + readiness gate + Gateway traffic shift; min-available invariant |
-| **47** | [Unhealthy rollout → automatic rollback](steps/07-deployment-reconciliation/07.04-unhealthy-rollout-automatic-rollback.md) | Not started |  |  |
+| **47** | [Unhealthy rollout → automatic rollback](steps/07-deployment-reconciliation/07.04-unhealthy-rollout-automatic-rollback.md) | Complete |  | Timeout + rollback to last healthy; `status`/`last_healthy_image` on reconcile |
 | **48** | [Deployment history + controller restart safety](steps/07-deployment-reconciliation/07.05-deployment-history-and-restart-safety.md) | Not started |  |  |
 | **49** | [Demo `07-rolling-deployment` + epic gate](steps/07-deployment-reconciliation/07.06-demo-07-rolling-deployment.md) | Not started |  |  |
 | **50** | [Scheduler module/service skeleton + placement APIs](steps/08-multi-node-scheduler/08.01-scheduler-skeleton-and-placement-apis.md) | Not started |  |  |

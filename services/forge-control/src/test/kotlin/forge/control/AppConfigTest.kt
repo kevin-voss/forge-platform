@@ -66,6 +66,8 @@ class AppConfigTest {
                 "FORGE_RUNTIME_URL" to "http://127.0.0.1:4102",
                 "FORGE_GATEWAY_URL" to "http://127.0.0.1:4000",
                 "FORGE_ROLLOUT_BATCH_SIZE" to "2",
+                "FORGE_ROLLOUT_TIMEOUT_S" to "90",
+                "FORGE_ROLLBACK_ENABLED" to "false",
                 "FORGE_READINESS_POLL_MS" to "250",
                 "FORGE_READINESS_MAX_WAIT_S" to "30",
             ),
@@ -76,6 +78,8 @@ class AppConfigTest {
         assertEquals("http://127.0.0.1:4102", cfg.runtimeUrl)
         assertEquals("http://127.0.0.1:4000", cfg.gatewayUrl)
         assertEquals(2, cfg.rolloutBatchSizeOverride)
+        assertEquals(90, cfg.rolloutTimeoutOverride)
+        assertEquals(false, cfg.rollbackEnabled)
         assertEquals(250L, cfg.readinessPollMs)
         assertEquals(30L, cfg.readinessMaxWaitSeconds)
     }

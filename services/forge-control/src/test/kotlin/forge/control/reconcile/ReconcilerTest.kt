@@ -240,6 +240,7 @@ private class FakeDeploymentStore(
     initial: List<DesiredState>,
 ) : DeploymentStore {
     private var desired: MutableList<DesiredState> = initial.toMutableList()
+    private val statuses = mutableMapOf<String, String>()
 
     fun replace(next: List<DesiredState>) {
         desired = next.toMutableList()
@@ -248,6 +249,19 @@ private class FakeDeploymentStore(
     override fun listDesired(): List<DesiredState> = desired.toList()
     override fun findDesired(deploymentId: UUID): DesiredState? =
         desired.find { it.deploymentId == deploymentId.toString() }
+
+    override fun getStatus(deploymentId: UUID): String? =
+        statuses[deploymentId.toString()]
+
+    override fun setStatus(deploymentId: UUID, status: String) {
+        statuses[deploymentId.toString()] = status
+    }
+
+    override fun setDesiredImage(deploymentId: UUID, image: String) {
+        desired = desired.map {
+            if (it.deploymentId == deploymentId.toString()) it.copy(image = image) else it
+        }.toMutableList()
+    }
 }
 
 /** In-memory Runtime that supports create/stop/observe for reconcile tests. */

@@ -44,7 +44,8 @@ class JdbcServiceRepository(
             conn.prepareStatement(
                 """
                 SELECT id, application_id, name, port, created_at, updated_at,
-                       image, image_digest, image_commit, image_build_id
+                       image, image_digest, image_commit, image_build_id,
+                       last_healthy_deployment_id, last_healthy_image, last_healthy_replicas
                 FROM services WHERE id = ?
                 """.trimIndent(),
             ).use { ps ->
@@ -61,7 +62,8 @@ class JdbcServiceRepository(
             conn.prepareStatement(
                 """
                 SELECT id, application_id, name, port, created_at, updated_at,
-                       image, image_digest, image_commit, image_build_id
+                       image, image_digest, image_commit, image_build_id,
+                       last_healthy_deployment_id, last_healthy_image, last_healthy_replicas
                 FROM services WHERE application_id = ? ORDER BY created_at
                 """.trimIndent(),
             ).use { ps ->
@@ -159,5 +161,8 @@ class JdbcServiceRepository(
             imageDigest = rs.getString("image_digest"),
             imageCommit = rs.getString("image_commit"),
             imageBuildId = rs.getString("image_build_id"),
+            lastHealthyDeploymentId = rs.getObject("last_healthy_deployment_id") as? UUID,
+            lastHealthyImage = rs.getString("last_healthy_image"),
+            lastHealthyReplicas = rs.getObject("last_healthy_replicas") as? Int,
         )
 }

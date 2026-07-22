@@ -144,11 +144,26 @@ class ReconciliationControllerTest {
 }
 
 private class ControllerFakeDeploymentStore(
-    private val desired: List<DesiredState>,
+    private var desired: List<DesiredState>,
 ) : DeploymentStore {
+    private val statuses = mutableMapOf<String, String>()
+
     override fun listDesired(): List<DesiredState> = desired
     override fun findDesired(deploymentId: UUID): DesiredState? =
         desired.find { it.deploymentId == deploymentId.toString() }
+
+    override fun getStatus(deploymentId: UUID): String? =
+        statuses[deploymentId.toString()]
+
+    override fun setStatus(deploymentId: UUID, status: String) {
+        statuses[deploymentId.toString()] = status
+    }
+
+    override fun setDesiredImage(deploymentId: UUID, image: String) {
+        desired = desired.map {
+            if (it.deploymentId == deploymentId.toString()) it.copy(image = image) else it
+        }
+    }
 }
 
 private class ControllerFakeRuntimeClient(

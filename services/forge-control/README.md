@@ -10,10 +10,10 @@ HTTP APIs for projects, environments, applications, services, and desired-state
 deployments (`02.05`) are available under `/v1`. Control records deployment
 intent only; it does not pull images or start containers.
 
-A reconciliation controller skeleton (`07.01`) periodically diffs desired vs
-actual replica state, logs a plan, and exposes
-`GET /v1/deployments/{id}/reconcile`. It does **not** create, stop, or restart
-workloads yet (that arrives in `07.02`).
+A reconciliation controller (`07.01`–`07.04`) periodically diffs desired vs
+actual replica state, converges via Runtime, performs rolling updates, and on
+rollout timeout/failure automatically rolls back to the last healthy version.
+Status is exposed at `GET /v1/deployments/{id}/reconcile`.
 
 ## Quick start
 
@@ -102,6 +102,8 @@ make dev
 | `FORGE_RUNTIME_URL` | `http://forge-runtime:4102` | Base URL for Runtime observe/create/stop |
 | `FORGE_GATEWAY_URL` | `http://forge-gateway:4000` | Base URL for Gateway admin refresh during rolling traffic shift |
 | `FORGE_ROLLOUT_BATCH_SIZE` | _(unset)_ | When set, overrides per-deployment `rollout_batch_size` |
+| `FORGE_ROLLOUT_TIMEOUT_S` | _(unset)_ | When set, overrides per-deployment `rollout_timeout_s` (default 120) |
+| `FORGE_ROLLBACK_ENABLED` | `true` | Automatic rollback to last healthy on rollout timeout/failure |
 | `FORGE_READINESS_POLL_MS` | `1000` | Readiness poll interval for rolling updates |
 | `FORGE_READINESS_MAX_WAIT_S` | `60` | Max wait for a new replica to become ready before holding the rollout |
 
@@ -116,8 +118,10 @@ repository spans plus request count, duration, and error metrics are exported to
 the foundation Collector. Reconcile ticks emit `forge_reconcile_ticks_total` /
 `forge_reconcile_plan_actions`, executed-action counter
 `forge_reconcile_actions_total{action=start|stop|recreate|…}`,
-`forge_rollout_step_total{step=…}`, and spans
-`reconcile.tick` / `reconcile.rolling_update` /
+`forge_rollout_step_total{step=…}`,
+`forge_rollout_result_total{result=deployed|rolled_back}`,
+`forge_rollback_duration_ms`, and spans
+`reconcile.tick` / `reconcile.rolling_update` / `reconcile.rollback` /
 `reconcile.start_replica` / `reconcile.wait_ready` /
 `reconcile.shift_traffic` / `reconcile.drain_replica` /
 `reconcile.stop_replica`.
@@ -125,8 +129,10 @@ From 07.02 the controller executes start/stop/recreate against Runtime using
 deterministic per-replica workload ids
 (`forge-<service_slug>-<deployment_short>-<index>`). From 07.03 image changes
 roll one batch at a time (start → ready → Gateway shift → drain → stop old)
-while keeping at least `desired - batch_size` ready replicas. Exporter failures
-are asynchronous and do not stop request handling.
+while keeping at least `desired - batch_size` ready replicas. From 07.04 a
+rollout that does not reach readiness within `rollout_timeout_s` rolls back to
+the last healthy image/replica count and sets status `rolled_back`. Exporter
+failures are asynchronous and do not stop request handling.
 
 ## HTTP API (02.05)
 
@@ -150,7 +156,7 @@ are asynchronous and do not stop request handling.
 | `GET` | `/v1/deployments/{deploymentId}` | Get deployment |
 | `POST` | `/v1/deployments/{deploymentId}/status` | Runtime actual-state report: `{"status","nodeId","endpoint":{"hostPort"?}}` → `pending`/`active`/`failed`/`stopped` |
 | `DELETE` | `/v1/deployments/{deploymentId}` | Remove desired deployment (`204`); Runtime orphan cleanup removes the container |
-| `GET` | `/v1/deployments/{deploymentId}/reconcile` | Desired/actual snapshot, plan, `phase`, `updatedReplicas`, `currentImage`/`targetImage`, controller health (`07.01`–`07.03`) |
+| `GET` | `/v1/deployments/{deploymentId}/reconcile` | Desired/actual snapshot, plan, `phase`, `updatedReplicas`, `currentImage`/`targetImage`, `status` (`deploying`/`deployed`/`rolling_back`/`rolled_back`/…), `lastHealthyImage`, controller health (`07.01`–`07.04`) |
 | `GET` | `/v1/projects/{projectId}?expand=tree` | Project, environments, applications, services, and deployments |
 
 The machine-readable API contract is
@@ -166,16 +172,19 @@ body returns `409 idempotency_key_conflict`.
 Tables in schema `control`:
 
 * `projects`, `environments`, `applications`, `services`, `deployments`
-* `reconcile_status` (per-deployment desired/actual/plan snapshot + controller health)
+* `reconcile_status` (per-deployment desired/actual/plan snapshot, lifecycle status, rollout timer, controller health)
 * `audit_log` (append-only; create actions for projects/environments/applications/services/deployments)
 * `idempotency_keys` (key, request hash, resource ID, stored response; 24-hour retention target)
 * `flyway_schema_history`
 
 `deployments` also stores rollout policy defaults (`rollout_batch_size=1`,
-`rollout_timeout_s=120`). Foreign keys use `ON DELETE RESTRICT` (reconcile
-snapshots cascade on deployment delete). Unique constraints enforce slug/name
-uniqueness within parents. Check constraints cover non-blank names, `port`
-1–65535, and `desired_replicas >= 0`.
+`rollout_timeout_s=120`) and lifecycle status (`pending`/`deploying`/`deployed`/
+`rolling_back`/`rolled_back`, plus Runtime `active`/`failed`/`stopped`).
+`services` stores `last_healthy_deployment_id` / `last_healthy_image` /
+`last_healthy_replicas` for rollback. Foreign keys use `ON DELETE RESTRICT`
+(reconcile snapshots cascade on deployment delete). Unique constraints enforce
+slug/name uniqueness within parents. Check constraints cover non-blank names,
+`port` 1–65535, and `desired_replicas >= 0`.
 
 ## Health
 

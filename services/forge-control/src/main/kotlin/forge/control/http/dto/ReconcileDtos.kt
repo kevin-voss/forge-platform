@@ -20,6 +20,8 @@ data class ReconcileStatusResponse(
     val updatedReplicas: String? = null,
     val currentImage: String? = null,
     val targetImage: String? = null,
+    val status: String = "pending",
+    val lastHealthyImage: String? = null,
 )
 
 @Serializable
@@ -91,5 +93,7 @@ fun ReconcileSnapshot.toResponse(): ReconcileStatusResponse {
         updatedReplicas = "$updated/$total",
         currentImage = plan.currentImage,
         targetImage = plan.targetImage,
+        status = deploymentStatus,
+        lastHealthyImage = lastHealthyImage,
     )
 }

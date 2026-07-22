@@ -51,12 +51,21 @@ data class Service(
     val imageDigest: String? = null,
     val imageCommit: String? = null,
     val imageBuildId: String? = null,
+    val lastHealthyDeploymentId: UUID? = null,
+    val lastHealthyImage: String? = null,
+    val lastHealthyReplicas: Int? = null,
 ) {
     init {
         require(name.isNotBlank()) { "name must not be blank" }
         require(port in 1..65535) { "port must be 1–65535" }
         if (image != null) {
             require(image.isNotBlank()) { "image must not be blank when set" }
+        }
+        if (lastHealthyImage != null) {
+            require(lastHealthyImage.isNotBlank()) { "last_healthy_image must not be blank when set" }
+        }
+        if (lastHealthyReplicas != null) {
+            require(lastHealthyReplicas >= 0) { "last_healthy_replicas must be >= 0" }
         }
     }
 }
@@ -82,7 +91,16 @@ data class Deployment(
     }
 
     private companion object {
-        val DEPLOYMENT_STATUSES = setOf("pending", "active", "failed", "stopped")
+        val DEPLOYMENT_STATUSES = setOf(
+            "pending",
+            "active",
+            "failed",
+            "stopped",
+            "deploying",
+            "deployed",
+            "rolling_back",
+            "rolled_back",
+        )
     }
 }
 

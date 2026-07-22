@@ -48,7 +48,9 @@ class ReconcileOpenApiContractTest {
               "phase": "rolling",
               "updatedReplicas": "1/2",
               "currentImage": "registry.local/demo:v1",
-              "targetImage": "registry.local/demo:v2"
+              "targetImage": "registry.local/demo:v2",
+              "status": "deploying",
+              "lastHealthyImage": "registry.local/demo:v1"
             }
         """.trimIndent()
         val decoded = Json { ignoreUnknownKeys = true }
@@ -58,6 +60,8 @@ class ReconcileOpenApiContractTest {
         assertTrue(decoded.desired.replicas == 2)
         assertTrue(decoded.phase == "rolling")
         assertTrue(decoded.updatedReplicas == "1/2")
+        assertTrue(decoded.status == "deploying")
+        assertTrue(decoded.lastHealthyImage == "registry.local/demo:v1")
     }
 
     @Test
@@ -69,5 +73,8 @@ class ReconcileOpenApiContractTest {
         assertTrue(yaml.contains("updatedReplicas"))
         assertTrue(yaml.contains("currentImage"))
         assertTrue(yaml.contains("targetImage"))
+        assertTrue(yaml.contains("lastHealthyImage"))
+        assertTrue(yaml.contains("rolling_back"))
+        assertTrue(yaml.contains("rolled_back"))
     }
 }

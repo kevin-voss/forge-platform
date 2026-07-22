@@ -42,6 +42,7 @@ fun Route.reconcileStatusRoutes(
         }
         val updated = plan.updatedReplicas
         val total = plan.totalReplicas.takeIf { it > 0 } ?: desired.replicas
+        val status = deploymentStore.getStatus(deploymentId) ?: "pending"
         call.respond(
             ReconcileStatusResponse(
                 deploymentId = deploymentId.toString(),
@@ -54,6 +55,8 @@ fun Route.reconcileStatusRoutes(
                 updatedReplicas = "$updated/$total",
                 currentImage = plan.currentImage,
                 targetImage = plan.targetImage,
+                status = status,
+                lastHealthyImage = null,
             ),
         )
     }

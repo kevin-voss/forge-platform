@@ -20,6 +20,7 @@ import forge.control.http.installRequestId
 import forge.control.logging.JsonLog
 import forge.control.reconcile.HttpGatewayClient
 import forge.control.reconcile.HttpRuntimeClient
+import forge.control.reconcile.JdbcLastHealthyStore
 import forge.control.reconcile.JdbcReconcileStatusStore
 import forge.control.reconcile.ReadinessGate
 import forge.control.reconcile.ReconciliationController
@@ -114,6 +115,7 @@ fun main() {
         deploymentRepo,
         serviceRepo,
         rolloutBatchSizeOverride = cfg.rolloutBatchSizeOverride,
+        rolloutTimeoutOverride = cfg.rolloutTimeoutOverride,
     )
     val runtimeClient = HttpRuntimeClient(cfg.runtimeUrl)
     val readinessGate = ReadinessGate(
@@ -123,6 +125,7 @@ fun main() {
     )
     val trafficShifter = TrafficShifter(HttpGatewayClient(cfg.gatewayUrl))
     val reconcileStatusStore = JdbcReconcileStatusStore(db.dataSource)
+    val lastHealthyStore = JdbcLastHealthyStore(db.dataSource)
     val reconcileController = ReconciliationController(
         deploymentStore = deploymentStore,
         runtimeClient = runtimeClient,
@@ -135,6 +138,8 @@ fun main() {
         readinessGate = readinessGate,
         trafficShifter = trafficShifter,
         readinessMaxWaitSeconds = cfg.readinessMaxWaitSeconds,
+        lastHealthyStore = lastHealthyStore,
+        rollbackEnabled = cfg.rollbackEnabled,
     )
     val services = ControlServices(
         projects = ProjectService(projectRepo, auditRepo, actor = actor),

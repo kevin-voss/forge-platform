@@ -75,7 +75,7 @@ class DeploymentService(
      */
     fun reportStatus(id: UUID, statusRaw: String?, nodeId: String?, hostPort: Int?): Deployment {
         val status = statusRaw?.trim()?.lowercase()
-        if (status.isNullOrEmpty() || status !in STATUSES) {
+        if (status.isNullOrEmpty() || status !in RUNTIME_STATUSES) {
             throw ApiException.BadRequest(
                 "status must be one of pending, active, failed, stopped",
                 mapOf("field" to "status"),
@@ -89,6 +89,11 @@ class DeploymentService(
                 "endpoint.hostPort must be 1–65535",
                 mapOf("field" to "endpoint.hostPort"),
             )
+        }
+        val existing = get(id)
+        // Reconciler owns lifecycle statuses (07.04); do not let Runtime overwrite them.
+        if (existing.status in RECONCILE_LIFECYCLE_STATUSES) {
+            return existing
         }
         return updateStatus(id, status, nodeId.trim(), hostPort)
     }
@@ -116,7 +121,7 @@ class DeploymentService(
         nodeId: String? = null,
         hostPort: Int? = null,
     ): Deployment {
-        require(status in STATUSES) { "invalid deployment status" }
+        require(status in ALL_STATUSES) { "invalid deployment status" }
         val existing = get(id)
         val updated = deployments.update(id, status = status)
         if (existing.status != updated.status) {
@@ -139,7 +144,15 @@ class DeploymentService(
 
     companion object {
         const val PENDING = "pending"
-        val STATUSES = setOf("pending", "active", "failed", "stopped")
+        val RUNTIME_STATUSES = setOf("pending", "active", "failed", "stopped")
+        val RECONCILE_LIFECYCLE_STATUSES = setOf(
+            "deploying",
+            "deployed",
+            "rolling_back",
+            "rolled_back",
+        )
+        val ALL_STATUSES = RUNTIME_STATUSES + RECONCILE_LIFECYCLE_STATUSES
+        val STATUSES = ALL_STATUSES
 
         fun validateImage(imageRaw: String?): String {
             val image = imageRaw?.trim()

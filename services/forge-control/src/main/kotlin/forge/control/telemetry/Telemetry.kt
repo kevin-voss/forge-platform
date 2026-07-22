@@ -39,6 +39,8 @@ class Telemetry private constructor(
     private val reconcileActions: LongCounter,
     private val replicasReady: LongCounter,
     private val rolloutSteps: LongCounter,
+    private val rolloutResults: LongCounter,
+    private val rollbackDuration: DoubleHistogram,
     private val sdk: OpenTelemetrySdk?,
 ) : AutoCloseable {
     val enabled: Boolean = sdk != null
@@ -77,6 +79,17 @@ class Telemetry private constructor(
             1,
             Attributes.of(AttributeKey.stringKey("step"), step),
         )
+    }
+
+    fun recordRolloutResult(result: String) {
+        rolloutResults.add(
+            1,
+            Attributes.of(AttributeKey.stringKey("result"), result),
+        )
+    }
+
+    fun recordRollbackDuration(durationMs: Long) {
+        rollbackDuration.record(durationMs.toDouble())
     }
 
     fun <T> inSpan(name: String, block: () -> T): T {
@@ -153,6 +166,8 @@ class Telemetry private constructor(
                 reconcileActions = meter.counterBuilder("forge_reconcile_actions_total").build(),
                 replicasReady = meter.counterBuilder("forge_replicas_ready").build(),
                 rolloutSteps = meter.counterBuilder("forge_rollout_step_total").build(),
+                rolloutResults = meter.counterBuilder("forge_rollout_result_total").build(),
+                rollbackDuration = meter.histogramBuilder("forge_rollback_duration_ms").setUnit("ms").build(),
                 sdk = sdk,
             )
         }

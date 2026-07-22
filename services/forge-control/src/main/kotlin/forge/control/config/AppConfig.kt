@@ -26,6 +26,8 @@ data class AppConfig(
     val runtimeUrl: String = "http://forge-runtime:4102",
     val gatewayUrl: String = "http://forge-gateway:4000",
     val rolloutBatchSizeOverride: Int? = null,
+    val rolloutTimeoutOverride: Int? = null,
+    val rollbackEnabled: Boolean = true,
     val readinessPollMs: Long = 1_000,
     val readinessMaxWaitSeconds: Long = 60,
 )
@@ -156,6 +158,32 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         parsed
     }
 
+    val timeoutOverrideRaw = env["FORGE_ROLLOUT_TIMEOUT_S"]?.trim().orEmpty()
+    val rolloutTimeoutOverride = if (timeoutOverrideRaw.isEmpty()) {
+        null
+    } else {
+        val parsed = timeoutOverrideRaw.toIntOrNull()
+            ?: throw IllegalArgumentException(
+                "FORGE_ROLLOUT_TIMEOUT_S must be a positive integer, got '$timeoutOverrideRaw'",
+            )
+        if (parsed < 1) {
+            throw IllegalArgumentException(
+                "FORGE_ROLLOUT_TIMEOUT_S must be a positive integer, got '$timeoutOverrideRaw'",
+            )
+        }
+        parsed
+    }
+
+    val rollbackEnabledRaw = env["FORGE_ROLLBACK_ENABLED"]?.trim()?.lowercase().orEmpty()
+        .ifEmpty { "true" }
+    val rollbackEnabled = when (rollbackEnabledRaw) {
+        "true", "1", "yes" -> true
+        "false", "0", "no" -> false
+        else -> throw IllegalArgumentException(
+            "FORGE_ROLLBACK_ENABLED must be true|false, got '$rollbackEnabledRaw'",
+        )
+    }
+
     val readinessPollRaw = env["FORGE_READINESS_POLL_MS"]?.trim().orEmpty().ifEmpty { "1000" }
     val readinessPollMs = readinessPollRaw.toLongOrNull()
         ?: throw IllegalArgumentException(
@@ -204,6 +232,8 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         runtimeUrl = runtimeUrl,
         gatewayUrl = gatewayUrl,
         rolloutBatchSizeOverride = rolloutBatchSizeOverride,
+        rolloutTimeoutOverride = rolloutTimeoutOverride,
+        rollbackEnabled = rollbackEnabled,
         readinessPollMs = readinessPollMs,
         readinessMaxWaitSeconds = readinessMaxWaitSeconds,
     )
