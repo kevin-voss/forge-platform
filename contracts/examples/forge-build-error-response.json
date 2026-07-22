@@ -1,0 +1,11 @@
+{
+  "error": {
+    "code": "validation_error",
+    "message": "invalid forge.yaml",
+    "requestId": "req_0123456789abcdef0123456789abcdef",
+    "details": {
+      "field": "service.port",
+      "reason": "port must be an integer between 1 and 65535"
+    }
+  }
+}

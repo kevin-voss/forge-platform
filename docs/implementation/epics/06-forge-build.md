@@ -61,7 +61,7 @@ Git repo → Forge Build → docker build → localhost:5000 → Control (image 
 | Step | Title | Status | Notes |
 |---|---|---|---|
 | [06.01](../steps/06-forge-build/06.01-skeleton-docker-workspace.md) | Skeleton + Docker + workspace | Complete | Go service, port 4103, workspace volume |
-| [06.02](../steps/06-forge-build/06.02-forge-yaml-schema-and-openapi.md) | `forge.yaml` schema + build OpenAPI | Not started | Depends on 06.01 |
+| [06.02](../steps/06-forge-build/06.02-forge-yaml-schema-and-openapi.md) | `forge.yaml` schema + build OpenAPI | Complete | Schema, OpenAPI, manifest parser, DTOs |
 | [06.03](../steps/06-forge-build/06.03-clone-checkout-docker-build-logs.md) | Clone/checkout + docker build + streamed logs | Not started | Depends on 06.01/06.02 |
 | [06.04](../steps/06-forge-build/06.04-tag-and-push-registry.md) | Tag + push local registry `:5000` | Not started | Depends on 06.03 |
 | [06.05](../steps/06-forge-build/06.05-build-status-and-failure-paths.md) | Build status + failure paths | Not started | Depends on 06.03/06.04 |
@@ -88,4 +88,4 @@ Git repo → Forge Build → docker build → localhost:5000 → Control (image 
 
 ## Next step to implement
 
-**[06.02](../steps/06-forge-build/06.02-forge-yaml-schema-and-openapi.md) — `forge.yaml` schema + build OpenAPI**.
+**[06.03](../steps/06-forge-build/06.03-clone-checkout-docker-build-logs.md) — Clone/checkout + docker build + streamed logs**.

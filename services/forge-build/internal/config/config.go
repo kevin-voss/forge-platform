@@ -11,15 +11,16 @@ import (
 
 // Config holds env-based runtime settings for forge-build.
 type Config struct {
-	Port           int
-	ServiceName    string
-	ServiceVersion string
-	LogLevel       string
-	Env            string
-	AuthMode       string
-	DockerHost     string
-	WorkspaceDir   string
-	ShutdownGrace  time.Duration
+	Port             int
+	ServiceName      string
+	ServiceVersion   string
+	LogLevel         string
+	Env              string
+	AuthMode         string
+	DockerHost       string
+	WorkspaceDir     string
+	DefaultForgeYAML string
+	ShutdownGrace    time.Duration
 
 	DockerStartupRetries    int
 	DockerStartupRetryDelay time.Duration
@@ -77,6 +78,14 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("FORGE_BUILD_WORKSPACE_DIR must be an absolute path, got %q", workspaceDir)
 	}
 
+	defaultForgeYAML := strings.TrimSpace(os.Getenv("FORGE_DEFAULT_FORGE_YAML"))
+	if defaultForgeYAML == "" {
+		defaultForgeYAML = "forge.yaml"
+	}
+	if filepath.IsAbs(defaultForgeYAML) || strings.Contains(defaultForgeYAML, "..") {
+		return Config{}, fmt.Errorf("FORGE_DEFAULT_FORGE_YAML must be a relative path without '..', got %q", defaultForgeYAML)
+	}
+
 	graceRaw := strings.TrimSpace(os.Getenv("FORGE_SHUTDOWN_GRACE_SECONDS"))
 	if graceRaw == "" {
 		graceRaw = "10"
@@ -113,6 +122,7 @@ func Load() (Config, error) {
 		AuthMode:                authMode,
 		DockerHost:              dockerHost,
 		WorkspaceDir:            workspaceDir,
+		DefaultForgeYAML:        defaultForgeYAML,
 		ShutdownGrace:           time.Duration(graceSecs) * time.Second,
 		DockerStartupRetries:    retries,
 		DockerStartupRetryDelay: time.Duration(delayMs) * time.Millisecond,

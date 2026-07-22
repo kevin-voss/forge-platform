@@ -1,0 +1,178 @@
+openapi: 3.0.3
+info:
+  title: Forge Build API
+  version: 0.1.0
+  description: |
+    Source-to-image build job API. Create a build from a Git repo/ref, poll status,
+    and stream build logs. Validation failures use the shared error envelope.
+servers:
+  - url: http://127.0.0.1:4103
+paths:
+  /v1/builds:
+    post:
+      operationId: createBuild
+      summary: Queue a build job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BuildRequest'
+            example:
+              repo: file:///fixtures/app
+              ref: main
+              forgeYamlPath: forge.yaml
+      responses:
+        '202':
+          description: Build accepted and queued
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BuildAccepted'
+        '400':
+          $ref: '#/components/responses/Error'
+  /v1/builds/{buildId}:
+    get:
+      operationId: getBuild
+      summary: Get build status
+      parameters:
+        - $ref: '#/components/parameters/BuildId'
+      responses:
+        '200':
+          description: Build record
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BuildRecord'
+        '404':
+          $ref: '#/components/responses/Error'
+  /v1/builds/{buildId}/logs:
+    get:
+      operationId: getBuildLogs
+      summary: Stream build logs
+      parameters:
+        - $ref: '#/components/parameters/BuildId'
+        - name: follow
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: When true, keep the connection open and stream new log lines.
+      responses:
+        '200':
+          description: Plain-text build logs (streamed when follow=true)
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            text/plain:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/Error'
+components:
+  parameters:
+    BuildId:
+      name: buildId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+  responses:
+    Error:
+      description: Canonical error response
+      headers:
+        X-Request-Id:
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+    BuildStatus:
+      type: string
+      enum: [queued, running, succeeded, failed]
+    BuildRequest:
+      type: object
+      required: [repo, ref]
+      additionalProperties: false
+      properties:
+        repo:
+          type: string
+          minLength: 1
+          description: Git repository URL or local file:// path.
+        ref:
+          type: string
+          minLength: 1
+          description: Branch, tag, or commit to checkout.
+        forgeYamlPath:
+          type: string
+          minLength: 1
+          description: Optional path to forge.yaml relative to the repo root (default forge.yaml).
+    BuildAccepted:
+      type: object
+      required: [buildId, status]
+      additionalProperties: false
+      properties:
+        buildId:
+          $ref: '#/components/schemas/Uuid'
+        status:
+          $ref: '#/components/schemas/BuildStatus'
+    BuildRecord:
+      type: object
+      required: [buildId, status, startedAt]
+      additionalProperties: false
+      properties:
+        buildId:
+          $ref: '#/components/schemas/Uuid'
+        status:
+          $ref: '#/components/schemas/BuildStatus'
+        image:
+          type: string
+          description: Resulting image reference when the build succeeded.
+        commit:
+          type: string
+          description: Resolved commit SHA for the checkout.
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+        error:
+          type: string
+          description: Failure message when status is failed.
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          additionalProperties: false
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            requestId:
+              type: string
+            details:
+              type: object
+              additionalProperties:
+                type: string

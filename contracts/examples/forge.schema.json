@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/contracts/examples/forge.schema.json",
+  "title": "Forge build manifest (forge.yaml)",
+  "description": "Repo-root forge.yaml describing the service identity and Docker build inputs.",
+  "type": "object",
+  "required": ["service", "build"],
+  "additionalProperties": false,
+  "properties": {
+    "service": {
+      "type": "object",
+      "required": ["name", "port"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,62}$",
+          "description": "DNS-safe service name (lowercase, starts with a letter)."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Container listen port for the built service."
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "required": ["dockerfile", "context"],
+      "additionalProperties": false,
+      "properties": {
+        "dockerfile": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Dockerfile path relative to the repository root (no path traversal)."
+        },
+        "context": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Docker build context path relative to the repository root (no path traversal)."
+        }
+      }
+    }
+  }
+}

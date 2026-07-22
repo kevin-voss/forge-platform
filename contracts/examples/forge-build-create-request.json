@@ -1,0 +1,5 @@
+{
+  "repo": "file:///fixtures/app",
+  "ref": "main",
+  "forgeYamlPath": "forge.yaml"
+}

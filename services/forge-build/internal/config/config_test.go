@@ -15,6 +15,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FORGE_AUTH_MODE", "")
 	t.Setenv("DOCKER_HOST", "")
 	t.Setenv("FORGE_BUILD_WORKSPACE_DIR", "")
+	t.Setenv("FORGE_DEFAULT_FORGE_YAML", "")
 	t.Setenv("FORGE_SHUTDOWN_GRACE_SECONDS", "")
 	t.Setenv("FORGE_DOCKER_STARTUP_RETRIES", "")
 	t.Setenv("FORGE_DOCKER_STARTUP_RETRY_DELAY_MS", "")
@@ -25,6 +26,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.Port != 8080 {
 		t.Fatalf("Port = %d, want 8080", cfg.Port)
+	}
+	if cfg.DefaultForgeYAML != "forge.yaml" {
+		t.Fatalf("DefaultForgeYAML = %q, want forge.yaml", cfg.DefaultForgeYAML)
 	}
 	if cfg.ServiceName != "forge-build" {
 		t.Fatalf("ServiceName = %q, want forge-build", cfg.ServiceName)
@@ -89,6 +93,7 @@ func TestLoadCustomValues(t *testing.T) {
 	t.Setenv("FORGE_AUTH_MODE", "dev")
 	t.Setenv("DOCKER_HOST", "unix:///tmp/docker.sock")
 	t.Setenv("FORGE_BUILD_WORKSPACE_DIR", ws)
+	t.Setenv("FORGE_DEFAULT_FORGE_YAML", "deploy/forge.yaml")
 	t.Setenv("FORGE_SHUTDOWN_GRACE_SECONDS", "5")
 	t.Setenv("FORGE_DOCKER_STARTUP_RETRIES", "2")
 	t.Setenv("FORGE_DOCKER_STARTUP_RETRY_DELAY_MS", "100")
@@ -99,6 +104,9 @@ func TestLoadCustomValues(t *testing.T) {
 	}
 	if cfg.Port != 9090 || cfg.ServiceName != "build" || cfg.ServiceVersion != "1.2.3" {
 		t.Fatalf("unexpected cfg: %+v", cfg)
+	}
+	if cfg.DefaultForgeYAML != "deploy/forge.yaml" {
+		t.Fatalf("DefaultForgeYAML = %q", cfg.DefaultForgeYAML)
 	}
 	if cfg.LogLevel != "debug" {
 		t.Fatalf("LogLevel = %q, want debug", cfg.LogLevel)
@@ -123,5 +131,14 @@ func TestLoadInvalidLogLevel(t *testing.T) {
 	t.Setenv("FORGE_BUILD_WORKSPACE_DIR", "/workspace")
 	if _, err := Load(); err == nil {
 		t.Fatal("expected error for invalid FORGE_LOG_LEVEL")
+	}
+}
+
+func TestLoadInvalidDefaultForgeYAML(t *testing.T) {
+	t.Setenv("PORT", "8080")
+	t.Setenv("FORGE_BUILD_WORKSPACE_DIR", "/workspace")
+	t.Setenv("FORGE_DEFAULT_FORGE_YAML", "../forge.yaml")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error for path-traversal FORGE_DEFAULT_FORGE_YAML")
 	}
 }
