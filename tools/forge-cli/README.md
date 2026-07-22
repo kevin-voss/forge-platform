@@ -1,8 +1,8 @@
 # Forge CLI
 
-`forge` is the Go command-line client for Forge Control. This initial slice
-provides CLI-side endpoint profiles and global options; resource commands are
-added in later steps.
+`forge` is the Go command-line client for Forge Control. It manages CLI-side
+endpoint profiles and creates and reads projects, environments, applications,
+and services through the Control HTTP API.
 
 ## Build and test
 
@@ -43,3 +43,24 @@ profile file, then the built-in local endpoint `http://127.0.0.1:4001`.
 `FORGE_ENDPOINT`, `FORGE_PROFILE`, `FORGE_OUTPUT`, and `FORGE_TIMEOUT` provide
 environment defaults. Command-line flags take precedence over their
 corresponding environment variables.
+
+## Resources
+
+Resource commands use the resolved Control endpoint and support `--output table`
+(the default) and `--output json`.
+
+```bash
+forge project create --name acme --slug acme
+forge project list
+forge project get <project-id>
+forge env create --project <project-id> --name dev
+forge env list --project <project-id>
+forge app create --project <project-id> --name web
+forge app list --project <project-id>
+forge service create --app <app-id> --name api --port 8080
+forge service list --app <app-id>
+```
+
+Control errors are printed to stderr with their `requestId` and result in a
+non-zero exit status. Use `--verbose` to log each HTTP request summary to
+stderr.

@@ -2,11 +2,14 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
 
 	"forge.local/tools/forge-cli/internal/config"
+	"forge.local/tools/forge-cli/internal/control"
+	"forge.local/tools/forge-cli/internal/render"
 
 	"github.com/spf13/cobra"
 )
@@ -46,7 +49,14 @@ func NewRootCommand(version string) *cobra.Command {
 	root.PersistentFlags().StringVar(&state.Timeout, "timeout", "30s", "HTTP request timeout")
 	root.PersistentFlags().BoolVar(&state.Verbose, "verbose", false, "print diagnostics to stderr")
 
-	root.AddCommand(newVersionCommand(version), newConfigCommand(state))
+	root.AddCommand(
+		newVersionCommand(version),
+		newConfigCommand(state),
+		newProjectCommand(state),
+		newEnvironmentCommand(state),
+		newApplicationCommand(state),
+		newServiceCommand(state),
+	)
 	return root
 }
 
@@ -95,4 +105,20 @@ func (s *State) resolve() error {
 func (s *State) TimeoutDuration() time.Duration {
 	timeout, _ := time.ParseDuration(s.Timeout)
 	return timeout
+}
+
+func (s *State) controlClient(cmd *cobra.Command) (*control.Client, error) {
+	return control.New(s.Resolved.Endpoint, s.TimeoutDuration(), func(method, path string, status int, requestID string) {
+		if s.Verbose {
+			fmt.Fprintf(cmd.ErrOrStderr(), "forge: %s %s status=%d requestId=%s\n", method, path, status, requestID)
+		}
+	})
+}
+
+func (s *State) render(cmd *cobra.Command, value any) error {
+	return render.Write(cmd.OutOrStdout(), s.Output, value)
+}
+
+func commandContext(cmd *cobra.Command) context.Context {
+	return cmd.Context()
 }
