@@ -1,15 +1,15 @@
-# Demo 01: Container runtime (Go + Python)
+# Demo 01: Container runtime (Go + Kotlin + Python)
 
 Language slices of the Forge runtime contract: production-shaped workloads that
 listen on `PORT`, expose health + identity, emit structured JSON logs, and shut
 down cleanly on `SIGTERM`.
 
-This step covers **Go** (port `4201`) and **Python** (port `4204`). Later steps
-add Kotlin, Rust, and Elixir on ports `4202`, `4203`, and `4205`.
+This step covers **Go** (port `4201`), **Kotlin** (port `4202`), and **Python**
+(port `4204`). Later steps add Rust and Elixir on ports `4203` and `4205`.
 
 ## What this demo checks
 
-* Go and Python images build via Compose
+* Go, Kotlin, and Python images build via Compose
 * `GET /health/live` and `GET /health/ready` → `200`
 * `GET /` identity JSON includes the expected `"language"`
 * Structured stdout logs match the epic 01 required fields
@@ -21,6 +21,7 @@ add Kotlin, Rust, and Elixir on ports `4202`, `4203`, and `4205`.
 | Service | Host | Container |
 |---|---:|---:|
 | `demo-go-api` | 4201 | 8080 (`PORT`) |
+| `demo-kotlin-api` | 4202 | 8080 (`PORT`) |
 | `demo-python-api` | 4204 | 8080 (`PORT`) |
 
 See [`docs/operations/ports.md`](../../docs/operations/ports.md).
@@ -37,7 +38,7 @@ FORGE_LOG_LEVEL=info
 FORGE_ENV=development
 ```
 
-Host publish pattern: `4201:8080` (Go), `4204:8080` (Python).
+Host publish pattern: `4201:8080` (Go), `4202:8080` (Kotlin), `4204:8080` (Python).
 
 ## Run
 
@@ -57,6 +58,9 @@ Or directly:
 cd demos/01-container-runtime/apps/go
 go test ./...
 
+cd demos/01-container-runtime/apps/kotlin
+./gradlew test
+
 cd demos/01-container-runtime/apps/python
 python -m unittest -v test_server.py
 ```
@@ -70,5 +74,6 @@ demos/01-container-runtime/
 ├── compose.yaml
 └── apps/
     ├── go/       # demo-go-api (no platform SDK imports)
+    ├── kotlin/   # demo-kotlin-api (Ktor/Netty; no platform SDK)
     └── python/   # demo-python-api (stdlib only; no platform SDK)
 ```

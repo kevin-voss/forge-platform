@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Demo 01 (Go + Python): build/start contract apps and validate the runtime contract.
+# Demo 01 (Go + Kotlin + Python): build/start contract apps and validate the runtime contract.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -9,15 +9,18 @@ cd "${DEMO_DIR}"
 COMPOSE=(docker compose -f "${DEMO_DIR}/compose.yaml")
 VALIDATOR="${ROOT_DIR}/tools/contract-validator/run.sh"
 GO_CONTAINER="demo-go-api"
+KT_CONTAINER="demo-kotlin-api"
 PY_CONTAINER="demo-python-api"
 GO_URL="http://127.0.0.1:4201"
+KT_URL="http://127.0.0.1:4202"
 PY_URL="http://127.0.0.1:4204"
 GO_LOG="$(mktemp "${TMPDIR:-/tmp}/demo-go-api-logs.XXXXXX.jsonl")"
+KT_LOG="$(mktemp "${TMPDIR:-/tmp}/demo-kotlin-api-logs.XXXXXX.jsonl")"
 PY_LOG="$(mktemp "${TMPDIR:-/tmp}/demo-python-api-logs.XXXXXX.jsonl")"
 
 cleanup() {
   "${COMPOSE[@]}" down --remove-orphans >/dev/null 2>&1 || true
-  rm -f "${GO_LOG}" "${PY_LOG}"
+  rm -f "${GO_LOG}" "${KT_LOG}" "${PY_LOG}"
 }
 trap cleanup EXIT
 
@@ -25,7 +28,7 @@ wait_ready() {
   local name="$1" url="$2"
   echo "Waiting for readiness at ${url}/health/ready ..."
   local ready=0
-  for _ in $(seq 1 60); do
+  for _ in $(seq 1 90); do
     if curl -sf "${url}/health/ready" >/dev/null; then
       ready=1
       break
@@ -59,20 +62,23 @@ validate_service() {
     --shutdown-timeout 10s
 }
 
-echo "== Demo 01: Container runtime (Go + Python) =="
+echo "== Demo 01: Container runtime (Go + Kotlin + Python) =="
 
 chmod +x "${VALIDATOR}" "${ROOT_DIR}/tools/contract-validator/"*.py 2>/dev/null || true
 
-echo "Building and starting ${GO_CONTAINER} (4201) and ${PY_CONTAINER} (4204)..."
-"${COMPOSE[@]}" up -d --build --force-recreate demo-go-api demo-python-api
+echo "Building and starting ${GO_CONTAINER} (4201), ${KT_CONTAINER} (4202), ${PY_CONTAINER} (4204)..."
+"${COMPOSE[@]}" up -d --build --force-recreate demo-go-api demo-kotlin-api demo-python-api
 
 wait_ready "${GO_CONTAINER}" "${GO_URL}"
+wait_ready "${KT_CONTAINER}" "${KT_URL}"
 wait_ready "${PY_CONTAINER}" "${PY_URL}"
 
 validate_service "${GO_CONTAINER}" "${GO_URL}" "go" "demo-go-api" "${GO_LOG}"
+validate_service "${KT_CONTAINER}" "${KT_URL}" "kotlin" "demo-kotlin-api" "${KT_LOG}"
 validate_service "${PY_CONTAINER}" "${PY_URL}" "python" "demo-python-api" "${PY_LOG}"
 
 echo
-echo "Demo 01 (Go + Python) passed."
-echo "  Go:     ${GO_URL}/ → demo-go-api / go     (4201:8080)"
+echo "Demo 01 (Go + Kotlin + Python) passed."
+echo "  Go:     ${GO_URL}/ → demo-go-api / go         (4201:8080)"
+echo "  Kotlin: ${KT_URL}/ → demo-kotlin-api / kotlin (4202:8080)"
 echo "  Python: ${PY_URL}/ → demo-python-api / python (4204:8080)"

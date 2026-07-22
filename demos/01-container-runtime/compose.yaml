@@ -15,6 +15,22 @@ services:
     stop_grace_period: 10s
     restart: "no"
 
+  demo-kotlin-api:
+    build:
+      context: ./apps/kotlin
+    image: forge/demo-kotlin-api:local
+    container_name: demo-kotlin-api
+    ports:
+      - "4202:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: demo-kotlin-api
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: info
+      FORGE_ENV: development
+    stop_grace_period: 10s
+    restart: "no"
+
   demo-python-api:
     build:
       context: ./apps/python
