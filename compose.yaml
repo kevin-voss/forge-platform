@@ -228,6 +228,8 @@ services:
       FORGE_PROBE_LIVE_PATH: ${FORGE_PROBE_LIVE_PATH:-/health/live}
       # Reach published host ports on the Docker host from inside this container.
       FORGE_PROBE_HOST: ${FORGE_PROBE_HOST:-host.docker.internal}
+      FORGE_LOG_DEFAULT_TAIL: ${FORGE_LOG_DEFAULT_TAIL:-100}
+      FORGE_LOG_STREAM_BUFFER: ${FORGE_LOG_STREAM_BUFFER:-8192}
       # Reserved for 04.07 Control registration (stub no-op when unset).
       FORGE_CONTROL_URL: ${FORGE_CONTROL_URL:-}
     extra_hosts:

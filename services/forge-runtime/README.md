@@ -4,9 +4,9 @@ Single-node container runtime for Forge Platform (Rust + Axum + bollard).
 
 This service exposes Docker-backed readiness, a stable node identity that
 persists across restarts, a periodic heartbeat, workload create/start
-(`POST/GET /v1/workloads`), and health probing with a normalized status model
-(`GET /v1/workloads/{id}/status`). Log streaming and stop/delete arrive in
-later steps (`04.05+`).
+(`POST/GET /v1/workloads`), health probing with a normalized status model
+(`GET /v1/workloads/{id}/status`), and workload log fetch/follow
+(`GET /v1/workloads/{id}/logs`). Stop/delete arrives in `04.06`.
 
 ## Quick start
 
@@ -26,6 +26,9 @@ curl -sf -X POST http://127.0.0.1:4102/v1/workloads -H 'content-type: applicatio
 }'
 # Wait for probes, then:
 curl -sf http://127.0.0.1:4102/v1/workloads/deployment-123/status | python3 -m json.tool
+curl -sf "http://127.0.0.1:4102/v1/workloads/deployment-123/logs?tail=20"
+# follow (Ctrl-C to stop):
+curl -N "http://127.0.0.1:4102/v1/workloads/deployment-123/logs?follow=true"
 ```
 
 Or from this directory:
@@ -65,6 +68,8 @@ make dev
 | `FORGE_PROBE_READY_PATH` | `/health/ready` | Readiness path on the workload. |
 | `FORGE_PROBE_LIVE_PATH` | `/health/live` | Liveness path on the workload. |
 | `FORGE_PROBE_HOST` | `127.0.0.1` | Host paired with published ports when container IP is unavailable. Compose sets `host.docker.internal`. |
+| `FORGE_LOG_DEFAULT_TAIL` | `100` | Default `tail` for workload log fetch when omitted. |
+| `FORGE_LOG_STREAM_BUFFER` | `8192` | Soft buffer (bytes) used to size follow-stream backpressure. |
 | `FORGE_CONTROL_URL` | _(unset)_ | Optional; registration stub logs intent when set (real register in 04.07). |
 
 Invalid `PORT` or an unwritable data dir causes a non-zero exit at startup.
@@ -97,10 +102,25 @@ restarts. Workload containers are labeled with this value as `forge.node_id`.
 | `POST /v1/workloads` | Pull image, create+start container with env/port/labels; `201` with `hostPort`. |
 | `GET /v1/workloads/{deploymentId}` | Inspect by name `forge-<deploymentId>`; `404` if missing. |
 | `GET /v1/workloads/{deploymentId}/status` | Normalized status + last probe details. |
+| `GET /v1/workloads/{deploymentId}/logs` | Bounded log fetch (`tail`, `since`, `streams`) or SSE follow (`follow=true`). |
 
 Container name is deterministic (`forge-<deployment_id>`). Labels always include
 `forge.deployment_id`, `forge.node_id`, and `forge.managed=true`. The container
 port is published to an ephemeral host port. Env values are not logged — only keys.
+
+### Logs
+
+| Query | Default | Notes |
+|---|---|---|
+| `tail` | `FORGE_LOG_DEFAULT_TAIL` | Last N lines (`all` allowed). |
+| `since` | _(none)_ | RFC3339 lower bound. |
+| `streams` | `all` | `stdout` \| `stderr` \| `all`. |
+| `follow` | `false` | When `true`, responds with `text/event-stream`. |
+| `format` | `text` | `text` → `text/plain` with `[stdout]`/`[stderr]` prefixes; `ndjson` → `application/x-ndjson`. |
+
+Only managed workloads (`forge.managed=true`) are readable; unknown ids return `404`.
+Client disconnect cancels the underlying Docker log stream. Log aggregation is
+deferred to epic 12; authz for log access lands in epic 09.
 
 ## Status model
 

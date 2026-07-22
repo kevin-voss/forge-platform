@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use bollard::container::{
-    Config, CreateContainerOptions, InspectContainerOptions, ListContainersOptions,
-    RemoveContainerOptions, StartContainerOptions,
+    Config, CreateContainerOptions, InspectContainerOptions, ListContainersOptions, LogOutput,
+    LogsOptions, RemoveContainerOptions, StartContainerOptions,
 };
 use bollard::image::CreateImageOptions;
 use bollard::models::{HostConfig, PortBinding};
@@ -10,11 +10,48 @@ use bollard::Docker;
 /// Label filter for managed workloads (kept here to avoid a docker↔workload cycle).
 const MANAGED_LABEL_FILTER: &str = "forge.managed=true";
 const DEPLOYMENT_ID_LABEL: &str = "forge.deployment_id";
-use futures_util::TryStreamExt;
+use futures_util::{Stream, StreamExt, TryStreamExt};
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};
+
+/// stdout vs stderr for demuxed container logs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamSource {
+    Stdout,
+    Stderr,
+}
+
+impl StreamSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Stdout => "stdout",
+            Self::Stderr => "stderr",
+        }
+    }
+}
+
+/// One demuxed chunk from Docker's log API (message may include a timestamp prefix).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawLogChunk {
+    pub stream: StreamSource,
+    pub message: Vec<u8>,
+}
+
+/// Options for container log fetch / follow.
+#[derive(Debug, Clone)]
+pub struct ContainerLogsOptions {
+    pub follow: bool,
+    pub stdout: bool,
+    pub stderr: bool,
+    pub since: i64,
+    pub timestamps: bool,
+    pub tail: String,
+}
+
+pub type LogChunkStream = Pin<Box<dyn Stream<Item = Result<RawLogChunk, String>> + Send>>;
 
 /// Probe used by readiness. Production uses bollard; tests inject stubs.
 #[async_trait]
@@ -57,6 +94,8 @@ pub trait DockerEngine: DockerProbe {
     async fn inspect_container(&self, id_or_name: &str) -> Result<ContainerInspectInfo, String>;
     /// List containers labeled `forge.managed=true` (all states).
     async fn list_managed_containers(&self) -> Result<Vec<ContainerInspectInfo>, String>;
+    /// Stream demuxed container logs. Dropping the stream cancels the Docker request.
+    fn logs(&self, id_or_name: &str, options: &ContainerLogsOptions) -> LogChunkStream;
 }
 
 /// Docker Engine client. Connection failures are deferred to `ping` so the HTTP
@@ -257,6 +296,47 @@ impl DockerEngine for BollardDocker {
         }
         Ok(out)
     }
+
+    fn logs(&self, id_or_name: &str, options: &ContainerLogsOptions) -> LogChunkStream {
+        let docker = match self.client() {
+            Ok(d) => d,
+            Err(err) => {
+                return Box::pin(futures_util::stream::once(async move { Err(err) }));
+            }
+        };
+        let name = id_or_name.to_string();
+        let opts = LogsOptions::<String> {
+            follow: options.follow,
+            stdout: options.stdout,
+            stderr: options.stderr,
+            since: options.since,
+            timestamps: options.timestamps,
+            tail: options.tail.clone(),
+            ..Default::default()
+        };
+        let stream = docker.logs(&name, Some(opts)).map(|item| match item {
+            Ok(output) => Ok(log_output_to_chunk(output)),
+            Err(err) => Err(format!("container logs failed: {err}")),
+        });
+        Box::pin(stream)
+    }
+}
+
+fn log_output_to_chunk(output: LogOutput) -> RawLogChunk {
+    match output {
+        LogOutput::StdOut { message } => RawLogChunk {
+            stream: StreamSource::Stdout,
+            message: message.to_vec(),
+        },
+        LogOutput::StdErr { message } => RawLogChunk {
+            stream: StreamSource::Stderr,
+            message: message.to_vec(),
+        },
+        LogOutput::Console { message } | LogOutput::StdIn { message } => RawLogChunk {
+            stream: StreamSource::Stdout,
+            message: message.to_vec(),
+        },
+    }
 }
 
 fn inspect_to_info(
@@ -414,6 +494,7 @@ pub mod test_support {
         pub ping_ok: bool,
         pub version: String,
         pub ping_calls: AtomicUsize,
+        pub log_chunks: Mutex<Vec<RawLogChunk>>,
     }
 
     impl StubDocker {
@@ -422,6 +503,7 @@ pub mod test_support {
                 ping_ok: true,
                 version: version.into(),
                 ping_calls: AtomicUsize::new(0),
+                log_chunks: Mutex::new(Vec::new()),
             }
         }
 
@@ -430,6 +512,7 @@ pub mod test_support {
                 ping_ok: false,
                 version: String::new(),
                 ping_calls: AtomicUsize::new(0),
+                log_chunks: Mutex::new(Vec::new()),
             }
         }
     }
@@ -482,6 +565,11 @@ pub mod test_support {
         async fn list_managed_containers(&self) -> Result<Vec<ContainerInspectInfo>, String> {
             Ok(Vec::new())
         }
+
+        fn logs(&self, _id_or_name: &str, _options: &ContainerLogsOptions) -> LogChunkStream {
+            let chunks = self.log_chunks.lock().expect("log_chunks").clone();
+            Box::pin(futures_util::stream::iter(chunks.into_iter().map(Ok)))
+        }
     }
 
     /// Records Docker call order for workload orchestration unit tests.
@@ -497,6 +585,9 @@ pub mod test_support {
         pub remove_calls: AtomicUsize,
         pub missing: bool,
         pub started: Mutex<bool>,
+        pub log_chunks: Mutex<Vec<RawLogChunk>>,
+        pub log_follow_hold: bool,
+        pub logs_calls: AtomicUsize,
     }
 
     impl RecordingDocker {
@@ -513,6 +604,18 @@ pub mod test_support {
                 remove_calls: AtomicUsize::new(0),
                 missing: false,
                 started: Mutex::new(false),
+                log_chunks: Mutex::new(vec![
+                    RawLogChunk {
+                        stream: StreamSource::Stdout,
+                        message: b"hello from stdout\n".to_vec(),
+                    },
+                    RawLogChunk {
+                        stream: StreamSource::Stderr,
+                        message: b"oops from stderr\n".to_vec(),
+                    },
+                ]),
+                log_follow_hold: false,
+                logs_calls: AtomicUsize::new(0),
             }
         }
 
@@ -638,6 +741,45 @@ pub mod test_support {
                 Ok(info) => Ok(vec![info]),
                 Err(_) => Ok(Vec::new()),
             }
+        }
+
+        fn logs(&self, id_or_name: &str, options: &ContainerLogsOptions) -> LogChunkStream {
+            self.record("logs");
+            self.logs_calls.fetch_add(1, Ordering::SeqCst);
+            if self.missing {
+                let name = id_or_name.to_string();
+                return Box::pin(futures_util::stream::once(async move {
+                    Err(format!("No such container: {name}"))
+                }));
+            }
+            if self.fail_op == Some("logs") {
+                return Box::pin(futures_util::stream::once(async {
+                    Err("stub: logs failed".into())
+                }));
+            }
+
+            let mut chunks = self.log_chunks.lock().unwrap().clone();
+            if !options.stdout {
+                chunks.retain(|c| c.stream != StreamSource::Stdout);
+            }
+            if !options.stderr {
+                chunks.retain(|c| c.stream != StreamSource::Stderr);
+            }
+            if let Ok(n) = options.tail.parse::<usize>() {
+                if chunks.len() > n {
+                    chunks = chunks.split_off(chunks.len() - n);
+                }
+            }
+
+            if options.follow && self.log_follow_hold {
+                // Emit seeded lines then wait until the consumer drops (client disconnect).
+                return Box::pin(
+                    futures_util::stream::iter(chunks.into_iter().map(Ok))
+                        .chain(futures_util::stream::pending()),
+                );
+            }
+
+            Box::pin(futures_util::stream::iter(chunks.into_iter().map(Ok)))
         }
     }
 }

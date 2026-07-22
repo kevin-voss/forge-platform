@@ -106,6 +106,8 @@ mod tests {
             heartbeat: Arc::new(Heartbeat::new()),
             pull_timeout: Duration::from_secs(30),
             prober,
+            log_default_tail: 100,
+            log_stream_buffer: 8192,
         };
         Router::new().merge(router()).with_state(state)
     }

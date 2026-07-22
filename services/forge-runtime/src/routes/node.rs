@@ -80,6 +80,8 @@ mod tests {
             heartbeat: Arc::clone(&heartbeat),
             pull_timeout: std::time::Duration::from_secs(30),
             prober,
+            log_default_tail: 100,
+            log_stream_buffer: 8192,
         };
         (router().with_state(state), node, heartbeat)
     }

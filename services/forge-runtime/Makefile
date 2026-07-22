@@ -25,6 +25,8 @@ dev:
 	FORGE_PROBE_TIMEOUT_SECONDS=$${FORGE_PROBE_TIMEOUT_SECONDS:-2} \
 	FORGE_PROBE_FAILURE_THRESHOLD=$${FORGE_PROBE_FAILURE_THRESHOLD:-3} \
 	FORGE_PROBE_HOST=$${FORGE_PROBE_HOST:-127.0.0.1} \
+	FORGE_LOG_DEFAULT_TAIL=$${FORGE_LOG_DEFAULT_TAIL:-100} \
+	FORGE_LOG_STREAM_BUFFER=$${FORGE_LOG_STREAM_BUFFER:-8192} \
 	cargo run
 
 build:
@@ -99,6 +101,13 @@ test-integration: run
 		sleep 2; \
 	done; \
 	curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/workloads/deployment-123/status" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="ready", d'
+	@# Log streaming: bounded fetch returns recent lines; unknown id is 404.
+	@curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/workloads/deployment-123/logs?tail=10" | grep -E '\[(stdout|stderr)\]'
+	@curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/workloads/deployment-123/logs?format=ndjson&tail=5" | python3 -c 'import sys,json; lines=[json.loads(l) for l in sys.stdin if l.strip()]; assert lines; assert lines[0]["stream"] in ("stdout","stderr"); assert "message" in lines[0]'
+	@code=$$(curl -s -o /tmp/forge-runtime-logs-404.json -w '%{http_code}' "http://127.0.0.1:$(HOST_PORT)/v1/workloads/no-such-workload/logs?tail=1"); \
+		test "$$code" = "404"
+	@# follow=true streams SSE events; disconnect promptly (max-time).
+	@curl -sf -N --max-time 3 "http://127.0.0.1:$(HOST_PORT)/v1/workloads/deployment-123/logs?follow=true" | grep -q '^data:'
 	@# Pull failure leaves no dangling container.
 	@-docker rm -f forge-deployment-bogus >/dev/null 2>&1 || true
 	@code=$$(curl -s -o /tmp/forge-runtime-pull-err.json -w '%{http_code}' -X POST "http://127.0.0.1:$(HOST_PORT)/v1/workloads" \
@@ -115,7 +124,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (health + node + workloads + status probing + graceful SIGTERM)."
+	@echo "Integration checks passed (health + node + workloads + status + logs + graceful SIGTERM)."
 
 lint:
 	@cargo fmt --check

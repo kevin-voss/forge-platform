@@ -32,6 +32,10 @@ pub struct Config {
     pub probe_live_path: String,
     /// Host paired with published host ports for health probes.
     pub probe_host: String,
+    /// Default `tail` for `GET /v1/workloads/{id}/logs` when omitted.
+    pub log_default_tail: u32,
+    /// Soft buffer size (bytes) used to size log-follow backpressure channels.
+    pub log_stream_buffer: usize,
 }
 
 impl Config {
@@ -176,6 +180,21 @@ impl Config {
         let probe_live_path = non_empty_env("FORGE_PROBE_LIVE_PATH", "/health/live");
         let probe_host = non_empty_env("FORGE_PROBE_HOST", "127.0.0.1");
 
+        let log_tail_raw = env::var("FORGE_LOG_DEFAULT_TAIL").unwrap_or_else(|_| "100".into());
+        let log_default_tail: u32 = log_tail_raw.trim().parse().map_err(|_| {
+            format!("FORGE_LOG_DEFAULT_TAIL must be a non-negative integer, got {log_tail_raw:?}")
+        })?;
+
+        let log_buf_raw = env::var("FORGE_LOG_STREAM_BUFFER").unwrap_or_else(|_| "8192".into());
+        let log_stream_buffer: usize = log_buf_raw.trim().parse().map_err(|_| {
+            format!("FORGE_LOG_STREAM_BUFFER must be a positive integer, got {log_buf_raw:?}")
+        })?;
+        if log_stream_buffer == 0 {
+            return Err(format!(
+                "FORGE_LOG_STREAM_BUFFER must be a positive integer, got {log_buf_raw:?}"
+            ));
+        }
+
         Ok(Self {
             port,
             service_name,
@@ -198,6 +217,8 @@ impl Config {
             probe_ready_path,
             probe_live_path,
             probe_host,
+            log_default_tail,
+            log_stream_buffer,
         })
     }
 }
@@ -246,6 +267,8 @@ mod tests {
             "FORGE_PROBE_READY_PATH",
             "FORGE_PROBE_LIVE_PATH",
             "FORGE_PROBE_HOST",
+            "FORGE_LOG_DEFAULT_TAIL",
+            "FORGE_LOG_STREAM_BUFFER",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()
@@ -338,6 +361,8 @@ mod tests {
                 ("FORGE_PROBE_READY_PATH", None),
                 ("FORGE_PROBE_LIVE_PATH", None),
                 ("FORGE_PROBE_HOST", None),
+                ("FORGE_LOG_DEFAULT_TAIL", None),
+                ("FORGE_LOG_STREAM_BUFFER", None),
             ],
             || {
                 let cfg = Config::from_env().expect("config");
@@ -360,6 +385,8 @@ mod tests {
                 assert_eq!(cfg.probe_ready_path, "/health/ready");
                 assert_eq!(cfg.probe_live_path, "/health/live");
                 assert_eq!(cfg.probe_host, "127.0.0.1");
+                assert_eq!(cfg.log_default_tail, 100);
+                assert_eq!(cfg.log_stream_buffer, 8192);
             },
         );
     }

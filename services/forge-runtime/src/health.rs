@@ -18,6 +18,8 @@ pub struct AppState {
     pub heartbeat: Arc<Heartbeat>,
     pub pull_timeout: Duration,
     pub prober: Arc<Prober>,
+    pub log_default_tail: u32,
+    pub log_stream_buffer: usize,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -90,6 +92,8 @@ mod tests {
             heartbeat: Arc::new(Heartbeat::new()),
             pull_timeout: Duration::from_secs(30),
             prober,
+            log_default_tail: 100,
+            log_stream_buffer: 8192,
         }
     }
 

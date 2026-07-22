@@ -745,6 +745,13 @@ mod tests {
             self.list_calls.fetch_add(1, Ordering::SeqCst);
             Ok(self.listed.lock().unwrap().clone())
         }
+        fn logs(
+            &self,
+            id_or_name: &str,
+            options: &crate::docker::ContainerLogsOptions,
+        ) -> crate::docker::LogChunkStream {
+            self.inner.logs(id_or_name, options)
+        }
     }
 
     #[tokio::test]

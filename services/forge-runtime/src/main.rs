@@ -2,6 +2,7 @@ mod config;
 mod docker;
 mod health;
 mod heartbeat;
+mod logs;
 mod node;
 mod prober;
 mod routes;
@@ -50,6 +51,8 @@ async fn run() -> Result<(), String> {
         probe_timeout_seconds = cfg.probe_timeout.as_secs(),
         probe_failure_threshold = cfg.probe_failure_threshold,
         probe_host = %cfg.probe_host,
+        log_default_tail = cfg.log_default_tail,
+        log_stream_buffer = cfg.log_stream_buffer,
         control_url = cfg.control_url.as_deref().unwrap_or(""),
         shutdown_grace_seconds = cfg.shutdown_grace.as_secs(),
         "starting forge-runtime"
@@ -117,6 +120,8 @@ async fn run() -> Result<(), String> {
         heartbeat,
         pull_timeout: cfg.pull_timeout,
         prober,
+        log_default_tail: cfg.log_default_tail,
+        log_stream_buffer: cfg.log_stream_buffer,
     };
 
     let app = axum::Router::new()
@@ -124,6 +129,7 @@ async fn run() -> Result<(), String> {
         .merge(routes::node::router())
         .merge(routes::workloads::router())
         .merge(routes::status::router())
+        .merge(routes::logs::router())
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], cfg.port));
