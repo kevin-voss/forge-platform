@@ -1,12 +1,13 @@
 openapi: 3.0.3
 info:
   title: Forge Identity API
-  version: 0.4.0
+  version: 0.5.0
   description: |
     Platform identity service (epic 09). Health surfaces from 09.01;
     users, organizations, projects, and memberships from 09.02;
     registration, login, sessions, and introspection from 09.03;
-    role model and authorization decisions from 09.04.
+    role model and authorization decisions from 09.04;
+    API tokens, service accounts, and revocation from 09.05.
 servers:
   - url: http://127.0.0.1:4002
     description: Local Compose (host port 4002)
@@ -157,10 +158,11 @@ paths:
   /v1/auth/introspect:
     post:
       operationId: introspect
-      summary: Introspect a session (or later API) token
+      summary: Introspect a session or API token
       description: |
-        Returns whether the token is active and, when active, the principal
-        (user id + memberships summary). Control consumes this shape in 09.06.
+        Accepts session tokens or API tokens (`forge_pat_` / `forge_sat_`).
+        Sessions return principal + memberships; API tokens return principal +
+        project_id + role. Control consumes this shape in 09.06.
         Expired, revoked, and unknown tokens return active=false.
       requestBody:
         required: true
@@ -182,14 +184,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/IntrospectResponse"
               examples:
-                active:
+                session:
                   value:
                     active: true
                     principal_type: user
+                    principal_id: 11111111-1111-1111-1111-111111111111
                     user_id: 11111111-1111-1111-1111-111111111111
                     memberships:
                       orgs: []
                       projects: []
+                api_token:
+                  value:
+                    active: true
+                    principal_type: user
+                    principal_id: 11111111-1111-1111-1111-111111111111
+                    user_id: 11111111-1111-1111-1111-111111111111
+                    project_id: prj_1
+                    role: developer
                 inactive:
                   value:
                     active: false
@@ -638,6 +649,138 @@ paths:
                     - service-account
                     - viewer
 
+  /v1/service-accounts:
+    post:
+      operationId: createServiceAccount
+      summary: Create a project-scoped service account
+      description: |
+        Machine principal with no password/session. Authenticates via API tokens
+        issued to the service account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, name, role]
+              properties:
+                project_id:
+                  type: string
+                name:
+                  type: string
+                role:
+                  type: string
+                  enum:
+                    - organization-owner
+                    - project-admin
+                    - developer
+                    - viewer
+                    - service-account
+            example:
+              project_id: prj_1
+              name: ci-bot
+              role: service-account
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceAccount"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          description: Duplicate name in project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/tokens:
+    post:
+      operationId: createToken
+      summary: Issue an API token (plaintext returned once)
+      description: |
+        Owner must have membership in the scoped project (users) or belong to the
+        project (service accounts). Plaintext `token` is returned only in this response;
+        only SHA-256 hash + prefix are stored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTokenRequest"
+            example:
+              owner:
+                type: user
+                id: usr_dev
+              project_id: prj_1
+              role: developer
+              expires_in_s: 86400
+      responses:
+        "201":
+          description: Token issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateTokenResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "403":
+          description: Owner not a member of the project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          $ref: "#/components/responses/Error"
+    get:
+      operationId: listTokens
+      summary: List token metadata for an owner
+      description: Never returns plaintext token values.
+      parameters:
+        - name: owner
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Owner id (user or service account)
+        - name: owner_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [user, service_account]
+      responses:
+        "200":
+          description: Metadata list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TokenMetadata"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /v1/tokens/{tokenId}/revoke:
+    post:
+      operationId: revokeToken
+      summary: Revoke an API token immediately
+      parameters:
+        - name: tokenId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Revoked (idempotent if already revoked)
+        "404":
+          $ref: "#/components/responses/Error"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -853,13 +996,107 @@ components:
           type: boolean
         principal_type:
           type: string
-          enum: [user]
+          enum: [user, service_account]
           description: Present when active
+        principal_id:
+          type: string
+          description: Present when active (user or service account id)
         user_id:
           type: string
-          description: Present when active
+          description: Present for active user sessions and user API tokens
+        project_id:
+          type: string
+          description: Present for active API tokens
+        role:
+          type: string
+          description: Present for active API tokens
         memberships:
           $ref: "#/components/schemas/UserMemberships"
+          description: Present for active sessions
+
+    ServiceAccount:
+      type: object
+      required: [id, project_id, name, role, created_at]
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CreateTokenRequest:
+      type: object
+      required: [owner, project_id, role]
+      properties:
+        owner:
+          type: object
+          required: [type, id]
+          properties:
+            type:
+              type: string
+              enum: [user, service_account]
+            id:
+              type: string
+        project_id:
+          type: string
+        role:
+          type: string
+        expires_in_s:
+          type: integer
+          minimum: 1
+          description: Optional TTL; when omitted, uses FORGE_TOKEN_DEFAULT_TTL_S (null = no expiry)
+
+    CreateTokenResponse:
+      type: object
+      required: [token_id, token, prefix]
+      properties:
+        token_id:
+          type: string
+        token:
+          type: string
+          description: Opaque plaintext; shown once
+        prefix:
+          type: string
+          description: Identification prefix retained after creation
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    TokenMetadata:
+      type: object
+      required: [token_id, prefix, owner_type, owner_id, project_id, role, created_at]
+      properties:
+        token_id:
+          type: string
+        prefix:
+          type: string
+        owner_type:
+          type: string
+          enum: [user, service_account]
+        owner_id:
+          type: string
+        project_id:
+          type: string
+        role:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
 
     AuthzCheckRequest:
       type: object

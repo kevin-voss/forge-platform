@@ -48,6 +48,12 @@ sealed class ApiException(
         code: String = "unauthorized",
     ) : ApiException(HttpStatusCode.Unauthorized, code, message, details)
 
+    class Forbidden(
+        message: String,
+        details: Map<String, String>? = null,
+        code: String = "forbidden",
+    ) : ApiException(HttpStatusCode.Forbidden, code, message, details)
+
     class TooManyRequests(
         message: String,
         details: Map<String, String>? = null,

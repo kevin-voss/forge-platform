@@ -57,7 +57,22 @@ class ConfigTest {
         assertEquals(65_536, cfg.auth.argon2MemoryKb)
         assertEquals(3, cfg.auth.argon2Iterations)
         assertEquals(5, cfg.auth.loginMaxFails)
+        assertEquals(null, cfg.token.defaultTtlSeconds)
+        assertEquals(8, cfg.token.prefixLen)
         assertEquals("1", cfg.authzMatrixVersion)
+    }
+
+    @Test
+    fun tokenConfigFromEnv() {
+        val cfg = loadConfig(
+            mapOf(
+                "FORGE_IDENTITY_DB_URL" to "jdbc:postgresql://127.0.0.1:5001/forge_identity",
+                "FORGE_TOKEN_DEFAULT_TTL_S" to "3600",
+                "FORGE_TOKEN_PREFIX_LEN" to "12",
+            ),
+        )
+        assertEquals(3600, cfg.token.defaultTtlSeconds)
+        assertEquals(12, cfg.token.prefixLen)
     }
 
     @Test

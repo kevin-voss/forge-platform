@@ -18,6 +18,8 @@ import forge.identity.http.toEnvelope
 import forge.identity.logging.JsonLog
 import forge.identity.org.orgRoutes
 import forge.identity.project.projectRoutes
+import forge.identity.token.serviceAccountRoutes
+import forge.identity.token.tokenRoutes
 import forge.identity.user.userRoutes
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
@@ -57,6 +59,7 @@ fun main() {
     val tenancyHolder = AtomicReference<TenancyServices?>(null)
     val authHolder = AtomicReference<AuthServices?>(null)
     val authzHolder = AtomicReference<AuthzService?>(null)
+    val tokenHolder = AtomicReference<TokenServices?>(null)
     val readiness = Readiness()
     val graceMillis = cfg.shutdownGraceSeconds.toLong().coerceAtLeast(1) * 1_000
 
@@ -66,7 +69,7 @@ fun main() {
     }
 
     val connector = thread(name = "identity-db-connect", isDaemon = true) {
-        connectAndMigrate(cfg, log, dbHolder, tenancyHolder, authHolder, authzHolder)
+        connectAndMigrate(cfg, log, dbHolder, tenancyHolder, authHolder, authzHolder, tokenHolder)
     }
 
     val server = embeddedServer(Netty, port = cfg.port, host = "0.0.0.0") {
@@ -79,6 +82,7 @@ fun main() {
             tenancyRef = tenancyHolder,
             authRef = authHolder,
             authzRef = authzHolder,
+            tokenRef = tokenHolder,
             onDbFailure = { cause ->
                 log.warn("readiness db check failed", "error" to cause)
             },
@@ -99,6 +103,7 @@ fun main() {
             log.info("shutdown signal received", "signal" to "SIGTERM")
             connector.interrupt()
             server.stop(gracePeriodMillis = 1_000, timeoutMillis = graceMillis)
+            tokenHolder.set(null)
             authzHolder.set(null)
             authHolder.set(null)
             tenancyHolder.set(null)
@@ -123,6 +128,7 @@ fun main() {
         server.start(wait = true)
     } finally {
         connector.interrupt()
+        tokenHolder.set(null)
         authzHolder.set(null)
         authHolder.set(null)
         tenancyHolder.set(null)
@@ -137,6 +143,7 @@ internal fun connectAndMigrate(
     tenancyHolder: AtomicReference<TenancyServices?>,
     authHolder: AtomicReference<AuthServices?>,
     authzHolder: AtomicReference<AuthzService?>,
+    tokenHolder: AtomicReference<TokenServices?>,
 ) {
     var delayMs = cfg.database.connectRetryInitialMs
     while (!Thread.currentThread().isInterrupted) {
@@ -165,7 +172,15 @@ internal fun connectAndMigrate(
                 db.markMigrationsApplied()
             }
             val tenancy = TenancyServices.from(db, log)
-            val auth = AuthServices.from(db, tenancy, cfg.auth, log)
+            val tokens = TokenServices.from(db, tenancy, cfg.token, log)
+            val auth = AuthServices.from(
+                db = db,
+                tenancy = tenancy,
+                authConfig = cfg.auth,
+                tokenConfig = cfg.token,
+                tokenIntrospector = tokens.introspector,
+                log = log,
+            )
             val authz = AuthzService.create(
                 projects = tenancy.projects,
                 orgs = tenancy.orgs,
@@ -175,6 +190,7 @@ internal fun connectAndMigrate(
             maybeSeedAdmin(cfg, tenancy, log)
             dbHolder.getAndSet(db)?.close()
             tenancyHolder.set(tenancy)
+            tokenHolder.set(tokens)
             authHolder.set(auth)
             authzHolder.set(authz)
             log.info(
@@ -233,6 +249,8 @@ fun Application.forgeIdentityModule(
     authRef: AtomicReference<AuthServices?>? = null,
     authz: AuthzService? = null,
     authzRef: AtomicReference<AuthzService?>? = null,
+    tokens: TokenServices? = null,
+    tokenRef: AtomicReference<TokenServices?>? = null,
     onDbFailure: (String) -> Unit = {},
 ) {
     install(ContentNegotiation) {
@@ -332,6 +350,11 @@ fun Application.forgeIdentityModule(
                 ).also { authzRef?.set(it) }
             }
 
+    fun resolveTokens(): TokenServices =
+        tokens
+            ?: tokenRef?.get()
+            ?: throw ApiException.ServiceUnavailable("identity tokens not ready")
+
     routing {
         healthRoutes(cfg, readiness, dbProbe, startedAtMs, onDbFailure)
         userRoutes { resolveTenancy().users }
@@ -339,5 +362,7 @@ fun Application.forgeIdentityModule(
         projectRoutes { resolveTenancy().projects }
         authRoutes { resolveAuth().auth }
         authzRoutes { resolveAuthz() }
+        serviceAccountRoutes { resolveTokens().serviceAccounts }
+        tokenRoutes { resolveTokens().tokens }
     }
 }

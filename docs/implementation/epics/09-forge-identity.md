@@ -69,7 +69,7 @@ make demo DEMO=09
 | [09.02](../steps/09-forge-identity/09.02-users-orgs-memberships.md) | Users, orgs, memberships persistence | Complete | Core tenancy model |
 | [09.03](../steps/09-forge-identity/09.03-registration-login-sessions.md) | Registration, login, sessions | Complete | Password hashing + session lifecycle |
 | [09.04](../steps/09-forge-identity/09.04-roles-and-project-membership.md) | Roles + project membership | Complete | RBAC model + permission evaluation |
-| [09.05](../steps/09-forge-identity/09.05-api-tokens-service-accounts-revocation.md) | API tokens + service accounts + revocation | Not started | Machine identity + revoke |
+| [09.05](../steps/09-forge-identity/09.05-api-tokens-service-accounts-revocation.md) | API tokens + service accounts + revocation | Complete | Machine identity + revoke |
 | [09.06](../steps/09-forge-identity/09.06-control-authz-middleware.md) | Control authz middleware | Not started | End `FORGE_AUTH_MODE=dev` default |
 | [09.07](../steps/09-forge-identity/09.07-cli-login-and-token-profile.md) | CLI `forge login` + token profile | Not started | Store + use token |
 | [09.08](../steps/09-forge-identity/09.08-demo-09-platform-identity.md) | Demo `09-platform-identity` + gate | Not started | Full scenario; epic gate |
@@ -92,4 +92,4 @@ make demo DEMO=09
 
 ## Next step to implement
 
-**[09.05](../steps/09-forge-identity/09.05-api-tokens-service-accounts-revocation.md) — API tokens + service accounts + revocation**.
+**[09.06](../steps/09-forge-identity/09.06-control-authz-middleware.md) — Control authz middleware**.

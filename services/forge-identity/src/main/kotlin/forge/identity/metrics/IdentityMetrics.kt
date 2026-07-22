@@ -14,6 +14,12 @@ object IdentityMetrics {
     val authzChecksTotal = AtomicLong(0)
     val authzAllowsTotal = AtomicLong(0)
     val authzDeniesTotal = AtomicLong(0)
+    val activeTokens = AtomicLong(0)
+    val tokensCreatedTotal = AtomicLong(0)
+    val tokenRevocationsTotal = AtomicLong(0)
+    val introspectTotal = AtomicLong(0)
+    val introspectUserTotal = AtomicLong(0)
+    val introspectServiceAccountTotal = AtomicLong(0)
 
     fun recordUserCreated() {
         usersTotal.incrementAndGet()
@@ -49,5 +55,25 @@ object IdentityMetrics {
 
     fun recordAuthzDeny(@Suppress("UNUSED_PARAMETER") action: String) {
         authzDeniesTotal.incrementAndGet()
+    }
+
+    fun recordTokenCreated() {
+        tokensCreatedTotal.incrementAndGet()
+    }
+
+    fun recordTokenRevoked() {
+        tokenRevocationsTotal.incrementAndGet()
+    }
+
+    fun setActiveTokens(count: Long) {
+        activeTokens.set(count)
+    }
+
+    fun recordIntrospect(principalType: String, @Suppress("UNUSED_PARAMETER") active: Boolean) {
+        introspectTotal.incrementAndGet()
+        when (principalType) {
+            "user" -> introspectUserTotal.incrementAndGet()
+            "service_account" -> introspectServiceAccountTotal.incrementAndGet()
+        }
     }
 }

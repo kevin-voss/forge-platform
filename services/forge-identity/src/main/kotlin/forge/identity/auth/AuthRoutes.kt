@@ -62,7 +62,13 @@ data class IntrospectMemberships(
 data class IntrospectResponse(
     val active: Boolean,
     val principal_type: String? = null,
+    /** Present for active sessions and API tokens (user or service_account id). */
+    val principal_id: String? = null,
     val user_id: String? = null,
+    /** Present for active API tokens (project-scoped). */
+    val project_id: String? = null,
+    /** Present for active API tokens. */
+    val role: String? = null,
     val memberships: IntrospectMemberships? = null,
 )
 
@@ -73,6 +79,7 @@ class AuthService(
     private val sessions: SessionStore,
     private val hasher: PasswordHasher,
     private val authConfig: AuthConfig,
+    private val tokenIntrospector: forge.identity.token.TokenIntrospector? = null,
     private val log: JsonLog? = null,
 ) {
     /** Precomputed Argon2id hash used to equalize timing when the user is unknown. */
@@ -222,14 +229,23 @@ class AuthService(
     }
 
     fun introspect(token: String): IntrospectResponse {
+        // API tokens (forge_pat_ / forge_sat_) — machine identity (09.05).
+        tokenIntrospector?.introspect(token)?.let { return it }
+
         val session = sessions.findByToken(token)
-        if (session == null || !session.isActive()) {
+        if (session == null) {
+            return IntrospectResponse(active = false)
+        }
+        if (!session.isActive()) {
+            IdentityMetrics.recordIntrospect(principalType = "user", active = false)
             return IntrospectResponse(active = false)
         }
         val memberships = users.memberships(session.userId)
+        IdentityMetrics.recordIntrospect(principalType = "user", active = true)
         return IntrospectResponse(
             active = true,
             principal_type = "user",
+            principal_id = session.userId,
             user_id = session.userId,
             memberships = memberships.toIntrospect(),
         )

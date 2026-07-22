@@ -24,6 +24,16 @@ data class AuthConfig(
     val loginLockoutWindowSeconds: Long = 900,
 )
 
+data class TokenConfig(
+    /**
+     * Default API token TTL in seconds (`FORGE_TOKEN_DEFAULT_TTL_S`).
+     * Null means tokens do not expire unless `expires_in_s` is set on create.
+     */
+    val defaultTtlSeconds: Long? = null,
+    /** Characters of the plaintext token retained as an identification prefix. */
+    val prefixLen: Int = 8,
+)
+
 data class Config(
     val port: Int,
     val serviceName: String,
@@ -35,6 +45,7 @@ data class Config(
     /** Optional bootstrap admin email (`FORGE_IDENTITY_SEED_ADMIN`). */
     val seedAdminEmail: String? = null,
     val auth: AuthConfig = AuthConfig(),
+    val token: TokenConfig = TokenConfig(),
     /** Informational matrix version (`FORGE_AUTHZ_MATRIX_VERSION`); matrix is code-defined. */
     val authzMatrixVersion: String = "1",
 )
@@ -167,6 +178,33 @@ fun loadConfig(env: Map<String, String> = System.getenv()): Config {
 
     val matrixVersion = env["FORGE_AUTHZ_MATRIX_VERSION"]?.trim().orEmpty().ifEmpty { "1" }
 
+    val tokenTtlRaw = env["FORGE_TOKEN_DEFAULT_TTL_S"]?.trim().orEmpty()
+    val tokenDefaultTtl: Long? = if (tokenTtlRaw.isEmpty()) {
+        null
+    } else {
+        val parsed = tokenTtlRaw.toLongOrNull()
+            ?: throw IllegalArgumentException(
+                "FORGE_TOKEN_DEFAULT_TTL_S must be a positive integer when set, got '$tokenTtlRaw'",
+            )
+        if (parsed < 1) {
+            throw IllegalArgumentException(
+                "FORGE_TOKEN_DEFAULT_TTL_S must be a positive integer when set, got '$tokenTtlRaw'",
+            )
+        }
+        parsed
+    }
+
+    val prefixLenRaw = env["FORGE_TOKEN_PREFIX_LEN"]?.trim().orEmpty().ifEmpty { "8" }
+    val prefixLen = prefixLenRaw.toIntOrNull()
+        ?: throw IllegalArgumentException(
+            "FORGE_TOKEN_PREFIX_LEN must be a positive integer, got '$prefixLenRaw'",
+        )
+    if (prefixLen < 1) {
+        throw IllegalArgumentException(
+            "FORGE_TOKEN_PREFIX_LEN must be a positive integer, got '$prefixLenRaw'",
+        )
+    }
+
     return Config(
         port = port,
         serviceName = env["FORGE_SERVICE_NAME"]?.trim().orEmpty().ifEmpty { "forge-identity" },
@@ -189,6 +227,10 @@ fun loadConfig(env: Map<String, String> = System.getenv()): Config {
             argon2MemoryKb = argonMem,
             argon2Iterations = argonIter,
             loginMaxFails = loginMaxFails,
+        ),
+        token = TokenConfig(
+            defaultTtlSeconds = tokenDefaultTtl,
+            prefixLen = prefixLen,
         ),
         authzMatrixVersion = matrixVersion,
     )

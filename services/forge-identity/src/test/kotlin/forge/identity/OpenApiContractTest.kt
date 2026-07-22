@@ -46,9 +46,15 @@ class OpenApiContractTest {
         assertTrue(yaml.contains("/v1/auth/logout"))
         assertTrue(yaml.contains("/v1/authz/check"))
         assertTrue(yaml.contains("/v1/authz/matrix"))
+        assertTrue(yaml.contains("/v1/tokens"))
+        assertTrue(yaml.contains("/v1/service-accounts"))
+        assertTrue(yaml.contains("/v1/tokens/{tokenId}/revoke"))
         assertTrue(yaml.contains("ErrorEnvelope:"))
         assertTrue(yaml.contains("IntrospectResponse:"))
         assertTrue(yaml.contains("AuthzCheckResponse:"))
+        assertTrue(yaml.contains("CreateTokenResponse:"))
+        assertTrue(yaml.contains("TokenMetadata:"))
+        assertTrue(yaml.contains("ServiceAccount:"))
         assertTrue(yaml.contains("createUser") || yaml.contains("operationId: createUser"))
         assertTrue(yaml.contains("createOrg") || yaml.contains("operationId: createOrg"))
         assertTrue(yaml.contains("addProjectMember") || yaml.contains("operationId: addProjectMember"))
@@ -57,10 +63,16 @@ class OpenApiContractTest {
         assertTrue(yaml.contains("introspect") || yaml.contains("operationId: introspect"))
         assertTrue(yaml.contains("logout") || yaml.contains("operationId: logout"))
         assertTrue(yaml.contains("checkAuthorization") || yaml.contains("operationId: checkAuthorization"))
+        assertTrue(yaml.contains("createToken") || yaml.contains("operationId: createToken"))
+        assertTrue(yaml.contains("createServiceAccount") || yaml.contains("operationId: createServiceAccount"))
+        assertTrue(yaml.contains("revokeToken") || yaml.contains("operationId: revokeToken"))
         assertTrue(yaml.contains("display_name"))
         assertTrue(yaml.contains("user_id"))
         assertTrue(yaml.contains("session_token"))
         assertTrue(yaml.contains("principal_type"))
+        assertTrue(yaml.contains("principal_id"))
+        assertTrue(yaml.contains("service_account"))
+        assertTrue(yaml.contains("forge_pat_") || yaml.contains("forge_sat_") || yaml.contains("API tokens"))
     }
 
     @Test
@@ -69,6 +81,7 @@ class OpenApiContractTest {
             {
               "active": true,
               "principal_type": "user",
+              "principal_id": "11111111-1111-1111-1111-111111111111",
               "user_id": "11111111-1111-1111-1111-111111111111",
               "memberships": { "orgs": [], "projects": [] }
             }
@@ -78,7 +91,23 @@ class OpenApiContractTest {
         assertEquals(true, decoded.active)
         assertEquals("user", decoded.principal_type)
         assertEquals("11111111-1111-1111-1111-111111111111", decoded.user_id)
+        assertEquals("11111111-1111-1111-1111-111111111111", decoded.principal_id)
         assertEquals(emptyList(), decoded.memberships?.orgs)
+
+        val apiToken = """
+            {
+              "active": true,
+              "principal_type": "service_account",
+              "principal_id": "sa_1",
+              "project_id": "prj_1",
+              "role": "service-account"
+            }
+        """.trimIndent()
+        val tokenDecoded = Json { ignoreUnknownKeys = true }
+            .decodeFromString(forge.identity.auth.IntrospectResponse.serializer(), apiToken)
+        assertEquals("service_account", tokenDecoded.principal_type)
+        assertEquals("prj_1", tokenDecoded.project_id)
+        assertEquals("service-account", tokenDecoded.role)
     }
 
     @Test
