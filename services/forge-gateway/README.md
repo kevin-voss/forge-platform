@@ -2,10 +2,10 @@
 
 HTTP edge gateway for Forge Platform (Go + `net/http` + `httputil.ReverseProxy`).
 
-This step (`05.06`) adds WebSocket upgrade proxying (full-duplex byte copy) and
-SSE flush-through streaming, with idle timeouts and request-id / forwarded
-header propagation on the upgrade/stream request. Streaming traffic skips the
-overall proxy deadline from `05.05` (`timeoutExempt` or WS/SSE detection).
+HTTP edge for Runtime-published workloads: host/path routing, Control/Runtime
+route sync, health-aware upstreams, request-id / forwarded headers / timeouts,
+and WebSocket + SSE proxying. Epic acceptance is `make demo DEMO=05`
+(`demos/05-routed-service`).
 
 ## Quick start
 

@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 36`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 37`**.
 
 ## Epics
 
@@ -13,7 +13,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [02](epics/02-forge-control.md) | Forge Control | Complete | 8/8 steps complete; demo 02 acceptance gate passed |
 | [03](epics/03-forge-cli.md) | Forge CLI | Complete | 6/6 steps complete; demo 03 CLI control-plane acceptance gate passed |
 | [04](epics/04-forge-runtime.md) | Forge Runtime | Complete | 8/8 steps complete; demo 04 runtime acceptance gate passed |
-| [05](epics/05-forge-gateway.md) | Forge Gateway | In progress | 6/7 steps; WebSocket + SSE proxy |
+| [05](epics/05-forge-gateway.md) | Forge Gateway | Complete | 7/7 steps complete; demo 05 routed-service acceptance gate passed |
 | [06](epics/06-forge-build.md) | Forge Build | Planning | 7 steps |
 | [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | Planning | 6 steps |
 | [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | Planning | 6 steps |
@@ -69,7 +69,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **33** | [Health-aware upstreams](steps/05-forge-gateway/05.04-health-aware-upstreams.md) | Complete |  | Ready filter, active/passive probes, `503 no_healthy_upstream` |
 | **34** | [Request IDs, forwarded headers, timeouts](steps/05-forge-gateway/05.05-request-ids-headers-timeouts.md) | Complete |  | Request IDs, X-Forwarded-*/Forwarded, connect/response/overall timeouts → 504 |
 | **35** | [WebSocket + SSE proxy](steps/05-forge-gateway/05.06-websocket-and-sse-proxy.md) | Complete |  | WS hijack+copy, SSE flush-through, idle timeouts, request-id/forwarded on streams |
-| **36** | [Demo `05-routed-service` + gate](steps/05-forge-gateway/05.07-demo-routed-service-and-gate.md) | Not started |  |  |
+| **36** | [Demo `05-routed-service` + gate](steps/05-forge-gateway/05.07-demo-routed-service-and-gate.md) | Complete |  | Hostname routing for Go/Rust/Python, request-id propagation, 503 on stop, dynamic route update |
 | **37** | [Skeleton + Docker + workspace](steps/06-forge-build/06.01-skeleton-docker-workspace.md) | Not started |  |  |
 | **38** | [`forge.yaml` schema + build OpenAPI](steps/06-forge-build/06.02-forge-yaml-schema-and-openapi.md) | Not started |  |  |
 | **39** | [Clone/checkout + docker build + streamed logs](steps/06-forge-build/06.03-clone-checkout-docker-build-logs.md) | Not started |  |  |

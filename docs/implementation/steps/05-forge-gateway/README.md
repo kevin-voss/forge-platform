@@ -10,6 +10,6 @@ Atomic steps for [Forge Gateway](../../epics/05-forge-gateway.md).
 | 05.04 | [05.04-health-aware-upstreams.md](05.04-health-aware-upstreams.md) | Complete |
 | 05.05 | [05.05-request-ids-headers-timeouts.md](05.05-request-ids-headers-timeouts.md) | Complete |
 | 05.06 | [05.06-websocket-and-sse-proxy.md](05.06-websocket-and-sse-proxy.md) | Complete |
-| 05.07 | [05.07-demo-routed-service-and-gate.md](05.07-demo-routed-service-and-gate.md) | Not started |
+| 05.07 | [05.07-demo-routed-service-and-gate.md](05.07-demo-routed-service-and-gate.md) | Complete |
 
 Implement with [`../../IMPLEMENT_STEP.md`](../../IMPLEMENT_STEP.md) (`STEP_ID=05.01` first).

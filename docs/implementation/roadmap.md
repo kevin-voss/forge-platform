@@ -55,7 +55,7 @@ Full step catalog + global queue: [`MASTER_PLAN.md`](MASTER_PLAN.md).
 | [02](epics/02-forge-control.md) | Forge Control | `services/forge-control` | Kotlin | Complete (8/8 steps; demo 02 gate passed) |
 | [03](epics/03-forge-cli.md) | Forge CLI | `tools/forge-cli` | Go | Complete (6/6 steps; demo 03 gate passed) |
 | [04](epics/04-forge-runtime.md) | Forge Runtime | `services/forge-runtime` | Rust | Complete (8/8 steps; demo 04 gate passed) |
-| [05](epics/05-forge-gateway.md) | Forge Gateway | `services/forge-gateway` | Go | Planned (7 steps) |
+| [05](epics/05-forge-gateway.md) | Forge Gateway | `services/forge-gateway` | Go | Complete (7/7 steps; demo 05 gate passed) |
 | [06](epics/06-forge-build.md) | Forge Build | `services/forge-build` | Go | Planned (7 steps) |
 | [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | control + runtime | mixed | Planned (6 steps) |
 | [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | control + runtime | mixed | Planned (6 steps) |

@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Goal
 
@@ -66,7 +66,7 @@ python.demo.localhost  ┘
 | [05.04](../steps/05-forge-gateway/05.04-health-aware-upstreams.md) | Health-aware upstreams | Complete | Depends on 05.02/05.03 + Runtime status |
 | [05.05](../steps/05-forge-gateway/05.05-request-ids-headers-timeouts.md) | Request IDs, forwarded headers, timeouts | Complete | Depends on 05.02 |
 | [05.06](../steps/05-forge-gateway/05.06-websocket-and-sse-proxy.md) | WebSocket + SSE proxy | Complete | Depends on 05.02/05.05 |
-| [05.07](../steps/05-forge-gateway/05.07-demo-routed-service-and-gate.md) | Demo `05-routed-service` + gate | Not started | Depends on all prior |
+| [05.07](../steps/05-forge-gateway/05.07-demo-routed-service-and-gate.md) | Demo `05-routed-service` + gate | Complete | `demos/05-routed-service` acceptance gate |
 
 ## Assumptions
 
@@ -86,4 +86,4 @@ python.demo.localhost  ┘
 
 ## Next step to implement
 
-**[05.07](../steps/05-forge-gateway/05.07-demo-routed-service-and-gate.md) — Demo `05-routed-service` + gate**.
+Epic complete. Next queue item is epic 06 (`N = 37`).
