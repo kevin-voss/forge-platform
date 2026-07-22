@@ -169,6 +169,24 @@ Language demos (`01.03`–`01.07`) and `make demo DEMO=01` will invoke this runn
 
 Host ports for the five demo languages are reserved in [`docs/operations/ports.md`](../operations/ports.md) (`4201`–`4205`).
 
+## Demo 01
+
+End-to-end proof of this contract lives in [`demos/01-container-runtime`](../../demos/01-container-runtime/README.md):
+
+| Service | Host port | Language |
+|---|---:|---|
+| `demo-go-api` | 4201 | Go |
+| `demo-kotlin-api` | 4202 | Kotlin |
+| `demo-rust-api` | 4203 | Rust |
+| `demo-python-api` | 4204 | Python |
+| `demo-elixir-api` | 4205 | Elixir |
+
+```bash
+make demo DEMO=01
+```
+
+That demo builds all five images, checks health/identity/logs/shutdown via the shared validator, and fails closed if any language fails. Demo apps must not depend on platform SDKs.
+
 ## Decisions recorded (epic 01)
 
 | Topic | Decision |

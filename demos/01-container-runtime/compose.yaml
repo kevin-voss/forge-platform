@@ -62,3 +62,20 @@ services:
       FORGE_ENV: development
     stop_grace_period: 10s
     restart: "no"
+
+  demo-elixir-api:
+    build:
+      context: ./apps/elixir
+    image: forge/demo-elixir-api:local
+    container_name: demo-elixir-api
+    ports:
+      - "4205:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: demo-elixir-api
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: info
+      FORGE_ENV: development
+      RELEASE_DISTRIBUTION: none
+    stop_grace_period: 10s
+    restart: "no"

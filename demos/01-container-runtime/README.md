@@ -1,21 +1,34 @@
-# Demo 01: Container runtime (Go + Kotlin + Rust + Python)
+# Demo 01: Container runtime (five languages)
 
 Language slices of the Forge runtime contract: production-shaped workloads that
 listen on `PORT`, expose health + identity, emit structured JSON logs, and shut
 down cleanly on `SIGTERM`.
 
-This step covers **Go** (port `4201`), **Kotlin** (port `4202`), **Rust**
-(port `4203`), and **Python** (port `4204`). Later steps add Elixir on port
-`4205`.
+All five languages are covered: **Go** (`4201`), **Kotlin** (`4202`), **Rust**
+(`4203`), **Python** (`4204`), and **Elixir** (`4205`).
+
+```text
+Docker Compose (demo 01)
+├── demo-go-api      :4201
+├── demo-kotlin-api  :4202
+├── demo-rust-api    :4203
+├── demo-python-api  :4204
+└── demo-elixir-api  :4205
+         │
+         ▼
+tools/contract-validator (×5)
+```
 
 ## What this demo checks
 
-* Go, Kotlin, Rust, and Python images build via Compose
-* `GET /health/live` and `GET /health/ready` → `200`
+* All five images build via Compose
+* Every container starts and `GET /health/live` + `GET /health/ready` → `200`
 * `GET /` identity JSON includes the expected `"language"`
 * Structured stdout logs match the epic 01 required fields
-* `docker stop` (SIGTERM) exits within the 10s grace window
+* `docker stop` (SIGTERM) exits within the 10s grace window (no forced kill)
+* Required env vars (`PORT`, `FORGE_*`) are respected
 * Shared [`tools/contract-validator`](../../tools/contract-validator/README.md) passes for each language
+* Partial startup does not report overall success (`run.sh` fails closed)
 
 ## Ports
 
@@ -25,12 +38,14 @@ This step covers **Go** (port `4201`), **Kotlin** (port `4202`), **Rust**
 | `demo-kotlin-api` | 4202 | 8080 (`PORT`) |
 | `demo-rust-api` | 4203 | 8080 (`PORT`) |
 | `demo-python-api` | 4204 | 8080 (`PORT`) |
+| `demo-elixir-api` | 4205 | 8080 (`PORT`) |
 
-See [`docs/operations/ports.md`](../../docs/operations/ports.md).
+See [`docs/operations/ports.md`](../../docs/operations/ports.md) and
+[`docs/contracts/runtime-contract.md`](../../docs/contracts/runtime-contract.md).
 
 ## Configuration
 
-In-container defaults (Compose / Dockerfile / `.env.example`):
+In-container defaults (Compose / Dockerfile):
 
 ```text
 PORT=8080
@@ -40,8 +55,9 @@ FORGE_LOG_LEVEL=info
 FORGE_ENV=development
 ```
 
-Host publish pattern: `4201:8080` (Go), `4202:8080` (Kotlin), `4203:8080` (Rust),
-`4204:8080` (Python).
+Elixir also sets `RELEASE_DISTRIBUTION=none` (no distributed Erlang / epmd cookie).
+
+Host publish pattern: `420N:8080`.
 
 ## Run
 
@@ -53,6 +69,24 @@ Or directly:
 
 ```bash
 ./demos/01-container-runtime/run.sh
+```
+
+### Manual curls
+
+```bash
+for p in 4201 4202 4203 4204 4205; do curl -sf http://127.0.0.1:$p/health/ready; echo; done
+curl -sf http://127.0.0.1:4201/   # go
+curl -sf http://127.0.0.1:4202/   # kotlin
+curl -sf http://127.0.0.1:4203/   # rust
+curl -sf http://127.0.0.1:4204/   # python
+curl -sf http://127.0.0.1:4205/   # elixir
+```
+
+### Logs
+
+```bash
+docker compose -f demos/01-container-runtime/compose.yaml logs
+docker compose -f demos/01-container-runtime/compose.yaml logs demo-elixir-api
 ```
 
 ## Local unit tests
@@ -69,7 +103,12 @@ cargo test
 
 cd demos/01-container-runtime/apps/python
 python -m unittest -v test_server.py
+
+cd demos/01-container-runtime/apps/elixir
+mix test
 ```
+
+Elixir tests also run during the Docker image build.
 
 ## Layout
 
@@ -82,5 +121,6 @@ demos/01-container-runtime/
     ├── go/       # demo-go-api (no platform SDK imports)
     ├── kotlin/   # demo-kotlin-api (Ktor/Netty; no platform SDK)
     ├── rust/     # demo-rust-api (Axum/Tokio; no platform SDK)
-    └── python/   # demo-python-api (stdlib only; no platform SDK)
+    ├── python/   # demo-python-api (stdlib only; no platform SDK)
+    └── elixir/   # demo-elixir-api (Bandit/Plug; no platform SDK)
 ```

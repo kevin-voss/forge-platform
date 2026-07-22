@@ -45,5 +45,12 @@ Tests use an in-tree fixture HTTP server (`fixture_server.py`) so they do not de
 
 ### Language demos
 
-* Go (`01.03`) + Kotlin (`01.05`) + Python (`01.04`): `make demo DEMO=01` builds `demo-go-api` (`4201`), `demo-kotlin-api` (`4202`), and `demo-python-api` (`4204`) and runs this validator (HTTP, logs, graceful shutdown) for each.
-* Steps `01.06`–`01.07` add Rust and Elixir on ports `4203` and `4205`; the same runner checks each language.
+`make demo DEMO=01` builds all five contract apps and runs this validator (HTTP, logs, graceful shutdown) for each:
+
+| Service | Port | Step |
+|---|---:|---|
+| `demo-go-api` | 4201 | `01.03` |
+| `demo-kotlin-api` | 4202 | `01.05` |
+| `demo-rust-api` | 4203 | `01.06` |
+| `demo-python-api` | 4204 | `01.04` |
+| `demo-elixir-api` | 4205 | `01.07` |

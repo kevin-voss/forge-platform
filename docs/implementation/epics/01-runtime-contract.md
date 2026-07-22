@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Goal
 
@@ -71,7 +71,7 @@ Docker Compose
 | [01.04](../steps/01-runtime-contract/01.04-python-demo-app.md) | Python demo application | Complete | Depends on 01.03; port 4204 |
 | [01.05](../steps/01-runtime-contract/01.05-kotlin-demo-app.md) | Kotlin demo application | Complete | Depends on 01.03; port 4202 |
 | [01.06](../steps/01-runtime-contract/01.06-rust-demo-app.md) | Rust demo application | Complete | Depends on 01.03; port 4203; matches spec example |
-| [01.07](../steps/01-runtime-contract/01.07-elixir-demo-and-full-suite.md) | Elixir demo and full suite | Not started | Fifth language + epic acceptance gate |
+| [01.07](../steps/01-runtime-contract/01.07-elixir-demo-and-full-suite.md) | Elixir demo and full suite | Complete | Fifth language + epic acceptance gate |
 
 ## Assumptions
 
@@ -93,4 +93,4 @@ Docker Compose
 
 ## Next step to implement
 
-**[01.07](../steps/01-runtime-contract/01.07-elixir-demo-and-full-suite.md) — Elixir demo and full five-language suite** (depends on completed 01.03–01.06).
+Epic complete. Continue with **[02.01](../steps/02-forge-control/02.01-service-skeleton.md)** (`N = 8`).

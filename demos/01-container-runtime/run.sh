@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Demo 01 (Go + Kotlin + Rust + Python): build/start contract apps and validate the runtime contract.
+# Demo 01 (Go + Kotlin + Rust + Python + Elixir): build/start contract apps and validate.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -12,18 +12,21 @@ GO_CONTAINER="demo-go-api"
 KT_CONTAINER="demo-kotlin-api"
 RS_CONTAINER="demo-rust-api"
 PY_CONTAINER="demo-python-api"
+EX_CONTAINER="demo-elixir-api"
 GO_URL="http://127.0.0.1:4201"
 KT_URL="http://127.0.0.1:4202"
 RS_URL="http://127.0.0.1:4203"
 PY_URL="http://127.0.0.1:4204"
+EX_URL="http://127.0.0.1:4205"
 GO_LOG="$(mktemp "${TMPDIR:-/tmp}/demo-go-api-logs.XXXXXX.jsonl")"
 KT_LOG="$(mktemp "${TMPDIR:-/tmp}/demo-kotlin-api-logs.XXXXXX.jsonl")"
 RS_LOG="$(mktemp "${TMPDIR:-/tmp}/demo-rust-api-logs.XXXXXX.jsonl")"
 PY_LOG="$(mktemp "${TMPDIR:-/tmp}/demo-python-api-logs.XXXXXX.jsonl")"
+EX_LOG="$(mktemp "${TMPDIR:-/tmp}/demo-elixir-api-logs.XXXXXX.jsonl")"
 
 cleanup() {
   "${COMPOSE[@]}" down --remove-orphans >/dev/null 2>&1 || true
-  rm -f "${GO_LOG}" "${KT_LOG}" "${RS_LOG}" "${PY_LOG}"
+  rm -f "${GO_LOG}" "${KT_LOG}" "${RS_LOG}" "${PY_LOG}" "${EX_LOG}"
 }
 trap cleanup EXIT
 
@@ -65,26 +68,30 @@ validate_service() {
     --shutdown-timeout 10s
 }
 
-echo "== Demo 01: Container runtime (Go + Kotlin + Rust + Python) =="
+echo "== Demo 01: Container runtime (Go + Kotlin + Rust + Python + Elixir) =="
 
 chmod +x "${VALIDATOR}" "${ROOT_DIR}/tools/contract-validator/"*.py 2>/dev/null || true
 
-echo "Building and starting ${GO_CONTAINER} (4201), ${KT_CONTAINER} (4202), ${RS_CONTAINER} (4203), ${PY_CONTAINER} (4204)..."
-"${COMPOSE[@]}" up -d --build --force-recreate demo-go-api demo-kotlin-api demo-rust-api demo-python-api
+echo "Building and starting all five services (4201–4205)..."
+"${COMPOSE[@]}" up -d --build --force-recreate \
+  demo-go-api demo-kotlin-api demo-rust-api demo-python-api demo-elixir-api
 
 wait_ready "${GO_CONTAINER}" "${GO_URL}"
 wait_ready "${KT_CONTAINER}" "${KT_URL}"
 wait_ready "${RS_CONTAINER}" "${RS_URL}"
 wait_ready "${PY_CONTAINER}" "${PY_URL}"
+wait_ready "${EX_CONTAINER}" "${EX_URL}"
 
 validate_service "${GO_CONTAINER}" "${GO_URL}" "go" "demo-go-api" "${GO_LOG}"
 validate_service "${KT_CONTAINER}" "${KT_URL}" "kotlin" "demo-kotlin-api" "${KT_LOG}"
 validate_service "${RS_CONTAINER}" "${RS_URL}" "rust" "demo-rust-api" "${RS_LOG}"
 validate_service "${PY_CONTAINER}" "${PY_URL}" "python" "demo-python-api" "${PY_LOG}"
+validate_service "${EX_CONTAINER}" "${EX_URL}" "elixir" "demo-elixir-api" "${EX_LOG}"
 
 echo
-echo "Demo 01 (Go + Kotlin + Rust + Python) passed."
+echo "Demo 01 (five-language suite) passed."
 echo "  Go:     ${GO_URL}/ → demo-go-api / go         (4201:8080)"
 echo "  Kotlin: ${KT_URL}/ → demo-kotlin-api / kotlin (4202:8080)"
 echo "  Rust:   ${RS_URL}/ → demo-rust-api / rust     (4203:8080)"
 echo "  Python: ${PY_URL}/ → demo-python-api / python (4204:8080)"
+echo "  Elixir: ${EX_URL}/ → demo-elixir-api / elixir (4205:8080)"
