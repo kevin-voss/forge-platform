@@ -13,8 +13,11 @@ import (
 	"syscall"
 	"time"
 
+	"forge.local/services/forge-gateway/internal/admin"
 	"forge.local/services/forge-gateway/internal/config"
 	"forge.local/services/forge-gateway/internal/health"
+	"forge.local/services/forge-gateway/internal/proxy"
+	"forge.local/services/forge-gateway/internal/routes"
 )
 
 func main() {
@@ -38,11 +41,24 @@ func run() error {
 		"auth_mode", cfg.AuthMode,
 		"log_level", cfg.LogLevel,
 		"shutdown_grace_seconds", int(cfg.ShutdownGrace.Seconds()),
+		"static_routes", cfg.StaticRoutesPath,
 	)
 
+	table := routes.NewTable()
+	if cfg.StaticRoutesPath != "" {
+		if err := table.LoadFile(cfg.StaticRoutesPath); err != nil {
+			return err
+		}
+		log.Info("loaded static routes", "path", cfg.StaticRoutesPath, "route_count", table.Len())
+	}
+
 	ready := health.NewReadiness()
+	proxyHandler := proxy.NewHandler(table, log)
+
 	mux := http.NewServeMux()
 	health.NewHandler(ready).Register(mux)
+	admin.NewRoutesHandler(table, proxyHandler, log).Register(mux)
+	mux.Handle("/", proxyHandler)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

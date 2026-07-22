@@ -10,13 +10,14 @@ import (
 
 // Config holds env-based runtime settings for forge-gateway.
 type Config struct {
-	Port           int
-	ServiceName    string
-	ServiceVersion string
-	LogLevel       string
-	Env            string
-	AuthMode       string
-	ShutdownGrace  time.Duration
+	Port             int
+	ServiceName      string
+	ServiceVersion   string
+	LogLevel         string
+	Env              string
+	AuthMode         string
+	ShutdownGrace    time.Duration
+	StaticRoutesPath string
 }
 
 // Load reads configuration from the process environment.
@@ -67,12 +68,13 @@ func Load() (Config, error) {
 	}
 
 	return Config{
-		Port:           port,
-		ServiceName:    name,
-		ServiceVersion: version,
-		LogLevel:       level,
-		Env:            env,
-		AuthMode:       authMode,
-		ShutdownGrace:  time.Duration(graceSecs) * time.Second,
+		Port:             port,
+		ServiceName:      name,
+		ServiceVersion:   version,
+		LogLevel:         level,
+		Env:              env,
+		AuthMode:         authMode,
+		ShutdownGrace:    time.Duration(graceSecs) * time.Second,
+		StaticRoutesPath: strings.TrimSpace(os.Getenv("FORGE_GATEWAY_STATIC_ROUTES")),
 	}, nil
 }

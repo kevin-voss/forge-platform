@@ -44,6 +44,18 @@ test-integration: run
 	@# Invalid PORT fails startup (config validation).
 	@! PORT=not-a-port go run . >/tmp/forge-gateway-bad-port.out 2>&1
 	@grep -q 'PORT' /tmp/forge-gateway-bad-port.out
+	@# Admin route replace + snapshot; no-match returns 404 envelope (proxy body covered by go test).
+	@curl -sf -X PUT "http://127.0.0.1:$(HOST_PORT)/admin/routes" -H 'content-type: application/json' \
+		-d '[{"host":"go.demo.localhost","upstreams":[{"url":"http://127.0.0.1:9"}],"strategy":"round_robin"}]' \
+		| grep -q 'go.demo.localhost'
+	@curl -sf "http://127.0.0.1:$(HOST_PORT)/admin/routes" | grep -q 'go.demo.localhost'
+	@code="$$(curl -s -o /tmp/forge-gateway-nomatch.json -w '%{http_code}' -H 'Host: nope.localhost' "http://127.0.0.1:$(HOST_PORT)/")"; \
+		test "$$code" = "404"; \
+		grep -q '"code":"no_route"' /tmp/forge-gateway-nomatch.json
+	@# Matched host with closed upstream → 502 (proves proxy dispatch, not open-proxy).
+	@code="$$(curl -s -o /tmp/forge-gateway-badup.json -w '%{http_code}' -H 'Host: go.demo.localhost' "http://127.0.0.1:$(HOST_PORT)/")"; \
+		test "$$code" = "502"; \
+		grep -q '"code":"bad_gateway"' /tmp/forge-gateway-badup.json
 	@# SIGTERM / docker stop exits 0 within grace.
 	@cid="$$($(COMPOSE) ps -q $(SERVICE))"; \
 		test -n "$$cid"; \
@@ -52,7 +64,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (health + structured logs + invalid PORT + graceful SIGTERM)."
+	@echo "Integration checks passed (health + admin routes + no_route/502 + structured logs + invalid PORT + graceful SIGTERM)."
 
 lint:
 	@go vet ./...
@@ -68,4 +80,5 @@ docker-run: run
 
 clean:
 	rm -rf bin
-	@rm -f /tmp/forge-gateway-bad-port.out /tmp/forge-gateway-gofmt.out
+	@rm -f /tmp/forge-gateway-bad-port.out /tmp/forge-gateway-gofmt.out \
+		/tmp/forge-gateway-nomatch.json /tmp/forge-gateway-badup.json

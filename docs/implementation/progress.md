@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 31`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 32`**.
 
 ## Epics
 
@@ -13,7 +13,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [02](epics/02-forge-control.md) | Forge Control | Complete | 8/8 steps complete; demo 02 acceptance gate passed |
 | [03](epics/03-forge-cli.md) | Forge CLI | Complete | 6/6 steps complete; demo 03 CLI control-plane acceptance gate passed |
 | [04](epics/04-forge-runtime.md) | Forge Runtime | Complete | 8/8 steps complete; demo 04 runtime acceptance gate passed |
-| [05](epics/05-forge-gateway.md) | Forge Gateway | In progress | 1/7 steps; skeleton + health on `4000` |
+| [05](epics/05-forge-gateway.md) | Forge Gateway | In progress | 2/7 steps; route table + reverse proxy core |
 | [06](epics/06-forge-build.md) | Forge Build | Planning | 7 steps |
 | [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | Planning | 6 steps |
 | [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | Planning | 6 steps |
@@ -64,7 +64,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **28** | [Control integration (desired→actual)](steps/04-forge-runtime/04.07-control-integration.md) | Complete |  | Poll Control, converge containers, `/v1/node/state`, status push contract |
 | **29** | [Demo `04-runtime` + gate](steps/04-forge-runtime/04.08-demo-runtime-and-gate.md) | Complete |  | CLI→Control→Runtime deploy, active/failed status, logs, delete, idempotency |
 | **30** | [Skeleton + health](steps/05-forge-gateway/05.01-skeleton-and-health.md) | Complete |  | Go skeleton on `4000`, health, Compose, graceful SIGTERM |
-| **31** | [Route table + reverse proxy core](steps/05-forge-gateway/05.02-route-table-and-proxy-core.md) | Not started |  |  |
+| **31** | [Route table + reverse proxy core](steps/05-forge-gateway/05.02-route-table-and-proxy-core.md) | Complete |  | In-memory routes, RR proxy, `GET/PUT /admin/routes` |
 | **32** | [Sync routes from Control](steps/05-forge-gateway/05.03-sync-routes-from-control.md) | Not started |  |  |
 | **33** | [Health-aware upstreams](steps/05-forge-gateway/05.04-health-aware-upstreams.md) | Not started |  |  |
 | **34** | [Request IDs, forwarded headers, timeouts](steps/05-forge-gateway/05.05-request-ids-headers-timeouts.md) | Not started |  |  |

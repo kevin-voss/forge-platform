@@ -13,6 +13,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FORGE_ENV", "")
 	t.Setenv("FORGE_AUTH_MODE", "")
 	t.Setenv("FORGE_SHUTDOWN_GRACE_SECONDS", "")
+	t.Setenv("FORGE_GATEWAY_STATIC_ROUTES", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -39,6 +40,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.ShutdownGrace != 10*time.Second {
 		t.Fatalf("ShutdownGrace = %v, want 10s", cfg.ShutdownGrace)
 	}
+	if cfg.StaticRoutesPath != "" {
+		t.Fatalf("StaticRoutesPath = %q, want empty", cfg.StaticRoutesPath)
+	}
 }
 
 func TestLoadInvalidPort(t *testing.T) {
@@ -61,6 +65,7 @@ func TestLoadCustomValues(t *testing.T) {
 	t.Setenv("FORGE_ENV", "test")
 	t.Setenv("FORGE_AUTH_MODE", "dev")
 	t.Setenv("FORGE_SHUTDOWN_GRACE_SECONDS", "5")
+	t.Setenv("FORGE_GATEWAY_STATIC_ROUTES", "/etc/forge/routes.json")
 
 	cfg, err := Load()
 	if err != nil {
@@ -74,6 +79,9 @@ func TestLoadCustomValues(t *testing.T) {
 	}
 	if cfg.ShutdownGrace != 5*time.Second {
 		t.Fatalf("ShutdownGrace = %v, want 5s", cfg.ShutdownGrace)
+	}
+	if cfg.StaticRoutesPath != "/etc/forge/routes.json" {
+		t.Fatalf("StaticRoutesPath = %q", cfg.StaticRoutesPath)
 	}
 }
 
