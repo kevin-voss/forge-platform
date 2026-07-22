@@ -31,6 +31,12 @@
 |---|---:|
 | Forge Control | 4001 |
 
+## Internal platform APIs
+
+| Service | Host port |
+|---|---:|
+| Forge Runtime | 4102 |
+
 ## Demo allocations (epic 01)
 
 Reserved host ports for `demos/01-container-runtime` (five-language runtime contract suite):

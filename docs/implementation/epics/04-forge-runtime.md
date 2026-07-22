@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning
+In progress
 
 ## Goal
 
@@ -62,7 +62,7 @@ Forge CLI → Forge Control → Forge Runtime → Docker Engine → demo-go cont
 
 | Step | Title | Status | Notes |
 |---|---|---|---|
-| [04.01](../steps/04-forge-runtime/04.01-skeleton-docker-socket-health.md) | Skeleton + Docker socket + health | Not started | Rust/Axum, port 4102, Docker ping |
+| [04.01](../steps/04-forge-runtime/04.01-skeleton-docker-socket-health.md) | Skeleton + Docker socket + health | Complete | Rust/Axum, port 4102, Docker ping |
 | [04.02](../steps/04-forge-runtime/04.02-node-identity-registration-heartbeat.md) | Node identity + registration/heartbeat | Not started | Depends on 04.01 |
 | [04.03](../steps/04-forge-runtime/04.03-workload-create-start.md) | Workload create/start (pull, env, ports, labels) | Not started | Depends on 04.01/04.02 |
 | [04.04](../steps/04-forge-runtime/04.04-health-probing-status-model.md) | Health probing + status model | Not started | Depends on 04.03 |
@@ -91,4 +91,4 @@ Forge CLI → Forge Control → Forge Runtime → Docker Engine → demo-go cont
 
 ## Next step to implement
 
-**[04.01](../steps/04-forge-runtime/04.01-skeleton-docker-socket-health.md) — Skeleton + Docker socket + health** (bootable Rust service on `4102` that can talk to Docker Engine and report health before any workload logic).
+**[04.02](../steps/04-forge-runtime/04.02-node-identity-registration-heartbeat.md) — Node identity + registration/heartbeat** (stable node id, register with Control, periodic heartbeat).

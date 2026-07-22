@@ -66,7 +66,7 @@ Update [`progress.md`](progress.md) after planning and after each step completes
 | [01-runtime-contract](epics/01-runtime-contract.md) | Planning | `01.01`–`01.07` |
 | [02-forge-control](epics/02-forge-control.md) | Planning | `02.01`–`02.08` |
 | [03-forge-cli](epics/03-forge-cli.md) | Planning | `03.01`–`03.06` |
-| [04-forge-runtime](epics/04-forge-runtime.md) | Planning | `04.01`–`04.08` |
+| [04-forge-runtime](epics/04-forge-runtime.md) | In progress | `04.01`–`04.08` |
 | [05-forge-gateway](epics/05-forge-gateway.md) | Planning | `05.01`–`05.07` |
 | [06-forge-build](epics/06-forge-build.md) | Planning | `06.01`–`06.07` |
 | [07-deployment-reconciliation](epics/07-deployment-reconciliation.md) | Planning | `07.01`–`07.06` |

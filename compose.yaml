@@ -198,6 +198,41 @@ services:
       retries: 10
       start_period: 20s
 
+  forge-runtime:
+    build:
+      context: ./services/forge-runtime
+    image: forge/forge-runtime:local
+    container_name: forge-runtime
+    restart: unless-stopped
+    ports:
+      - "4102:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: forge-runtime
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-info}
+      FORGE_ENV: ${FORGE_ENV:-development}
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+      DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
+      FORGE_SHUTDOWN_GRACE_SECONDS: ${FORGE_SHUTDOWN_GRACE_SECONDS:-10}
+      FORGE_DOCKER_STARTUP_RETRIES: ${FORGE_DOCKER_STARTUP_RETRIES:-5}
+      FORGE_DOCKER_STARTUP_RETRY_DELAY_MS: ${FORGE_DOCKER_STARTUP_RETRY_DELAY_MS:-500}
+    volumes:
+      # Privileged local-dev mount — grants broad host control; harden later.
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Socket is typically root:root mode 660 inside the container on Docker Desktop.
+    # Run as root for this privileged local-dev mount (documented; harden later).
+    user: "0:0"
+    group_add:
+      - "${DOCKER_GID:-0}"
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health/live | grep -q ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
 volumes:
   forge-postgres-data:
   forge-nats-data:
