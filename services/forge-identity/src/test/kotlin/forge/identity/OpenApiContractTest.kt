@@ -40,12 +40,41 @@ class OpenApiContractTest {
         assertTrue(yaml.contains("/v1/users/{userId}/memberships"))
         assertTrue(yaml.contains("/v1/orgs/{orgId}/members"))
         assertTrue(yaml.contains("/v1/projects/{projectId}/members"))
+        assertTrue(yaml.contains("/v1/auth/register"))
+        assertTrue(yaml.contains("/v1/auth/login"))
+        assertTrue(yaml.contains("/v1/auth/introspect"))
+        assertTrue(yaml.contains("/v1/auth/logout"))
         assertTrue(yaml.contains("ErrorEnvelope:"))
+        assertTrue(yaml.contains("IntrospectResponse:"))
         assertTrue(yaml.contains("createUser") || yaml.contains("operationId: createUser"))
         assertTrue(yaml.contains("createOrg") || yaml.contains("operationId: createOrg"))
         assertTrue(yaml.contains("addProjectMember") || yaml.contains("operationId: addProjectMember"))
+        assertTrue(yaml.contains("register") || yaml.contains("operationId: register"))
+        assertTrue(yaml.contains("login") || yaml.contains("operationId: login"))
+        assertTrue(yaml.contains("introspect") || yaml.contains("operationId: introspect"))
+        assertTrue(yaml.contains("logout") || yaml.contains("operationId: logout"))
         assertTrue(yaml.contains("display_name"))
         assertTrue(yaml.contains("user_id"))
+        assertTrue(yaml.contains("session_token"))
+        assertTrue(yaml.contains("principal_type"))
+    }
+
+    @Test
+    fun introspectExampleMatchesControlExpectedShape() {
+        val active = """
+            {
+              "active": true,
+              "principal_type": "user",
+              "user_id": "11111111-1111-1111-1111-111111111111",
+              "memberships": { "orgs": [], "projects": [] }
+            }
+        """.trimIndent()
+        val decoded = Json { ignoreUnknownKeys = true }
+            .decodeFromString(forge.identity.auth.IntrospectResponse.serializer(), active)
+        assertEquals(true, decoded.active)
+        assertEquals("user", decoded.principal_type)
+        assertEquals("11111111-1111-1111-1111-111111111111", decoded.user_id)
+        assertEquals(emptyList(), decoded.memberships?.orgs)
     }
 
     @Test

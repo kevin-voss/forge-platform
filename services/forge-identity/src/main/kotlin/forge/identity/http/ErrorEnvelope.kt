@@ -42,6 +42,18 @@ sealed class ApiException(
         code: String = "conflict",
     ) : ApiException(HttpStatusCode.Conflict, code, message, details)
 
+    class Unauthorized(
+        message: String,
+        details: Map<String, String>? = null,
+        code: String = "unauthorized",
+    ) : ApiException(HttpStatusCode.Unauthorized, code, message, details)
+
+    class TooManyRequests(
+        message: String,
+        details: Map<String, String>? = null,
+        code: String = "rate_limited",
+    ) : ApiException(HttpStatusCode.TooManyRequests, code, message, details)
+
     class ServiceUnavailable(
         message: String,
         details: Map<String, String>? = null,

@@ -1,10 +1,11 @@
 openapi: 3.0.3
 info:
   title: Forge Identity API
-  version: 0.2.0
+  version: 0.3.0
   description: |
     Platform identity service (epic 09). Health surfaces from 09.01;
-    users, organizations, projects, and memberships from 09.02.
+    users, organizations, projects, and memberships from 09.02;
+    registration, login, sessions, and introspection from 09.03.
 servers:
   - url: http://127.0.0.1:4002
     description: Local Compose (host port 4002)
@@ -70,6 +71,149 @@ paths:
                 status: running
                 version: 0.1.0
                 uptime_seconds: 12.5
+
+  /v1/auth/register:
+    post:
+      operationId: register
+      summary: Register a user with password
+      description: |
+        Creates a user and Argon2id credential. Password plaintext is never
+        persisted or logged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, display_name]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+                display_name:
+                  type: string
+            example:
+              email: a@x.com
+              password: s3cret!!
+              display_name: A
+      responses:
+        "201":
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterResponse"
+              example:
+                user_id: 11111111-1111-1111-1111-111111111111
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+
+  /v1/auth/login:
+    post:
+      operationId: login
+      summary: Log in and create a session
+      description: |
+        Verifies credentials and returns an opaque session token. Only the
+        SHA-256 hash of the token is stored. Repeated failures trigger lockout.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+            example:
+              email: a@x.com
+              password: s3cret!!
+      responses:
+        "200":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+              example:
+                session_token: opaque-session-token
+                expires_at: "2026-07-24T00:00:00Z"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+
+  /v1/auth/introspect:
+    post:
+      operationId: introspect
+      summary: Introspect a session (or later API) token
+      description: |
+        Returns whether the token is active and, when active, the principal
+        (user id + memberships summary). Control consumes this shape in 09.06.
+        Expired, revoked, and unknown tokens return active=false.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+            example:
+              token: opaque-session-token
+      responses:
+        "200":
+          description: Introspection result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntrospectResponse"
+              examples:
+                active:
+                  value:
+                    active: true
+                    principal_type: user
+                    user_id: 11111111-1111-1111-1111-111111111111
+                    memberships:
+                      orgs: []
+                      projects: []
+                inactive:
+                  value:
+                    active: false
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /v1/auth/logout:
+    post:
+      operationId: logout
+      summary: Revoke the current session
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer session token
+          example: Bearer opaque-session-token
+      responses:
+        "204":
+          description: Session revoked
+        "401":
+          $ref: "#/components/responses/Error"
 
   /v1/users:
     get:
@@ -424,6 +568,12 @@ paths:
           $ref: "#/components/responses/Error"
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+
   parameters:
     UserId:
       name: userId
@@ -605,3 +755,37 @@ components:
                 type: string
               role:
                 type: string
+
+    RegisterResponse:
+      type: object
+      required: [user_id]
+      properties:
+        user_id:
+          type: string
+
+    LoginResponse:
+      type: object
+      required: [session_token, expires_at]
+      properties:
+        session_token:
+          type: string
+          description: Opaque bearer token; only SHA-256 hash is stored server-side
+        expires_at:
+          type: string
+          format: date-time
+
+    IntrospectResponse:
+      type: object
+      required: [active]
+      properties:
+        active:
+          type: boolean
+        principal_type:
+          type: string
+          enum: [user]
+          description: Present when active
+        user_id:
+          type: string
+          description: Present when active
+        memberships:
+          $ref: "#/components/schemas/UserMemberships"

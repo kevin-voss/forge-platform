@@ -53,6 +53,10 @@ class ConfigTest {
         assertEquals("forge", cfg.database.password)
         assertEquals(10, cfg.database.poolMax)
         assertEquals(true, cfg.database.migrateOnStart)
+        assertEquals(86_400, cfg.auth.sessionTtlSeconds)
+        assertEquals(65_536, cfg.auth.argon2MemoryKb)
+        assertEquals(3, cfg.auth.argon2Iterations)
+        assertEquals(5, cfg.auth.loginMaxFails)
     }
 
     @Test

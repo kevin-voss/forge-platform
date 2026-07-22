@@ -1,5 +1,6 @@
 package forge.identity
 
+import forge.identity.auth.authRoutes
 import forge.identity.config.Config
 import forge.identity.config.loadConfig
 import forge.identity.db.Database
@@ -51,6 +52,7 @@ fun main() {
     val startedAtMs = AtomicLong(System.currentTimeMillis())
     val dbHolder = AtomicReference<Database?>(null)
     val tenancyHolder = AtomicReference<TenancyServices?>(null)
+    val authHolder = AtomicReference<AuthServices?>(null)
     val readiness = Readiness()
     val graceMillis = cfg.shutdownGraceSeconds.toLong().coerceAtLeast(1) * 1_000
 
@@ -60,7 +62,7 @@ fun main() {
     }
 
     val connector = thread(name = "identity-db-connect", isDaemon = true) {
-        connectAndMigrate(cfg, log, dbHolder, tenancyHolder)
+        connectAndMigrate(cfg, log, dbHolder, tenancyHolder, authHolder)
     }
 
     val server = embeddedServer(Netty, port = cfg.port, host = "0.0.0.0") {
@@ -71,6 +73,7 @@ fun main() {
             log = log,
             startedAtMs = startedAtMs,
             tenancyRef = tenancyHolder,
+            authRef = authHolder,
             onDbFailure = { cause ->
                 log.warn("readiness db check failed", "error" to cause)
             },
@@ -91,6 +94,7 @@ fun main() {
             log.info("shutdown signal received", "signal" to "SIGTERM")
             connector.interrupt()
             server.stop(gracePeriodMillis = 1_000, timeoutMillis = graceMillis)
+            authHolder.set(null)
             tenancyHolder.set(null)
             dbHolder.getAndSet(null)?.close()
             log.info("shutdown complete")
@@ -113,6 +117,7 @@ fun main() {
         server.start(wait = true)
     } finally {
         connector.interrupt()
+        authHolder.set(null)
         tenancyHolder.set(null)
         dbHolder.getAndSet(null)?.close()
     }
@@ -123,6 +128,7 @@ internal fun connectAndMigrate(
     log: JsonLog,
     dbHolder: AtomicReference<Database?>,
     tenancyHolder: AtomicReference<TenancyServices?>,
+    authHolder: AtomicReference<AuthServices?>,
 ) {
     var delayMs = cfg.database.connectRetryInitialMs
     while (!Thread.currentThread().isInterrupted) {
@@ -151,9 +157,11 @@ internal fun connectAndMigrate(
                 db.markMigrationsApplied()
             }
             val tenancy = TenancyServices.from(db, log)
+            val auth = AuthServices.from(db, tenancy, cfg.auth, log)
             maybeSeedAdmin(cfg, tenancy, log)
             dbHolder.getAndSet(db)?.close()
             tenancyHolder.set(tenancy)
+            authHolder.set(auth)
             log.info("database ready")
             return
         } catch (e: InterruptedException) {
@@ -203,6 +211,8 @@ fun Application.forgeIdentityModule(
     startedAtMs: AtomicLong = AtomicLong(System.currentTimeMillis()),
     tenancy: TenancyServices? = null,
     tenancyRef: AtomicReference<TenancyServices?>? = null,
+    auth: AuthServices? = null,
+    authRef: AtomicReference<AuthServices?>? = null,
     onDbFailure: (String) -> Unit = {},
 ) {
     install(ContentNegotiation) {
@@ -282,10 +292,16 @@ fun Application.forgeIdentityModule(
             ?: tenancyRef?.get()
             ?: throw ApiException.ServiceUnavailable("identity stores not ready")
 
+    fun resolveAuth(): AuthServices =
+        auth
+            ?: authRef?.get()
+            ?: throw ApiException.ServiceUnavailable("identity auth not ready")
+
     routing {
         healthRoutes(cfg, readiness, dbProbe, startedAtMs, onDbFailure)
         userRoutes { resolveTenancy().users }
         orgRoutes { resolveTenancy().orgs }
         projectRoutes { resolveTenancy().projects }
+        authRoutes { resolveAuth().auth }
     }
 }

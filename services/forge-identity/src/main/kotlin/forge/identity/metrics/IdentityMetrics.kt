@@ -6,6 +6,11 @@ import java.util.concurrent.atomic.AtomicLong
 object IdentityMetrics {
     val usersTotal = AtomicLong(0)
     val orgsTotal = AtomicLong(0)
+    val loginSuccessTotal = AtomicLong(0)
+    val loginFailTotal = AtomicLong(0)
+    val activeSessions = AtomicLong(0)
+    val sessionsCreatedTotal = AtomicLong(0)
+    val sessionsRevokedTotal = AtomicLong(0)
 
     fun recordUserCreated() {
         usersTotal.incrementAndGet()
@@ -13,5 +18,21 @@ object IdentityMetrics {
 
     fun recordOrgCreated() {
         orgsTotal.incrementAndGet()
+    }
+
+    fun recordLogin(success: Boolean) {
+        if (success) loginSuccessTotal.incrementAndGet() else loginFailTotal.incrementAndGet()
+    }
+
+    fun recordSessionCreated() {
+        sessionsCreatedTotal.incrementAndGet()
+    }
+
+    fun recordSessionRevoked() {
+        sessionsRevokedTotal.incrementAndGet()
+    }
+
+    fun setActiveSessions(count: Long) {
+        activeSessions.set(count)
     }
 }

@@ -10,6 +10,20 @@ data class DatabaseConfig(
     val connectRetryMaxMs: Long,
 )
 
+data class AuthConfig(
+    /** Fixed session lifetime in seconds (`FORGE_SESSION_TTL_S`). */
+    val sessionTtlSeconds: Long = 86_400,
+    /** Argon2id memory in KiB (`FORGE_ARGON2_MEMORY_KB`). */
+    val argon2MemoryKb: Int = 65_536,
+    /** Argon2id iterations (`FORGE_ARGON2_ITERATIONS`). */
+    val argon2Iterations: Int = 3,
+    val argon2Parallelism: Int = 1,
+    /** Failed logins before lockout (`FORGE_LOGIN_MAX_FAILS`). */
+    val loginMaxFails: Int = 5,
+    /** Lockout window in seconds (default 15 minutes). */
+    val loginLockoutWindowSeconds: Long = 900,
+)
+
 data class Config(
     val port: Int,
     val serviceName: String,
@@ -20,6 +34,7 @@ data class Config(
     val database: DatabaseConfig,
     /** Optional bootstrap admin email (`FORGE_IDENTITY_SEED_ADMIN`). */
     val seedAdminEmail: String? = null,
+    val auth: AuthConfig = AuthConfig(),
 )
 
 fun loadConfig(env: Map<String, String> = System.getenv()): Config {
@@ -104,6 +119,50 @@ fun loadConfig(env: Map<String, String> = System.getenv()): Config {
         )
     }
 
+    val sessionTtlRaw = env["FORGE_SESSION_TTL_S"]?.trim().orEmpty().ifEmpty { "86400" }
+    val sessionTtl = sessionTtlRaw.toLongOrNull()
+        ?: throw IllegalArgumentException(
+            "FORGE_SESSION_TTL_S must be a positive integer, got '$sessionTtlRaw'",
+        )
+    if (sessionTtl < 1) {
+        throw IllegalArgumentException(
+            "FORGE_SESSION_TTL_S must be a positive integer, got '$sessionTtlRaw'",
+        )
+    }
+
+    val argonMemRaw = env["FORGE_ARGON2_MEMORY_KB"]?.trim().orEmpty().ifEmpty { "65536" }
+    val argonMem = argonMemRaw.toIntOrNull()
+        ?: throw IllegalArgumentException(
+            "FORGE_ARGON2_MEMORY_KB must be a positive integer, got '$argonMemRaw'",
+        )
+    if (argonMem < 8) {
+        throw IllegalArgumentException(
+            "FORGE_ARGON2_MEMORY_KB must be >= 8, got '$argonMemRaw'",
+        )
+    }
+
+    val argonIterRaw = env["FORGE_ARGON2_ITERATIONS"]?.trim().orEmpty().ifEmpty { "3" }
+    val argonIter = argonIterRaw.toIntOrNull()
+        ?: throw IllegalArgumentException(
+            "FORGE_ARGON2_ITERATIONS must be a positive integer, got '$argonIterRaw'",
+        )
+    if (argonIter < 1) {
+        throw IllegalArgumentException(
+            "FORGE_ARGON2_ITERATIONS must be a positive integer, got '$argonIterRaw'",
+        )
+    }
+
+    val loginMaxRaw = env["FORGE_LOGIN_MAX_FAILS"]?.trim().orEmpty().ifEmpty { "5" }
+    val loginMaxFails = loginMaxRaw.toIntOrNull()
+        ?: throw IllegalArgumentException(
+            "FORGE_LOGIN_MAX_FAILS must be a positive integer, got '$loginMaxRaw'",
+        )
+    if (loginMaxFails < 1) {
+        throw IllegalArgumentException(
+            "FORGE_LOGIN_MAX_FAILS must be a positive integer, got '$loginMaxRaw'",
+        )
+    }
+
     return Config(
         port = port,
         serviceName = env["FORGE_SERVICE_NAME"]?.trim().orEmpty().ifEmpty { "forge-identity" },
@@ -121,5 +180,11 @@ fun loadConfig(env: Map<String, String> = System.getenv()): Config {
             connectRetryMaxMs = connectRetryMaxMs,
         ),
         seedAdminEmail = seedAdmin,
+        auth = AuthConfig(
+            sessionTtlSeconds = sessionTtl,
+            argon2MemoryKb = argonMem,
+            argon2Iterations = argonIter,
+            loginMaxFails = loginMaxFails,
+        ),
     )
 }
