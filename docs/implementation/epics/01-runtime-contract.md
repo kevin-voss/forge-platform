@@ -2,50 +2,92 @@
 
 ## Status
 
-Not started
+Planning
 
 ## Goal
 
-Define the contract any product must follow to run on Forge.
+Define and prove a language-agnostic container runtime contract—listen port, liveness/readiness, identity JSON, structured logs, env-based config, and graceful shutdown—using five minimal demo apps (Go, Kotlin, Rust, Python, Elixir) and one shared validator, with no platform SDK dependencies.
 
 ## Why this epic exists
 
-See `specs.md` Step 01. This epic will be decomposed into **multiple atomic steps** before implementation.
+Every later Forge service and customer product must share the same deployable boundary. Codifying that boundary before Control/Runtime/Gateway exist prevents five incompatible “almost contracts” and gives demos that later epics can schedule and route.
 
 ## Primary code areas
 
-* `demos/, contracts/`
+* `docs/contracts/` — human-readable runtime contract
+* `contracts/openapi/`, `contracts/examples/` — machine-readable HTTP + log examples
+* `tools/contract-validator/` — shared compliance runner
+* `demos/01-container-runtime/` — Compose demo and per-language apps
 
 ## Suggested language
 
-polyglot
+Polyglot demos: Go, Kotlin, Rust, Python, Elixir. Validator language is implementer choice (shell/Go/Python).
 
 ## Spec references
 
-* `specs.md` → Step 01
+* `specs.md` → §2.2 Containers are the runtime boundary
+* `specs.md` → §2.3 Share contracts, not implementations
+* `specs.md` → §5.4–5.5 logging and configuration (subset for demos)
+* `specs.md` → Step 01: Runtime contract and demo applications
 
 ## Dependencies
 
-* Prior epics in [`../roadmap.md`](../roadmap.md) must be sufficiently complete
+* Epic [`00-repository-foundation`](00-repository-foundation.md) complete (Make, Compose foundation, docs/contracts placeholders, port map, demo runner pattern)
+
+No later epics are required.
 
 ## Out of scope for this epic
 
-* Unrelated later roadmap capabilities
-* Big-bang single-step delivery of the whole epic
+* Forge Control / CLI / Runtime / Gateway implementation
+* Mandatory OpenTelemetry export from demo apps
+* `/metrics` as a hard requirement (recommended only)
+* Platform SDKs under `packages/*`
+* Routing, scheduling, reconciliation, identity, secrets
 
 ## Success demo
 
-Defined during planning (`PLAN_STEPS.md`). Spec seed: see `specs.md` Step 01 demo section.
+```bash
+make demo DEMO=01
+```
+
+Docker Compose starts five contract-compliant apps on ports `4201–4205`; the shared validator checks health, identity, logs, and graceful shutdown for each.
+
+```text
+Docker Compose
+├── Go      :4201
+├── Kotlin  :4202
+├── Rust    :4203
+├── Python  :4204
+└── Elixir  :4205
+```
 
 ## Planned steps
 
-> Not planned yet. Run the planning prompt with `EPIC_ID=01-runtime-contract`.
-
 | Step | Title | Status | Notes |
 |---|---|---|---|
-| — | — | — | Awaiting planning |
+| [01.01](../steps/01-runtime-contract/01.01-document-runtime-contract.md) | Document runtime contract | Not started | Docs + OpenAPI + log schema + port reservations |
+| [01.02](../steps/01-runtime-contract/01.02-contract-test-runner.md) | Shared contract test runner | Not started | Depends on 01.01; fixture-tested validator |
+| [01.03](../steps/01-runtime-contract/01.03-go-demo-app.md) | Go demo application | Not started | First vertical slice + demo 01 scaffold |
+| [01.04](../steps/01-runtime-contract/01.04-python-demo-app.md) | Python demo application | Not started | Depends on 01.03; port 4204 |
+| [01.05](../steps/01-runtime-contract/01.05-kotlin-demo-app.md) | Kotlin demo application | Not started | Depends on 01.03; port 4202 |
+| [01.06](../steps/01-runtime-contract/01.06-rust-demo-app.md) | Rust demo application | Not started | Depends on 01.03; port 4203; matches spec example |
+| [01.07](../steps/01-runtime-contract/01.07-elixir-demo-and-full-suite.md) | Elixir demo and full suite | Not started | Fifth language + epic acceptance gate |
+
+## Assumptions
+
+* Demo apps live under `demos/01-container-runtime/apps/<language>/` (not under `services/`).
+* Host ports: Go `4201`, Kotlin `4202`, Rust `4203`, Python `4204`, Elixir `4205`.
+* Normative listen env var for workloads is `PORT`; if `FORGE_HTTP_PORT` is also set, `PORT` wins (to be written in 01.01).
+* OTEL and `/metrics` are documented as recommended, not required, for epic 01 demos.
+* Identity endpoint is `GET /` (not `/info`), matching the simple JSON example in Step 01.
 
 ## Open questions
 
-* How should this epic be sliced into 3–10 verifiable steps?
-* Which vertical slice produces the earliest demo?
+* Should CI run `make demo DEMO=01` on every PR, or only a subset (e.g. Go + validator) until image build times are acceptable?
+* Preferred stacks per language (Ktor vs raw JDK; Axum vs Actix; Bandit vs Cowboy) — leave to implementers unless a repo standard appears?
+* Exact required structured-log field set for demos: strictly the §5.4 platform fields, or a reduced demo subset (`timestamp`, `level`, `service`, `message`)?
+* May `/health/ready` intentionally fail in a future negative test image, or do all five demos keep ready≡live for this epic?
+
+## Next step to implement
+
+**[01.01](../steps/01-runtime-contract/01.01-document-runtime-contract.md) — Document runtime contract** (no application code; unblocks the validator and all demos).

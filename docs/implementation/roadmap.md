@@ -2,6 +2,8 @@
 
 Coarse capability order from `specs.md`. Each epic is planned into multiple atomic steps before coding (except completed foundation).
 
+Full step catalog + global queue: [`MASTER_PLAN.md`](MASTER_PLAN.md).
+
 ```text
 00 Repository foundation
     ↓
@@ -48,32 +50,33 @@ Coarse capability order from `specs.md`. Each epic is planned into multiple atom
 
 | Epic | Title | Primary code area | Lang (suggested) | Detail status |
 |---|---|---|---|---|
-| [00](epics/00-repository-foundation.md) | Repository foundation | root, `infrastructure/`, `docs/` | — | Planned + complete |
-| [01](epics/01-runtime-contract.md) | Runtime contract | `demos/`, contracts | polyglot | Stub — needs planning |
-| [02](epics/02-forge-control.md) | Forge Control | `services/forge-control` | Kotlin | Stub — needs planning |
-| [03](epics/03-forge-cli.md) | Forge CLI | `tools/forge-cli` | Go | Stub — needs planning |
-| [04](epics/04-forge-runtime.md) | Forge Runtime | `services/forge-runtime` | Rust | Stub — needs planning |
-| [05](epics/05-forge-gateway.md) | Forge Gateway | `services/forge-gateway` | Go | Stub — needs planning |
-| [06](epics/06-forge-build.md) | Forge Build | `services/forge-build` | Go | Stub — needs planning |
-| [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | control + runtime | mixed | Stub — needs planning |
-| [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | control + runtime | mixed | Stub — needs planning |
-| [09](epics/09-forge-identity.md) | Forge Identity | `services/forge-identity` | Kotlin | Stub — needs planning |
-| [10](epics/10-forge-secrets.md) | Forge Secrets | `services/forge-secrets` | Rust | Stub — needs planning |
-| [11](epics/11-forge-events.md) | Forge Events | `services/forge-events` | Go | Stub — needs planning |
-| [12](epics/12-forge-observe.md) | Forge Observe | `services/forge-observe` | Go | Stub — needs planning |
-| [13](epics/13-forge-storage.md) | Forge Storage | `services/forge-storage` | Rust | Stub — needs planning |
-| [14](epics/14-forge-models.md) | Forge Models | `services/forge-models` | Python | Stub — needs planning |
-| [15](epics/15-forge-agents.md) | Forge Agents | `services/forge-agents` | Python | Stub — needs planning |
-| [16](epics/16-forge-workflows.md) | Forge Workflows | `services/forge-workflows` | Elixir | Stub — needs planning |
-| [17](epics/17-forge-memory.md) | Forge Memory | `services/forge-memory` | Rust | Stub — needs planning |
-| [18](epics/18-managed-postgresql.md) | Managed PostgreSQL | control + infra | mixed | Stub — needs planning |
-| [19](epics/19-full-platform-demo.md) | Full platform demo | `demos/` | — | Stub — needs planning |
+| [00](epics/00-repository-foundation.md) | Repository foundation | root, `infrastructure/`, `docs/` | — | Planned + complete (`00.01`) |
+| [01](epics/01-runtime-contract.md) | Runtime contract | `demos/`, contracts | polyglot | Planned (7 steps) |
+| [02](epics/02-forge-control.md) | Forge Control | `services/forge-control` | Kotlin | Planned (8 steps) |
+| [03](epics/03-forge-cli.md) | Forge CLI | `tools/forge-cli` | Go | Planned (6 steps) |
+| [04](epics/04-forge-runtime.md) | Forge Runtime | `services/forge-runtime` | Rust | Planned (8 steps) |
+| [05](epics/05-forge-gateway.md) | Forge Gateway | `services/forge-gateway` | Go | Planned (7 steps) |
+| [06](epics/06-forge-build.md) | Forge Build | `services/forge-build` | Go | Planned (7 steps) |
+| [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | control + runtime | mixed | Planned (6 steps) |
+| [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | control + runtime | mixed | Planned (6 steps) |
+| [09](epics/09-forge-identity.md) | Forge Identity | `services/forge-identity` | Kotlin | Planned (8 steps) |
+| [10](epics/10-forge-secrets.md) | Forge Secrets | `services/forge-secrets` | Rust | Planned (7 steps) |
+| [11](epics/11-forge-events.md) | Forge Events | `services/forge-events` | Go | Planned (7 steps) |
+| [12](epics/12-forge-observe.md) | Forge Observe | `services/forge-observe` | Go | Planned (7 steps) |
+| [13](epics/13-forge-storage.md) | Forge Storage | `services/forge-storage` | Rust | Planned (7 steps) |
+| [14](epics/14-forge-models.md) | Forge Models | `services/forge-models` | Python | Planned (7 steps) |
+| [15](epics/15-forge-agents.md) | Forge Agents | `services/forge-agents` | Python | Planned (8 steps) |
+| [16](epics/16-forge-workflows.md) | Forge Workflows | `services/forge-workflows` | Elixir | Planned (7 steps) |
+| [17](epics/17-forge-memory.md) | Forge Memory | `services/forge-memory` | Rust | Planned (6 steps) |
+| [18](epics/18-managed-postgresql.md) | Managed PostgreSQL | control + infra | mixed | Planned (6 steps) |
+| [19](epics/19-full-platform-demo.md) | Full platform demo | `demos/09-full-platform` | — | Planned (6 steps) |
 
-## Planning order recommendation
+## Implementation order
 
-Plan the next epic **before** implementing it. Suggested planning queue:
+1. Implement planned steps in the global queue in [`MASTER_PLAN.md`](MASTER_PLAN.md) (starts at `01.01`).
+2. Use [`IMPLEMENT_STEP.md`](IMPLEMENT_STEP.md) with exactly one `STEP_ID` per session.
+3. Do not start an epic’s first step until its declared cross-epic dependencies’ minimum capabilities exist.
 
-1. `01-runtime-contract` (unblocks all services)
-2. `02-forge-control` (expect many steps: domain, API, persistence, deploy API, …)
-3. `03-forge-cli` (thin client over Control)
-4. Then runtime / gateway / build as separate multi-step epics
+## Planning note
+
+Epics `02`–`19` are fully planned (no stubs). Re-run [`PLAN_STEPS.md`](PLAN_STEPS.md) only to refine a single epic if implementation reveals a missing seam — keep numeric step IDs stable.

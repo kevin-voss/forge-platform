@@ -55,4 +55,4 @@ make demo DEMO=00
 
 ## Open questions
 
-None for this epic. Next: plan `01-runtime-contract` with `PLAN_STEPS.md`.
+None for this epic. Next epic planned: [`01-runtime-contract`](01-runtime-contract.md) — implement `01.01` next.
