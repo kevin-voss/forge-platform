@@ -20,7 +20,8 @@ interface IdempotencyStore {
 }
 
 class JdbcIdempotencyStore(private val dataSource: DataSource) : IdempotencyStore {
-    override fun find(key: String): IdempotencyRecord? = dataSource.withConnection { connection ->
+    override fun find(key: String): IdempotencyRecord? = runSql {
+        dataSource.withConnection { connection ->
         connection.prepareStatement(
             """SELECT key, request_hash, resource_type, resource_id, response_status, response_body
                FROM idempotency_keys WHERE key = ?""",
@@ -37,24 +38,28 @@ class JdbcIdempotencyStore(private val dataSource: DataSource) : IdempotencyStor
                 )
             }
         }
+        }
     }
 
     override fun save(record: IdempotencyRecord) {
+        runSql {
         dataSource.withConnection { connection ->
-        connection.prepareStatement(
-            """INSERT INTO idempotency_keys
+            connection.prepareStatement(
+                """INSERT INTO idempotency_keys
                (key, request_hash, resource_type, resource_id, response_status, response_body, created_at)
                VALUES (?, ?, ?, ?, ?, ?::jsonb, ?)""",
-        ).use { statement ->
-            statement.setString(1, record.key)
-            statement.setString(2, record.requestHash)
-            statement.setString(3, record.resourceType)
-            statement.setObject(4, record.resourceId)
-            statement.setInt(5, record.responseStatus)
-            statement.setString(6, record.responseBody)
-            statement.setTimestamp(7, Timestamp.from(Instant.now()))
+            ).use { statement ->
+                statement.setString(1, record.key)
+                statement.setString(2, record.requestHash)
+                statement.setString(3, record.resourceType)
+                statement.setObject(4, record.resourceId)
+                statement.setInt(5, record.responseStatus)
+                statement.setString(6, record.responseBody)
+                statement.setTimestamp(7, Timestamp.from(Instant.now()))
                 statement.executeUpdate()
             }
+        }
+            Unit
         }
     }
 }

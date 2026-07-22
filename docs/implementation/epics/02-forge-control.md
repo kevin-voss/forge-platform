@@ -74,7 +74,7 @@ GET /v1/projects/{id}?expand=tree   → full hierarchy
 | [02.04](../steps/02-forge-control/02.04-applications-services-api.md) | Applications & services API + relationship validation | Complete | Nested application/service APIs, relationship validation, and audit rows |
 | [02.05](../steps/02-forge-control/02.05-deployments-desired-state-api.md) | Deployments desired-state API + basic audit | Complete | Desired-state API, project tree read model, and audit records |
 | [02.06](../steps/02-forge-control/02.06-errors-openapi-contract-idempotency.md) | Shared errors, OpenAPI, contract tests, idempotency | Complete | Canonical errors/request IDs, OpenAPI, and idempotent creates |
-| [02.07](../steps/02-forge-control/02.07-structured-logs-and-otel.md) | Structured logs + OTEL | Not started | Depends on 02.01+ |
+| [02.07](../steps/02-forge-control/02.07-structured-logs-and-otel.md) | Structured logs + OTEL | Complete | JSON logs with request/trace correlation; OTLP spans and metrics |
 | [02.08](../steps/02-forge-control/02.08-demo-control-plane-and-gate.md) | Demo `02-control-plane` + epic gate | Not started | Depends on all prior |
 
 ## Assumptions
@@ -98,4 +98,4 @@ GET /v1/projects/{id}?expand=tree   → full hierarchy
 
 ## Next step to implement
 
-**[02.07](../steps/02-forge-control/02.07-structured-logs-and-otel.md) — Structured logs + OTEL** (depends on 02.01+).
+**[02.08](../steps/02-forge-control/02.08-demo-control-plane-and-gate.md) — Demo `02-control-plane` + epic gate** (depends on all prior steps).

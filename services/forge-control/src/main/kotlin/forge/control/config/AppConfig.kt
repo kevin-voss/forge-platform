@@ -14,6 +14,8 @@ data class AppConfig(
     val serviceName: String,
     val serviceVersion: String,
     val logLevel: String,
+    val otelEnabled: Boolean,
+    val otlpEndpoint: String,
     val env: String,
     val authMode: String,
     val shutdownGraceSeconds: Int,
@@ -36,6 +38,15 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
     val level = env["FORGE_LOG_LEVEL"]?.trim()?.lowercase().orEmpty().ifEmpty { "info" }
     if (level !in setOf("debug", "info", "warn", "error")) {
         throw IllegalArgumentException("FORGE_LOG_LEVEL must be debug|info|warn|error, got '$level'")
+    }
+
+    val otelEnabledRaw = env["FORGE_OTEL_ENABLED"]?.trim()?.lowercase().orEmpty().ifEmpty { "true" }
+    val otelEnabled = when (otelEnabledRaw) {
+        "true", "1", "yes" -> true
+        "false", "0", "no" -> false
+        else -> throw IllegalArgumentException(
+            "FORGE_OTEL_ENABLED must be true|false, got '$otelEnabledRaw'",
+        )
     }
 
     val graceRaw = env["FORGE_SHUTDOWN_GRACE_SECONDS"]?.trim().orEmpty().ifEmpty { "10" }
@@ -77,6 +88,9 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         serviceName = env["FORGE_SERVICE_NAME"]?.trim().orEmpty().ifEmpty { "forge-control" },
         serviceVersion = env["FORGE_SERVICE_VERSION"]?.trim().orEmpty().ifEmpty { "0.1.0" },
         logLevel = level,
+        otelEnabled = otelEnabled,
+        otlpEndpoint = env["OTEL_EXPORTER_OTLP_ENDPOINT"]?.trim().orEmpty()
+            .ifEmpty { "http://otel-collector:4317" },
         env = env["FORGE_ENV"]?.trim().orEmpty().ifEmpty { "development" },
         authMode = env["FORGE_AUTH_MODE"]?.trim().orEmpty().ifEmpty { "dev" },
         shutdownGraceSeconds = grace,

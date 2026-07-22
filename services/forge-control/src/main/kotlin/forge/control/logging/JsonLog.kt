@@ -1,5 +1,6 @@
 package forge.control.logging
 
+import forge.control.telemetry.LoggingContext
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import java.time.Instant
@@ -35,6 +36,10 @@ class JsonLog(
             put("level", JsonPrimitive(level))
             put("service", JsonPrimitive(service))
             put("message", JsonPrimitive(message))
+            val correlation = LoggingContext.current()
+            put("requestId", JsonPrimitive(correlation.requestId))
+            correlation.traceId?.let { put("traceId", JsonPrimitive(it)) }
+            correlation.spanId?.let { put("spanId", JsonPrimitive(it)) }
             for ((key, value) in fields) {
                 when (value) {
                     null -> put(key, JsonPrimitive("null"))

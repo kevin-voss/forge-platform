@@ -13,6 +13,7 @@ repositories {
 
 val ktorVersion = "3.1.3"
 val flywayVersion = "11.3.1"
+val otelVersion = "1.46.0"
 
 dependencies {
     implementation("io.ktor:ktor-server-core:$ktorVersion")
@@ -24,6 +25,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
     // Keep framework SLF4J quiet; application logs are structured JSON via JsonLog.
     implementation("org.slf4j:slf4j-nop:2.0.17")
+    implementation("io.opentelemetry:opentelemetry-api:$otelVersion")
+    implementation("io.opentelemetry:opentelemetry-sdk:$otelVersion")
+    implementation("io.opentelemetry:opentelemetry-exporter-otlp:$otelVersion")
 
     implementation("org.postgresql:postgresql:42.7.5")
     implementation("com.zaxxer:HikariCP:6.2.1")

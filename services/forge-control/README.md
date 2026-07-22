@@ -79,6 +79,8 @@ make dev
 | `FORGE_SERVICE_NAME` | `forge-control` | |
 | `FORGE_SERVICE_VERSION` | `0.1.0` | |
 | `FORGE_LOG_LEVEL` | `info` | `debug\|info\|warn\|error` |
+| `FORGE_OTEL_ENABLED` | `true` | Set `false` for hermetic tests; keeps no-op tracing and metrics. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel-collector:4317` | OTLP/gRPC Collector endpoint. |
 | `FORGE_ENV` | `development` | |
 | `FORGE_AUTH_MODE` | `dev` | Auth bypass until Identity `09.06`; creates attributed to actor `dev` |
 | `FORGE_SHUTDOWN_GRACE_SECONDS` | `10` | SIGTERM drain window |
@@ -91,6 +93,15 @@ make dev
 | `FORGE_IDEMPOTENCY_TTL_HOURS` | `24` | Retention target for idempotency records; cleanup is deferred |
 
 See `.env.example`.
+
+## Observability
+
+Control writes JSON lines to stdout with `timestamp`, `level`, `service`,
+`message`, and `requestId`. Request logs generated while a trace is active also
+include matching `traceId` and `spanId`. With OTEL enabled, HTTP request and JDBC
+repository spans plus request count, duration, and error metrics are exported to
+the foundation Collector. Exporter failures are asynchronous and do not stop
+request handling.
 
 ## HTTP API (02.05)
 

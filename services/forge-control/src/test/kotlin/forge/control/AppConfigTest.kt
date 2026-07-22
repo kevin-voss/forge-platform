@@ -14,6 +14,8 @@ class AppConfigTest {
                 "FORGE_SERVICE_NAME" to "forge-control",
                 "FORGE_SERVICE_VERSION" to "0.1.0",
                 "FORGE_LOG_LEVEL" to "debug",
+                "FORGE_OTEL_ENABLED" to "false",
+                "OTEL_EXPORTER_OTLP_ENDPOINT" to "http://collector:4317",
                 "FORGE_ENV" to "test",
                 "FORGE_AUTH_MODE" to "dev",
                 "FORGE_SHUTDOWN_GRACE_SECONDS" to "15",
@@ -23,6 +25,8 @@ class AppConfigTest {
         assertEquals("forge-control", cfg.serviceName)
         assertEquals("0.1.0", cfg.serviceVersion)
         assertEquals("debug", cfg.logLevel)
+        assertEquals(false, cfg.otelEnabled)
+        assertEquals("http://collector:4317", cfg.otlpEndpoint)
         assertEquals("test", cfg.env)
         assertEquals("dev", cfg.authMode)
         assertEquals(15, cfg.shutdownGraceSeconds)
@@ -35,6 +39,8 @@ class AppConfigTest {
         assertEquals("forge-control", cfg.serviceName)
         assertEquals("0.1.0", cfg.serviceVersion)
         assertEquals("info", cfg.logLevel)
+        assertEquals(true, cfg.otelEnabled)
+        assertEquals("http://otel-collector:4317", cfg.otlpEndpoint)
         assertEquals("development", cfg.env)
         assertEquals("dev", cfg.authMode)
         assertEquals(10, cfg.shutdownGraceSeconds)
@@ -123,6 +129,13 @@ class AppConfigTest {
     fun rejectsInvalidLogLevel() {
         assertFailsWith<IllegalArgumentException> {
             loadAppConfig(mapOf("PORT" to "8080", "FORGE_LOG_LEVEL" to "verbose"))
+        }
+    }
+
+    @Test
+    fun rejectsInvalidOtelEnabled() {
+        assertFailsWith<IllegalArgumentException> {
+            loadAppConfig(mapOf("PORT" to "8080", "FORGE_OTEL_ENABLED" to "sometimes"))
         }
     }
 

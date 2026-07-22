@@ -31,6 +31,8 @@ import forge.control.service.ProjectService
 import forge.control.service.ProjectTreeService
 import forge.control.service.RelationshipValidator
 import forge.control.service.ServiceService
+import forge.control.telemetry.Telemetry
+import forge.control.telemetry.TelemetryConfig
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -61,6 +63,13 @@ fun main() {
     }
 
     val log = JsonLog(cfg.serviceName, cfg.logLevel)
+    val telemetry = Telemetry.initialize(
+        TelemetryConfig(
+            enabled = cfg.otelEnabled,
+            serviceName = cfg.serviceName,
+            otlpEndpoint = cfg.otlpEndpoint,
+        ),
+    )
     val db = try {
         Db.open(cfg.database, log)
     } catch (e: Exception) {
@@ -121,7 +130,7 @@ fun main() {
     val dbProbe = DbProbe { db.check() }
 
     val server = embeddedServer(Netty, port = cfg.port, host = "0.0.0.0") {
-        forgeControlModule(cfg, readiness, dbProbe, services, log) { cause ->
+        forgeControlModule(cfg, readiness, dbProbe, services, log, telemetry) { cause ->
             log.error("readiness db check failed", "error" to cause)
         }
         monitor.subscribe(ApplicationStarted) {
@@ -141,6 +150,7 @@ fun main() {
             log.info("shutdown signal received", "signal" to "SIGTERM")
             server.stop(gracePeriodMillis = 1_000, timeoutMillis = graceMillis)
             db.close()
+            telemetry.close()
             log.info("shutdown complete")
             // HotSpot reports SIGTERM as 143 unless we halt(0) after a clean drain.
             // Do not call System.exit/exitProcess from a shutdown hook (deadlocks).
@@ -155,6 +165,7 @@ fun main() {
         "env" to cfg.env,
         "auth_mode" to cfg.authMode,
         "log_level" to cfg.logLevel,
+        "otel_enabled" to cfg.otelEnabled,
         "shutdown_grace_seconds" to cfg.shutdownGraceSeconds,
         "db_schema" to cfg.database.schema,
         "db_migrate_on_start" to cfg.database.migrateOnStart,
@@ -164,6 +175,7 @@ fun main() {
         server.start(wait = true)
     } finally {
         db.close()
+        telemetry.close()
     }
 }
 
@@ -173,6 +185,7 @@ fun Application.forgeControlModule(
     dbProbe: DbProbe = AlwaysHealthyDb,
     services: ControlServices? = null,
     log: JsonLog? = null,
+    telemetry: Telemetry = Telemetry.current(),
     onDbFailure: (String) -> Unit = {},
 ) {
     install(ContentNegotiation) {
@@ -229,22 +242,33 @@ fun Application.forgeControlModule(
             val started = System.currentTimeMillis()
             val method = call.request.httpMethod.value
             val path = call.request.path()
-            val requestId = call.request.headers["X-Request-Id"] ?: "-"
+            val span = telemetry.startSpan("HTTP $method")
+            span.setAttribute("http.request.method", method)
+            span.setAttribute("url.path", path)
+            val scope = span.makeCurrent()
             try {
                 proceed()
+            } catch (error: Throwable) {
+                span.recordException(error)
+                span.setStatus(io.opentelemetry.api.trace.StatusCode.ERROR)
+                throw error
             } finally {
+                val status = call.response.status()?.value ?: 0
+                span.setAttribute("http.response.status_code", status.toLong())
+                if (status >= 500) span.setStatus(io.opentelemetry.api.trace.StatusCode.ERROR)
                 if (!path.startsWith("/health")) {
-                    val status = call.response.status()?.value ?: 0
                     val durationMs = System.currentTimeMillis() - started
+                    telemetry.recordRequest(status, durationMs)
                     log.info(
                         "request",
                         "method" to method,
                         "path" to path,
                         "status" to status,
                         "duration_ms" to durationMs,
-                        "request_id" to requestId,
                     )
                 }
+                scope.close()
+                span.end()
             }
         }
     }

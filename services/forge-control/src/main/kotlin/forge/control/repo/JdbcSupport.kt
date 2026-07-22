@@ -1,5 +1,6 @@
 package forge.control.repo
 
+import forge.control.telemetry.Telemetry
 import java.sql.ResultSet
 import java.sql.SQLException
 import java.sql.Timestamp
@@ -29,9 +30,11 @@ internal fun mapSqlException(e: SQLException): RepositoryException {
     }
 }
 
-internal inline fun <T> runSql(block: () -> T): T =
-    try {
-        block()
-    } catch (e: SQLException) {
-        throw mapSqlException(e)
+internal fun <T> runSql(block: () -> T): T =
+    Telemetry.current().inSpan("db.query") {
+        try {
+            block()
+        } catch (e: SQLException) {
+            throw mapSqlException(e)
+        }
     }

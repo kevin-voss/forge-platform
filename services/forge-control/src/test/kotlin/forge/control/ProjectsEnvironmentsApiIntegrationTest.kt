@@ -69,6 +69,8 @@ class ProjectsEnvironmentsApiIntegrationTest {
         serviceName = "forge-control",
         serviceVersion = "0.1.0",
         logLevel = "info",
+        otelEnabled = false,
+        otlpEndpoint = "http://otel-collector:4317",
         env = "test",
         authMode = "dev",
         shutdownGraceSeconds = 10,
