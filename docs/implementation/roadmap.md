@@ -80,3 +80,63 @@ Full step catalog + global queue: [`MASTER_PLAN.md`](MASTER_PLAN.md).
 ## Planning note
 
 Epics `02`–`19` are fully planned (no stubs). Re-run [`PLAN_STEPS.md`](PLAN_STEPS.md) only to refine a single epic if implementation reveals a missing seam — keep numeric step IDs stable.
+
+---
+
+# Standalone-cloud roadmap (epics 20–43)
+
+Everything below is **future work that starts after epic `19`**. It does not change the
+epics above. Target architecture:
+[`docs/architecture/standalone-cloud.md`](../architecture/standalone-cloud.md).
+Full catalog: [`FUTURE_PLAN.md`](FUTURE_PLAN.md).
+
+```text
+M1 — standalone cloud core
+20 Declarative resource API
+    ↓
+21 Forge Discovery ─┬─→ 23 Forge Infrastructure
+22 Forge Network ───┘        ↓
+                       24 Forge Autoscaler + 25 Scheduling enhancements
+                                    ↓
+M2 — production platform
+26 Registry → 27 Deployment strategies
+28 Queue → 29 Database HA → 30 Volumes → 31 Distributed object storage
+32 Secrets HA → 33 Policy → 34 DNS + certificates
+35 Control-plane HA → 36 Backup + DR → 37 Alerts + incidents
+                                    ↓
+M3 — global platform
+38 AI scheduling → 39 Multi-region → 40 Console
+41 Usage + cost → 42 Upgrades → 43 Plugins + extensions
+```
+
+## Future epic index
+
+| Epic | Title | Milestone | Extends | Detail status |
+|---|---|---|---|---|
+| [20](epics/20-declarative-resource-api.md) | Declarative resource API | M1 | 02, 07 | Planned (8 steps, `N = 132`–`139`) |
+| [21](epics/21-forge-discovery.md) | Forge Discovery | M1 | 04, 05 | Planned (6 steps, `N = 140`–`145`) |
+| [22](epics/22-forge-network.md) | Forge Network | M1 | 04, 08 | Planned (7 steps, `N = 146`–`152`) |
+| [23](epics/23-forge-infrastructure.md) | Forge Infrastructure | M1 | 04, 08 | Planned (7 steps, `N = 153`–`159`) |
+| [24](epics/24-forge-autoscaler.md) | Forge Autoscaler | M1 | 07, 08, 12 | Planned (8 steps, `N = 160`–`167`) |
+| [25](epics/25-scheduling-enhancements.md) | Scheduling enhancements | M1 | 08 | Planned (6 steps, `N = 168`–`173`) |
+| [26](epics/26-forge-registry.md) | Forge Registry | M2 | 06 | Catalog |
+| [27](epics/27-deployment-strategies.md) | Deployment strategies | M2 | 05, 07 | Catalog |
+| [28](epics/28-forge-queue.md) | Forge Queue | M2 | 11 | Catalog |
+| [29](epics/29-database-high-availability.md) | Database high availability | M2 | 18 | Catalog |
+| [30](epics/30-forge-volumes.md) | Forge Volumes | M2 | 04, 23 | Catalog |
+| [31](epics/31-distributed-object-storage.md) | Distributed object storage | M2 | 13 | Catalog |
+| [32](epics/32-secrets-high-availability.md) | Secrets high availability | M2 | 10 | Catalog |
+| [33](epics/33-forge-policy.md) | Forge Policy | M2 | 02, 09 | Catalog |
+| [34](epics/34-dns-and-certificates.md) | DNS and certificates | M2 | 05, 21, 22 | Catalog |
+| [35](epics/35-control-plane-high-availability.md) | Control-plane high availability | M2 | 02, 07 | Catalog |
+| [36](epics/36-backup-and-disaster-recovery.md) | Backup and disaster recovery | M2 | 13, 18 | Catalog |
+| [37](epics/37-alerts-and-incidents.md) | Alerts and incidents | M2 | 12, 15, 16 | Catalog |
+| [38](epics/38-ai-infrastructure-scheduling.md) | AI infrastructure scheduling | M3 | 14, 15, 24, 25 | Catalog |
+| [39](epics/39-multi-region.md) | Multi-region | M3 | 21, 22, 23 | Catalog |
+| [40](epics/40-forge-console.md) | Forge Console | M3 | 09, 20 | Catalog |
+| [41](epics/41-usage-quotas-and-cost.md) | Usage, quotas, and cost | M3 | 12, 23, 33 | Catalog |
+| [42](epics/42-platform-upgrades.md) | Platform upgrades | M3 | 20, 35 | Catalog |
+| [43](epics/43-plugins-and-extensions.md) | Plugins and extensions | M3 | 14, 23, 34 | Catalog |
+
+**Catalog** = step titles listed in the epic doc; materialize into step files with
+[`PLAN_STEPS.md`](PLAN_STEPS.md) when milestone M1 is complete.

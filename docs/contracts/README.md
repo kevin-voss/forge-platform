@@ -25,6 +25,17 @@ The desired-state Control API contract is
 It documents all `/v1` project, environment, application, service, and deployment
 operations, canonical error responses, and optional `Idempotency-Key` create retries.
 
+## Declarative resource API (epic 20, planned)
+
+The standalone-cloud phase introduces one generic resource contract — `apiVersion`,
+`kind`, `metadata`, `spec`, `status` — shared by every capability, with uniform CRUD,
+list/filter, watch, status subresource, owner references, and finalizers. Conventions are
+specified in [`docs/concepts/resource-model.md`](../concepts/resource-model.md); the
+machine-readable contract is added to
+[`contracts/openapi/forge-control.openapi.yaml`](../../contracts/openapi/forge-control.openapi.yaml)
+during epic `20` **alongside** the existing `/v1` endpoints, which keep their current
+contract and tests.
+
 ## Forge Build API (epic 06)
 
 Build-job API and `forge.yaml` manifest:

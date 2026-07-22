@@ -168,3 +168,58 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 
 > Implementable steps: **131** (`N = 1` … `N = 131`). Foundation complete separately.
 
+---
+
+# Future — standalone cloud (epics 20–43)
+
+Planned work that begins **after** epic `19`. Nothing here affects the board above; the
+next implementable step is still the one named at the top of this file. Plan:
+[`FUTURE_PLAN.md`](FUTURE_PLAN.md) · architecture:
+[`standalone-cloud.md`](../architecture/standalone-cloud.md).
+
+## Future epics
+
+| Epic | Title | Milestone | Status | Notes |
+|---|---|---|---|---|
+| [20](epics/20-declarative-resource-api.md) | Declarative resource API | M1 | Planning | 8 steps (`N = 132`–`139`); facade keeps epics 02/07 APIs intact |
+| [21](epics/21-forge-discovery.md) | Forge Discovery | M1 | Planning | 6 steps (`N = 140`–`145`) |
+| [22](epics/22-forge-network.md) | Forge Network | M1 | Planning | 7 steps (`N = 146`–`152`) |
+| [23](epics/23-forge-infrastructure.md) | Forge Infrastructure | M1 | Planning | 7 steps (`N = 153`–`159`); Docker/SSH/bare-metal/Hetzner/AWS/Azure |
+| [24](epics/24-forge-autoscaler.md) | Forge Autoscaler | M1 | Planning | 8 steps (`N = 160`–`167`); workload + worker + node scaling |
+| [25](epics/25-scheduling-enhancements.md) | Scheduling enhancements | M1 | Planning | 6 steps (`N = 168`–`173`); M1 exit gate |
+| [26](epics/26-forge-registry.md) | Forge Registry | M2 | Catalog | steps not yet materialized |
+| [27](epics/27-deployment-strategies.md) | Deployment strategies | M2 | Catalog | canary, blue-green, traffic shifting |
+| [28](epics/28-forge-queue.md) | Forge Queue | M2 | Catalog | job semantics over Forge Events |
+| [29](epics/29-database-high-availability.md) | Database high availability | M2 | Catalog | standby, failover, read replicas, PITR |
+| [30](epics/30-forge-volumes.md) | Forge Volumes | M2 | Catalog | provider-independent persistent volumes |
+| [31](epics/31-distributed-object-storage.md) | Distributed object storage | M2 | Catalog | replication, repair, lifecycle |
+| [32](epics/32-secrets-high-availability.md) | Secrets high availability | M2 | Catalog | envelope encryption, rotation |
+| [33](epics/33-forge-policy.md) | Forge Policy | M2 | Catalog | admission, quotas, governance |
+| [34](epics/34-dns-and-certificates.md) | DNS and certificates | M2 | Catalog | internal CA + ACME + domains |
+| [35](epics/35-control-plane-high-availability.md) | Control-plane high availability | M2 | Catalog | leader election, leases, sharding |
+| [36](epics/36-backup-and-disaster-recovery.md) | Backup and disaster recovery | M2 | Catalog | platform-wide backup + DR |
+| [37](epics/37-alerts-and-incidents.md) | Alerts and incidents | M2 | Catalog | M2 exit gate |
+| [38](epics/38-ai-infrastructure-scheduling.md) | AI infrastructure scheduling | M3 | Catalog | GPU scheduling, model scaling |
+| [39](epics/39-multi-region.md) | Multi-region | M3 | Catalog | regions, residency, traffic steering |
+| [40](epics/40-forge-console.md) | Forge Console | M3 | Catalog | public-API client only |
+| [41](epics/41-usage-quotas-and-cost.md) | Usage, quotas, and cost | M3 | Catalog | metering + cost-aware scheduling |
+| [42](epics/42-platform-upgrades.md) | Platform upgrades | M3 | Catalog | versioning, migrations, rollout |
+| [43](epics/43-plugins-and-extensions.md) | Plugins and extensions | M3 | Catalog | M3 exit capstone |
+
+## Future steps (M1)
+
+| N | Title | Status |
+|---:|---|---|
+| **132**–**139** | Epic 20 — declarative resource API (`20.01`–`20.08`) | Not started |
+| **140**–**145** | Epic 21 — Forge Discovery (`21.01`–`21.06`) | Not started |
+| **146**–**152** | Epic 22 — Forge Network (`22.01`–`22.07`) | Not started |
+| **153**–**159** | Epic 23 — Forge Infrastructure (`23.01`–`23.07`) | Not started |
+| **160**–**167** | Epic 24 — Forge Autoscaler (`24.01`–`24.08`) | Not started |
+| **168**–**173** | Epic 25 — Scheduling enhancements (`25.01`–`25.06`) | Not started |
+
+Per-step rows live in each epic's steps README; the global lookup is
+[`STEPS.md`](STEPS.md#future-queue--standalone-cloud-epics-2025). Expand these into
+individual rows here when M1 implementation starts.
+
+> Planned steps including the future queue: **173** (`N = 1` … `N = 173`).
+

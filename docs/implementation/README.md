@@ -5,7 +5,8 @@ Forge is built as **epics** made of **atomic steps**.
 ```text
 specs.md                     ← product vision + coarse roadmap
 docs/implementation/
-├── MASTER_PLAN.md           ← full-ecosystem step catalog + global queue
+├── MASTER_PLAN.md           ← step catalog + global queue (epics 00–19)
+├── FUTURE_PLAN.md           ← epic + step catalog (epics 20–43, standalone cloud)
 ├── STEPS.md                 ← N = 1, 2, 3… implement queue (change only N)
 ├── roadmap.md               ← epic map + dependencies
 ├── progress.md              ← status board (epics + steps)
@@ -52,7 +53,7 @@ Output:
 
 ### 2. Implement (one step only)
 
-Use [`IMPLEMENT_STEP.md`](IMPLEMENT_STEP.md) with **`N = 1`** (then `2`, `3`, …). Lookup: [`STEPS.md`](STEPS.md).
+Use [`IMPLEMENT_STEP.md`](IMPLEMENT_STEP.md) with the next `N` from [`progress.md`](progress.md). Lookup: [`STEPS.md`](STEPS.md).
 
 ### 3. Track
 
@@ -83,9 +84,26 @@ Update [`progress.md`](progress.md) after planning and after each step completes
 | [18-managed-postgresql](epics/18-managed-postgresql.md) | Planning | `18.01`–`18.06` |
 | [19-full-platform-demo](epics/19-full-platform-demo.md) | Planning | `19.01`–`19.06` |
 
-**Next:** `N = 1` via [`IMPLEMENT_STEP.md`](IMPLEMENT_STEP.md) — lookup in [`STEPS.md`](STEPS.md).
+**Next:** `N = 51` via [`IMPLEMENT_STEP.md`](IMPLEMENT_STEP.md) — lookup in [`STEPS.md`](STEPS.md).
 
 Queue: [`STEPS.md`](STEPS.md) (`N = 1` … `N = 131`). Catalog: [`MASTER_PLAN.md`](MASTER_PLAN.md).
+
+## Future state (epics 20–43, standalone cloud)
+
+After epic `19`, Forge becomes a standalone cloud that runs identically on local Docker,
+bare metal, Hetzner, AWS, and Azure. Target architecture:
+[`docs/architecture/standalone-cloud.md`](../architecture/standalone-cloud.md).
+Plan: [`FUTURE_PLAN.md`](FUTURE_PLAN.md).
+
+| Epics | Milestone | Planning depth |
+|---|---|---|
+| [`20`–`25`](FUTURE_PLAN.md#3-epic-index) | M1 — standalone cloud core | Epic docs + step files (`N = 132`–`173`) |
+| [`26`–`37`](FUTURE_PLAN.md#3-epic-index) | M2 — production platform | Epic docs with step catalogs |
+| [`38`–`43`](FUTURE_PLAN.md#3-epic-index) | M3 — global platform | Epic docs with step catalogs |
+
+**These do not affect current work.** Steps `1`–`131` are frozen, the next implementable
+current-roadmap step is still `N = 51`, and every future epic extends shipped behaviour rather than
+replacing it — see [ADR 0007](../decisions/0007-additive-evolution-after-epic-19.md).
 
 ## Naming
 

@@ -138,4 +138,61 @@ Foundation `00.01` is already complete and has no `N`.
 | **130** | Failure injection + Workflows approval/rollback | 19 | [19.05-failure-injection-workflow.md](steps/19-full-platform-demo/19.05-failure-injection-workflow.md) |
 | **131** | `demos/09-full-platform` acceptance suite + docs | 19 | [19.06-acceptance-suite-and-gate.md](steps/19-full-platform-demo/19.06-acceptance-suite-and-gate.md) |
 
-Total implementable steps: **131**. Next: **`N = 51`**.
+Current-roadmap steps: **131** (`N = 1` … `N = 131`). Next: **`N = 52`**.
+
+---
+
+## Future queue — standalone cloud (epics 20–25)
+
+**Not part of the current roadmap.** These steps begin after epic `19` and are listed here
+so `N` stays a single global index. Rows `1`–`131` above are frozen. Plan:
+[`FUTURE_PLAN.md`](FUTURE_PLAN.md) · architecture:
+[`standalone-cloud.md`](../architecture/standalone-cloud.md).
+
+| N | Title | Epic | Step doc |
+|---:|---|---|---|
+| **132** | Resource envelope, kind registry, storage schema | 20 | [20.01-resource-envelope-and-registry.md](steps/20-declarative-resource-api/20.01-resource-envelope-and-registry.md) |
+| **133** | Generic CRUD endpoints + optimistic concurrency | 20 | [20.02-generic-crud-and-concurrency.md](steps/20-declarative-resource-api/20.02-generic-crud-and-concurrency.md) |
+| **134** | Generation tracking, status subresource, conditions | 20 | [20.03-generation-status-and-conditions.md](steps/20-declarative-resource-api/20.03-generation-status-and-conditions.md) |
+| **135** | Labels, annotations, filtering, pagination | 20 | [20.04-labels-selectors-and-listing.md](steps/20-declarative-resource-api/20.04-labels-selectors-and-listing.md) |
+| **136** | Watch API + resource events | 20 | [20.05-watch-api-and-resource-events.md](steps/20-declarative-resource-api/20.05-watch-api-and-resource-events.md) |
+| **137** | Owner references, finalizers, terminating deletion | 20 | [20.06-ownership-finalizers-and-deletion.md](steps/20-declarative-resource-api/20.06-ownership-finalizers-and-deletion.md) |
+| **138** | Compatibility facade for shipped APIs + `forge apply` | 20 | [20.07-compat-facade-and-forge-apply.md](steps/20-declarative-resource-api/20.07-compat-facade-and-forge-apply.md) |
+| **139** | Demo `20-declarative-resources` + epic gate | 20 | [20.08-demo-20-declarative-resources.md](steps/20-declarative-resource-api/20.08-demo-20-declarative-resources.md) |
+| **140** | Skeleton + Service/Endpoint resource model | 21 | [21.01-skeleton-and-registry-model.md](steps/21-forge-discovery/21.01-skeleton-and-registry-model.md) |
+| **141** | Endpoint registration + TTL leases | 21 | [21.02-endpoint-registration-and-leases.md](steps/21-forge-discovery/21.02-endpoint-registration-and-leases.md) |
+| **142** | Readiness-aware selection + endpoint watch | 21 | [21.03-readiness-selection-and-watch.md](steps/21-forge-discovery/21.03-readiness-selection-and-watch.md) |
+| **143** | Internal authoritative DNS for `.svc.forge` | 21 | [21.04-internal-dns-zone.md](steps/21-forge-discovery/21.04-internal-dns-zone.md) |
+| **144** | Gateway integration + service aliases | 21 | [21.05-gateway-and-client-integration.md](steps/21-forge-discovery/21.05-gateway-and-client-integration.md) |
+| **145** | Demo `21-service-discovery` + epic gate | 21 | [21.06-demo-21-service-discovery.md](steps/21-forge-discovery/21.06-demo-21-service-discovery.md) |
+| **146** | Skeleton + provider-independent address plan | 22 | [22.01-skeleton-and-address-allocation.md](steps/22-forge-network/22.01-skeleton-and-address-allocation.md) |
+| **147** | Node identity, bootstrap tokens, join handshake | 22 | [22.02-node-identity-and-bootstrap-tokens.md](steps/22-forge-network/22.02-node-identity-and-bootstrap-tokens.md) |
+| **148** | WireGuard peer management + route distribution | 22 | [22.03-wireguard-peer-management.md](steps/22-forge-network/22.03-wireguard-peer-management.md) |
+| **149** | Local Docker mode + provider private networks | 22 | [22.04-local-and-provider-network-modes.md](steps/22-forge-network/22.04-local-and-provider-network-modes.md) |
+| **150** | NetworkPolicy resource + enforcement | 22 | [22.05-network-policy-resource-and-enforcement.md](steps/22-forge-network/22.05-network-policy-resource-and-enforcement.md) |
+| **151** | Overlay + Discovery/DNS integration | 22 | [22.06-overlay-dns-and-cross-node-services.md](steps/22-forge-network/22.06-overlay-dns-and-cross-node-services.md) |
+| **152** | Demo `22-forge-network` + epic gate | 22 | [22.07-demo-22-forge-network.md](steps/22-forge-network/22.07-demo-22-forge-network.md) |
+| **153** | Skeleton, provider interface, NodePool/Node resources | 23 | [23.01-skeleton-provider-interface-and-nodepools.md](steps/23-forge-infrastructure/23.01-skeleton-provider-interface-and-nodepools.md) |
+| **154** | Local Docker provider (local cloud simulation) | 23 | [23.02-docker-provider-local-nodes.md](steps/23-forge-infrastructure/23.02-docker-provider-local-nodes.md) |
+| **155** | Node bootstrap, install, join, drain, delete | 23 | [23.03-node-bootstrap-and-join.md](steps/23-forge-infrastructure/23.03-node-bootstrap-and-join.md) |
+| **156** | Generic SSH provider + static bare-metal inventory | 23 | [23.04-ssh-and-bare-metal-providers.md](steps/23-forge-infrastructure/23.04-ssh-and-bare-metal-providers.md) |
+| **157** | Hetzner Cloud provider adapter | 23 | [23.05-hetzner-provider.md](steps/23-forge-infrastructure/23.05-hetzner-provider.md) |
+| **158** | AWS EC2 + Azure VM provider adapters | 23 | [23.06-aws-and-azure-providers.md](steps/23-forge-infrastructure/23.06-aws-and-azure-providers.md) |
+| **159** | Demo `23-local-cloud-simulation` + epic gate | 23 | [23.07-demo-23-local-cloud-simulation.md](steps/23-forge-infrastructure/23.07-demo-23-local-cloud-simulation.md) |
+| **160** | Skeleton, ScalingPolicy resource, metric sources | 24 | [24.01-skeleton-scalingpolicy-and-metric-sources.md](steps/24-forge-autoscaler/24.01-skeleton-scalingpolicy-and-metric-sources.md) |
+| **161** | CPU/memory workload autoscaling | 24 | [24.02-workload-cpu-memory-autoscaling.md](steps/24-forge-autoscaler/24.02-workload-cpu-memory-autoscaling.md) |
+| **162** | Request-rate, latency, and error-rate autoscaling | 24 | [24.03-request-rate-and-latency-autoscaling.md](steps/24-forge-autoscaler/24.03-request-rate-and-latency-autoscaling.md) |
+| **163** | Worker autoscaling from queue signals | 24 | [24.04-worker-queue-depth-autoscaling.md](steps/24-forge-autoscaler/24.04-worker-queue-depth-autoscaling.md) |
+| **164** | Scheduled scaling, manual override, safety fallbacks | 24 | [24.05-scheduled-scaling-and-overrides.md](steps/24-forge-autoscaler/24.05-scheduled-scaling-and-overrides.md) |
+| **165** | Node autoscaling — scale up | 24 | [24.06-node-autoscaling-scale-up.md](steps/24-forge-autoscaler/24.06-node-autoscaling-scale-up.md) |
+| **166** | Scale down, draining, and safeguards | 24 | [24.07-scale-down-draining-and-safeguards.md](steps/24-forge-autoscaler/24.07-scale-down-draining-and-safeguards.md) |
+| **167** | Demo `24-autoscaling` + epic gate | 24 | [24.08-demo-24-autoscaling.md](steps/24-forge-autoscaler/24.08-demo-24-autoscaling.md) |
+| **168** | Requests/limits + real capacity accounting | 25 | [25.01-resource-requests-limits-and-capacity.md](steps/25-scheduling-enhancements/25.01-resource-requests-limits-and-capacity.md) |
+| **169** | Node labels, selectors, taints, tolerations | 25 | [25.02-labels-selectors-taints-tolerations.md](steps/25-scheduling-enhancements/25.02-labels-selectors-taints-tolerations.md) |
+| **170** | Affinity/anti-affinity + topology spreading | 25 | [25.03-affinity-and-topology-spread.md](steps/25-scheduling-enhancements/25.03-affinity-and-topology-spread.md) |
+| **171** | Priority classes, preemption, disruption budgets | 25 | [25.04-priority-preemption-and-disruption-budgets.md](steps/25-scheduling-enhancements/25.04-priority-preemption-and-disruption-budgets.md) |
+| **172** | GPU, reservations, and stateful placement | 25 | [25.05-gpu-and-stateful-placement.md](steps/25-scheduling-enhancements/25.05-gpu-and-stateful-placement.md) |
+| **173** | Demo `25-ha-placement` + epic gate (M1 exit) | 25 | [25.06-demo-25-ha-placement.md](steps/25-scheduling-enhancements/25.06-demo-25-ha-placement.md) |
+
+Total planned steps: **173** (`N = 1` … `N = 173`). Epics `26`–`43` are catalogued in
+[`FUTURE_PLAN.md`](FUTURE_PLAN.md) and receive `N` values when their steps are materialized.

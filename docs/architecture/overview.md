@@ -21,3 +21,13 @@ The formal, language-agnostic contract (HTTP paths, identity JSON, log fields, e
 See [local-infrastructure.md](local-infrastructure.md) for the Compose substrate delivered by step `00.01`.
 
 Platform control-plane services are added as later **epics**, each planned into multiple atomic **steps**.
+
+## Where this is heading
+
+After epic `19`, Forge becomes a standalone cloud that runs identically on local Docker,
+bare metal, Hetzner, AWS EC2, and Azure VMs, with providers supplying only primitives
+(machines, disks, networks, IPs, GPUs). That target — declarative resources, service
+discovery, its own overlay network, provider adapters, and unified autoscaling — is
+specified in [standalone-cloud.md](standalone-cloud.md) and planned in
+[`FUTURE_PLAN.md`](../implementation/FUTURE_PLAN.md). It changes nothing about the epics
+above; it extends them.

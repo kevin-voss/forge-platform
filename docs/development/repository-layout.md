@@ -31,7 +31,10 @@ forge-platform/
 
 | Document | Role |
 |---|---|
-| `specs.md` | vision, principles, coarse epic roadmap |
+| `specs.md` | vision, principles, coarse epic roadmap (epics 00–19) |
+| `docs/architecture/standalone-cloud.md` | target architecture (epics 20–43) |
+| `docs/implementation/MASTER_PLAN.md` | step catalog for epics 00–19 |
+| `docs/implementation/FUTURE_PLAN.md` | epic + step catalog for epics 20–43 |
 | `docs/implementation/epics/` | capability plans |
 | `docs/implementation/steps/` | atomic implementable units |
 | `docs/implementation/progress.md` | live status board |

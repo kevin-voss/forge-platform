@@ -6,6 +6,11 @@ Planning-only catalog of **atomic steps** from the first unfinished step through
 
 **Do not implement application code from this file alone** — implement one step at a time via `IMPLEMENT_STEP.md`.
 
+**Scope note:** this catalog covers epics `00`–`19`. The standalone-cloud phase that
+follows (epics `20`–`43`: declarative resources, discovery, network, infrastructure
+providers, autoscaling, and everything after) is catalogued separately in
+[`FUTURE_PLAN.md`](FUTURE_PLAN.md) and does not modify anything below.
+
 ---
 
 ## North-star checklist (“100% working”)
