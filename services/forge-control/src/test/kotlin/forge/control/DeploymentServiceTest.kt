@@ -1,0 +1,175 @@
+package forge.control
+
+import forge.control.domain.Application
+import forge.control.domain.AuditEntry
+import forge.control.domain.Deployment
+import forge.control.domain.Environment
+import forge.control.domain.Project
+import forge.control.domain.Service
+import forge.control.http.ApiException
+import forge.control.repo.ApplicationRepository
+import forge.control.repo.AuditRepository
+import forge.control.repo.DeploymentRepository
+import forge.control.repo.EnvironmentRepository
+import forge.control.repo.ProjectRepository
+import forge.control.repo.ServiceRepository
+import forge.control.service.DeploymentService
+import forge.control.service.ProjectTreeService
+import java.time.Instant
+import java.util.UUID
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+
+class DeploymentServiceTest {
+    private val projectId = UUID.randomUUID()
+    private val otherProjectId = UUID.randomUUID()
+    private val applicationId = UUID.randomUUID()
+    private val serviceId = UUID.randomUUID()
+    private val environmentId = UUID.randomUUID()
+    private val now = Instant.parse("2026-01-01T00:00:00Z")
+    private val service = Service(serviceId, applicationId, "api", 8080, now, now)
+    private val application = Application(applicationId, projectId, "web", now, now)
+    private val environment = Environment(environmentId, projectId, "development", now, now)
+
+    @Test
+    fun validatesDesiredStateAndAuditsCreation() {
+        val deployments = FakeDeployments()
+        val audit = FakeAudit()
+        val deploymentService = service(deployments, audit)
+
+        val created = deploymentService.create(serviceId, " registry.local/api:1 ", null, environmentId)
+
+        assertEquals("registry.local/api:1", created.image)
+        assertEquals(1, created.desiredReplicas)
+        assertEquals(DeploymentService.PENDING, created.status)
+        assertEquals(listOf("create"), audit.entries.map { it.action })
+        assertFailsWith<ApiException.BadRequest> {
+            deploymentService.create(serviceId, " ", 1, environmentId)
+        }
+        assertFailsWith<ApiException.BadRequest> {
+            deploymentService.create(serviceId, "registry.local/api:1", -1, environmentId)
+        }
+    }
+
+    @Test
+    fun rejectsEnvironmentFromAnotherProject() {
+        val deploymentService = service(
+            FakeDeployments(),
+            FakeAudit(),
+            EnvironmentRepositoryFake(Environment(environmentId, otherProjectId, "production", now, now)),
+        )
+
+        assertFailsWith<ApiException.BadRequest> {
+            deploymentService.create(serviceId, "registry.local/api:1", 1, environmentId)
+        }
+    }
+
+    @Test
+    fun assemblesCompleteProjectTree() {
+        val deployment = Deployment(
+            UUID.randomUUID(),
+            serviceId,
+            environmentId,
+            "registry.local/api:1",
+            1,
+            "pending",
+            now,
+            now,
+        )
+        val tree = ProjectTreeService(
+            ProjectRepositoryFake(Project(projectId, "Acme", "acme", now, now)),
+            EnvironmentRepositoryFake(environment),
+            ApplicationRepositoryFake(application),
+            ServiceRepositoryFake(service),
+            FakeDeployments(listOf(deployment)),
+        ).get(projectId)
+
+        assertEquals(environmentId.toString(), tree.environments.single().id)
+        assertEquals(applicationId.toString(), tree.applications.single().id)
+        assertEquals(serviceId.toString(), tree.applications.single().services.single().id)
+        assertEquals(deployment.id.toString(), tree.applications.single().services.single().deployments.single().id)
+    }
+
+    private fun service(
+        deployments: DeploymentRepository,
+        audit: AuditRepository,
+        environments: EnvironmentRepository = EnvironmentRepositoryFake(environment),
+    ) = DeploymentService(
+        deployments,
+        ServiceRepositoryFake(service),
+        ApplicationRepositoryFake(application),
+        environments,
+        audit,
+    )
+
+    private class ProjectRepositoryFake(private val project: Project) : ProjectRepository {
+        override fun create(name: String, slug: String): Project = error("not used")
+        override fun findById(id: UUID): Project? = project.takeIf { it.id == id }
+        override fun list(): List<Project> = listOf(project)
+        override fun update(id: UUID, name: String?, slug: String?): Project = error("not used")
+        override fun delete(id: UUID) = error("not used")
+    }
+
+    private class EnvironmentRepositoryFake(private val environment: Environment) : EnvironmentRepository {
+        override fun create(projectId: UUID, name: String): Environment = error("not used")
+        override fun findById(id: UUID): Environment? = environment.takeIf { it.id == id }
+        override fun list(projectId: UUID): List<Environment> = listOf(environment).filter { it.projectId == projectId }
+        override fun update(id: UUID, name: String): Environment = error("not used")
+        override fun delete(id: UUID) = error("not used")
+    }
+
+    private class ApplicationRepositoryFake(private val application: Application) : ApplicationRepository {
+        override fun create(projectId: UUID, name: String): Application = error("not used")
+        override fun findById(id: UUID): Application? = application.takeIf { it.id == id }
+        override fun list(projectId: UUID): List<Application> = listOf(application).filter { it.projectId == projectId }
+        override fun update(id: UUID, name: String): Application = error("not used")
+        override fun delete(id: UUID) = error("not used")
+    }
+
+    private class ServiceRepositoryFake(private val service: Service) : ServiceRepository {
+        override fun create(applicationId: UUID, name: String, port: Int): Service = error("not used")
+        override fun findById(id: UUID): Service? = service.takeIf { it.id == id }
+        override fun list(applicationId: UUID): List<Service> = listOf(service).filter { it.applicationId == applicationId }
+        override fun update(id: UUID, name: String?, port: Int?): Service = error("not used")
+        override fun delete(id: UUID) = error("not used")
+    }
+
+    private class FakeDeployments(
+        initial: List<Deployment> = emptyList(),
+    ) : DeploymentRepository {
+        private val rows = initial.toMutableList()
+
+        override fun create(
+            serviceId: UUID,
+            environmentId: UUID,
+            image: String,
+            desiredReplicas: Int,
+            status: String,
+        ): Deployment = Deployment(UUID.randomUUID(), serviceId, environmentId, image, desiredReplicas, status, NOW, NOW)
+            .also(rows::add)
+
+        override fun findById(id: UUID): Deployment? = rows.find { it.id == id }
+        override fun listByService(serviceId: UUID): List<Deployment> = rows.filter { it.serviceId == serviceId }
+        override fun update(id: UUID, image: String?, desiredReplicas: Int?, status: String?): Deployment = error("not used")
+        override fun delete(id: UUID) = error("not used")
+    }
+
+    private class FakeAudit : AuditRepository {
+        val entries = mutableListOf<AuditEntry>()
+        override fun append(
+            entityType: String,
+            entityId: UUID,
+            action: String,
+            actor: String,
+            detailJson: String,
+        ): AuditEntry = AuditEntry(UUID.randomUUID(), entityType, entityId, action, actor, NOW, detailJson).also(entries::add)
+
+        override fun listByEntity(entityType: String, entityId: UUID): List<AuditEntry> =
+            entries.filter { it.entityType == entityType && it.entityId == entityId }
+    }
+
+    private companion object {
+        val NOW: Instant = Instant.parse("2026-01-01T00:00:00Z")
+    }
+}

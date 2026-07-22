@@ -6,8 +6,9 @@ Persistence (`02.02`) provides the Control domain model — projects, environmen
 applications, services, deployments, and an append-only audit log — in PostgreSQL
 schema `control`, with Flyway migrations, HikariCP, and JDBC repositories.
 
-HTTP APIs for projects, environments, applications, and services (`02.04`) are
-available under `/v1`. Deployments arrive in a later step.
+HTTP APIs for projects, environments, applications, services, and desired-state
+deployments (`02.05`) are available under `/v1`. Control records deployment
+intent only; it does not pull images or start containers.
 
 ## Quick start
 
@@ -26,8 +27,9 @@ PID=$(curl -sf -X POST http://127.0.0.1:4001/v1/projects \
   -H 'content-type: application/json' -d '{"name":"acme"}' | \
   python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
 curl -sf http://127.0.0.1:4001/v1/projects/$PID
-curl -sf -X POST http://127.0.0.1:4001/v1/projects/$PID/environments \
-  -H 'content-type: application/json' -d '{"name":"development"}'
+EID=$(curl -sf -X POST http://127.0.0.1:4001/v1/projects/$PID/environments \
+  -H 'content-type: application/json' -d '{"name":"development"}' | \
+  python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
 curl -sf http://127.0.0.1:4001/v1/projects/$PID/environments
 ```
 
@@ -37,9 +39,21 @@ Create an application and service:
 AID=$(curl -sf -X POST http://127.0.0.1:4001/v1/projects/$PID/applications \
   -H 'content-type: application/json' -d '{"name":"web"}' | \
   python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
-curl -sf -X POST http://127.0.0.1:4001/v1/applications/$AID/services \
-  -H 'content-type: application/json' -d '{"name":"api","port":8080}'
+SID=$(curl -sf -X POST http://127.0.0.1:4001/v1/applications/$AID/services \
+  -H 'content-type: application/json' -d '{"name":"api","port":8080}' | \
+  python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
 curl -sf http://127.0.0.1:4001/v1/applications/$AID/services
+```
+
+Create and inspect a desired deployment:
+
+```bash
+DID=$(curl -sf -X POST http://127.0.0.1:4001/v1/services/$SID/deployments \
+  -H 'content-type: application/json' \
+  -d "{\"image\":\"localhost:5000/demo-go:latest\",\"desiredReplicas\":1,\"environmentId\":\"$EID\"}" | \
+  python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+curl -sf http://127.0.0.1:4001/v1/deployments/$DID
+curl -sf "http://127.0.0.1:4001/v1/projects/$PID?expand=tree"
 ```
 
 Or from this directory:
@@ -77,7 +91,7 @@ make dev
 
 See `.env.example`.
 
-## HTTP API (02.04)
+## HTTP API (02.05)
 
 | Method | Path | Notes |
 |---|---|---|
@@ -93,6 +107,10 @@ See `.env.example`.
 | `POST` | `/v1/applications/{applicationId}/services` | Body `{"name","port"}`; port is 1–65535 |
 | `GET` | `/v1/applications/{applicationId}/services` | List services for application |
 | `GET` | `/v1/services/{serviceId}` | Get service |
+| `POST` | `/v1/services/{serviceId}/deployments` | Body `{"image","desiredReplicas?","environmentId"}`; replicas default to `1`, status starts `pending` |
+| `GET` | `/v1/services/{serviceId}/deployments` | List deployments for a service |
+| `GET` | `/v1/deployments/{deploymentId}` | Get deployment |
+| `GET` | `/v1/projects/{projectId}?expand=tree` | Project, environments, applications, services, and deployments |
 
 Errors use the provisional envelope `{"error":{"code","message","details?"}}`
 (`400` validation, `404` missing, `409` conflict). Formalized in `02.06`.
@@ -102,7 +120,7 @@ Errors use the provisional envelope `{"error":{"code","message","details?"}}`
 Tables in schema `control`:
 
 * `projects`, `environments`, `applications`, `services`, `deployments`
-* `audit_log` (append-only; create actions for projects/environments/applications/services)
+* `audit_log` (append-only; create actions for projects/environments/applications/services/deployments)
 * `flyway_schema_history`
 
 Foreign keys use `ON DELETE RESTRICT`. Unique constraints enforce slug/name uniqueness

@@ -9,6 +9,7 @@ import forge.control.http.DbProbe
 import forge.control.http.Readiness
 import forge.control.http.applicationRoutes
 import forge.control.http.apiError
+import forge.control.http.deploymentRoutes
 import forge.control.http.environmentRoutes
 import forge.control.http.healthRoutes
 import forge.control.http.projectRoutes
@@ -17,12 +18,15 @@ import forge.control.http.toEnvelope
 import forge.control.logging.JsonLog
 import forge.control.repo.JdbcApplicationRepository
 import forge.control.repo.JdbcAuditRepository
+import forge.control.repo.JdbcDeploymentRepository
 import forge.control.repo.JdbcEnvironmentRepository
 import forge.control.repo.JdbcProjectRepository
 import forge.control.repo.JdbcServiceRepository
 import forge.control.service.ApplicationService
+import forge.control.service.DeploymentService
 import forge.control.service.EnvironmentService
 import forge.control.service.ProjectService
+import forge.control.service.ProjectTreeService
 import forge.control.service.RelationshipValidator
 import forge.control.service.ServiceService
 import io.ktor.http.HttpStatusCode
@@ -84,6 +88,7 @@ fun main() {
     val environmentRepo = JdbcEnvironmentRepository(db.dataSource)
     val applicationRepo = JdbcApplicationRepository(db.dataSource)
     val serviceRepo = JdbcServiceRepository(db.dataSource)
+    val deploymentRepo = JdbcDeploymentRepository(db.dataSource)
     val auditRepo = JdbcAuditRepository(db.dataSource)
     val relationships = RelationshipValidator(projectRepo, applicationRepo)
     val services = ControlServices(
@@ -91,6 +96,21 @@ fun main() {
         environments = EnvironmentService(projectRepo, environmentRepo, auditRepo, actor = actor),
         applications = ApplicationService(applicationRepo, relationships, auditRepo, actor = actor),
         services = ServiceService(serviceRepo, relationships, auditRepo, actor = actor),
+        deployments = DeploymentService(
+            deploymentRepo,
+            serviceRepo,
+            applicationRepo,
+            environmentRepo,
+            auditRepo,
+            actor = actor,
+        ),
+        projectTrees = ProjectTreeService(
+            projectRepo,
+            environmentRepo,
+            applicationRepo,
+            serviceRepo,
+            deploymentRepo,
+        ),
     )
 
     val readiness = Readiness()
@@ -232,10 +252,11 @@ fun Application.forgeControlModule(
     routing {
         healthRoutes(readiness, dbProbe, onDbFailure)
         if (services != null) {
-            projectRoutes(services.projects)
+            projectRoutes(services.projects, services.projectTrees)
             environmentRoutes(services.environments)
             applicationRoutes(services.applications)
             serviceRoutes(services.services)
+            deploymentRoutes(services.deployments)
         }
     }
 }

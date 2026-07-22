@@ -6,17 +6,22 @@ import forge.control.db.Db
 import forge.control.http.ErrorEnvelope
 import forge.control.http.Readiness
 import forge.control.http.dto.ApplicationResponse
+import forge.control.http.dto.DeploymentResponse
 import forge.control.http.dto.EnvironmentResponse
 import forge.control.http.dto.ProjectResponse
+import forge.control.http.dto.ProjectTreeResponse
 import forge.control.http.dto.ServiceResponse
 import forge.control.repo.JdbcApplicationRepository
 import forge.control.repo.JdbcAuditRepository
+import forge.control.repo.JdbcDeploymentRepository
 import forge.control.repo.JdbcEnvironmentRepository
 import forge.control.repo.JdbcProjectRepository
 import forge.control.repo.JdbcServiceRepository
 import forge.control.service.ApplicationService
+import forge.control.service.DeploymentService
 import forge.control.service.EnvironmentService
 import forge.control.service.ProjectService
+import forge.control.service.ProjectTreeService
 import forge.control.service.RelationshipValidator
 import forge.control.service.ServiceService
 import io.ktor.client.call.body
@@ -80,6 +85,7 @@ class ProjectsEnvironmentsApiIntegrationTest {
     private var createdEnvironmentId: String? = null
     private var createdApplicationId: String? = null
     private var createdServiceId: String? = null
+    private var createdDeploymentId: String? = null
 
     @BeforeAll
     fun setup() {
@@ -99,6 +105,7 @@ class ProjectsEnvironmentsApiIntegrationTest {
         val envRepo = JdbcEnvironmentRepository(db.dataSource)
         val applicationRepo = JdbcApplicationRepository(db.dataSource)
         val serviceRepo = JdbcServiceRepository(db.dataSource)
+        val deploymentRepo = JdbcDeploymentRepository(db.dataSource)
         val auditRepo = JdbcAuditRepository(db.dataSource)
         val relationships = RelationshipValidator(projectRepo, applicationRepo)
         services = ControlServices(
@@ -106,6 +113,21 @@ class ProjectsEnvironmentsApiIntegrationTest {
             environments = EnvironmentService(projectRepo, envRepo, auditRepo, actor = "dev"),
             applications = ApplicationService(applicationRepo, relationships, auditRepo, actor = "dev"),
             services = ServiceService(serviceRepo, relationships, auditRepo, actor = "dev"),
+            deployments = DeploymentService(
+                deploymentRepo,
+                serviceRepo,
+                applicationRepo,
+                envRepo,
+                auditRepo,
+                actor = "dev",
+            ),
+            projectTrees = ProjectTreeService(
+                projectRepo,
+                envRepo,
+                applicationRepo,
+                serviceRepo,
+                deploymentRepo,
+            ),
         )
     }
 
@@ -269,11 +291,76 @@ class ProjectsEnvironmentsApiIntegrationTest {
 
     @Test
     @Order(5)
+    fun createsDeploymentAndReturnsCompleteTree() = withApi {
+        val client = jsonClient()
+        val projectId = requireNotNull(createdProjectId)
+        val environmentId = requireNotNull(createdEnvironmentId)
+        val serviceId = requireNotNull(createdServiceId)
+
+        val create = client.post("/v1/services/$serviceId/deployments") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"image":"localhost:5000/demo-go:latest","desiredReplicas":1,"environmentId":"$environmentId"}""")
+        }
+        assertEquals(HttpStatusCode.Created, create.status)
+        val deployment = create.body<DeploymentResponse>()
+        assertEquals(serviceId, deployment.serviceId)
+        assertEquals(environmentId, deployment.environmentId)
+        assertEquals("pending", deployment.status)
+        createdDeploymentId = deployment.id
+
+        val get = client.get("/v1/deployments/${deployment.id}")
+        assertEquals(HttpStatusCode.OK, get.status)
+        assertEquals(deployment.id, get.body<DeploymentResponse>().id)
+        val list = client.get("/v1/services/$serviceId/deployments")
+        assertTrue(list.body<List<DeploymentResponse>>().any { it.id == deployment.id })
+
+        val tree = client.get("/v1/projects/$projectId?expand=tree")
+        assertEquals(HttpStatusCode.OK, tree.status)
+        val response = tree.body<ProjectTreeResponse>()
+        assertEquals(projectId, response.project.id)
+        assertTrue(response.environments.any { it.id == environmentId })
+        assertTrue(
+            response.applications
+                .flatMap { it.services }
+                .flatMap { it.deployments }
+                .any { it.id == deployment.id },
+        )
+
+        val otherProject = client.post("/v1/projects") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Other","slug":"other-${UUID.randomUUID()}"}""")
+        }.body<ProjectResponse>()
+        val otherEnvironment = client.post("/v1/projects/${otherProject.id}/environments") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"production"}""")
+        }.body<EnvironmentResponse>()
+        val mismatch = client.post("/v1/services/$serviceId/deployments") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"image":"localhost:5000/demo-go:latest","environmentId":"${otherEnvironment.id}"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, mismatch.status)
+
+        assertEquals(1, db.dataSource.connection.use { connection ->
+            connection.prepareStatement(
+                "SELECT COUNT(*) FROM control.audit_log WHERE entity_type = 'deployment' AND entity_id = ? AND action = 'create'",
+            ).use { statement ->
+                statement.setObject(1, UUID.fromString(deployment.id))
+                statement.executeQuery().use { result ->
+                    result.next()
+                    result.getInt(1)
+                }
+            }
+        })
+    }
+
+    @Test
+    @Order(6)
     fun survivesReconnect() {
         val projectId = requireNotNull(createdProjectId)
         val envId = requireNotNull(createdEnvironmentId)
         val applicationId = requireNotNull(createdApplicationId)
         val serviceId = requireNotNull(createdServiceId)
+        val deploymentId = requireNotNull(createdDeploymentId)
 
         db.close()
         db = Db.open(cfg.database)
@@ -283,6 +370,7 @@ class ProjectsEnvironmentsApiIntegrationTest {
         assertEquals(envId, services.environments.get(UUID.fromString(envId)).id.toString())
         assertEquals(applicationId, services.applications.get(UUID.fromString(applicationId)).id.toString())
         assertEquals(serviceId, services.services.get(UUID.fromString(serviceId)).id.toString())
+        assertEquals(deploymentId, services.deployments.get(UUID.fromString(deploymentId)).id.toString())
 
         testApplication {
             application {
@@ -307,6 +395,9 @@ class ProjectsEnvironmentsApiIntegrationTest {
             val service = client.get("/v1/services/$serviceId")
             assertEquals(HttpStatusCode.OK, service.status)
             assertEquals(serviceId, service.body<ServiceResponse>().id)
+            val deployment = client.get("/v1/deployments/$deploymentId")
+            assertEquals(HttpStatusCode.OK, deployment.status)
+            assertEquals(deploymentId, deployment.body<DeploymentResponse>().id)
         }
     }
 }

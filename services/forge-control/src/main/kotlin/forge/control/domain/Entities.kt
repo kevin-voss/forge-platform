@@ -67,7 +67,11 @@ data class Deployment(
     init {
         require(image.isNotBlank()) { "image must not be blank" }
         require(desiredReplicas >= 0) { "desired_replicas must be >= 0" }
-        require(status.isNotBlank()) { "status must not be blank" }
+        require(status in DEPLOYMENT_STATUSES) { "invalid deployment status" }
+    }
+
+    private companion object {
+        val DEPLOYMENT_STATUSES = setOf("pending", "active", "failed", "stopped")
     }
 }
 

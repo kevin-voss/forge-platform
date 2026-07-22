@@ -72,7 +72,7 @@ GET /v1/projects/{id}?expand=tree   → full hierarchy
 | [02.02](../steps/02-forge-control/02.02-domain-model-and-migrations.md) | Domain model + Postgres migrations | Complete | Schema `control`, Flyway, Hikari, JDBC repos |
 | [02.03](../steps/02-forge-control/02.03-projects-environments-api.md) | Projects & environments API | Complete | First curlable slice; provisional error envelope |
 | [02.04](../steps/02-forge-control/02.04-applications-services-api.md) | Applications & services API + relationship validation | Complete | Nested application/service APIs, relationship validation, and audit rows |
-| [02.05](../steps/02-forge-control/02.05-deployments-desired-state-api.md) | Deployments desired-state API + basic audit | Not started | Depends on 02.04 |
+| [02.05](../steps/02-forge-control/02.05-deployments-desired-state-api.md) | Deployments desired-state API + basic audit | Complete | Desired-state API, project tree read model, and audit records |
 | [02.06](../steps/02-forge-control/02.06-errors-openapi-contract-idempotency.md) | Shared errors, OpenAPI, contract tests, idempotency | Not started | Depends on 02.03–02.05 |
 | [02.07](../steps/02-forge-control/02.07-structured-logs-and-otel.md) | Structured logs + OTEL | Not started | Depends on 02.01+ |
 | [02.08](../steps/02-forge-control/02.08-demo-control-plane-and-gate.md) | Demo `02-control-plane` + epic gate | Not started | Depends on all prior |
@@ -98,4 +98,4 @@ GET /v1/projects/{id}?expand=tree   → full hierarchy
 
 ## Next step to implement
 
-**[02.05](../steps/02-forge-control/02.05-deployments-desired-state-api.md) — Deployments desired-state API + basic audit** (depends on 02.04).
+**[02.06](../steps/02-forge-control/02.06-errors-openapi-contract-idempotency.md) — Shared errors, OpenAPI, contract tests, idempotency** (depends on 02.03–02.05).
