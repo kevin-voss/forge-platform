@@ -179,6 +179,22 @@ services:
       FORGE_ENV: ${FORGE_ENV:-development}
       FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
       FORGE_SHUTDOWN_GRACE_SECONDS: ${FORGE_SHUTDOWN_GRACE_SECONDS:-10}
+      # Route sync (05.03): Control /v1/endpoints primary; Runtime node state interim.
+      FORGE_CONTROL_URL: ${FORGE_CONTROL_URL-http://forge-control:8080}
+      FORGE_RUNTIME_URL: ${FORGE_RUNTIME_URL-http://forge-runtime:8080}
+      FORGE_ROUTE_SOURCE: ${FORGE_ROUTE_SOURCE:-control}
+      FORGE_ROUTE_SYNC_INTERVAL_SECONDS: ${FORGE_ROUTE_SYNC_INTERVAL_SECONDS:-10}
+      # Empty → gateway default `{service}.{project}.demo.localhost` (avoid Compose `${}` brace clash).
+      FORGE_HOST_PATTERN: ${FORGE_HOST_PATTERN-}
+      # Published workload ports bind on the Docker host; reach them from the gateway container.
+      FORGE_UPSTREAM_HOST: ${FORGE_UPSTREAM_HOST:-host.docker.internal}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      forge-control:
+        condition: service_healthy
+      forge-runtime:
+        condition: service_healthy
     stop_grace_period: 15s
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health/live | grep -q ok"]

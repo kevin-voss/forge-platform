@@ -62,7 +62,7 @@ python.demo.localhost  ┘
 |---|---|---|---|
 | [05.01](../steps/05-forge-gateway/05.01-skeleton-and-health.md) | Skeleton + health | Complete | Go service, port 4000 |
 | [05.02](../steps/05-forge-gateway/05.02-route-table-and-proxy-core.md) | Route table + reverse proxy core | Complete | In-memory table, RR proxy, admin API |
-| [05.03](../steps/05-forge-gateway/05.03-sync-routes-from-control.md) | Sync routes from Control | Not started | Depends on 05.02 + Control/Runtime data |
+| [05.03](../steps/05-forge-gateway/05.03-sync-routes-from-control.md) | Sync routes from Control | Complete | Control endpoints + Runtime interim sync, refresh API |
 | [05.04](../steps/05-forge-gateway/05.04-health-aware-upstreams.md) | Health-aware upstreams | Not started | Depends on 05.02/05.03 + Runtime status |
 | [05.05](../steps/05-forge-gateway/05.05-request-ids-headers-timeouts.md) | Request IDs, forwarded headers, timeouts | Not started | Depends on 05.02 |
 | [05.06](../steps/05-forge-gateway/05.06-websocket-and-sse-proxy.md) | WebSocket + SSE proxy | Not started | Depends on 05.02/05.05 |
@@ -86,4 +86,4 @@ python.demo.localhost  ┘
 
 ## Next step to implement
 
-**[05.03](../steps/05-forge-gateway/05.03-sync-routes-from-control.md) — Sync routes from Control** (dynamic routes from Control/Runtime endpoints).
+**[05.04](../steps/05-forge-gateway/05.04-health-aware-upstreams.md) — Health-aware upstreams** (skip unhealthy backends).

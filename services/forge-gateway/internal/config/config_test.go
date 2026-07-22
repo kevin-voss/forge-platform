@@ -14,6 +14,12 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FORGE_AUTH_MODE", "")
 	t.Setenv("FORGE_SHUTDOWN_GRACE_SECONDS", "")
 	t.Setenv("FORGE_GATEWAY_STATIC_ROUTES", "")
+	t.Setenv("FORGE_CONTROL_URL", "")
+	t.Setenv("FORGE_RUNTIME_URL", "")
+	t.Setenv("FORGE_ROUTE_SOURCE", "")
+	t.Setenv("FORGE_ROUTE_SYNC_INTERVAL_SECONDS", "")
+	t.Setenv("FORGE_HOST_PATTERN", "")
+	t.Setenv("FORGE_UPSTREAM_HOST", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -43,6 +49,21 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.StaticRoutesPath != "" {
 		t.Fatalf("StaticRoutesPath = %q, want empty", cfg.StaticRoutesPath)
 	}
+	if cfg.RouteSource != "control" {
+		t.Fatalf("RouteSource = %q, want control", cfg.RouteSource)
+	}
+	if cfg.RouteSyncInterval != 10*time.Second {
+		t.Fatalf("RouteSyncInterval = %v, want 10s", cfg.RouteSyncInterval)
+	}
+	if cfg.HostPattern != "{service}.{project}.demo.localhost" {
+		t.Fatalf("HostPattern = %q", cfg.HostPattern)
+	}
+	if cfg.UpstreamHost != "127.0.0.1" {
+		t.Fatalf("UpstreamHost = %q", cfg.UpstreamHost)
+	}
+	if cfg.SyncEnabled {
+		t.Fatal("SyncEnabled should be false without platform URLs")
+	}
 }
 
 func TestLoadInvalidPort(t *testing.T) {
@@ -66,6 +87,12 @@ func TestLoadCustomValues(t *testing.T) {
 	t.Setenv("FORGE_AUTH_MODE", "dev")
 	t.Setenv("FORGE_SHUTDOWN_GRACE_SECONDS", "5")
 	t.Setenv("FORGE_GATEWAY_STATIC_ROUTES", "/etc/forge/routes.json")
+	t.Setenv("FORGE_CONTROL_URL", "http://forge-control:8080")
+	t.Setenv("FORGE_RUNTIME_URL", "http://forge-runtime:8080")
+	t.Setenv("FORGE_ROUTE_SOURCE", "runtime")
+	t.Setenv("FORGE_ROUTE_SYNC_INTERVAL_SECONDS", "3")
+	t.Setenv("FORGE_HOST_PATTERN", "{service}.{project}.local")
+	t.Setenv("FORGE_UPSTREAM_HOST", "host.docker.internal")
 
 	cfg, err := Load()
 	if err != nil {
@@ -82,6 +109,23 @@ func TestLoadCustomValues(t *testing.T) {
 	}
 	if cfg.StaticRoutesPath != "/etc/forge/routes.json" {
 		t.Fatalf("StaticRoutesPath = %q", cfg.StaticRoutesPath)
+	}
+	if !cfg.SyncEnabled {
+		t.Fatal("SyncEnabled should be true with control+runtime URLs")
+	}
+	if cfg.RouteSource != "runtime" || cfg.RouteSyncInterval != 3*time.Second {
+		t.Fatalf("sync cfg: %+v", cfg)
+	}
+	if cfg.UpstreamHost != "host.docker.internal" {
+		t.Fatalf("UpstreamHost = %q", cfg.UpstreamHost)
+	}
+}
+
+func TestLoadInvalidRouteSource(t *testing.T) {
+	t.Setenv("PORT", "8080")
+	t.Setenv("FORGE_ROUTE_SOURCE", "kafka")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error for invalid FORGE_ROUTE_SOURCE")
 	}
 }
 

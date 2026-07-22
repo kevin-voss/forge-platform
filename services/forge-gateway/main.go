@@ -18,6 +18,7 @@ import (
 	"forge.local/services/forge-gateway/internal/health"
 	"forge.local/services/forge-gateway/internal/proxy"
 	"forge.local/services/forge-gateway/internal/routes"
+	gwync "forge.local/services/forge-gateway/internal/sync"
 )
 
 func main() {
@@ -42,6 +43,10 @@ func run() error {
 		"log_level", cfg.LogLevel,
 		"shutdown_grace_seconds", int(cfg.ShutdownGrace.Seconds()),
 		"static_routes", cfg.StaticRoutesPath,
+		"route_source", cfg.RouteSource,
+		"route_sync_interval_seconds", int(cfg.RouteSyncInterval.Seconds()),
+		"host_pattern", cfg.HostPattern,
+		"sync_enabled", cfg.SyncEnabled,
 	)
 
 	table := routes.NewTable()
@@ -55,9 +60,37 @@ func run() error {
 	ready := health.NewReadiness()
 	proxyHandler := proxy.NewHandler(table, log)
 
+	var syncer *gwync.Syncer
+	if cfg.SyncEnabled {
+		source, err := gwync.BuildSource(cfg.RouteSource, cfg.ControlURL, cfg.RuntimeURL, cfg.UpstreamHost, nil)
+		if err != nil {
+			return err
+		}
+		syncer = gwync.New(gwync.Config{
+			Table:    table,
+			Proxy:    proxyHandler,
+			Source:   source,
+			Pattern:  cfg.HostPattern,
+			Interval: cfg.RouteSyncInterval,
+			Log:      log,
+		})
+	} else {
+		log.Info("route sync disabled (set FORGE_CONTROL_URL / FORGE_RUNTIME_URL to enable)")
+		// Still expose refresh so callers get a clear response.
+		syncer = gwync.New(gwync.Config{
+			Table:    table,
+			Proxy:    proxyHandler,
+			Source:   nil,
+			Pattern:  cfg.HostPattern,
+			Interval: 0,
+			Log:      log,
+		})
+	}
+
 	mux := http.NewServeMux()
 	health.NewHandler(ready).Register(mux)
 	admin.NewRoutesHandler(table, proxyHandler, log).Register(mux)
+	syncer.Register(mux)
 	mux.Handle("/", proxyHandler)
 
 	httpServer := &http.Server{
@@ -71,6 +104,12 @@ func run() error {
 		return fmt.Errorf("listen: %w", err)
 	}
 	ready.MarkReady()
+
+	syncCtx, syncCancel := context.WithCancel(context.Background())
+	defer syncCancel()
+	if cfg.SyncEnabled {
+		go syncer.Run(syncCtx)
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -87,10 +126,13 @@ func run() error {
 
 	select {
 	case err := <-errCh:
+		syncCancel()
 		return err
 	case sig := <-sigCh:
 		log.Info("shutdown signal received", "signal", sig.String())
 	}
+
+	syncCancel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownGrace)
 	defer cancel()

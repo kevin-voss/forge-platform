@@ -16,6 +16,12 @@ dev:
 	FORGE_ENV=$${FORGE_ENV:-development} \
 	FORGE_AUTH_MODE=$${FORGE_AUTH_MODE:-dev} \
 	FORGE_SHUTDOWN_GRACE_SECONDS=$${FORGE_SHUTDOWN_GRACE_SECONDS:-10} \
+	FORGE_CONTROL_URL=$${FORGE_CONTROL_URL:-http://127.0.0.1:4001} \
+	FORGE_RUNTIME_URL=$${FORGE_RUNTIME_URL:-http://127.0.0.1:4102} \
+	FORGE_ROUTE_SOURCE=$${FORGE_ROUTE_SOURCE:-control} \
+	FORGE_ROUTE_SYNC_INTERVAL_SECONDS=$${FORGE_ROUTE_SYNC_INTERVAL_SECONDS:-10} \
+	FORGE_HOST_PATTERN=$${FORGE_HOST_PATTERN:-'{service}.{project}.demo.localhost'} \
+	FORGE_UPSTREAM_HOST=$${FORGE_UPSTREAM_HOST:-127.0.0.1} \
 	go run .
 
 build:
@@ -56,6 +62,12 @@ test-integration: run
 	@code="$$(curl -s -o /tmp/forge-gateway-badup.json -w '%{http_code}' -H 'Host: go.demo.localhost' "http://127.0.0.1:$(HOST_PORT)/")"; \
 		test "$$code" = "502"; \
 		grep -q '"code":"bad_gateway"' /tmp/forge-gateway-badup.json
+	@# Force sync refresh (Control /v1/endpoints missing → Runtime interim fallback).
+	@curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/admin/routes/refresh" \
+		| tee /tmp/forge-gateway-refresh.json | grep -q '"routesLoaded"'
+	@python3 -c 'import json; d=json.load(open("/tmp/forge-gateway-refresh.json")); assert "routesLoaded" in d'
+	@# Sync logs mention route sync (loop started or complete/failed).
+	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -E -q 'route sync'
 	@# SIGTERM / docker stop exits 0 within grace.
 	@cid="$$($(COMPOSE) ps -q $(SERVICE))"; \
 		test -n "$$cid"; \
@@ -64,7 +76,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (health + admin routes + no_route/502 + structured logs + invalid PORT + graceful SIGTERM)."
+	@echo "Integration checks passed (health + admin routes + refresh sync + no_route/502 + structured logs + invalid PORT + graceful SIGTERM)."
 
 lint:
 	@go vet ./...
@@ -81,4 +93,5 @@ docker-run: run
 clean:
 	rm -rf bin
 	@rm -f /tmp/forge-gateway-bad-port.out /tmp/forge-gateway-gofmt.out \
-		/tmp/forge-gateway-nomatch.json /tmp/forge-gateway-badup.json
+		/tmp/forge-gateway-nomatch.json /tmp/forge-gateway-badup.json \
+		/tmp/forge-gateway-refresh.json

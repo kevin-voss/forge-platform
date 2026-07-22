@@ -18,6 +18,14 @@ type Config struct {
 	AuthMode         string
 	ShutdownGrace    time.Duration
 	StaticRoutesPath string
+
+	ControlURL        string
+	RuntimeURL        string
+	RouteSource       string
+	RouteSyncInterval time.Duration
+	HostPattern       string
+	UpstreamHost      string
+	SyncEnabled       bool
 }
 
 // Load reads configuration from the process environment.
@@ -67,14 +75,63 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("FORGE_SHUTDOWN_GRACE_SECONDS must be a non-negative integer, got %q", graceRaw)
 	}
 
+	controlURL := strings.TrimSpace(os.Getenv("FORGE_CONTROL_URL"))
+	runtimeURL := strings.TrimSpace(os.Getenv("FORGE_RUNTIME_URL"))
+
+	routeSource := strings.ToLower(strings.TrimSpace(os.Getenv("FORGE_ROUTE_SOURCE")))
+	if routeSource == "" {
+		routeSource = "control"
+	}
+	switch routeSource {
+	case "control", "runtime":
+	default:
+		return Config{}, fmt.Errorf("FORGE_ROUTE_SOURCE must be control|runtime, got %q", routeSource)
+	}
+
+	syncRaw := strings.TrimSpace(os.Getenv("FORGE_ROUTE_SYNC_INTERVAL_SECONDS"))
+	if syncRaw == "" {
+		syncRaw = "10"
+	}
+	syncSecs, err := strconv.Atoi(syncRaw)
+	if err != nil || syncSecs < 0 {
+		return Config{}, fmt.Errorf("FORGE_ROUTE_SYNC_INTERVAL_SECONDS must be a non-negative integer, got %q", syncRaw)
+	}
+
+	hostPattern := strings.TrimSpace(os.Getenv("FORGE_HOST_PATTERN"))
+	if hostPattern == "" {
+		hostPattern = "{service}.{project}.demo.localhost"
+	}
+
+	upstreamHost := strings.TrimSpace(os.Getenv("FORGE_UPSTREAM_HOST"))
+	if upstreamHost == "" {
+		upstreamHost = "127.0.0.1"
+	}
+
+	// Sync is enabled when at least one platform URL is configured.
+	// control source needs Control; runtime source needs both (metadata + state).
+	syncEnabled := false
+	switch routeSource {
+	case "control":
+		syncEnabled = controlURL != ""
+	case "runtime":
+		syncEnabled = controlURL != "" && runtimeURL != ""
+	}
+
 	return Config{
-		Port:             port,
-		ServiceName:      name,
-		ServiceVersion:   version,
-		LogLevel:         level,
-		Env:              env,
-		AuthMode:         authMode,
-		ShutdownGrace:    time.Duration(graceSecs) * time.Second,
-		StaticRoutesPath: strings.TrimSpace(os.Getenv("FORGE_GATEWAY_STATIC_ROUTES")),
+		Port:              port,
+		ServiceName:       name,
+		ServiceVersion:    version,
+		LogLevel:          level,
+		Env:               env,
+		AuthMode:          authMode,
+		ShutdownGrace:     time.Duration(graceSecs) * time.Second,
+		StaticRoutesPath:  strings.TrimSpace(os.Getenv("FORGE_GATEWAY_STATIC_ROUTES")),
+		ControlURL:        controlURL,
+		RuntimeURL:        runtimeURL,
+		RouteSource:       routeSource,
+		RouteSyncInterval: time.Duration(syncSecs) * time.Second,
+		HostPattern:       hostPattern,
+		UpstreamHost:      upstreamHost,
+		SyncEnabled:       syncEnabled,
 	}, nil
 }
