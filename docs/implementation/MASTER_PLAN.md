@@ -543,145 +543,146 @@ Epic `01` is already planned (`01.01`–`01.07`); listed in the global queue for
 
 ## Global execution queue
 
-Single ordered list from first unfinished step → capstone. Implement strictly in this order unless a step’s dependencies allow safe parallelization of *planning* only.
+**Primary index is `N` (1, 2, 3, …).** See [`STEPS.md`](STEPS.md).
 
-1. `01.01` ← **implement next**
-2. `01.02`
-3. `01.03`
-4. `01.04`
-5. `01.05`
-6. `01.06`
-7. `01.07`
-8. `02.01`
-9. `02.02`
-10. `02.03`
-11. `02.04`
-12. `02.05`
-13. `02.06`
-14. `02.07`
-15. `02.08`
-16. `03.01`
-17. `03.02`
-18. `03.03`
-19. `03.04`
-20. `03.05`
-21. `03.06`
-22. `04.01`
-23. `04.02`
-24. `04.03`
-25. `04.04`
-26. `04.05`
-27. `04.06`
-28. `04.07`
-29. `04.08`
-30. `05.01`
-31. `05.02`
-32. `05.03`
-33. `05.04`
-34. `05.05`
-35. `05.06`
-36. `05.07`
-37. `06.01`
-38. `06.02`
-39. `06.03`
-40. `06.04`
-41. `06.05`
-42. `06.06`
-43. `06.07`
-44. `07.01`
-45. `07.02`
-46. `07.03`
-47. `07.04`
-48. `07.05`
-49. `07.06`
-50. `08.01`
-51. `08.02`
-52. `08.03`
-53. `08.04`
-54. `08.05`
-55. `08.06`
-56. `09.01`
-57. `09.02`
-58. `09.03`
-59. `09.04`
-60. `09.05`
-61. `09.06`
-62. `09.07`
-63. `09.08`
-64. `10.01`
-65. `10.02`
-66. `10.03`
-67. `10.04`
-68. `10.05`
-69. `10.06`
-70. `10.07`
-71. `11.01`
-72. `11.02`
-73. `11.03`
-74. `11.04`
-75. `11.05`
-76. `11.06`
-77. `11.07`
-78. `12.01`
-79. `12.02`
-80. `12.03`
-81. `12.04`
-82. `12.05`
-83. `12.06`
-84. `12.07`
-85. `13.01`
-86. `13.02`
-87. `13.03`
-88. `13.04`
-89. `13.05`
-90. `13.06`
-91. `13.07`
-92. `14.01`
-93. `14.02`
-94. `14.03`
-95. `14.04`
-96. `14.05`
-97. `14.06`
-98. `14.07`
-99. `15.01`
-100. `15.02`
-101. `15.03`
-102. `15.04`
-103. `15.05`
-104. `15.06`
-105. `15.07`
-106. `15.08`
-107. `16.01`
-108. `16.02`
-109. `16.03`
-110. `16.04`
-111. `16.05`
-112. `16.06`
-113. `16.07`
-114. `17.01`
-115. `17.02`
-116. `17.03`
-117. `17.04`
-118. `17.05`
-119. `17.06`
-120. `18.01`
-121. `18.02`
-122. `18.03`
-123. `18.04`
-124. `18.05`
-125. `18.06`
-126. `19.01`
-127. `19.02`
-128. `19.03`
-129. `19.04`
-130. `19.05`
-131. `19.06`
+Implement with [`IMPLEMENT_STEP.md`](IMPLEMENT_STEP.md) by changing only `N`.
+Internal `01.01`-style ids remain in filenames/commits only — do not use them in the human prompt.
 
-**Totals:** 20 epics (`00`–`19`); **atomic steps in queue:** 7 (`01`) + 124 (`02`–`19`) = **131 unfinished planned steps** + `00.01` complete = **132 step docs** when materialized.
+| N | Title |
+|---:|---|
+| **1** | Document runtime contract |
+| **2** | Shared contract test runner |
+| **3** | Go demo application |
+| **4** | Python demo application |
+| **5** | Kotlin demo application |
+| **6** | Rust demo application |
+| **7** | Elixir demo and full five-language suite |
+| **8** | Service skeleton, health, Compose |
+| **9** | Domain model + Postgres migrations |
+| **10** | Projects & environments API |
+| **11** | Applications & services API + relationship validation |
+| **12** | Deployments desired-state API + basic audit |
+| **13** | Shared errors, OpenAPI, contract tests, idempotency |
+| **14** | Structured logs + OTEL |
+| **15** | Demo `02-control-plane` + epic gate |
+| **16** | CLI skeleton, profiles, endpoint config, global flags |
+| **17** | `project` / `app` / `service` commands |
+| **18** | `deployment create|status` |
+| **19** | Table/JSON output, exit codes, timeouts, request IDs |
+| **20** | Shell completion + non-interactive mode |
+| **21** | Demo `03-cli-control` + gate |
+| **22** | Skeleton + Docker socket + health |
+| **23** | Node identity + registration/heartbeat |
+| **24** | Workload create/start (pull, env, ports, labels) |
+| **25** | Health probing + status model |
+| **26** | Log streaming |
+| **27** | Stop/delete; no duplicate containers |
+| **28** | Control integration (desired→actual) |
+| **29** | Demo `04-runtime` + gate |
+| **30** | Skeleton + health |
+| **31** | Route table + reverse proxy core |
+| **32** | Sync routes from Control |
+| **33** | Health-aware upstreams |
+| **34** | Request IDs, forwarded headers, timeouts |
+| **35** | WebSocket + SSE proxy |
+| **36** | Demo `05-routed-service` + gate |
+| **37** | Skeleton + Docker + workspace |
+| **38** | `forge.yaml` schema + build OpenAPI |
+| **39** | Clone/checkout + docker build + streamed logs |
+| **40** | Tag + push local registry `:5000` |
+| **41** | Build status + failure paths |
+| **42** | Control integration (image ref on service) |
+| **43** | Demo `06-source-to-deployment` + gate |
+| **44** | Desired/actual replica model + controller skeleton |
+| **45** | Single-replica reconcile loop |
+| **46** | Rolling update (start new → ready → shift → stop old) |
+| **47** | Unhealthy rollout → automatic rollback |
+| **48** | Deployment history + controller restart safety |
+| **49** | Demo `07-rolling-deployment` + epic gate |
+| **50** | Scheduler module/service skeleton + placement APIs |
+| **51** | Multi-node registration, heartbeat, resource reporting |
+| **52** | First-fit and least-allocated placement strategies |
+| **53** | Anti-affinity + pending queue |
+| **54** | Reschedule on node offline |
+| **55** | Demo `08-multi-node` + epic gate |
+| **56** | Skeleton + Compose + Postgres |
+| **57** | Users, orgs, memberships persistence |
+| **58** | Registration, login, sessions |
+| **59** | Roles + project membership |
+| **60** | API tokens + service accounts + revocation |
+| **61** | Control authz middleware (end `FORGE_AUTH_MODE=dev` default) |
+| **62** | CLI `forge login` + token profile |
+| **63** | Demo `09-platform-identity` + epic gate |
+| **64** | Skeleton + encryption key bootstrap |
+| **65** | Encrypted store + key versioning + metadata APIs |
+| **66** | Config vs secrets APIs; project isolation |
+| **67** | Runtime injection at deploy |
+| **68** | CLI `forge secret` / `forge config` |
+| **69** | Access audit + log masking |
+| **70** | Demo `10-secrets` + epic gate |
+| **71** | Skeleton + NATS wiring |
+| **72** | Publish/subscribe API |
+| **73** | Durable consumers, ack, retry |
+| **74** | DLQ + inspect APIs |
+| **75** | Event JSON Schemas |
+| **76** | Idempotency keys + consumer identity |
+| **77** | Demo `11-event-driven` (Go producer → Elixir consumer) + gate |
+| **78** | Skeleton + correlation API design |
+| **79** | Instrumentation checklist on Control/Runtime/Gateway/Build |
+| **80** | Grafana dashboards (platform/service/deployment/runtime) |
+| **81** | Log query/filter by project/deployment/request/trace ID |
+| **82** | CLI `forge logs --follow` |
+| **83** | Basic alert rules |
+| **84** | Demo `12-observability` (one distributed trace) + gate |
+| **85** | Skeleton + local FS backend |
+| **86** | Buckets + metadata + project isolation |
+| **87** | Streamed upload/download |
+| **88** | SHA-256 + range requests |
+| **89** | Signed tokens + expiry |
+| **90** | Quotas + delete + restart durability |
+| **91** | Demo `13-object-storage` + gate |
+| **92** | Skeleton + Compose |
+| **93** | Model registry + `GET /v1/models` |
+| **94** | Local embeddings adapter |
+| **95** | Generate/classify/summarize endpoints |
+| **96** | Streaming + async jobs |
+| **97** | Usage metrics + OpenAPI; optional CLI `forge model` |
+| **98** | Demo `14-model-serving` + gate |
+| **99** | Skeleton |
+| **100** | Agent registry + YAML definitions |
+| **101** | Tool registry + per-call permission checks |
+| **102** | Run engine: max steps, timeouts, history |
+| **103** | Platform tools |
+| **104** | Human approval for destructive tools |
+| **105** | Seed agents + CLI `forge agent` |
+| **106** | Demo `15-agent-runtime` + gate |
+| **107** | Skeleton OTP + health |
+| **108** | Definitions + durable run state |
+| **109** | Step primitives |
+| **110** | Event triggers + agent steps |
+| **111** | Human approval across restarts |
+| **112** | Compensation/rollback via Control |
+| **113** | Demo `16-agent-workflow` + gate |
+| **114** | Skeleton + persistence |
+| **115** | Collections + fixed-dim vectors + metadata |
+| **116** | Upsert + cosine NN query |
+| **117** | Namespace/ACL via Identity project scope |
+| **118** | Models embed + Agents retrieval tool |
+| **119** | Demo `17-agent-memory` + gate |
+| **120** | Control APIs + provisioner skeleton |
+| **121** | Create instance/database/credentials |
+| **122** | Attach + Secrets/Runtime URL injection |
+| **123** | Backup + restore |
+| **124** | Credential rotation + deletion protection |
+| **125** | CLI `forge database *` + demo + gate |
+| **126** | Polyglot sample product |
+| **127** | Deploy path: Build→Runtime→Gateway→Events |
+| **128** | Identity, Secrets, Observe, Storage, managed DB |
+| **129** | Models + Agents + Memory for diagnosis |
+| **130** | Failure injection + Workflows approval/rollback |
+| **131** | `demos/09-full-platform` acceptance suite + docs |
 
-Step counts per epic `02`–`19`: 8, 6, 8, 7, 7, 6, 6, 8, 7, 7, 7, 7, 7, 8, 7, 6, 6, 6 (all within 4–12; none <3).
-
----
+**Totals:** `N = 1` … `N = 131` implementable. Foundation complete separately. **Next: `N = 1`.**
 
 ## Open questions / assumptions
 
@@ -716,4 +717,4 @@ Step counts per epic `02`–`19`: 8, 6, 8, 7, 7, 6, 6, 8, 7, 7, 7, 7, 7, 8, 7, 6
 | `roadmap.md` detail status | Done |
 | `README.md` current state | Done |
 
-**Next implementable step:** [`01.01`](steps/01-runtime-contract/01.01-document-runtime-contract.md) — Document runtime contract.
+**Next:** `N = 1` — see [`STEPS.md`](STEPS.md) / [`IMPLEMENT_STEP.md`](IMPLEMENT_STEP.md).

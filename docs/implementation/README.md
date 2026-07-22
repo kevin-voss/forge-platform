@@ -6,6 +6,7 @@ Forge is built as **epics** made of **atomic steps**.
 specs.md                     ← product vision + coarse roadmap
 docs/implementation/
 ├── MASTER_PLAN.md           ← full-ecosystem step catalog + global queue
+├── STEPS.md                 ← N = 1, 2, 3… implement queue (change only N)
 ├── roadmap.md               ← epic map + dependencies
 ├── progress.md              ← status board (epics + steps)
 ├── PLAN_STEPS.md            ← prompt: break an epic into steps
@@ -51,7 +52,7 @@ Output:
 
 ### 2. Implement (one step only)
 
-Use [`IMPLEMENT_STEP.md`](IMPLEMENT_STEP.md) with one step ID, e.g. `01.01`.
+Use [`IMPLEMENT_STEP.md`](IMPLEMENT_STEP.md) with **`N = 1`** (then `2`, `3`, …). Lookup: [`STEPS.md`](STEPS.md).
 
 ### 3. Track
 
@@ -82,16 +83,16 @@ Update [`progress.md`](progress.md) after planning and after each step completes
 | [18-managed-postgresql](epics/18-managed-postgresql.md) | Planning | `18.01`–`18.06` |
 | [19-full-platform-demo](epics/19-full-platform-demo.md) | Planning | `19.01`–`19.06` |
 
-**Next implementable step:** [`01.01`](steps/01-runtime-contract/01.01-document-runtime-contract.md) — Document runtime contract.
+**Next:** `N = 1` via [`IMPLEMENT_STEP.md`](IMPLEMENT_STEP.md) — lookup in [`STEPS.md`](STEPS.md).
 
-See [`MASTER_PLAN.md`](MASTER_PLAN.md) for the full global execution queue (131 unfinished steps after `00.01`).
+Queue: [`STEPS.md`](STEPS.md) (`N = 1` … `N = 131`). Catalog: [`MASTER_PLAN.md`](MASTER_PLAN.md).
 
 ## Naming
 
 ```text
-Epic file:   docs/implementation/epics/02-forge-control.md
-Step dir:    docs/implementation/steps/02-forge-control/
-Step file:   docs/implementation/steps/02-forge-control/02.01-domain-model.md
-Step ID:     02.01
-Commit:      feat(02.01): add forge-control domain model
+Human prompt:  N = 8                          ← only number you change
+Lookup:        STEPS.md row for N
+Epic file:     docs/implementation/epics/02-forge-control.md
+Step file:     docs/implementation/steps/02-forge-control/02.01-….md
+Commit:        feat(02.01): …                 ← from the step doc (internal)
 ```

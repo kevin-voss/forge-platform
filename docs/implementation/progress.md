@@ -2,169 +2,169 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-Master catalog: [`MASTER_PLAN.md`](MASTER_PLAN.md). Next to implement: **`01.01`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 1`**.
 
 ## Epics
 
 | Epic | Title | Status | Notes |
 |---|---|---|---|
 | [00](epics/00-repository-foundation.md) | Repository foundation | Complete | Local Compose foundation + docs system |
-| [01](epics/01-runtime-contract.md) | Runtime contract | Planning | 7 steps planned; implement `01.01` next |
-| [02](epics/02-forge-control.md) | Forge Control | Planning | 8 steps planned; after epic 01 |
-| [03](epics/03-forge-cli.md) | Forge CLI | Planning | 6 steps planned; needs Control API |
-| [04](epics/04-forge-runtime.md) | Forge Runtime | Planning | 8 steps planned |
-| [05](epics/05-forge-gateway.md) | Forge Gateway | Planning | 7 steps planned |
-| [06](epics/06-forge-build.md) | Forge Build | Planning | 7 steps planned |
-| [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | Planning | 6 steps planned; cross-cutting |
-| [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | Planning | 6 steps planned; cross-cutting |
-| [09](epics/09-forge-identity.md) | Forge Identity | Planning | 8 steps planned |
-| [10](epics/10-forge-secrets.md) | Forge Secrets | Planning | 7 steps planned |
-| [11](epics/11-forge-events.md) | Forge Events | Planning | 7 steps planned |
-| [12](epics/12-forge-observe.md) | Forge Observe | Planning | 7 steps planned |
-| [13](epics/13-forge-storage.md) | Forge Storage | Planning | 7 steps planned |
-| [14](epics/14-forge-models.md) | Forge Models | Planning | 7 steps planned |
-| [15](epics/15-forge-agents.md) | Forge Agents | Planning | 8 steps planned |
-| [16](epics/16-forge-workflows.md) | Forge Workflows | Planning | 7 steps planned |
-| [17](epics/17-forge-memory.md) | Forge Memory | Planning | 6 steps planned |
-| [18](epics/18-managed-postgresql.md) | Managed PostgreSQL | Planning | 6 steps planned |
-| [19](epics/19-full-platform-demo.md) | Full platform demo | Planning | 6 steps planned; capstone `demos/09-full-platform` |
+| [01](epics/01-runtime-contract.md) | Runtime contract | Planning | 7 steps; next `N = 1` |
+| [02](epics/02-forge-control.md) | Forge Control | Planning | 8 steps |
+| [03](epics/03-forge-cli.md) | Forge CLI | Planning | 6 steps |
+| [04](epics/04-forge-runtime.md) | Forge Runtime | Planning | 8 steps |
+| [05](epics/05-forge-gateway.md) | Forge Gateway | Planning | 7 steps |
+| [06](epics/06-forge-build.md) | Forge Build | Planning | 7 steps |
+| [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | Planning | 6 steps |
+| [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | Planning | 6 steps |
+| [09](epics/09-forge-identity.md) | Forge Identity | Planning | 8 steps |
+| [10](epics/10-forge-secrets.md) | Forge Secrets | Planning | 7 steps |
+| [11](epics/11-forge-events.md) | Forge Events | Planning | 7 steps |
+| [12](epics/12-forge-observe.md) | Forge Observe | Planning | 7 steps |
+| [13](epics/13-forge-storage.md) | Forge Storage | Planning | 7 steps |
+| [14](epics/14-forge-models.md) | Forge Models | Planning | 7 steps |
+| [15](epics/15-forge-agents.md) | Forge Agents | Planning | 8 steps |
+| [16](epics/16-forge-workflows.md) | Forge Workflows | Planning | 7 steps |
+| [17](epics/17-forge-memory.md) | Forge Memory | Planning | 6 steps |
+| [18](epics/18-managed-postgresql.md) | Managed PostgreSQL | Planning | 6 steps |
+| [19](epics/19-full-platform-demo.md) | Full platform demo | Planning | 6 steps; capstone |
 
 ## Steps
 
-| Step | Epic | Title | Status | Commit | Notes |
-|---|---|---|---|---|---|
-| [00.01](steps/00-repository-foundation/00.01-initialize-foundation.md) | 00 | Initialize repository foundation | Complete |  | Foundation complete |
-| [01.01](steps/01-runtime-contract/01.01-document-runtime-contract.md) | 01 | Document runtime contract | Not started |  | Docs + OpenAPI + log schema — **implement next** |
-| [01.02](steps/01-runtime-contract/01.02-contract-test-runner.md) | 01 | Shared contract test runner | Not started |  |  |
-| [01.03](steps/01-runtime-contract/01.03-go-demo-app.md) | 01 | Go demo application | Not started |  |  |
-| [01.04](steps/01-runtime-contract/01.04-python-demo-app.md) | 01 | Python demo application | Not started |  |  |
-| [01.05](steps/01-runtime-contract/01.05-kotlin-demo-app.md) | 01 | Kotlin demo application | Not started |  |  |
-| [01.06](steps/01-runtime-contract/01.06-rust-demo-app.md) | 01 | Rust demo application | Not started |  |  |
-| [01.07](steps/01-runtime-contract/01.07-elixir-demo-and-full-suite.md) | 01 | Elixir demo and full five-language suite | Not started |  | Epic acceptance gate |
-| [02.01](steps/02-forge-control/02.01-service-skeleton.md) | 02 | Service skeleton, health, Compose | Not started |  |  |
-| [02.02](steps/02-forge-control/02.02-domain-model-and-migrations.md) | 02 | Domain model + Postgres migrations | Not started |  |  |
-| [02.03](steps/02-forge-control/02.03-projects-environments-api.md) | 02 | Projects & environments API | Not started |  |  |
-| [02.04](steps/02-forge-control/02.04-applications-services-api.md) | 02 | Applications & services API + relationship validation | Not started |  |  |
-| [02.05](steps/02-forge-control/02.05-deployments-desired-state-api.md) | 02 | Deployments desired-state API + basic audit | Not started |  |  |
-| [02.06](steps/02-forge-control/02.06-errors-openapi-contract-idempotency.md) | 02 | Shared errors, OpenAPI, contract tests, idempotency | Not started |  |  |
-| [02.07](steps/02-forge-control/02.07-structured-logs-and-otel.md) | 02 | Structured logs + OTEL | Not started |  |  |
-| [02.08](steps/02-forge-control/02.08-demo-control-plane-and-gate.md) | 02 | Demo `02-control-plane` + epic gate | Not started |  | Demo `02-control-plane` gate |
-| [03.01](steps/03-forge-cli/03.01-cli-skeleton-and-config.md) | 03 | CLI skeleton, profiles, endpoint config, global flags | Not started |  |  |
-| [03.02](steps/03-forge-cli/03.02-project-app-service-commands.md) | 03 | `project` / `app` / `service` commands | Not started |  |  |
-| [03.03](steps/03-forge-cli/03.03-deployment-commands.md) | 03 | `deployment create|status` | Not started |  |  |
-| [03.04](steps/03-forge-cli/03.04-output-exit-codes-timeouts.md) | 03 | Table/JSON output, exit codes, timeouts, request IDs | Not started |  |  |
-| [03.05](steps/03-forge-cli/03.05-completion-and-non-interactive.md) | 03 | Shell completion + non-interactive mode | Not started |  |  |
-| [03.06](steps/03-forge-cli/03.06-demo-cli-control-and-gate.md) | 03 | Demo `03-cli-control` + gate | Not started |  | Demo `03-cli-control` gate |
-| [04.01](steps/04-forge-runtime/04.01-skeleton-docker-socket-health.md) | 04 | Skeleton + Docker socket + health | Not started |  |  |
-| [04.02](steps/04-forge-runtime/04.02-node-identity-registration-heartbeat.md) | 04 | Node identity + registration/heartbeat | Not started |  |  |
-| [04.03](steps/04-forge-runtime/04.03-workload-create-start.md) | 04 | Workload create/start (pull, env, ports, labels) | Not started |  |  |
-| [04.04](steps/04-forge-runtime/04.04-health-probing-status-model.md) | 04 | Health probing + status model | Not started |  |  |
-| [04.05](steps/04-forge-runtime/04.05-log-streaming.md) | 04 | Log streaming | Not started |  |  |
-| [04.06](steps/04-forge-runtime/04.06-stop-delete-no-duplicates.md) | 04 | Stop/delete; no duplicate containers | Not started |  |  |
-| [04.07](steps/04-forge-runtime/04.07-control-integration.md) | 04 | Control integration (desired→actual) | Not started |  |  |
-| [04.08](steps/04-forge-runtime/04.08-demo-runtime-and-gate.md) | 04 | Demo `04-runtime` + gate | Not started |  | Demo `04-runtime` gate |
-| [05.01](steps/05-forge-gateway/05.01-skeleton-and-health.md) | 05 | Skeleton + health | Not started |  |  |
-| [05.02](steps/05-forge-gateway/05.02-route-table-and-proxy-core.md) | 05 | Route table + reverse proxy core | Not started |  |  |
-| [05.03](steps/05-forge-gateway/05.03-sync-routes-from-control.md) | 05 | Sync routes from Control | Not started |  |  |
-| [05.04](steps/05-forge-gateway/05.04-health-aware-upstreams.md) | 05 | Health-aware upstreams | Not started |  |  |
-| [05.05](steps/05-forge-gateway/05.05-request-ids-headers-timeouts.md) | 05 | Request IDs, forwarded headers, timeouts | Not started |  |  |
-| [05.06](steps/05-forge-gateway/05.06-websocket-and-sse-proxy.md) | 05 | WebSocket + SSE proxy | Not started |  |  |
-| [05.07](steps/05-forge-gateway/05.07-demo-routed-service-and-gate.md) | 05 | Demo `05-routed-service` + gate | Not started |  | Demo `05-routed-service` gate |
-| [06.01](steps/06-forge-build/06.01-skeleton-docker-workspace.md) | 06 | Skeleton + Docker + workspace | Not started |  |  |
-| [06.02](steps/06-forge-build/06.02-forge-yaml-schema-and-openapi.md) | 06 | `forge.yaml` schema + build OpenAPI | Not started |  |  |
-| [06.03](steps/06-forge-build/06.03-clone-checkout-docker-build-logs.md) | 06 | Clone/checkout + docker build + streamed logs | Not started |  |  |
-| [06.04](steps/06-forge-build/06.04-tag-and-push-registry.md) | 06 | Tag + push local registry `:5000` | Not started |  |  |
-| [06.05](steps/06-forge-build/06.05-build-status-and-failure-paths.md) | 06 | Build status + failure paths | Not started |  |  |
-| [06.06](steps/06-forge-build/06.06-control-integration-image-ref.md) | 06 | Control integration (image ref on service) | Not started |  |  |
-| [06.07](steps/06-forge-build/06.07-demo-source-to-deployment-and-gate.md) | 06 | Demo `06-source-to-deployment` + gate | Not started |  | Demo `06-source-to-deployment` gate |
-| [07.01](steps/07-deployment-reconciliation/07.01-desired-actual-model-and-controller-skeleton.md) | 07 | Desired/actual replica model + controller skeleton | Not started |  |  |
-| [07.02](steps/07-deployment-reconciliation/07.02-single-replica-reconcile-loop.md) | 07 | Single-replica reconcile loop | Not started |  |  |
-| [07.03](steps/07-deployment-reconciliation/07.03-rolling-update.md) | 07 | Rolling update (start new → ready → shift → stop old) | Not started |  |  |
-| [07.04](steps/07-deployment-reconciliation/07.04-unhealthy-rollout-automatic-rollback.md) | 07 | Unhealthy rollout → automatic rollback | Not started |  |  |
-| [07.05](steps/07-deployment-reconciliation/07.05-deployment-history-and-restart-safety.md) | 07 | Deployment history + controller restart safety | Not started |  |  |
-| [07.06](steps/07-deployment-reconciliation/07.06-demo-07-rolling-deployment.md) | 07 | Demo `07-rolling-deployment` + epic gate | Not started |  | Demo `07-rolling-deployment` gate |
-| [08.01](steps/08-multi-node-scheduler/08.01-scheduler-skeleton-and-placement-apis.md) | 08 | Scheduler module/service skeleton + placement APIs | Not started |  |  |
-| [08.02](steps/08-multi-node-scheduler/08.02-node-registration-heartbeat-resources.md) | 08 | Multi-node registration, heartbeat, resource reporting | Not started |  |  |
-| [08.03](steps/08-multi-node-scheduler/08.03-first-fit-and-least-allocated-strategies.md) | 08 | First-fit and least-allocated placement strategies | Not started |  |  |
-| [08.04](steps/08-multi-node-scheduler/08.04-anti-affinity-and-pending-queue.md) | 08 | Anti-affinity + pending queue | Not started |  |  |
-| [08.05](steps/08-multi-node-scheduler/08.05-reschedule-on-node-offline.md) | 08 | Reschedule on node offline | Not started |  |  |
-| [08.06](steps/08-multi-node-scheduler/08.06-demo-08-multi-node.md) | 08 | Demo `08-multi-node` + epic gate | Not started |  | Demo `08-multi-node` gate |
-| [09.01](steps/09-forge-identity/09.01-skeleton-compose-postgres.md) | 09 | Skeleton + Compose + Postgres | Not started |  |  |
-| [09.02](steps/09-forge-identity/09.02-users-orgs-memberships.md) | 09 | Users, orgs, memberships persistence | Not started |  |  |
-| [09.03](steps/09-forge-identity/09.03-registration-login-sessions.md) | 09 | Registration, login, sessions | Not started |  |  |
-| [09.04](steps/09-forge-identity/09.04-roles-and-project-membership.md) | 09 | Roles + project membership | Not started |  |  |
-| [09.05](steps/09-forge-identity/09.05-api-tokens-service-accounts-revocation.md) | 09 | API tokens + service accounts + revocation | Not started |  |  |
-| [09.06](steps/09-forge-identity/09.06-control-authz-middleware.md) | 09 | Control authz middleware (end `FORGE_AUTH_MODE=dev` default) | Not started |  |  |
-| [09.07](steps/09-forge-identity/09.07-cli-login-and-token-profile.md) | 09 | CLI `forge login` + token profile | Not started |  |  |
-| [09.08](steps/09-forge-identity/09.08-demo-09-platform-identity.md) | 09 | Demo `09-platform-identity` + epic gate | Not started |  | Demo `09-platform-identity` gate |
-| [10.01](steps/10-forge-secrets/10.01-skeleton-and-encryption-key-bootstrap.md) | 10 | Skeleton + encryption key bootstrap | Not started |  |  |
-| [10.02](steps/10-forge-secrets/10.02-encrypted-store-key-versioning-metadata.md) | 10 | Encrypted store + key versioning + metadata APIs | Not started |  |  |
-| [10.03](steps/10-forge-secrets/10.03-config-vs-secrets-and-project-isolation.md) | 10 | Config vs secrets APIs; project isolation | Not started |  |  |
-| [10.04](steps/10-forge-secrets/10.04-runtime-injection-at-deploy.md) | 10 | Runtime injection at deploy | Not started |  |  |
-| [10.05](steps/10-forge-secrets/10.05-cli-secret-and-config.md) | 10 | CLI `forge secret` / `forge config` | Not started |  |  |
-| [10.06](steps/10-forge-secrets/10.06-access-audit-and-log-masking.md) | 10 | Access audit + log masking | Not started |  |  |
-| [10.07](steps/10-forge-secrets/10.07-demo-10-secrets.md) | 10 | Demo `10-secrets` + epic gate | Not started |  | Demo `10-secrets` gate |
-| [11.01](steps/11-forge-events/11.01-skeleton-and-nats-wiring.md) | 11 | Skeleton + NATS wiring | Not started |  |  |
-| [11.02](steps/11-forge-events/11.02-publish-subscribe-api.md) | 11 | Publish/subscribe API | Not started |  |  |
-| [11.03](steps/11-forge-events/11.03-durable-consumers-ack-retry.md) | 11 | Durable consumers, ack, retry | Not started |  |  |
-| [11.04](steps/11-forge-events/11.04-dlq-and-inspect-apis.md) | 11 | DLQ + inspect APIs | Not started |  |  |
-| [11.05](steps/11-forge-events/11.05-event-json-schemas.md) | 11 | Event JSON Schemas | Not started |  |  |
-| [11.06](steps/11-forge-events/11.06-idempotency-keys-and-consumer-identity.md) | 11 | Idempotency keys + consumer identity | Not started |  |  |
-| [11.07](steps/11-forge-events/11.07-demo-11-event-driven.md) | 11 | Demo `11-event-driven` (Go producer → Elixir consumer) + gate | Not started |  | Demo `11-event-driven` gate |
-| [12.01](steps/12-forge-observe/12.01-skeleton-and-correlation-api-design.md) | 12 | Skeleton + correlation API design | Not started |  |  |
-| [12.02](steps/12-forge-observe/12.02-instrumentation-checklist.md) | 12 | Instrumentation checklist on Control/Runtime/Gateway/Build | Not started |  |  |
-| [12.03](steps/12-forge-observe/12.03-grafana-dashboards.md) | 12 | Grafana dashboards (platform/service/deployment/runtime) | Not started |  |  |
-| [12.04](steps/12-forge-observe/12.04-log-query-and-filter.md) | 12 | Log query/filter by project/deployment/request/trace ID | Not started |  |  |
-| [12.05](steps/12-forge-observe/12.05-cli-logs-follow.md) | 12 | CLI `forge logs --follow` | Not started |  |  |
-| [12.06](steps/12-forge-observe/12.06-basic-alert-rules.md) | 12 | Basic alert rules | Not started |  |  |
-| [12.07](steps/12-forge-observe/12.07-demo-12-observability.md) | 12 | Demo `12-observability` (one distributed trace) + gate | Not started |  | Demo `12-observability` gate |
-| [13.01](steps/13-forge-storage/13.01-skeleton-local-fs-backend.md) | 13 | Skeleton + local FS backend | Not started |  |  |
-| [13.02](steps/13-forge-storage/13.02-buckets-metadata-project-isolation.md) | 13 | Buckets + metadata + project isolation | Not started |  |  |
-| [13.03](steps/13-forge-storage/13.03-streamed-upload-download.md) | 13 | Streamed upload/download | Not started |  |  |
-| [13.04](steps/13-forge-storage/13.04-sha256-range-requests.md) | 13 | SHA-256 + range requests | Not started |  |  |
-| [13.05](steps/13-forge-storage/13.05-signed-tokens-expiry.md) | 13 | Signed tokens + expiry | Not started |  |  |
-| [13.06](steps/13-forge-storage/13.06-quotas-delete-durability.md) | 13 | Quotas + delete + restart durability | Not started |  |  |
-| [13.07](steps/13-forge-storage/13.07-demo-and-gate.md) | 13 | Demo `13-object-storage` + gate | Not started |  | Demo `13-object-storage` gate |
-| [14.01](steps/14-forge-models/14.01-skeleton-compose.md) | 14 | Skeleton + Compose | Not started |  |  |
-| [14.02](steps/14-forge-models/14.02-model-registry.md) | 14 | Model registry + `GET /v1/models` | Not started |  |  |
-| [14.03](steps/14-forge-models/14.03-local-embeddings-adapter.md) | 14 | Local embeddings adapter | Not started |  |  |
-| [14.04](steps/14-forge-models/14.04-generate-classify-summarize.md) | 14 | Generate/classify/summarize endpoints | Not started |  |  |
-| [14.05](steps/14-forge-models/14.05-streaming-async-jobs.md) | 14 | Streaming + async jobs | Not started |  |  |
-| [14.06](steps/14-forge-models/14.06-usage-metrics-openapi-cli.md) | 14 | Usage metrics + OpenAPI; optional CLI `forge model` | Not started |  |  |
-| [14.07](steps/14-forge-models/14.07-demo-and-gate.md) | 14 | Demo `14-model-serving` + gate | Not started |  | Demo `14-model-serving` gate |
-| [15.01](steps/15-forge-agents/15.01-skeleton.md) | 15 | Skeleton | Not started |  |  |
-| [15.02](steps/15-forge-agents/15.02-agent-registry-yaml.md) | 15 | Agent registry + YAML definitions | Not started |  |  |
-| [15.03](steps/15-forge-agents/15.03-tool-registry-permissions.md) | 15 | Tool registry + per-call permission checks | Not started |  |  |
-| [15.04](steps/15-forge-agents/15.04-run-engine.md) | 15 | Run engine: max steps, timeouts, history | Not started |  |  |
-| [15.05](steps/15-forge-agents/15.05-platform-tools.md) | 15 | Platform tools | Not started |  |  |
-| [15.06](steps/15-forge-agents/15.06-human-approval.md) | 15 | Human approval for destructive tools | Not started |  |  |
-| [15.07](steps/15-forge-agents/15.07-seed-agents-cli.md) | 15 | Seed agents + CLI `forge agent` | Not started |  |  |
-| [15.08](steps/15-forge-agents/15.08-demo-and-gate.md) | 15 | Demo `15-agent-runtime` + gate | Not started |  | Demo `15-agent-runtime` gate |
-| [16.01](steps/16-forge-workflows/16.01-skeleton-otp-health.md) | 16 | Skeleton OTP + health | Not started |  |  |
-| [16.02](steps/16-forge-workflows/16.02-definitions-durable-state.md) | 16 | Definitions + durable run state | Not started |  |  |
-| [16.03](steps/16-forge-workflows/16.03-step-primitives.md) | 16 | Step primitives | Not started |  |  |
-| [16.04](steps/16-forge-workflows/16.04-event-triggers-agent-steps.md) | 16 | Event triggers + agent steps | Not started |  |  |
-| [16.05](steps/16-forge-workflows/16.05-human-approval-restarts.md) | 16 | Human approval across restarts | Not started |  |  |
-| [16.06](steps/16-forge-workflows/16.06-compensation-rollback.md) | 16 | Compensation/rollback via Control | Not started |  |  |
-| [16.07](steps/16-forge-workflows/16.07-demo-and-gate.md) | 16 | Demo `16-agent-workflow` + gate | Not started |  | Demo `16-agent-workflow` gate |
-| [17.01](steps/17-forge-memory/17.01-skeleton-persistence.md) | 17 | Skeleton + persistence | Not started |  |  |
-| [17.02](steps/17-forge-memory/17.02-collections-vectors-metadata.md) | 17 | Collections + fixed-dim vectors + metadata | Not started |  |  |
-| [17.03](steps/17-forge-memory/17.03-upsert-cosine-nn.md) | 17 | Upsert + cosine NN query | Not started |  |  |
-| [17.04](steps/17-forge-memory/17.04-namespace-acl.md) | 17 | Namespace/ACL via Identity project scope | Not started |  |  |
-| [17.05](steps/17-forge-memory/17.05-models-embed-agents-tool.md) | 17 | Models embed + Agents retrieval tool | Not started |  |  |
-| [17.06](steps/17-forge-memory/17.06-demo-and-gate.md) | 17 | Demo `17-agent-memory` + gate | Not started |  | Demo `17-agent-memory` gate |
-| [18.01](steps/18-managed-postgresql/18.01-control-apis-provisioner-skeleton.md) | 18 | Control APIs + provisioner skeleton | Not started |  |  |
-| [18.02](steps/18-managed-postgresql/18.02-create-instance-db-credentials.md) | 18 | Create instance/database/credentials | Not started |  |  |
-| [18.03](steps/18-managed-postgresql/18.03-attach-secrets-runtime-injection.md) | 18 | Attach + Secrets/Runtime URL injection | Not started |  |  |
-| [18.04](steps/18-managed-postgresql/18.04-backup-restore.md) | 18 | Backup + restore | Not started |  |  |
-| [18.05](steps/18-managed-postgresql/18.05-rotation-deletion-protection.md) | 18 | Credential rotation + deletion protection | Not started |  |  |
-| [18.06](steps/18-managed-postgresql/18.06-cli-demo-and-gate.md) | 18 | CLI `forge database *` + demo + gate | Not started |  | Demo `18-managed-database` gate |
-| [19.01](steps/19-full-platform-demo/19.01-polyglot-product-scaffold.md) | 19 | Polyglot sample product | Not started |  |  |
-| [19.02](steps/19-full-platform-demo/19.02-deploy-path.md) | 19 | Deploy path: Build→Runtime→Gateway→Events | Not started |  |  |
-| [19.03](steps/19-full-platform-demo/19.03-identity-secrets-observe-storage-db.md) | 19 | Identity, Secrets, Observe, Storage, managed DB | Not started |  |  |
-| [19.04](steps/19-full-platform-demo/19.04-models-agents-memory.md) | 19 | Models + Agents + Memory for diagnosis | Not started |  |  |
-| [19.05](steps/19-full-platform-demo/19.05-failure-injection-workflow.md) | 19 | Failure injection + Workflows approval/rollback | Not started |  |  |
-| [19.06](steps/19-full-platform-demo/19.06-acceptance-suite-and-gate.md) | 19 | `demos/09-full-platform` acceptance suite + docs | Not started |  | North-star gate `demos/09-full-platform` |
+| N | Title | Status | Commit | Notes |
+|---:|---|---|---|---|
+| — | [Initialize repository foundation](steps/00-repository-foundation/00.01-initialize-foundation.md) (foundation) | Complete |  | Pre-queue |
+| **1** | [Document runtime contract](steps/01-runtime-contract/01.01-document-runtime-contract.md) | Not started |  | **implement next** |
+| **2** | [Shared contract test runner](steps/01-runtime-contract/01.02-contract-test-runner.md) | Not started |  |  |
+| **3** | [Go demo application](steps/01-runtime-contract/01.03-go-demo-app.md) | Not started |  |  |
+| **4** | [Python demo application](steps/01-runtime-contract/01.04-python-demo-app.md) | Not started |  |  |
+| **5** | [Kotlin demo application](steps/01-runtime-contract/01.05-kotlin-demo-app.md) | Not started |  |  |
+| **6** | [Rust demo application](steps/01-runtime-contract/01.06-rust-demo-app.md) | Not started |  |  |
+| **7** | [Elixir demo and full five-language suite](steps/01-runtime-contract/01.07-elixir-demo-and-full-suite.md) | Not started |  |  |
+| **8** | [Service skeleton, health, Compose](steps/02-forge-control/02.01-service-skeleton.md) | Not started |  |  |
+| **9** | [Domain model + Postgres migrations](steps/02-forge-control/02.02-domain-model-and-migrations.md) | Not started |  |  |
+| **10** | [Projects & environments API](steps/02-forge-control/02.03-projects-environments-api.md) | Not started |  |  |
+| **11** | [Applications & services API + relationship validation](steps/02-forge-control/02.04-applications-services-api.md) | Not started |  |  |
+| **12** | [Deployments desired-state API + basic audit](steps/02-forge-control/02.05-deployments-desired-state-api.md) | Not started |  |  |
+| **13** | [Shared errors, OpenAPI, contract tests, idempotency](steps/02-forge-control/02.06-errors-openapi-contract-idempotency.md) | Not started |  |  |
+| **14** | [Structured logs + OTEL](steps/02-forge-control/02.07-structured-logs-and-otel.md) | Not started |  |  |
+| **15** | [Demo `02-control-plane` + epic gate](steps/02-forge-control/02.08-demo-control-plane-and-gate.md) | Not started |  |  |
+| **16** | [CLI skeleton, profiles, endpoint config, global flags](steps/03-forge-cli/03.01-cli-skeleton-and-config.md) | Not started |  |  |
+| **17** | [`project` / `app` / `service` commands](steps/03-forge-cli/03.02-project-app-service-commands.md) | Not started |  |  |
+| **18** | [`deployment create|status`](steps/03-forge-cli/03.03-deployment-commands.md) | Not started |  |  |
+| **19** | [Table/JSON output, exit codes, timeouts, request IDs](steps/03-forge-cli/03.04-output-exit-codes-timeouts.md) | Not started |  |  |
+| **20** | [Shell completion + non-interactive mode](steps/03-forge-cli/03.05-completion-and-non-interactive.md) | Not started |  |  |
+| **21** | [Demo `03-cli-control` + gate](steps/03-forge-cli/03.06-demo-cli-control-and-gate.md) | Not started |  |  |
+| **22** | [Skeleton + Docker socket + health](steps/04-forge-runtime/04.01-skeleton-docker-socket-health.md) | Not started |  |  |
+| **23** | [Node identity + registration/heartbeat](steps/04-forge-runtime/04.02-node-identity-registration-heartbeat.md) | Not started |  |  |
+| **24** | [Workload create/start (pull, env, ports, labels)](steps/04-forge-runtime/04.03-workload-create-start.md) | Not started |  |  |
+| **25** | [Health probing + status model](steps/04-forge-runtime/04.04-health-probing-status-model.md) | Not started |  |  |
+| **26** | [Log streaming](steps/04-forge-runtime/04.05-log-streaming.md) | Not started |  |  |
+| **27** | [Stop/delete; no duplicate containers](steps/04-forge-runtime/04.06-stop-delete-no-duplicates.md) | Not started |  |  |
+| **28** | [Control integration (desired→actual)](steps/04-forge-runtime/04.07-control-integration.md) | Not started |  |  |
+| **29** | [Demo `04-runtime` + gate](steps/04-forge-runtime/04.08-demo-runtime-and-gate.md) | Not started |  |  |
+| **30** | [Skeleton + health](steps/05-forge-gateway/05.01-skeleton-and-health.md) | Not started |  |  |
+| **31** | [Route table + reverse proxy core](steps/05-forge-gateway/05.02-route-table-and-proxy-core.md) | Not started |  |  |
+| **32** | [Sync routes from Control](steps/05-forge-gateway/05.03-sync-routes-from-control.md) | Not started |  |  |
+| **33** | [Health-aware upstreams](steps/05-forge-gateway/05.04-health-aware-upstreams.md) | Not started |  |  |
+| **34** | [Request IDs, forwarded headers, timeouts](steps/05-forge-gateway/05.05-request-ids-headers-timeouts.md) | Not started |  |  |
+| **35** | [WebSocket + SSE proxy](steps/05-forge-gateway/05.06-websocket-and-sse-proxy.md) | Not started |  |  |
+| **36** | [Demo `05-routed-service` + gate](steps/05-forge-gateway/05.07-demo-routed-service-and-gate.md) | Not started |  |  |
+| **37** | [Skeleton + Docker + workspace](steps/06-forge-build/06.01-skeleton-docker-workspace.md) | Not started |  |  |
+| **38** | [`forge.yaml` schema + build OpenAPI](steps/06-forge-build/06.02-forge-yaml-schema-and-openapi.md) | Not started |  |  |
+| **39** | [Clone/checkout + docker build + streamed logs](steps/06-forge-build/06.03-clone-checkout-docker-build-logs.md) | Not started |  |  |
+| **40** | [Tag + push local registry `:5000`](steps/06-forge-build/06.04-tag-and-push-registry.md) | Not started |  |  |
+| **41** | [Build status + failure paths](steps/06-forge-build/06.05-build-status-and-failure-paths.md) | Not started |  |  |
+| **42** | [Control integration (image ref on service)](steps/06-forge-build/06.06-control-integration-image-ref.md) | Not started |  |  |
+| **43** | [Demo `06-source-to-deployment` + gate](steps/06-forge-build/06.07-demo-source-to-deployment-and-gate.md) | Not started |  |  |
+| **44** | [Desired/actual replica model + controller skeleton](steps/07-deployment-reconciliation/07.01-desired-actual-model-and-controller-skeleton.md) | Not started |  |  |
+| **45** | [Single-replica reconcile loop](steps/07-deployment-reconciliation/07.02-single-replica-reconcile-loop.md) | Not started |  |  |
+| **46** | [Rolling update (start new → ready → shift → stop old)](steps/07-deployment-reconciliation/07.03-rolling-update.md) | Not started |  |  |
+| **47** | [Unhealthy rollout → automatic rollback](steps/07-deployment-reconciliation/07.04-unhealthy-rollout-automatic-rollback.md) | Not started |  |  |
+| **48** | [Deployment history + controller restart safety](steps/07-deployment-reconciliation/07.05-deployment-history-and-restart-safety.md) | Not started |  |  |
+| **49** | [Demo `07-rolling-deployment` + epic gate](steps/07-deployment-reconciliation/07.06-demo-07-rolling-deployment.md) | Not started |  |  |
+| **50** | [Scheduler module/service skeleton + placement APIs](steps/08-multi-node-scheduler/08.01-scheduler-skeleton-and-placement-apis.md) | Not started |  |  |
+| **51** | [Multi-node registration, heartbeat, resource reporting](steps/08-multi-node-scheduler/08.02-node-registration-heartbeat-resources.md) | Not started |  |  |
+| **52** | [First-fit and least-allocated placement strategies](steps/08-multi-node-scheduler/08.03-first-fit-and-least-allocated-strategies.md) | Not started |  |  |
+| **53** | [Anti-affinity + pending queue](steps/08-multi-node-scheduler/08.04-anti-affinity-and-pending-queue.md) | Not started |  |  |
+| **54** | [Reschedule on node offline](steps/08-multi-node-scheduler/08.05-reschedule-on-node-offline.md) | Not started |  |  |
+| **55** | [Demo `08-multi-node` + epic gate](steps/08-multi-node-scheduler/08.06-demo-08-multi-node.md) | Not started |  |  |
+| **56** | [Skeleton + Compose + Postgres](steps/09-forge-identity/09.01-skeleton-compose-postgres.md) | Not started |  |  |
+| **57** | [Users, orgs, memberships persistence](steps/09-forge-identity/09.02-users-orgs-memberships.md) | Not started |  |  |
+| **58** | [Registration, login, sessions](steps/09-forge-identity/09.03-registration-login-sessions.md) | Not started |  |  |
+| **59** | [Roles + project membership](steps/09-forge-identity/09.04-roles-and-project-membership.md) | Not started |  |  |
+| **60** | [API tokens + service accounts + revocation](steps/09-forge-identity/09.05-api-tokens-service-accounts-revocation.md) | Not started |  |  |
+| **61** | [Control authz middleware (end `FORGE_AUTH_MODE=dev` default)](steps/09-forge-identity/09.06-control-authz-middleware.md) | Not started |  |  |
+| **62** | [CLI `forge login` + token profile](steps/09-forge-identity/09.07-cli-login-and-token-profile.md) | Not started |  |  |
+| **63** | [Demo `09-platform-identity` + epic gate](steps/09-forge-identity/09.08-demo-09-platform-identity.md) | Not started |  |  |
+| **64** | [Skeleton + encryption key bootstrap](steps/10-forge-secrets/10.01-skeleton-and-encryption-key-bootstrap.md) | Not started |  |  |
+| **65** | [Encrypted store + key versioning + metadata APIs](steps/10-forge-secrets/10.02-encrypted-store-key-versioning-metadata.md) | Not started |  |  |
+| **66** | [Config vs secrets APIs; project isolation](steps/10-forge-secrets/10.03-config-vs-secrets-and-project-isolation.md) | Not started |  |  |
+| **67** | [Runtime injection at deploy](steps/10-forge-secrets/10.04-runtime-injection-at-deploy.md) | Not started |  |  |
+| **68** | [CLI `forge secret` / `forge config`](steps/10-forge-secrets/10.05-cli-secret-and-config.md) | Not started |  |  |
+| **69** | [Access audit + log masking](steps/10-forge-secrets/10.06-access-audit-and-log-masking.md) | Not started |  |  |
+| **70** | [Demo `10-secrets` + epic gate](steps/10-forge-secrets/10.07-demo-10-secrets.md) | Not started |  |  |
+| **71** | [Skeleton + NATS wiring](steps/11-forge-events/11.01-skeleton-and-nats-wiring.md) | Not started |  |  |
+| **72** | [Publish/subscribe API](steps/11-forge-events/11.02-publish-subscribe-api.md) | Not started |  |  |
+| **73** | [Durable consumers, ack, retry](steps/11-forge-events/11.03-durable-consumers-ack-retry.md) | Not started |  |  |
+| **74** | [DLQ + inspect APIs](steps/11-forge-events/11.04-dlq-and-inspect-apis.md) | Not started |  |  |
+| **75** | [Event JSON Schemas](steps/11-forge-events/11.05-event-json-schemas.md) | Not started |  |  |
+| **76** | [Idempotency keys + consumer identity](steps/11-forge-events/11.06-idempotency-keys-and-consumer-identity.md) | Not started |  |  |
+| **77** | [Demo `11-event-driven` (Go producer → Elixir consumer) + gate](steps/11-forge-events/11.07-demo-11-event-driven.md) | Not started |  |  |
+| **78** | [Skeleton + correlation API design](steps/12-forge-observe/12.01-skeleton-and-correlation-api-design.md) | Not started |  |  |
+| **79** | [Instrumentation checklist on Control/Runtime/Gateway/Build](steps/12-forge-observe/12.02-instrumentation-checklist.md) | Not started |  |  |
+| **80** | [Grafana dashboards (platform/service/deployment/runtime)](steps/12-forge-observe/12.03-grafana-dashboards.md) | Not started |  |  |
+| **81** | [Log query/filter by project/deployment/request/trace ID](steps/12-forge-observe/12.04-log-query-and-filter.md) | Not started |  |  |
+| **82** | [CLI `forge logs --follow`](steps/12-forge-observe/12.05-cli-logs-follow.md) | Not started |  |  |
+| **83** | [Basic alert rules](steps/12-forge-observe/12.06-basic-alert-rules.md) | Not started |  |  |
+| **84** | [Demo `12-observability` (one distributed trace) + gate](steps/12-forge-observe/12.07-demo-12-observability.md) | Not started |  |  |
+| **85** | [Skeleton + local FS backend](steps/13-forge-storage/13.01-skeleton-local-fs-backend.md) | Not started |  |  |
+| **86** | [Buckets + metadata + project isolation](steps/13-forge-storage/13.02-buckets-metadata-project-isolation.md) | Not started |  |  |
+| **87** | [Streamed upload/download](steps/13-forge-storage/13.03-streamed-upload-download.md) | Not started |  |  |
+| **88** | [SHA-256 + range requests](steps/13-forge-storage/13.04-sha256-range-requests.md) | Not started |  |  |
+| **89** | [Signed tokens + expiry](steps/13-forge-storage/13.05-signed-tokens-expiry.md) | Not started |  |  |
+| **90** | [Quotas + delete + restart durability](steps/13-forge-storage/13.06-quotas-delete-durability.md) | Not started |  |  |
+| **91** | [Demo `13-object-storage` + gate](steps/13-forge-storage/13.07-demo-and-gate.md) | Not started |  |  |
+| **92** | [Skeleton + Compose](steps/14-forge-models/14.01-skeleton-compose.md) | Not started |  |  |
+| **93** | [Model registry + `GET /v1/models`](steps/14-forge-models/14.02-model-registry.md) | Not started |  |  |
+| **94** | [Local embeddings adapter](steps/14-forge-models/14.03-local-embeddings-adapter.md) | Not started |  |  |
+| **95** | [Generate/classify/summarize endpoints](steps/14-forge-models/14.04-generate-classify-summarize.md) | Not started |  |  |
+| **96** | [Streaming + async jobs](steps/14-forge-models/14.05-streaming-async-jobs.md) | Not started |  |  |
+| **97** | [Usage metrics + OpenAPI; optional CLI `forge model`](steps/14-forge-models/14.06-usage-metrics-openapi-cli.md) | Not started |  |  |
+| **98** | [Demo `14-model-serving` + gate](steps/14-forge-models/14.07-demo-and-gate.md) | Not started |  |  |
+| **99** | [Skeleton](steps/15-forge-agents/15.01-skeleton.md) | Not started |  |  |
+| **100** | [Agent registry + YAML definitions](steps/15-forge-agents/15.02-agent-registry-yaml.md) | Not started |  |  |
+| **101** | [Tool registry + per-call permission checks](steps/15-forge-agents/15.03-tool-registry-permissions.md) | Not started |  |  |
+| **102** | [Run engine: max steps, timeouts, history](steps/15-forge-agents/15.04-run-engine.md) | Not started |  |  |
+| **103** | [Platform tools](steps/15-forge-agents/15.05-platform-tools.md) | Not started |  |  |
+| **104** | [Human approval for destructive tools](steps/15-forge-agents/15.06-human-approval.md) | Not started |  |  |
+| **105** | [Seed agents + CLI `forge agent`](steps/15-forge-agents/15.07-seed-agents-cli.md) | Not started |  |  |
+| **106** | [Demo `15-agent-runtime` + gate](steps/15-forge-agents/15.08-demo-and-gate.md) | Not started |  |  |
+| **107** | [Skeleton OTP + health](steps/16-forge-workflows/16.01-skeleton-otp-health.md) | Not started |  |  |
+| **108** | [Definitions + durable run state](steps/16-forge-workflows/16.02-definitions-durable-state.md) | Not started |  |  |
+| **109** | [Step primitives](steps/16-forge-workflows/16.03-step-primitives.md) | Not started |  |  |
+| **110** | [Event triggers + agent steps](steps/16-forge-workflows/16.04-event-triggers-agent-steps.md) | Not started |  |  |
+| **111** | [Human approval across restarts](steps/16-forge-workflows/16.05-human-approval-restarts.md) | Not started |  |  |
+| **112** | [Compensation/rollback via Control](steps/16-forge-workflows/16.06-compensation-rollback.md) | Not started |  |  |
+| **113** | [Demo `16-agent-workflow` + gate](steps/16-forge-workflows/16.07-demo-and-gate.md) | Not started |  |  |
+| **114** | [Skeleton + persistence](steps/17-forge-memory/17.01-skeleton-persistence.md) | Not started |  |  |
+| **115** | [Collections + fixed-dim vectors + metadata](steps/17-forge-memory/17.02-collections-vectors-metadata.md) | Not started |  |  |
+| **116** | [Upsert + cosine NN query](steps/17-forge-memory/17.03-upsert-cosine-nn.md) | Not started |  |  |
+| **117** | [Namespace/ACL via Identity project scope](steps/17-forge-memory/17.04-namespace-acl.md) | Not started |  |  |
+| **118** | [Models embed + Agents retrieval tool](steps/17-forge-memory/17.05-models-embed-agents-tool.md) | Not started |  |  |
+| **119** | [Demo `17-agent-memory` + gate](steps/17-forge-memory/17.06-demo-and-gate.md) | Not started |  |  |
+| **120** | [Control APIs + provisioner skeleton](steps/18-managed-postgresql/18.01-control-apis-provisioner-skeleton.md) | Not started |  |  |
+| **121** | [Create instance/database/credentials](steps/18-managed-postgresql/18.02-create-instance-db-credentials.md) | Not started |  |  |
+| **122** | [Attach + Secrets/Runtime URL injection](steps/18-managed-postgresql/18.03-attach-secrets-runtime-injection.md) | Not started |  |  |
+| **123** | [Backup + restore](steps/18-managed-postgresql/18.04-backup-restore.md) | Not started |  |  |
+| **124** | [Credential rotation + deletion protection](steps/18-managed-postgresql/18.05-rotation-deletion-protection.md) | Not started |  |  |
+| **125** | [CLI `forge database *` + demo + gate](steps/18-managed-postgresql/18.06-cli-demo-and-gate.md) | Not started |  |  |
+| **126** | [Polyglot sample product](steps/19-full-platform-demo/19.01-polyglot-product-scaffold.md) | Not started |  |  |
+| **127** | [Deploy path: Build→Runtime→Gateway→Events](steps/19-full-platform-demo/19.02-deploy-path.md) | Not started |  |  |
+| **128** | [Identity, Secrets, Observe, Storage, managed DB](steps/19-full-platform-demo/19.03-identity-secrets-observe-storage-db.md) | Not started |  |  |
+| **129** | [Models + Agents + Memory for diagnosis](steps/19-full-platform-demo/19.04-models-agents-memory.md) | Not started |  |  |
+| **130** | [Failure injection + Workflows approval/rollback](steps/19-full-platform-demo/19.05-failure-injection-workflow.md) | Not started |  |  |
+| **131** | [`demos/09-full-platform` acceptance suite + docs](steps/19-full-platform-demo/19.06-acceptance-suite-and-gate.md) | Not started |  |  |
 
-> Total atomic steps: **132** (including `00.01`). Unfinished planned: **131**.
+> Implementable steps: **131** (`N = 1` … `N = 131`). Foundation complete separately.
 
