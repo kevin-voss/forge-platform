@@ -7,7 +7,15 @@ import forge.identity.health.AlwaysHealthyDb
 import forge.identity.health.DbProbe
 import forge.identity.health.Readiness
 import forge.identity.health.healthRoutes
+import forge.identity.http.ApiException
+import forge.identity.http.apiError
+import forge.identity.http.installRequestId
+import forge.identity.http.toEnvelope
 import forge.identity.logging.JsonLog
+import forge.identity.org.orgRoutes
+import forge.identity.project.projectRoutes
+import forge.identity.user.userRoutes
+import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCallPipeline
@@ -18,9 +26,12 @@ import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.httpMethod
 import io.ktor.server.request.path
+import io.ktor.server.response.respond
 import io.ktor.server.routing.routing
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import org.slf4j.event.Level
 import java.util.concurrent.atomic.AtomicLong
@@ -39,6 +50,7 @@ fun main() {
     val log = JsonLog(cfg.serviceName, cfg.logLevel)
     val startedAtMs = AtomicLong(System.currentTimeMillis())
     val dbHolder = AtomicReference<Database?>(null)
+    val tenancyHolder = AtomicReference<TenancyServices?>(null)
     val readiness = Readiness()
     val graceMillis = cfg.shutdownGraceSeconds.toLong().coerceAtLeast(1) * 1_000
 
@@ -48,13 +60,21 @@ fun main() {
     }
 
     val connector = thread(name = "identity-db-connect", isDaemon = true) {
-        connectAndMigrate(cfg, log, dbHolder)
+        connectAndMigrate(cfg, log, dbHolder, tenancyHolder)
     }
 
     val server = embeddedServer(Netty, port = cfg.port, host = "0.0.0.0") {
-        forgeIdentityModule(cfg, readiness, dbProbe, log, startedAtMs) { cause ->
-            log.warn("readiness db check failed", "error" to cause)
-        }
+        forgeIdentityModule(
+            cfg = cfg,
+            readiness = readiness,
+            dbProbe = dbProbe,
+            log = log,
+            startedAtMs = startedAtMs,
+            tenancyRef = tenancyHolder,
+            onDbFailure = { cause ->
+                log.warn("readiness db check failed", "error" to cause)
+            },
+        )
         monitor.subscribe(ApplicationStarted) {
             readiness.markReady()
             log.info(
@@ -71,6 +91,7 @@ fun main() {
             log.info("shutdown signal received", "signal" to "SIGTERM")
             connector.interrupt()
             server.stop(gracePeriodMillis = 1_000, timeoutMillis = graceMillis)
+            tenancyHolder.set(null)
             dbHolder.getAndSet(null)?.close()
             log.info("shutdown complete")
             // HotSpot reports SIGTERM as 143 unless we halt(0) after a clean drain.
@@ -92,6 +113,7 @@ fun main() {
         server.start(wait = true)
     } finally {
         connector.interrupt()
+        tenancyHolder.set(null)
         dbHolder.getAndSet(null)?.close()
     }
 }
@@ -100,6 +122,7 @@ internal fun connectAndMigrate(
     cfg: Config,
     log: JsonLog,
     dbHolder: AtomicReference<Database?>,
+    tenancyHolder: AtomicReference<TenancyServices?>,
 ) {
     var delayMs = cfg.database.connectRetryInitialMs
     while (!Thread.currentThread().isInterrupted) {
@@ -127,7 +150,10 @@ internal fun connectAndMigrate(
             } else {
                 db.markMigrationsApplied()
             }
+            val tenancy = TenancyServices.from(db, log)
+            maybeSeedAdmin(cfg, tenancy, log)
             dbHolder.getAndSet(db)?.close()
+            tenancyHolder.set(tenancy)
             log.info("database ready")
             return
         } catch (e: InterruptedException) {
@@ -151,12 +177,32 @@ internal fun connectAndMigrate(
     }
 }
 
+internal fun maybeSeedAdmin(cfg: Config, tenancy: TenancyServices, log: JsonLog) {
+    val email = cfg.seedAdminEmail ?: return
+    val existing = tenancy.users.findByEmail(email)
+    if (existing != null) {
+        log.info("seed admin already present", "user_id" to existing.id)
+        return
+    }
+    val user = tenancy.users.create(email = email, displayName = "Admin")
+    val org = tenancy.orgs.create(name = "Platform")
+    tenancy.orgs.addMember(org.id, user.id, "organization-owner")
+    log.info(
+        "seed admin created",
+        "user_id" to user.id,
+        "org_id" to org.id,
+        "email_domain" to email.substringAfter('@', "unknown"),
+    )
+}
+
 fun Application.forgeIdentityModule(
     cfg: Config,
     readiness: Readiness,
     dbProbe: DbProbe = AlwaysHealthyDb,
     log: JsonLog? = null,
     startedAtMs: AtomicLong = AtomicLong(System.currentTimeMillis()),
+    tenancy: TenancyServices? = null,
+    tenancyRef: AtomicReference<TenancyServices?>? = null,
     onDbFailure: (String) -> Unit = {},
 ) {
     install(ContentNegotiation) {
@@ -172,6 +218,40 @@ fun Application.forgeIdentityModule(
     install(CallLogging) {
         level = Level.INFO
         filter { call -> !call.request.path().startsWith("/health") }
+    }
+
+    installRequestId()
+
+    install(StatusPages) {
+        exception<ApiException> { call, cause ->
+            call.respond(cause.status, cause.toEnvelope())
+        }
+        exception<SerializationException> { call, _ ->
+            call.respond(
+                HttpStatusCode.BadRequest,
+                apiError("invalid_request", "invalid JSON body"),
+            )
+        }
+        exception<IllegalArgumentException> { call, cause ->
+            call.respond(
+                HttpStatusCode.BadRequest,
+                apiError("invalid_request", cause.message ?: "invalid request"),
+            )
+        }
+        exception<Throwable> { call, cause ->
+            call.respond(
+                HttpStatusCode.InternalServerError,
+                apiError("internal_error", "internal server error"),
+            )
+            call.application.environment.log.error("unhandled error: ${cause.message}", cause)
+        }
+        status(HttpStatusCode.NotFound) { call, _ ->
+            if (call.response.isCommitted) return@status
+            call.respond(
+                HttpStatusCode.NotFound,
+                apiError("not_found", "resource not found"),
+            )
+        }
     }
 
     if (log != null) {
@@ -197,7 +277,15 @@ fun Application.forgeIdentityModule(
         }
     }
 
+    fun resolveTenancy(): TenancyServices =
+        tenancy
+            ?: tenancyRef?.get()
+            ?: throw ApiException.ServiceUnavailable("identity stores not ready")
+
     routing {
         healthRoutes(cfg, readiness, dbProbe, startedAtMs, onDbFailure)
+        userRoutes { resolveTenancy().users }
+        orgRoutes { resolveTenancy().orgs }
+        projectRoutes { resolveTenancy().projects }
     }
 }

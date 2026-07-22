@@ -34,6 +34,37 @@ class OpenApiContractTest {
         assertTrue(yaml.contains("service:"))
         assertTrue(yaml.contains("language:"))
         assertTrue(yaml.contains("status:"))
+        assertTrue(yaml.contains("/v1/users"))
+        assertTrue(yaml.contains("/v1/orgs"))
+        assertTrue(yaml.contains("/v1/projects"))
+        assertTrue(yaml.contains("/v1/users/{userId}/memberships"))
+        assertTrue(yaml.contains("/v1/orgs/{orgId}/members"))
+        assertTrue(yaml.contains("/v1/projects/{projectId}/members"))
+        assertTrue(yaml.contains("ErrorEnvelope:"))
+        assertTrue(yaml.contains("createUser") || yaml.contains("operationId: createUser"))
+        assertTrue(yaml.contains("createOrg") || yaml.contains("operationId: createOrg"))
+        assertTrue(yaml.contains("addProjectMember") || yaml.contains("operationId: addProjectMember"))
+        assertTrue(yaml.contains("display_name"))
+        assertTrue(yaml.contains("user_id"))
+    }
+
+    @Test
+    fun errorEnvelopeExampleValidates() {
+        val example = """
+            {
+              "error": {
+                "code": "conflict",
+                "message": "email already registered",
+                "details": { "email": "dev@x.com" },
+                "requestId": "req_example"
+              }
+            }
+        """.trimIndent()
+        val decoded = Json { ignoreUnknownKeys = true }
+            .decodeFromString(forge.identity.http.ErrorEnvelope.serializer(), example)
+        assertEquals("conflict", decoded.error.code)
+        assertEquals("req_example", decoded.error.requestId)
+        assertEquals("dev@x.com", decoded.error.details?.get("email"))
     }
 
     @Test

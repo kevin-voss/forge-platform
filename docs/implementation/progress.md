@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 57`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 58`**.
 
 ## Epics
 
@@ -17,7 +17,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [06](epics/06-forge-build.md) | Forge Build | Complete | 7/7 steps complete; demo 06 source-to-deployment acceptance gate passed |
 | [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | Complete | 6/6 steps complete; demo 07 rolling-deployment acceptance gate passed |
 | [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | Complete | 6/6 steps complete; demo 08 multi-node acceptance gate passed |
-| [09](epics/09-forge-identity.md) | Forge Identity | In progress | 1/8 steps complete |
+| [09](epics/09-forge-identity.md) | Forge Identity | In progress | 2/8 steps complete |
 | [10](epics/10-forge-secrets.md) | Forge Secrets | Planning | 7 steps |
 | [11](epics/11-forge-events.md) | Forge Events | Planning | 7 steps |
 | [12](epics/12-forge-observe.md) | Forge Observe | Planning | 7 steps |
@@ -90,7 +90,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **54** | [Reschedule on node offline](steps/08-multi-node-scheduler/08.05-reschedule-on-node-offline.md) | Complete |  | Lost→reschedule/pending; grace flap suppression; stale replica fencer |
 | **55** | [Demo `08-multi-node` + epic gate](steps/08-multi-node-scheduler/08.06-demo-08-multi-node.md) | Complete |  | Demo 08: 2+2 distribute + node-b stop reschedule; PlacementAwareRuntimeClient |
 | **56** | [Skeleton + Compose + Postgres](steps/09-forge-identity/09.01-skeleton-compose-postgres.md) | Complete |  | Ktor skeleton on `4002`, Flyway baseline, `forge_identity` DB, Compose + OpenAPI |
-| **57** | [Users, orgs, memberships persistence](steps/09-forge-identity/09.02-users-orgs-memberships.md) | Not started |  |  |
+| **57** | [Users, orgs, memberships persistence](steps/09-forge-identity/09.02-users-orgs-memberships.md) | Complete |  | Users/orgs/projects + memberships; citext email uniqueness; OpenAPI + TenancyTest |
 | **58** | [Registration, login, sessions](steps/09-forge-identity/09.03-registration-login-sessions.md) | Not started |  |  |
 | **59** | [Roles + project membership](steps/09-forge-identity/09.04-roles-and-project-membership.md) | Not started |  |  |
 | **60** | [API tokens + service accounts + revocation](steps/09-forge-identity/09.05-api-tokens-service-accounts-revocation.md) | Not started |  |  |

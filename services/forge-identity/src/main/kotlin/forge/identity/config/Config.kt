@@ -18,6 +18,8 @@ data class Config(
     val env: String,
     val shutdownGraceSeconds: Int,
     val database: DatabaseConfig,
+    /** Optional bootstrap admin email (`FORGE_IDENTITY_SEED_ADMIN`). */
+    val seedAdminEmail: String? = null,
 )
 
 fun loadConfig(env: Map<String, String> = System.getenv()): Config {
@@ -95,6 +97,13 @@ fun loadConfig(env: Map<String, String> = System.getenv()): Config {
         )
     }
 
+    val seedAdmin = env["FORGE_IDENTITY_SEED_ADMIN"]?.trim().orEmpty().ifEmpty { null }
+    if (seedAdmin != null && !seedAdmin.contains('@')) {
+        throw IllegalArgumentException(
+            "FORGE_IDENTITY_SEED_ADMIN must be an email address when set, got '$seedAdmin'",
+        )
+    }
+
     return Config(
         port = port,
         serviceName = env["FORGE_SERVICE_NAME"]?.trim().orEmpty().ifEmpty { "forge-identity" },
@@ -111,5 +120,6 @@ fun loadConfig(env: Map<String, String> = System.getenv()): Config {
             connectRetryInitialMs = connectRetryInitialMs,
             connectRetryMaxMs = connectRetryMaxMs,
         ),
+        seedAdminEmail = seedAdmin,
     )
 }

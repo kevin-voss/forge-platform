@@ -1,10 +1,10 @@
 openapi: 3.0.3
 info:
   title: Forge Identity API
-  version: 0.1.0
+  version: 0.2.0
   description: |
-    Platform identity service skeleton (epic 09 / step 09.01).
-    Declares the runtime-contract health and identity surfaces; domain APIs arrive in 09.02+.
+    Platform identity service (epic 09). Health surfaces from 09.01;
+    users, organizations, projects, and memberships from 09.02.
 servers:
   - url: http://127.0.0.1:4002
     description: Local Compose (host port 4002)
@@ -30,7 +30,7 @@ paths:
       operationId: getHealthReady
       summary: Readiness probe
       description: |
-        Returns 200 when the database is reachable and baseline migrations are applied;
+        Returns 200 when the database is reachable and migrations are applied;
         non-200 when not ready.
       responses:
         "200":
@@ -71,7 +71,398 @@ paths:
                 version: 0.1.0
                 uptime_seconds: 12.5
 
+  /v1/users:
+    get:
+      operationId: listUsers
+      summary: List users
+      parameters:
+        - name: email
+          in: query
+          required: false
+          schema:
+            type: string
+            format: email
+          description: When set, filter by email (case-insensitive)
+      responses:
+        "200":
+          description: Users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+              example:
+                - id: 11111111-1111-1111-1111-111111111111
+                  email: dev@x.com
+                  display_name: Dev
+                  created_at: "2026-07-23T00:00:00Z"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: createUser
+      summary: Create user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, display_name]
+              properties:
+                email:
+                  type: string
+                  format: email
+                display_name:
+                  type: string
+            example:
+              email: dev@x.com
+              display_name: Dev
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+              example:
+                id: 11111111-1111-1111-1111-111111111111
+                email: dev@x.com
+                display_name: Dev
+                created_at: "2026-07-23T00:00:00Z"
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+
+  /v1/users/{userId}:
+    get:
+      operationId: getUser
+      summary: Get user by id
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/users/{userId}/memberships:
+    get:
+      operationId: getUserMemberships
+      summary: List org and project memberships for a user
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: Memberships
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserMemberships"
+              example:
+                orgs:
+                  - org_id: 22222222-2222-2222-2222-222222222222
+                    org_name: Acme
+                    role: organization-owner
+                projects:
+                  - project_id: 33333333-3333-3333-3333-333333333333
+                    project_name: demo
+                    org_id: 22222222-2222-2222-2222-222222222222
+                    role: developer
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/orgs:
+    get:
+      operationId: listOrgs
+      summary: List organizations
+      responses:
+        "200":
+          description: Organizations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Organization"
+    post:
+      operationId: createOrg
+      summary: Create organization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+            example:
+              name: Acme
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Organization"
+              example:
+                id: 22222222-2222-2222-2222-222222222222
+                name: Acme
+                created_at: "2026-07-23T00:00:00Z"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /v1/orgs/{orgId}:
+    get:
+      operationId: getOrg
+      summary: Get organization by id
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+      responses:
+        "200":
+          description: Organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Organization"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/orgs/{orgId}/members:
+    get:
+      operationId: listOrgMembers
+      summary: List organization members
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+      responses:
+        "200":
+          description: Members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OrgMembership"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: addOrgMember
+      summary: Add organization member (idempotent)
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id, role]
+              properties:
+                user_id:
+                  type: string
+                role:
+                  type: string
+                  description: Role label; semantics enforced in 09.04
+            example:
+              user_id: 11111111-1111-1111-1111-111111111111
+              role: organization-owner
+      responses:
+        "201":
+          description: Created or existing membership
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrgMembership"
+              example:
+                org_id: 22222222-2222-2222-2222-222222222222
+                user_id: 11111111-1111-1111-1111-111111111111
+                role: organization-owner
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/orgs/{orgId}/members/{userId}:
+    delete:
+      operationId: removeOrgMember
+      summary: Remove organization member
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "204":
+          description: Removed
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/projects:
+    get:
+      operationId: listProjects
+      summary: List identity-side project references
+      parameters:
+        - name: org_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+    post:
+      operationId: createProject
+      summary: Register a project (id shared with Control)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, org_id, name]
+              properties:
+                id:
+                  type: string
+                  description: Control project id
+                org_id:
+                  type: string
+                name:
+                  type: string
+            example:
+              id: 33333333-3333-3333-3333-333333333333
+              org_id: 22222222-2222-2222-2222-222222222222
+              name: demo
+      responses:
+        "201":
+          description: Created or existing identical project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+
+  /v1/projects/{projectId}:
+    get:
+      operationId: getProject
+      summary: Get project reference by id
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/projects/{projectId}/members:
+    post:
+      operationId: addProjectMember
+      summary: Add project member (idempotent)
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id, role]
+              properties:
+                user_id:
+                  type: string
+                role:
+                  type: string
+            example:
+              user_id: 11111111-1111-1111-1111-111111111111
+              role: developer
+      responses:
+        "201":
+          description: Created or existing membership
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectMembership"
+              example:
+                project_id: 33333333-3333-3333-3333-333333333333
+                user_id: 11111111-1111-1111-1111-111111111111
+                role: developer
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /v1/projects/{projectId}/members/{userId}:
+    delete:
+      operationId: removeProjectMember
+      summary: Remove project member
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "204":
+          description: Removed
+        "404":
+          $ref: "#/components/responses/Error"
+
 components:
+  parameters:
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+    OrgId:
+      name: orgId
+      in: path
+      required: true
+      schema:
+        type: string
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema:
+        type: string
+
+  responses:
+    Error:
+      description: Canonical error response
+      headers:
+        X-Request-Id:
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            error:
+              code: conflict
+              message: email already registered
+              details:
+                email: dev@x.com
+              requestId: req_example
+
   schemas:
     HealthStatus:
       type: object
@@ -90,21 +481,127 @@ components:
       properties:
         service:
           type: string
-          description: Logical service name
           example: forge-identity
         language:
           type: string
-          description: Implementation language
           example: kotlin
         status:
           type: string
-          description: Runtime status
           example: running
         version:
           type: string
-          description: Optional service version
           example: 0.1.0
         uptime_seconds:
           type: number
-          description: Optional seconds since process start
           example: 12.5
+
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            requestId:
+              type: string
+            details:
+              type: object
+              additionalProperties:
+                type: string
+
+    User:
+      type: object
+      required: [id, email, display_name, created_at]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    Organization:
+      type: object
+      required: [id, name, created_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    Project:
+      type: object
+      required: [id, org_id, name]
+      properties:
+        id:
+          type: string
+          description: Shared with Control project id
+        org_id:
+          type: string
+        name:
+          type: string
+
+    OrgMembership:
+      type: object
+      required: [org_id, user_id, role]
+      properties:
+        org_id:
+          type: string
+        user_id:
+          type: string
+        role:
+          type: string
+
+    ProjectMembership:
+      type: object
+      required: [project_id, user_id, role]
+      properties:
+        project_id:
+          type: string
+        user_id:
+          type: string
+        role:
+          type: string
+
+    UserMemberships:
+      type: object
+      required: [orgs, projects]
+      properties:
+        orgs:
+          type: array
+          items:
+            type: object
+            required: [org_id, org_name, role]
+            properties:
+              org_id:
+                type: string
+              org_name:
+                type: string
+              role:
+                type: string
+        projects:
+          type: array
+          items:
+            type: object
+            required: [project_id, project_name, org_id, role]
+            properties:
+              project_id:
+                type: string
+              project_name:
+                type: string
+              org_id:
+                type: string
+              role:
+                type: string
