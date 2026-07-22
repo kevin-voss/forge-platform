@@ -17,6 +17,7 @@ import forge.control.repo.JdbcDeploymentRepository
 import forge.control.repo.JdbcEnvironmentRepository
 import forge.control.repo.JdbcProjectRepository
 import forge.control.repo.JdbcServiceRepository
+import forge.control.repo.JdbcIdempotencyStore
 import forge.control.service.ApplicationService
 import forge.control.service.DeploymentService
 import forge.control.service.EnvironmentService
@@ -128,6 +129,7 @@ class ProjectsEnvironmentsApiIntegrationTest {
                 serviceRepo,
                 deploymentRepo,
             ),
+            idempotency = JdbcIdempotencyStore(db.dataSource),
         )
     }
 
@@ -199,7 +201,7 @@ class ProjectsEnvironmentsApiIntegrationTest {
             setBody("""{"name":"  "}""")
         }
         assertEquals(HttpStatusCode.BadRequest, blank.status)
-        assertEquals("invalid_request", blank.body<ErrorEnvelope>().error.code)
+        assertEquals("validation_error", blank.body<ErrorEnvelope>().error.code)
     }
 
     @Test

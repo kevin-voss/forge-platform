@@ -1,0 +1,65 @@
+openapi: 3.0.3
+info:
+  title: Forge Control API
+  version: 0.1.0
+  description: Desired-state control plane. POST creates optionally accept Idempotency-Key.
+servers: [{url: http://127.0.0.1:4001}]
+paths:
+  /v1/projects:
+    get: {operationId: listProjects, responses: {'200': {$ref: '#/components/responses/Projects'}}}
+    post: {$ref: '#/components/x-create-project'}
+  /v1/projects/{projectId}:
+    get: {$ref: '#/components/x-get-project'}
+  /v1/projects/{projectId}/environments:
+    get: {operationId: listEnvironments, parameters: [{$ref: '#/components/parameters/ProjectId'}], responses: {'200': {$ref: '#/components/responses/Environments'}, '404': {$ref: '#/components/responses/Error'}}}
+    post: {$ref: '#/components/x-create-environment'}
+  /v1/environments/{environmentId}:
+    get: {$ref: '#/components/x-get-environment'}
+  /v1/projects/{projectId}/applications:
+    get: {operationId: listApplications, parameters: [{$ref: '#/components/parameters/ProjectId'}], responses: {'200': {$ref: '#/components/responses/Applications'}, '404': {$ref: '#/components/responses/Error'}}}
+    post: {$ref: '#/components/x-create-application'}
+  /v1/applications/{applicationId}:
+    get: {$ref: '#/components/x-get-application'}
+  /v1/applications/{applicationId}/services:
+    get: {operationId: listServices, parameters: [{$ref: '#/components/parameters/ApplicationId'}], responses: {'200': {$ref: '#/components/responses/Services'}, '404': {$ref: '#/components/responses/Error'}}}
+    post: {$ref: '#/components/x-create-service'}
+  /v1/services/{serviceId}:
+    get: {$ref: '#/components/x-get-service'}
+  /v1/services/{serviceId}/deployments:
+    get: {operationId: listDeployments, parameters: [{$ref: '#/components/parameters/ServiceId'}], responses: {'200': {$ref: '#/components/responses/Deployments'}, '404': {$ref: '#/components/responses/Error'}}}
+    post: {$ref: '#/components/x-create-deployment'}
+  /v1/deployments/{deploymentId}:
+    get: {$ref: '#/components/x-get-deployment'}
+components:
+  parameters:
+    ProjectId: {name: projectId, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}
+    ApplicationId: {name: applicationId, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}
+    ServiceId: {name: serviceId, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}
+    EnvironmentId: {name: environmentId, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}
+    DeploymentId: {name: deploymentId, in: path, required: true, schema: {$ref: '#/components/schemas/Uuid'}}
+    IdempotencyKey: {name: Idempotency-Key, in: header, schema: {type: string, pattern: '^[A-Za-z0-9._-]{1,128}$'}}
+  responses:
+    Error: {description: Canonical error response, headers: {X-Request-Id: {schema: {type: string}}}, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorEnvelope'}}}}
+    Projects: {description: Projects, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Project'}}}}}
+    Environments: {description: Environments, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Environment'}}}}}
+    Applications: {description: Applications, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Application'}}}}}
+    Services: {description: Services, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Service'}}}}}
+    Deployments: {description: Deployments, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/Deployment'}}}}}
+  schemas:
+    Uuid: {type: string, format: uuid}
+    ErrorEnvelope: {type: object, required: [error], properties: {error: {type: object, required: [code, message, requestId], properties: {code: {type: string}, message: {type: string}, requestId: {type: string}, details: {type: object, additionalProperties: {type: string}}}}}}
+    Project: {type: object, required: [id, name, slug, createdAt, updatedAt], properties: {id: {$ref: '#/components/schemas/Uuid'}, name: {type: string}, slug: {type: string}, createdAt: {type: string, format: date-time}, updatedAt: {type: string, format: date-time}}}
+    Environment: {type: object, required: [id, projectId, name, createdAt, updatedAt], properties: {id: {$ref: '#/components/schemas/Uuid'}, projectId: {$ref: '#/components/schemas/Uuid'}, name: {type: string}, createdAt: {type: string}, updatedAt: {type: string}}}
+    Application: {type: object, required: [id, projectId, name, createdAt, updatedAt], properties: {id: {$ref: '#/components/schemas/Uuid'}, projectId: {$ref: '#/components/schemas/Uuid'}, name: {type: string}, createdAt: {type: string}, updatedAt: {type: string}}}
+    Service: {type: object, required: [id, applicationId, name, port, createdAt, updatedAt], properties: {id: {$ref: '#/components/schemas/Uuid'}, applicationId: {$ref: '#/components/schemas/Uuid'}, name: {type: string}, port: {type: integer, minimum: 1, maximum: 65535}, createdAt: {type: string}, updatedAt: {type: string}}}
+    Deployment: {type: object, required: [id, serviceId, environmentId, image, desiredReplicas, status, createdAt, updatedAt], properties: {id: {$ref: '#/components/schemas/Uuid'}, serviceId: {$ref: '#/components/schemas/Uuid'}, environmentId: {$ref: '#/components/schemas/Uuid'}, image: {type: string}, desiredReplicas: {type: integer, minimum: 0}, status: {type: string}, createdAt: {type: string}, updatedAt: {type: string}}}
+  x-create-project: {operationId: createProject, parameters: [{$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {required: true, content: {application/json: {schema: {type: object, required: [name], properties: {name: {type: string}, slug: {type: string}}}}}}, responses: {'201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}}, '400': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}}}
+  x-create-environment: {operationId: createEnvironment, parameters: [{$ref: '#/components/parameters/ProjectId'}, {$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {required: true, content: {application/json: {schema: {type: object, required: [name], properties: {name: {type: string}}}}}}, responses: {'201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Environment'}}}}, '400': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}}}
+  x-create-application: {operationId: createApplication, parameters: [{$ref: '#/components/parameters/ProjectId'}, {$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {required: true, content: {application/json: {schema: {type: object, required: [name], properties: {name: {type: string}}}}}}, responses: {'201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Application'}}}}, '400': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}}}
+  x-create-service: {operationId: createService, parameters: [{$ref: '#/components/parameters/ApplicationId'}, {$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {required: true, content: {application/json: {schema: {type: object, required: [name, port], properties: {name: {type: string}, port: {type: integer}}}}}}, responses: {'201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Service'}}}}, '400': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}}}
+  x-create-deployment: {operationId: createDeployment, parameters: [{$ref: '#/components/parameters/ServiceId'}, {$ref: '#/components/parameters/IdempotencyKey'}], requestBody: {required: true, content: {application/json: {schema: {type: object, required: [image, environmentId], properties: {image: {type: string}, environmentId: {$ref: '#/components/schemas/Uuid'}, desiredReplicas: {type: integer}}}}}}, responses: {'201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Deployment'}}}}, '400': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}}}
+  x-get-project: {operationId: getProject, parameters: [{$ref: '#/components/parameters/ProjectId'}], responses: {'200': {description: Project, content: {application/json: {schema: {$ref: '#/components/schemas/Project'}}}}, '404': {$ref: '#/components/responses/Error'}}}
+  x-get-environment: {operationId: getEnvironment, parameters: [{$ref: '#/components/parameters/EnvironmentId'}], responses: {'200': {description: Environment, content: {application/json: {schema: {$ref: '#/components/schemas/Environment'}}}}, '404': {$ref: '#/components/responses/Error'}}}
+  x-get-application: {operationId: getApplication, parameters: [{$ref: '#/components/parameters/ApplicationId'}], responses: {'200': {description: Application, content: {application/json: {schema: {$ref: '#/components/schemas/Application'}}}}, '404': {$ref: '#/components/responses/Error'}}}
+  x-get-service: {operationId: getService, parameters: [{$ref: '#/components/parameters/ServiceId'}], responses: {'200': {description: Service, content: {application/json: {schema: {$ref: '#/components/schemas/Service'}}}}, '404': {$ref: '#/components/responses/Error'}}}
+  x-get-deployment: {operationId: getDeployment, parameters: [{$ref: '#/components/parameters/DeploymentId'}], responses: {'200': {description: Deployment, content: {application/json: {schema: {$ref: '#/components/schemas/Deployment'}}}}, '404': {$ref: '#/components/responses/Error'}}}

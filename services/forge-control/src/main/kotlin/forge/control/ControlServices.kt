@@ -6,6 +6,7 @@ import forge.control.service.EnvironmentService
 import forge.control.service.ProjectService
 import forge.control.service.ProjectTreeService
 import forge.control.service.ServiceService
+import forge.control.repo.IdempotencyStore
 
 /** Wired domain services for HTTP routes (null in health-only unit tests). */
 data class ControlServices(
@@ -15,4 +16,5 @@ data class ControlServices(
     val services: ServiceService,
     val deployments: DeploymentService,
     val projectTrees: ProjectTreeService,
+    val idempotency: IdempotencyStore? = null,
 )

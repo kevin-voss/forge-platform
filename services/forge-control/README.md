@@ -88,6 +88,7 @@ make dev
 | `DATABASE_SCHEMA` | `control` | Flyway default schema |
 | `DATABASE_POOL_MAX` | `10` | HikariCP max pool size |
 | `DATABASE_MIGRATE_ON_START` | `true` | Run Flyway on boot |
+| `FORGE_IDEMPOTENCY_TTL_HOURS` | `24` | Retention target for idempotency records; cleanup is deferred |
 
 See `.env.example`.
 
@@ -112,8 +113,13 @@ See `.env.example`.
 | `GET` | `/v1/deployments/{deploymentId}` | Get deployment |
 | `GET` | `/v1/projects/{projectId}?expand=tree` | Project, environments, applications, services, and deployments |
 
-Errors use the provisional envelope `{"error":{"code","message","details?"}}`
-(`400` validation, `404` missing, `409` conflict). Formalized in `02.06`.
+The machine-readable API contract is
+[`contracts/openapi/forge-control.openapi.yaml`](../../contracts/openapi/forge-control.openapi.yaml).
+All errors use `{"error":{"code","message","details?","requestId"}}` with consistent
+`400 validation_error`, `404 not_found`, `409 conflict`, and `500 internal_error` codes.
+Every response carries `X-Request-Id`. All POST creates accept an optional
+`Idempotency-Key`; the same key and body replay the original response, while a changed
+body returns `409 idempotency_key_conflict`.
 
 ## Schema
 
@@ -121,6 +127,7 @@ Tables in schema `control`:
 
 * `projects`, `environments`, `applications`, `services`, `deployments`
 * `audit_log` (append-only; create actions for projects/environments/applications/services/deployments)
+* `idempotency_keys` (key, request hash, resource ID, stored response; 24-hour retention target)
 * `flyway_schema_history`
 
 Foreign keys use `ON DELETE RESTRICT`. Unique constraints enforce slug/name uniqueness

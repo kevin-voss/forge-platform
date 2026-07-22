@@ -3,7 +3,7 @@ package forge.control.http
 import io.ktor.http.HttpStatusCode
 import kotlinx.serialization.Serializable
 
-/** Provisional error envelope (formalized in 02.06 with requestId). */
+/** Platform-wide HTTP error envelope. */
 @Serializable
 data class ErrorEnvelope(
     val error: ErrorBody,
@@ -14,9 +14,10 @@ data class ErrorBody(
     val code: String,
     val message: String,
     val details: Map<String, String>? = null,
+    val requestId: String,
 )
 
-/** Domain/API errors mapped to HTTP status + provisional envelope. */
+/** Domain/API errors mapped consistently to an HTTP status and error code. */
 sealed class ApiException(
     val status: HttpStatusCode,
     val code: String,
@@ -26,7 +27,7 @@ sealed class ApiException(
     class BadRequest(
         message: String,
         details: Map<String, String>? = null,
-        code: String = "invalid_request",
+        code: String = "validation_error",
     ) : ApiException(HttpStatusCode.BadRequest, code, message, details)
 
     class NotFound(
@@ -43,10 +44,17 @@ sealed class ApiException(
 }
 
 fun ApiException.toEnvelope(): ErrorEnvelope =
-    ErrorEnvelope(ErrorBody(code = code, message = message, details = details))
+    errorEnvelope(code, message, details)
 
 fun apiError(
     code: String,
     message: String,
     details: Map<String, String>? = null,
-): ErrorEnvelope = ErrorEnvelope(ErrorBody(code, message, details))
+): ErrorEnvelope = errorEnvelope(code, message, details)
+
+fun errorEnvelope(
+    code: String,
+    message: String,
+    details: Map<String, String>? = null,
+    requestId: String = RequestId.current(),
+): ErrorEnvelope = ErrorEnvelope(ErrorBody(code, message, details, requestId))

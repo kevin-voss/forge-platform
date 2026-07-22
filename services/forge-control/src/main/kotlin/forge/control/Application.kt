@@ -15,6 +15,7 @@ import forge.control.http.healthRoutes
 import forge.control.http.projectRoutes
 import forge.control.http.serviceRoutes
 import forge.control.http.toEnvelope
+import forge.control.http.installRequestId
 import forge.control.logging.JsonLog
 import forge.control.repo.JdbcApplicationRepository
 import forge.control.repo.JdbcAuditRepository
@@ -22,6 +23,7 @@ import forge.control.repo.JdbcDeploymentRepository
 import forge.control.repo.JdbcEnvironmentRepository
 import forge.control.repo.JdbcProjectRepository
 import forge.control.repo.JdbcServiceRepository
+import forge.control.repo.JdbcIdempotencyStore
 import forge.control.service.ApplicationService
 import forge.control.service.DeploymentService
 import forge.control.service.EnvironmentService
@@ -111,6 +113,7 @@ fun main() {
             serviceRepo,
             deploymentRepo,
         ),
+        idempotency = JdbcIdempotencyStore(db.dataSource),
     )
 
     val readiness = Readiness()
@@ -186,6 +189,7 @@ fun Application.forgeControlModule(
         level = Level.INFO
         filter { call -> !call.request.path().startsWith("/health") }
     }
+    installRequestId()
 
     install(StatusPages) {
         exception<ApiException> { call, cause ->
@@ -252,11 +256,11 @@ fun Application.forgeControlModule(
     routing {
         healthRoutes(readiness, dbProbe, onDbFailure)
         if (services != null) {
-            projectRoutes(services.projects, services.projectTrees)
-            environmentRoutes(services.environments)
-            applicationRoutes(services.applications)
-            serviceRoutes(services.services)
-            deploymentRoutes(services.deployments)
+            projectRoutes(services.projects, services.projectTrees, services.idempotency)
+            environmentRoutes(services.environments, services.idempotency)
+            applicationRoutes(services.applications, services.idempotency)
+            serviceRoutes(services.services, services.idempotency)
+            deploymentRoutes(services.deployments, services.idempotency)
         }
     }
 }

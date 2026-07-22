@@ -3,6 +3,7 @@ package forge.control.http
 import forge.control.http.dto.CreateDeploymentRequest
 import forge.control.http.dto.toResponse
 import forge.control.service.DeploymentService
+import forge.control.repo.IdempotencyStore
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -11,17 +12,18 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import java.util.UUID
+import kotlinx.serialization.json.Json
 
-fun Route.deploymentRoutes(deployments: DeploymentService) {
+fun Route.deploymentRoutes(deployments: DeploymentService, idempotency: IdempotencyStore? = null) {
     route("/v1/services/{serviceId}/deployments") {
         post {
             val serviceId = call.parameters.requireUuid("serviceId")
             val body = call.receive<CreateDeploymentRequest>()
             val environmentId = body.environmentId.toUuid("environmentId")
-            call.respond(
-                HttpStatusCode.Created,
-                deployments.create(serviceId, body.image, body.desiredReplicas, environmentId).toResponse(),
-            )
+            call.idempotentCreate(idempotency, "deployment", Json.encodeToString(CreateDeploymentRequest.serializer(), body)) {
+                val created = deployments.create(serviceId, body.image, body.desiredReplicas, environmentId)
+                created.id to Json.encodeToJsonElement(forge.control.http.dto.DeploymentResponse.serializer(), created.toResponse())
+            }
         }
         get {
             val serviceId = call.parameters.requireUuid("serviceId")
