@@ -34,6 +34,8 @@ class Telemetry private constructor(
     private val requestCount: LongCounter,
     private val requestDuration: DoubleHistogram,
     private val errorCount: LongCounter,
+    private val reconcileTicks: LongCounter,
+    private val reconcilePlanActions: LongCounter,
     private val sdk: OpenTelemetrySdk?,
 ) : AutoCloseable {
     val enabled: Boolean = sdk != null
@@ -45,6 +47,15 @@ class Telemetry private constructor(
         requestCount.add(1, attributes)
         requestDuration.record(durationMs.toDouble(), attributes)
         if (status >= 400) errorCount.add(1, attributes)
+    }
+
+    fun recordReconcileTick(planActions: Int, healthy: Boolean) {
+        val attributes = Attributes.of(
+            AttributeKey.booleanKey("controller.healthy"),
+            healthy,
+        )
+        reconcileTicks.add(1, attributes)
+        reconcilePlanActions.add(planActions.toLong(), attributes)
     }
 
     fun <T> inSpan(name: String, block: () -> T): T {
@@ -116,6 +127,8 @@ class Telemetry private constructor(
                 requestCount = meter.counterBuilder("http.server.requests").build(),
                 requestDuration = meter.histogramBuilder("http.server.duration").setUnit("ms").build(),
                 errorCount = meter.counterBuilder("http.server.errors").build(),
+                reconcileTicks = meter.counterBuilder("forge_reconcile_ticks_total").build(),
+                reconcilePlanActions = meter.counterBuilder("forge_reconcile_plan_actions").build(),
                 sdk = sdk,
             )
         }

@@ -13,10 +13,15 @@ import forge.control.http.deploymentRoutes
 import forge.control.http.environmentRoutes
 import forge.control.http.healthRoutes
 import forge.control.http.projectRoutes
+import forge.control.http.reconcileStatusRoutes
 import forge.control.http.serviceRoutes
 import forge.control.http.toEnvelope
 import forge.control.http.installRequestId
 import forge.control.logging.JsonLog
+import forge.control.reconcile.HttpRuntimeClient
+import forge.control.reconcile.JdbcReconcileStatusStore
+import forge.control.reconcile.ReconciliationController
+import forge.control.reconcile.RepositoryDeploymentStore
 import forge.control.repo.JdbcApplicationRepository
 import forge.control.repo.JdbcAuditRepository
 import forge.control.repo.JdbcDeploymentRepository
@@ -102,6 +107,18 @@ fun main() {
     val deploymentRepo = JdbcDeploymentRepository(db.dataSource)
     val auditRepo = JdbcAuditRepository(db.dataSource)
     val relationships = RelationshipValidator(projectRepo, applicationRepo)
+    val deploymentStore = RepositoryDeploymentStore(deploymentRepo)
+    val runtimeClient = HttpRuntimeClient(cfg.runtimeUrl)
+    val reconcileStatusStore = JdbcReconcileStatusStore(db.dataSource)
+    val reconcileController = ReconciliationController(
+        deploymentStore = deploymentStore,
+        runtimeClient = runtimeClient,
+        statusStore = reconcileStatusStore,
+        log = log,
+        intervalMs = cfg.reconcileIntervalMs,
+        enabled = cfg.reconcileEnabled,
+        telemetry = telemetry,
+    )
     val services = ControlServices(
         projects = ProjectService(projectRepo, auditRepo, actor = actor),
         environments = EnvironmentService(projectRepo, environmentRepo, auditRepo, actor = actor),
@@ -123,6 +140,9 @@ fun main() {
             deploymentRepo,
         ),
         idempotency = JdbcIdempotencyStore(db.dataSource),
+        deploymentStore = deploymentStore,
+        runtimeClient = runtimeClient,
+        reconcileStatusStore = reconcileStatusStore,
     )
 
     val readiness = Readiness()
@@ -135,12 +155,15 @@ fun main() {
         }
         monitor.subscribe(ApplicationStarted) {
             readiness.markReady()
+            reconcileController.start()
             log.info(
                 "listening",
                 "port" to cfg.port,
                 "version" to cfg.serviceVersion,
                 "env" to cfg.env,
                 "auth_mode" to cfg.authMode,
+                "reconcile_enabled" to cfg.reconcileEnabled,
+                "reconcile_interval_ms" to cfg.reconcileIntervalMs,
             )
         }
     }
@@ -148,6 +171,7 @@ fun main() {
     Runtime.getRuntime().addShutdownHook(
         Thread {
             log.info("shutdown signal received", "signal" to "SIGTERM")
+            reconcileController.stop()
             server.stop(gracePeriodMillis = 1_000, timeoutMillis = graceMillis)
             db.close()
             telemetry.close()
@@ -169,11 +193,15 @@ fun main() {
         "shutdown_grace_seconds" to cfg.shutdownGraceSeconds,
         "db_schema" to cfg.database.schema,
         "db_migrate_on_start" to cfg.database.migrateOnStart,
+        "reconcile_enabled" to cfg.reconcileEnabled,
+        "reconcile_interval_ms" to cfg.reconcileIntervalMs,
+        "runtime_url" to cfg.runtimeUrl,
     )
 
     try {
         server.start(wait = true)
     } finally {
+        reconcileController.stop()
         db.close()
         telemetry.close()
     }
@@ -285,6 +313,12 @@ fun Application.forgeControlModule(
             applicationRoutes(services.applications, services.idempotency)
             serviceRoutes(services.services, services.idempotency)
             deploymentRoutes(services.deployments, services.idempotency)
+            val deploymentStore = services.deploymentStore
+            val runtimeClient = services.runtimeClient
+            val reconcileStatusStore = services.reconcileStatusStore
+            if (deploymentStore != null && runtimeClient != null && reconcileStatusStore != null) {
+                reconcileStatusRoutes(deploymentStore, runtimeClient, reconcileStatusStore)
+            }
         }
     }
 }

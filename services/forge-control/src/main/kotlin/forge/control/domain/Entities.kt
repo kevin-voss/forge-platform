@@ -70,11 +70,15 @@ data class Deployment(
     val status: String,
     val createdAt: Instant,
     val updatedAt: Instant,
+    val rolloutBatchSize: Int = 1,
+    val rolloutTimeoutSeconds: Int = 120,
 ) {
     init {
         require(image.isNotBlank()) { "image must not be blank" }
         require(desiredReplicas >= 0) { "desired_replicas must be >= 0" }
         require(status in DEPLOYMENT_STATUSES) { "invalid deployment status" }
+        require(rolloutBatchSize >= 1) { "rollout_batch_size must be >= 1" }
+        require(rolloutTimeoutSeconds >= 1) { "rollout_timeout_s must be >= 1" }
     }
 
     private companion object {

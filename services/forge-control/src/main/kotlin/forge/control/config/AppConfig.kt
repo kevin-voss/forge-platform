@@ -20,6 +20,9 @@ data class AppConfig(
     val authMode: String,
     val shutdownGraceSeconds: Int,
     val database: DatabaseConfig,
+    val reconcileEnabled: Boolean = true,
+    val reconcileIntervalMs: Long = 2_000,
+    val runtimeUrl: String = "http://forge-runtime:4102",
 )
 
 fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
@@ -83,6 +86,35 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         )
     }
 
+    val reconcileEnabledRaw = env["FORGE_RECONCILE_ENABLED"]?.trim()?.lowercase().orEmpty()
+        .ifEmpty { "true" }
+    val reconcileEnabled = when (reconcileEnabledRaw) {
+        "true", "1", "yes" -> true
+        "false", "0", "no" -> false
+        else -> throw IllegalArgumentException(
+            "FORGE_RECONCILE_ENABLED must be true|false, got '$reconcileEnabledRaw'",
+        )
+    }
+
+    val intervalRaw = env["FORGE_RECONCILE_INTERVAL_MS"]?.trim().orEmpty().ifEmpty { "2000" }
+    val reconcileIntervalMs = intervalRaw.toLongOrNull()
+        ?: throw IllegalArgumentException(
+            "FORGE_RECONCILE_INTERVAL_MS must be a positive integer, got '$intervalRaw'",
+        )
+    if (reconcileIntervalMs < 1) {
+        throw IllegalArgumentException(
+            "FORGE_RECONCILE_INTERVAL_MS must be a positive integer, got '$intervalRaw'",
+        )
+    }
+
+    val runtimeUrl = env["FORGE_RUNTIME_URL"]?.trim().orEmpty()
+        .ifEmpty { "http://forge-runtime:4102" }
+    if (!runtimeUrl.startsWith("http://") && !runtimeUrl.startsWith("https://")) {
+        throw IllegalArgumentException(
+            "FORGE_RUNTIME_URL must be an http(s) URL, got '$runtimeUrl'",
+        )
+    }
+
     return AppConfig(
         port = port,
         serviceName = env["FORGE_SERVICE_NAME"]?.trim().orEmpty().ifEmpty { "forge-control" },
@@ -103,5 +135,8 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
             poolMax = poolMax,
             migrateOnStart = migrateOnStart,
         ),
+        reconcileEnabled = reconcileEnabled,
+        reconcileIntervalMs = reconcileIntervalMs,
+        runtimeUrl = runtimeUrl,
     )
 }

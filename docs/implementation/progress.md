@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 44`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 45`**.
 
 ## Epics
 
@@ -15,7 +15,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [04](epics/04-forge-runtime.md) | Forge Runtime | Complete | 8/8 steps complete; demo 04 runtime acceptance gate passed |
 | [05](epics/05-forge-gateway.md) | Forge Gateway | Complete | 7/7 steps complete; demo 05 routed-service acceptance gate passed |
 | [06](epics/06-forge-build.md) | Forge Build | Complete | 7/7 steps complete; demo 06 source-to-deployment acceptance gate passed |
-| [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | Planning | 6 steps |
+| [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | In progress | 1/6 steps complete; desired/actual model + inert controller |
 | [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | Planning | 6 steps |
 | [09](epics/09-forge-identity.md) | Forge Identity | Planning | 8 steps |
 | [10](epics/10-forge-secrets.md) | Forge Secrets | Planning | 7 steps |
@@ -77,7 +77,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **41** | [Build status + failure paths](steps/06-forge-build/06.05-build-status-and-failure-paths.md) | Complete |  | Durable status/phases, cancel, cleanup + restart recovery |
 | **42** | [Control integration (image ref on service)](steps/06-forge-build/06.06-control-integration-image-ref.md) | Complete |  | Build→Control image record + optional auto-deploy |
 | **43** | [Demo `06-source-to-deployment` + gate](steps/06-forge-build/06.07-demo-source-to-deployment-and-gate.md) | Complete |  | Fixture→build→registry→Control→Runtime→Gateway; failed build creates no deployment |
-| **44** | [Desired/actual replica model + controller skeleton](steps/07-deployment-reconciliation/07.01-desired-actual-model-and-controller-skeleton.md) | Not started |  |  |
+| **44** | [Desired/actual replica model + controller skeleton](steps/07-deployment-reconciliation/07.01-desired-actual-model-and-controller-skeleton.md) | Complete |  | Migration + `computePlan` + inert controller + `GET …/reconcile` |
 | **45** | [Single-replica reconcile loop](steps/07-deployment-reconciliation/07.02-single-replica-reconcile-loop.md) | Not started |  |  |
 | **46** | [Rolling update (start new → ready → shift → stop old)](steps/07-deployment-reconciliation/07.03-rolling-update.md) | Not started |  |  |
 | **47** | [Unhealthy rollout → automatic rollback](steps/07-deployment-reconciliation/07.04-unhealthy-rollout-automatic-rollback.md) | Not started |  |  |

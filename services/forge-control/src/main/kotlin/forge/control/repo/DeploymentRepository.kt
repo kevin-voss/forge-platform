@@ -12,10 +12,13 @@ interface DeploymentRepository {
         image: String,
         desiredReplicas: Int = 1,
         status: String = "pending",
+        rolloutBatchSize: Int = 1,
+        rolloutTimeoutSeconds: Int = 120,
     ): Deployment
 
     fun findById(id: UUID): Deployment?
     fun listByService(serviceId: UUID): List<Deployment>
+    fun listAll(): List<Deployment>
     fun update(
         id: UUID,
         image: String? = null,
@@ -35,6 +38,8 @@ class JdbcDeploymentRepository(
         image: String,
         desiredReplicas: Int,
         status: String,
+        rolloutBatchSize: Int,
+        rolloutTimeoutSeconds: Int,
     ): Deployment = runSql {
         val id = UUID.randomUUID()
         val now = Instant.now()
@@ -43,8 +48,8 @@ class JdbcDeploymentRepository(
                 """
                 INSERT INTO deployments (
                     id, service_id, environment_id, image, desired_replicas, status,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    rollout_batch_size, rollout_timeout_s, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, id)
@@ -53,12 +58,17 @@ class JdbcDeploymentRepository(
                 ps.setString(4, image)
                 ps.setInt(5, desiredReplicas)
                 ps.setString(6, status)
-                ps.setTimestamp(7, java.sql.Timestamp.from(now))
-                ps.setTimestamp(8, java.sql.Timestamp.from(now))
+                ps.setInt(7, rolloutBatchSize)
+                ps.setInt(8, rolloutTimeoutSeconds)
+                ps.setTimestamp(9, java.sql.Timestamp.from(now))
+                ps.setTimestamp(10, java.sql.Timestamp.from(now))
                 ps.executeUpdate()
             }
         }
-        Deployment(id, serviceId, environmentId, image, desiredReplicas, status, now, now)
+        Deployment(
+            id, serviceId, environmentId, image, desiredReplicas, status, now, now,
+            rolloutBatchSize, rolloutTimeoutSeconds,
+        )
     }
 
     override fun findById(id: UUID): Deployment? = runSql {
@@ -66,7 +76,7 @@ class JdbcDeploymentRepository(
             conn.prepareStatement(
                 """
                 SELECT id, service_id, environment_id, image, desired_replicas, status,
-                       created_at, updated_at
+                       rollout_batch_size, rollout_timeout_s, created_at, updated_at
                 FROM deployments WHERE id = ?
                 """.trimIndent(),
             ).use { ps ->
@@ -83,11 +93,29 @@ class JdbcDeploymentRepository(
             conn.prepareStatement(
                 """
                 SELECT id, service_id, environment_id, image, desired_replicas, status,
-                       created_at, updated_at
+                       rollout_batch_size, rollout_timeout_s, created_at, updated_at
                 FROM deployments WHERE service_id = ? ORDER BY created_at
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, serviceId)
+                ps.executeQuery().use { rs ->
+                    buildList {
+                        while (rs.next()) add(mapRow(rs))
+                    }
+                }
+            }
+        }
+    }
+
+    override fun listAll(): List<Deployment> = runSql {
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                SELECT id, service_id, environment_id, image, desired_replicas, status,
+                       rollout_batch_size, rollout_timeout_s, created_at, updated_at
+                FROM deployments ORDER BY created_at
+                """.trimIndent(),
+            ).use { ps ->
                 ps.executeQuery().use { rs ->
                     buildList {
                         while (rs.next()) add(mapRow(rs))
@@ -155,5 +183,7 @@ class JdbcDeploymentRepository(
             status = rs.getString("status"),
             createdAt = rs.instant("created_at"),
             updatedAt = rs.instant("updated_at"),
+            rolloutBatchSize = rs.getInt("rollout_batch_size"),
+            rolloutTimeoutSeconds = rs.getInt("rollout_timeout_s"),
         )
 }

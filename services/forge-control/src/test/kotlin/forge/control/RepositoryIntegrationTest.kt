@@ -108,6 +108,7 @@ class RepositoryIntegrationTest {
                                 "environments",
                                 "flyway_schema_history",
                                 "projects",
+                                "reconcile_status",
                                 "services",
                             ),
                         ),

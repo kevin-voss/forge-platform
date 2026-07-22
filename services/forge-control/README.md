@@ -10,6 +10,11 @@ HTTP APIs for projects, environments, applications, services, and desired-state
 deployments (`02.05`) are available under `/v1`. Control records deployment
 intent only; it does not pull images or start containers.
 
+A reconciliation controller skeleton (`07.01`) periodically diffs desired vs
+actual replica state, logs a plan, and exposes
+`GET /v1/deployments/{id}/reconcile`. It does **not** create, stop, or restart
+workloads yet (that arrives in `07.02`).
+
 ## Quick start
 
 From the repository root:
@@ -91,6 +96,9 @@ make dev
 | `DATABASE_POOL_MAX` | `10` | HikariCP max pool size |
 | `DATABASE_MIGRATE_ON_START` | `true` | Run Flyway on boot |
 | `FORGE_IDEMPOTENCY_TTL_HOURS` | `24` | Retention target for idempotency records; cleanup is deferred |
+| `FORGE_RECONCILE_ENABLED` | `true` | Master switch for the reconcile controller loop |
+| `FORGE_RECONCILE_INTERVAL_MS` | `2000` | Controller tick interval |
+| `FORGE_RUNTIME_URL` | `http://forge-runtime:4102` | Base URL used to read actual node state |
 
 See `.env.example`.
 
@@ -100,8 +108,9 @@ Control writes JSON lines to stdout with `timestamp`, `level`, `service`,
 `message`, and `requestId`. Request logs generated while a trace is active also
 include matching `traceId` and `spanId`. With OTEL enabled, HTTP request and JDBC
 repository spans plus request count, duration, and error metrics are exported to
-the foundation Collector. Exporter failures are asynchronous and do not stop
-request handling.
+the foundation Collector. Reconcile ticks emit `forge_reconcile_ticks_total` /
+`forge_reconcile_plan_actions` and a `reconcile.tick` span. Exporter failures are
+asynchronous and do not stop request handling.
 
 ## HTTP API (02.05)
 
@@ -125,6 +134,7 @@ request handling.
 | `GET` | `/v1/deployments/{deploymentId}` | Get deployment |
 | `POST` | `/v1/deployments/{deploymentId}/status` | Runtime actual-state report: `{"status","nodeId","endpoint":{"hostPort"?}}` → `pending`/`active`/`failed`/`stopped` |
 | `DELETE` | `/v1/deployments/{deploymentId}` | Remove desired deployment (`204`); Runtime orphan cleanup removes the container |
+| `GET` | `/v1/deployments/{deploymentId}/reconcile` | Desired/actual snapshot, computed plan, controller health (`07.01`; plan is not executed) |
 | `GET` | `/v1/projects/{projectId}?expand=tree` | Project, environments, applications, services, and deployments |
 
 The machine-readable API contract is
@@ -140,13 +150,16 @@ body returns `409 idempotency_key_conflict`.
 Tables in schema `control`:
 
 * `projects`, `environments`, `applications`, `services`, `deployments`
+* `reconcile_status` (per-deployment desired/actual/plan snapshot + controller health)
 * `audit_log` (append-only; create actions for projects/environments/applications/services/deployments)
 * `idempotency_keys` (key, request hash, resource ID, stored response; 24-hour retention target)
 * `flyway_schema_history`
 
-Foreign keys use `ON DELETE RESTRICT`. Unique constraints enforce slug/name uniqueness
-within parents. Check constraints cover non-blank names, `port` 1–65535, and
-`desired_replicas >= 0`.
+`deployments` also stores rollout policy defaults (`rollout_batch_size=1`,
+`rollout_timeout_s=120`). Foreign keys use `ON DELETE RESTRICT` (reconcile
+snapshots cascade on deployment delete). Unique constraints enforce slug/name
+uniqueness within parents. Check constraints cover non-blank names, `port`
+1–65535, and `desired_replicas >= 0`.
 
 ## Health
 

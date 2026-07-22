@@ -1,5 +1,8 @@
 package forge.control
 
+import forge.control.reconcile.DeploymentStore
+import forge.control.reconcile.ReconcileStatusStore
+import forge.control.reconcile.RuntimeClient
 import forge.control.service.ApplicationService
 import forge.control.service.DeploymentService
 import forge.control.service.EnvironmentService
@@ -17,4 +20,7 @@ data class ControlServices(
     val deployments: DeploymentService,
     val projectTrees: ProjectTreeService,
     val idempotency: IdempotencyStore? = null,
+    val deploymentStore: DeploymentStore? = null,
+    val runtimeClient: RuntimeClient? = null,
+    val reconcileStatusStore: ReconcileStatusStore? = null,
 )

@@ -50,6 +50,24 @@ class AppConfigTest {
         assertEquals("control", cfg.database.schema)
         assertEquals(10, cfg.database.poolMax)
         assertEquals(true, cfg.database.migrateOnStart)
+        assertEquals(true, cfg.reconcileEnabled)
+        assertEquals(2_000L, cfg.reconcileIntervalMs)
+        assertEquals("http://forge-runtime:4102", cfg.runtimeUrl)
+    }
+
+    @Test
+    fun parsesReconcileEnv() {
+        val cfg = loadAppConfig(
+            mapOf(
+                "PORT" to "8080",
+                "FORGE_RECONCILE_ENABLED" to "false",
+                "FORGE_RECONCILE_INTERVAL_MS" to "500",
+                "FORGE_RUNTIME_URL" to "http://127.0.0.1:4102",
+            ),
+        )
+        assertEquals(false, cfg.reconcileEnabled)
+        assertEquals(500L, cfg.reconcileIntervalMs)
+        assertEquals("http://127.0.0.1:4102", cfg.runtimeUrl)
     }
 
     @Test
@@ -143,6 +161,20 @@ class AppConfigTest {
     fun rejectsInvalidShutdownGrace() {
         assertFailsWith<IllegalArgumentException> {
             loadAppConfig(mapOf("PORT" to "8080", "FORGE_SHUTDOWN_GRACE_SECONDS" to "-1"))
+        }
+    }
+
+    @Test
+    fun rejectsInvalidReconcileEnabled() {
+        assertFailsWith<IllegalArgumentException> {
+            loadAppConfig(mapOf("PORT" to "8080", "FORGE_RECONCILE_ENABLED" to "maybe"))
+        }
+    }
+
+    @Test
+    fun rejectsInvalidReconcileInterval() {
+        assertFailsWith<IllegalArgumentException> {
+            loadAppConfig(mapOf("PORT" to "8080", "FORGE_RECONCILE_INTERVAL_MS" to "0"))
         }
     }
 }

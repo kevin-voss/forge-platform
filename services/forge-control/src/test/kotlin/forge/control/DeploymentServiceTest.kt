@@ -184,11 +184,16 @@ class DeploymentServiceTest {
             image: String,
             desiredReplicas: Int,
             status: String,
-        ): Deployment = Deployment(UUID.randomUUID(), serviceId, environmentId, image, desiredReplicas, status, NOW, NOW)
-            .also(rows::add)
+            rolloutBatchSize: Int,
+            rolloutTimeoutSeconds: Int,
+        ): Deployment = Deployment(
+            UUID.randomUUID(), serviceId, environmentId, image, desiredReplicas, status, NOW, NOW,
+            rolloutBatchSize, rolloutTimeoutSeconds,
+        ).also(rows::add)
 
         override fun findById(id: UUID): Deployment? = rows.find { it.id == id }
         override fun listByService(serviceId: UUID): List<Deployment> = rows.filter { it.serviceId == serviceId }
+        override fun listAll(): List<Deployment> = rows.toList()
         override fun update(id: UUID, image: String?, desiredReplicas: Int?, status: String?): Deployment {
             val idx = rows.indexOfFirst { it.id == id }
             if (idx < 0) throw forge.control.repo.RepositoryException.NotFound("deployment", id)

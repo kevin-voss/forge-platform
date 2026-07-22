@@ -245,6 +245,10 @@ services:
       DATABASE_SCHEMA: control
       DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
       DATABASE_MIGRATE_ON_START: ${DATABASE_MIGRATE_ON_START:-true}
+      FORGE_RECONCILE_ENABLED: ${FORGE_RECONCILE_ENABLED:-true}
+      FORGE_RECONCILE_INTERVAL_MS: ${FORGE_RECONCILE_INTERVAL_MS:-2000}
+      # In-compose Runtime listens on 8080 (host maps 4102:8080).
+      FORGE_RUNTIME_URL: ${FORGE_RUNTIME_URL:-http://forge-runtime:8080}
     depends_on:
       postgres:
         condition: service_healthy

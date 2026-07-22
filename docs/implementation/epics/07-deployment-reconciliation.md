@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning
+In progress
 
 ## Goal
 
@@ -70,7 +70,7 @@ Scenario B — unhealthy rollout + rollback
 
 | Step | Title | Status | Notes |
 |---|---|---|---|
-| [07.01](../steps/07-deployment-reconciliation/07.01-desired-actual-model-and-controller-skeleton.md) | Desired/actual replica model + controller skeleton | Not started | Data model + no-op loop + status API |
+| [07.01](../steps/07-deployment-reconciliation/07.01-desired-actual-model-and-controller-skeleton.md) | Desired/actual replica model + controller skeleton | Complete | Data model + no-op loop + status API |
 | [07.02](../steps/07-deployment-reconciliation/07.02-single-replica-reconcile-loop.md) | Single-replica reconcile loop | Not started | Converge create/stop; restart crashed replica |
 | [07.03](../steps/07-deployment-reconciliation/07.03-rolling-update.md) | Rolling update (start new → ready → shift → stop old) | Not started | No total downtime; Gateway traffic shift |
 | [07.04](../steps/07-deployment-reconciliation/07.04-unhealthy-rollout-automatic-rollback.md) | Unhealthy rollout → automatic rollback | Not started | Deployment timeout + rollback to last-good |
@@ -95,4 +95,4 @@ Scenario B — unhealthy rollout + rollback
 
 ## Next step to implement
 
-**[07.01](../steps/07-deployment-reconciliation/07.01-desired-actual-model-and-controller-skeleton.md) — Desired/actual replica model + controller skeleton** (data model, no-op reconcile loop, status API; unblocks every later step in this epic).
+**[07.02](../steps/07-deployment-reconciliation/07.02-single-replica-reconcile-loop.md) — Single-replica reconcile loop** (converge create/stop; restart crashed replica).
