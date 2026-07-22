@@ -1,6 +1,9 @@
 package forge.control.reconcile
 
 import forge.control.logging.JsonLog
+import forge.control.scheduler.InMemoryPlacementStore
+import forge.control.scheduler.PlacementService
+import forge.control.scheduler.SingleNodeScheduler
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
@@ -48,6 +51,61 @@ class ReconcilerTest {
             setOf("demo-11111111-0", "demo-11111111-1"),
             runtime.createdIds.toSet(),
         )
+    }
+
+    @Test
+    fun startReplicaRecordsPlacementWithNodeId() {
+        val runtime = RecordingRuntimeClient()
+        val placementStore = InMemoryPlacementStore()
+        val placementService = PlacementService(
+            scheduler = SingleNodeScheduler("node-local"),
+            store = placementStore,
+            log = log,
+        )
+        val reconciler = Reconciler(
+            runtimeClient = runtime,
+            log = log,
+            placementService = placementService,
+        )
+        val desired = DesiredState.of(
+            deploymentId,
+            "registry.local/demo:v1",
+            replicas = 1,
+            serviceSlug = "demo",
+        )
+        val plan = computePlan(desired, ActualState())
+
+        val results = reconciler.execute(desired, ActualState(), plan)
+
+        assertEquals(ActionResult.Created, results.single().result)
+        val placement = placementStore.find(deploymentId, 0)
+        assertEquals("node-local", placement?.nodeId)
+        assertEquals("single-node", placement?.strategy)
+    }
+
+    @Test
+    fun startReplicaFailsWhenNoNodeAvailable() {
+        val runtime = RecordingRuntimeClient()
+        val placementService = PlacementService(
+            scheduler = SingleNodeScheduler(nodeId = null),
+            store = InMemoryPlacementStore(),
+            log = log,
+        )
+        val reconciler = Reconciler(
+            runtimeClient = runtime,
+            log = log,
+            placementService = placementService,
+        )
+        val desired = DesiredState.of(
+            deploymentId,
+            "registry.local/demo:v1",
+            replicas = 1,
+            serviceSlug = "demo",
+        )
+        val results = reconciler.execute(desired, ActualState(), computePlan(desired, ActualState()))
+        assertEquals(ActionResult.Failed, results.single().result)
+        assertEquals("no_node_available", results.single().detail)
+        assertEquals(0, runtime.createCalls.get())
     }
 
     @Test

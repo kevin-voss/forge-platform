@@ -42,6 +42,7 @@ class Telemetry private constructor(
     private val rolloutResults: LongCounter,
     private val rollbackDuration: DoubleHistogram,
     private val deploymentTransitions: LongCounter,
+    private val placements: LongCounter,
     private val sdk: OpenTelemetrySdk?,
 ) : AutoCloseable {
     val enabled: Boolean = sdk != null
@@ -53,6 +54,13 @@ class Telemetry private constructor(
         requestCount.add(1, attributes)
         requestDuration.record(durationMs.toDouble(), attributes)
         if (status >= 400) errorCount.add(1, attributes)
+    }
+
+    fun recordPlacement(strategy: String) {
+        placements.add(
+            1,
+            Attributes.of(AttributeKey.stringKey("strategy"), strategy),
+        )
     }
 
     fun recordReconcileTick(planActions: Int, healthy: Boolean) {
@@ -177,6 +185,7 @@ class Telemetry private constructor(
                 rolloutResults = meter.counterBuilder("forge_rollout_result_total").build(),
                 rollbackDuration = meter.histogramBuilder("forge_rollback_duration_ms").setUnit("ms").build(),
                 deploymentTransitions = meter.counterBuilder("forge_deployment_transitions_total").build(),
+                placements = meter.counterBuilder("forge_placements_total").build(),
                 sdk = sdk,
             )
         }

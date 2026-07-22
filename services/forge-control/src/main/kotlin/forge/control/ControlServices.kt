@@ -4,6 +4,7 @@ import forge.control.reconcile.DeploymentHistory
 import forge.control.reconcile.DeploymentStore
 import forge.control.reconcile.ReconcileStatusStore
 import forge.control.reconcile.RuntimeClient
+import forge.control.scheduler.PlacementService
 import forge.control.service.ApplicationService
 import forge.control.service.DeploymentService
 import forge.control.service.EnvironmentService
@@ -25,4 +26,5 @@ data class ControlServices(
     val runtimeClient: RuntimeClient? = null,
     val reconcileStatusStore: ReconcileStatusStore? = null,
     val deploymentHistory: DeploymentHistory? = null,
+    val placementService: PlacementService? = null,
 )

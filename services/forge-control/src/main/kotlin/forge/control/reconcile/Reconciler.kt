@@ -1,6 +1,8 @@
 package forge.control.reconcile
 
 import forge.control.logging.JsonLog
+import forge.control.scheduler.PlaceResult
+import forge.control.scheduler.PlacementService
 import forge.control.telemetry.Telemetry
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -45,6 +47,7 @@ class Reconciler(
     private val readinessGate: ReadinessGate = ReadinessGate(runtimeClient),
     private val trafficShifter: TrafficShifter = TrafficShifter(NoOpGatewayClient()),
     private val readinessMaxWaitSeconds: Long = 60,
+    private val placementService: PlacementService? = null,
 ) {
     private val waitStartedAt = ConcurrentHashMap<String, Long>()
 
@@ -132,6 +135,17 @@ class Reconciler(
         val index = resolveStartIndex(desired, actual, item)
         val deploymentId = UUID.fromString(desired.deploymentId)
         return telemetry.inSpan("reconcile.start_replica") {
+            when (val place = placeReplica(deploymentId, index, desired.serviceId)) {
+                is PlaceResult.NoNode ->
+                    return@inSpan ExecutedAction(
+                        action = ReconcileAction.StartReplica.name,
+                        replicaIndex = index,
+                        result = ActionResult.Failed,
+                        durationMs = 0,
+                        detail = "no_node_available",
+                    )
+                is PlaceResult.Ok, null -> Unit
+            }
             val outcome = runtimeClient.ensureWorkload(
                 WorkloadEnsureRequest(
                     deploymentId = deploymentId,
@@ -155,6 +169,19 @@ class Reconciler(
                 detail = outcome.name.lowercase(),
             )
         }
+    }
+
+    private fun placeReplica(
+        deploymentId: UUID,
+        replicaIndex: Int,
+        serviceId: String,
+    ): PlaceResult? {
+        val service = placementService ?: return null
+        return service.placeAndPersist(
+            deploymentId = deploymentId,
+            replicaIndex = replicaIndex,
+            serviceId = serviceId.takeIf { it.isNotBlank() },
+        )
     }
 
     private fun executeStop(

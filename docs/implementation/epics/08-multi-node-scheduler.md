@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning
+In progress
 
 ## Goal
 
@@ -63,7 +63,7 @@ Stop node-b (heartbeat stops)
 
 | Step | Title | Status | Notes |
 |---|---|---|---|
-| [08.01](../steps/08-multi-node-scheduler/08.01-scheduler-skeleton-and-placement-apis.md) | Scheduler module/service skeleton + placement APIs | Not started | Module under Control; extract seam; placement API |
+| [08.01](../steps/08-multi-node-scheduler/08.01-scheduler-skeleton-and-placement-apis.md) | Scheduler module/service skeleton + placement APIs | Complete | Module under Control; extract seam; placement API |
 | [08.02](../steps/08-multi-node-scheduler/08.02-node-registration-heartbeat-resources.md) | Multi-node registration, heartbeat, resource reporting | Not started | Node fleet model + liveness |
 | [08.03](../steps/08-multi-node-scheduler/08.03-first-fit-and-least-allocated-strategies.md) | First-fit and least-allocated strategies | Not started | Deterministic placement; capacity checks |
 | [08.04](../steps/08-multi-node-scheduler/08.04-anti-affinity-and-pending-queue.md) | Anti-affinity + pending queue | Not started | Spread replicas; queue when overloaded |
@@ -88,4 +88,4 @@ Stop node-b (heartbeat stops)
 
 ## Next step to implement
 
-**[08.01](../steps/08-multi-node-scheduler/08.01-scheduler-skeleton-and-placement-apis.md) — Scheduler module/service skeleton + placement APIs** (module boundary, placement interface, no real strategy yet; unblocks the rest of the epic).
+**[08.02](../steps/08-multi-node-scheduler/08.02-node-registration-heartbeat-resources.md) — Multi-node registration, heartbeat, resource reporting**

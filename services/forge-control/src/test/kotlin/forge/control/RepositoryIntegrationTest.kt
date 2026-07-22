@@ -104,9 +104,11 @@ class RepositoryIntegrationTest {
                             listOf(
                                 "applications",
                                 "audit_log",
+                                "deployment_events",
                                 "deployments",
                                 "environments",
                                 "flyway_schema_history",
+                                "placements",
                                 "projects",
                                 "reconcile_status",
                                 "services",

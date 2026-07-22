@@ -17,6 +17,13 @@ Status is exposed at `GET /v1/deployments/{id}/reconcile`; transition history at
 `GET /v1/deployments/{id}/history`. On restart the controller adopts existing
 workloads and resumes in-flight rollouts/rollbacks without duplicating containers.
 
+A scheduler module (`08.01`) decides replica placement via
+`Scheduler.place(PlacementRequest) → PlacementDecision` (default
+`SingleNodeScheduler` → `node-local`). Placements persist uniquely per
+`(deployment_id, replica_index)` and are exposed at `POST/GET /v1/placements`.
+The reconciler records a placement before starting each replica. The module has
+a documented extract seam for a future standalone service on port `4108`.
+
 ## Quick start
 
 From the repository root:
@@ -110,6 +117,9 @@ make dev
 | `FORGE_READINESS_MAX_WAIT_S` | `60` | Max wait for a new replica to become ready before holding the rollout |
 | `FORGE_HISTORY_ENABLED` | `true` | Append status transitions to `deployment_events` |
 | `FORGE_STARTUP_ADOPT_LABELS` | `true` | On boot, adopt existing workloads and GC orphans before reconcile |
+| `FORGE_SCHEDULER_ENABLED` | `true` | Reconciler delegates placement before starting replicas |
+| `FORGE_SCHEDULER_STRATEGY` | `single-node` | Only `single-node` in 08.01 |
+| `FORGE_SCHEDULER_LOCAL_NODE_ID` | `node-local` | Sole node returned by `SingleNodeScheduler` until fleet registration (08.02) |
 
 See `.env.example`.
 
@@ -129,7 +139,8 @@ the foundation Collector. Reconcile ticks emit `forge_reconcile_ticks_total` /
 `reconcile.tick` / `reconcile.rolling_update` / `reconcile.rollback` /
 `reconcile.start_replica` / `reconcile.wait_ready` /
 `reconcile.shift_traffic` / `reconcile.drain_replica` /
-`reconcile.stop_replica`.
+`reconcile.stop_replica`, plus `forge_placements_total{strategy=…}` and span
+`scheduler.place`.
 From 07.02 the controller executes start/stop/recreate against Runtime using
 deterministic per-replica workload ids
 (`forge-<service_slug>-<deployment_short>-<index>`). From 07.03 image changes
@@ -168,6 +179,8 @@ request handling.
 | `PATCH` | `/v1/deployments/{deploymentId}` | Update desired `image` and/or `desiredReplicas` (triggers rolling update / rollback paths) |
 | `GET` | `/v1/deployments/{deploymentId}/reconcile` | Desired/actual snapshot, plan, `phase`, `updatedReplicas`, `currentImage`/`targetImage`, `status` (`deploying`/`deployed`/`rolling_back`/`rolled_back`/…), `lastHealthyImage`, controller health (`07.01`–`07.04`) |
 | `GET` | `/v1/deployments/{deploymentId}/history` | Chronological append-only transition trail (`07.05`) |
+| `POST` | `/v1/placements` | Compute+persist placement; body `{"deployment_id","replica_index","requirements?","anti_affinity?"}`; idempotent per replica; `409 no_node_available` when empty (`08.01`) |
+| `GET` | `/v1/placements?deployment=` | List placements for a deployment (`08.01`) |
 | `GET` | `/v1/projects/{projectId}?expand=tree` | Project, environments, applications, services, and deployments |
 
 The machine-readable API contract is
@@ -185,6 +198,7 @@ Tables in schema `control`:
 * `projects`, `environments`, `applications`, `services`, `deployments`
 * `reconcile_status` (per-deployment desired/actual/plan snapshot, lifecycle status, rollout timer, controller health)
 * `deployment_events` (append-only status transitions with image, replica counts, reason)
+* `placements` (replica → node assignments; unique on `(deployment_id, replica_index)`)
 * `audit_log` (append-only; create actions for projects/environments/applications/services/deployments)
 * `idempotency_keys` (key, request hash, resource ID, stored response; 24-hour retention target)
 * `flyway_schema_history`

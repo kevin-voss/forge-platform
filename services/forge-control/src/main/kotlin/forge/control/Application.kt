@@ -30,6 +30,10 @@ import forge.control.reconcile.ReconciliationController
 import forge.control.reconcile.RepositoryDeploymentStore
 import forge.control.reconcile.StartupRecovery
 import forge.control.reconcile.TrafficShifter
+import forge.control.scheduler.JdbcPlacementStore
+import forge.control.scheduler.PlacementService
+import forge.control.scheduler.SingleNodeScheduler
+import forge.control.scheduler.api.placementRoutes
 import forge.control.repo.JdbcApplicationRepository
 import forge.control.repo.JdbcAuditRepository
 import forge.control.repo.JdbcDeploymentRepository
@@ -138,6 +142,16 @@ fun main() {
         enabled = cfg.historyEnabled,
         telemetry = telemetry,
     )
+    val placementStore = JdbcPlacementStore(db.dataSource)
+    val placementScheduler = SingleNodeScheduler(
+        if (cfg.schedulerEnabled) cfg.schedulerLocalNodeId else null,
+    )
+    val placementService = PlacementService(
+        scheduler = placementScheduler,
+        store = placementStore,
+        log = log,
+        telemetry = telemetry,
+    )
     val reconcileController = ReconciliationController(
         deploymentStore = deploymentStore,
         runtimeClient = runtimeClient,
@@ -153,6 +167,7 @@ fun main() {
         lastHealthyStore = lastHealthyStore,
         rollbackEnabled = cfg.rollbackEnabled,
         transitionRecorder = transitionRecorder,
+        placementService = if (cfg.schedulerEnabled) placementService else null,
     )
     val startupRecovery = StartupRecovery(
         deploymentStore = deploymentStore,
@@ -187,6 +202,7 @@ fun main() {
         runtimeClient = runtimeClient,
         reconcileStatusStore = reconcileStatusStore,
         deploymentHistory = deploymentHistory,
+        placementService = placementService,
     )
 
     val readiness = Readiness()
@@ -218,6 +234,9 @@ fun main() {
                 "reconcile_interval_ms" to cfg.reconcileIntervalMs,
                 "history_enabled" to cfg.historyEnabled,
                 "startup_adopt_labels" to cfg.startupAdoptLabels,
+                "scheduler_enabled" to cfg.schedulerEnabled,
+                "scheduler_strategy" to cfg.schedulerStrategy,
+                "scheduler_local_node_id" to cfg.schedulerLocalNodeId,
             )
         }
     }
@@ -376,6 +395,10 @@ fun Application.forgeControlModule(
             val history = services.deploymentHistory
             if (deploymentStore != null && history != null) {
                 historyRoutes(deploymentStore, history)
+            }
+            val placementService = services.placementService
+            if (placementService != null) {
+                placementRoutes(placementService)
             }
         }
     }

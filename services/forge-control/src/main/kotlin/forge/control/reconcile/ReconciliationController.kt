@@ -1,6 +1,7 @@
 package forge.control.reconcile
 
 import forge.control.logging.JsonLog
+import forge.control.scheduler.PlacementService
 import forge.control.telemetry.Telemetry
 import java.time.Clock
 import java.time.Instant
@@ -35,6 +36,7 @@ class ReconciliationController(
     private val rollbacker: Rollbacker = Rollbacker(),
     private val rollbackEnabled: Boolean = true,
     private val transitionRecorder: TransitionRecorder = StatusOnlyTransitionRecorder(deploymentStore),
+    private val placementService: PlacementService? = null,
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "forge-reconcile").apply { isDaemon = true }
     },
@@ -46,6 +48,7 @@ class ReconciliationController(
         readinessGate = readinessGate,
         trafficShifter = trafficShifter,
         readinessMaxWaitSeconds = readinessMaxWaitSeconds,
+        placementService = placementService,
     ),
 ) : AutoCloseable {
     private val running = AtomicBoolean(false)

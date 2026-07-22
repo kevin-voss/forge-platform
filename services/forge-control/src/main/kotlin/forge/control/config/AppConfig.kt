@@ -32,6 +32,9 @@ data class AppConfig(
     val readinessMaxWaitSeconds: Long = 60,
     val historyEnabled: Boolean = true,
     val startupAdoptLabels: Boolean = true,
+    val schedulerEnabled: Boolean = true,
+    val schedulerStrategy: String = "single-node",
+    val schedulerLocalNodeId: String = "node-local",
 )
 
 fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
@@ -228,6 +231,30 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         )
     }
 
+    val schedulerEnabledRaw = env["FORGE_SCHEDULER_ENABLED"]?.trim()?.lowercase().orEmpty()
+        .ifEmpty { "true" }
+    val schedulerEnabled = when (schedulerEnabledRaw) {
+        "true", "1", "yes" -> true
+        "false", "0", "no" -> false
+        else -> throw IllegalArgumentException(
+            "FORGE_SCHEDULER_ENABLED must be true|false, got '$schedulerEnabledRaw'",
+        )
+    }
+
+    val schedulerStrategy = env["FORGE_SCHEDULER_STRATEGY"]?.trim().orEmpty()
+        .ifEmpty { "single-node" }
+    if (schedulerStrategy != "single-node") {
+        throw IllegalArgumentException(
+            "FORGE_SCHEDULER_STRATEGY must be single-node, got '$schedulerStrategy'",
+        )
+    }
+
+    val schedulerLocalNodeId = env["FORGE_SCHEDULER_LOCAL_NODE_ID"]?.trim().orEmpty()
+        .ifEmpty { "node-local" }
+    if (schedulerLocalNodeId.isBlank()) {
+        throw IllegalArgumentException("FORGE_SCHEDULER_LOCAL_NODE_ID must not be blank")
+    }
+
     return AppConfig(
         port = port,
         serviceName = env["FORGE_SERVICE_NAME"]?.trim().orEmpty().ifEmpty { "forge-control" },
@@ -260,5 +287,8 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         readinessMaxWaitSeconds = readinessMaxWaitSeconds,
         historyEnabled = historyEnabled,
         startupAdoptLabels = startupAdoptLabels,
+        schedulerEnabled = schedulerEnabled,
+        schedulerStrategy = schedulerStrategy,
+        schedulerLocalNodeId = schedulerLocalNodeId,
     )
 }
