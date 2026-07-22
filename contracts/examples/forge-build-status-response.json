@@ -1,6 +1,7 @@
 {
   "buildId": "11111111-1111-4111-8111-111111111111",
   "status": "succeeded",
+  "phase": "succeeded",
   "image": "localhost:5000/api:abc1234-11111111",
   "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "commit": "abc1234deadbeef",

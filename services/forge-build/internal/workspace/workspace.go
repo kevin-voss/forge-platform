@@ -71,6 +71,24 @@ func (m *Manager) Cleanup(buildID string) error {
 	return nil
 }
 
+// Entries returns immediate subdirectory names under the workspace root
+// (typically build ids). Non-directories and hidden names are skipped.
+func (m *Manager) Entries() ([]string, error) {
+	ents, err := os.ReadDir(m.root)
+	if err != nil {
+		return nil, fmt.Errorf("list workspace root %q: %w", m.root, err)
+	}
+	out := make([]string, 0, len(ents))
+	for _, ent := range ents {
+		name := ent.Name()
+		if !ent.IsDir() || strings.HasPrefix(name, ".") {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out, nil
+}
+
 func sanitizeBuildID(buildID string) (string, error) {
 	id := strings.TrimSpace(buildID)
 	if id == "" {

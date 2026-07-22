@@ -18,6 +18,20 @@ const (
 	BuildStatusRunning   BuildStatus = "running"
 	BuildStatusSucceeded BuildStatus = "succeeded"
 	BuildStatusFailed    BuildStatus = "failed"
+	BuildStatusCanceled  BuildStatus = "canceled"
+)
+
+// BuildPhase is the detailed progress within a build.
+type BuildPhase string
+
+const (
+	BuildPhaseQueued    BuildPhase = "queued"
+	BuildPhaseCloning   BuildPhase = "cloning"
+	BuildPhaseBuilding  BuildPhase = "building"
+	BuildPhasePushing   BuildPhase = "pushing"
+	BuildPhaseSucceeded BuildPhase = "succeeded"
+	BuildPhaseFailed    BuildPhase = "failed"
+	BuildPhaseCanceled  BuildPhase = "canceled"
 )
 
 // BuildRequest is the POST /v1/builds body.
@@ -34,16 +48,28 @@ type BuildAccepted struct {
 	Status  BuildStatus `json:"status"`
 }
 
+// BuildError is a structured failure detail on a build record.
+type BuildError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
 // BuildRecord is the GET /v1/builds/{id} response.
 type BuildRecord struct {
 	BuildID    string      `json:"buildId"`
 	Status     BuildStatus `json:"status"`
+	Phase      BuildPhase  `json:"phase"`
 	Image      string      `json:"image,omitempty"`
 	Digest     string      `json:"digest,omitempty"`
 	Commit     string      `json:"commit,omitempty"`
 	StartedAt  time.Time   `json:"startedAt"`
 	FinishedAt *time.Time  `json:"finishedAt,omitempty"`
-	Error      string      `json:"error,omitempty"`
+	Error      *BuildError `json:"error,omitempty"`
+}
+
+// CancelAccepted is the 202 response from POST /v1/builds/{id}/cancel.
+type CancelAccepted struct {
+	Status string `json:"status"`
 }
 
 // Validate checks required fields and rejects path traversal in forgeYamlPath.

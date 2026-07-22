@@ -32,6 +32,10 @@ type Config struct {
 	PushLatest       bool
 	PushRetries      int
 
+	StoreDir       string
+	Retention      time.Duration
+	CleanupOnStart bool
+
 	DockerStartupRetries    int
 	DockerStartupRetryDelay time.Duration
 }
@@ -186,6 +190,33 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("FORGE_PUSH_RETRIES must be a non-negative integer, got %q", pushRetriesRaw)
 	}
 
+	storeDir := strings.TrimSpace(os.Getenv("FORGE_BUILD_STORE_DIR"))
+	if storeDir == "" {
+		storeDir = "/var/lib/forge-build"
+	}
+	storeDir = filepath.Clean(storeDir)
+	if !filepath.IsAbs(storeDir) {
+		return Config{}, fmt.Errorf("FORGE_BUILD_STORE_DIR must be an absolute path, got %q", storeDir)
+	}
+
+	retentionRaw := strings.TrimSpace(os.Getenv("FORGE_BUILD_RETENTION_HOURS"))
+	if retentionRaw == "" {
+		retentionRaw = "72"
+	}
+	retentionHours, err := strconv.Atoi(retentionRaw)
+	if err != nil || retentionHours < 1 {
+		return Config{}, fmt.Errorf("FORGE_BUILD_RETENTION_HOURS must be a positive integer, got %q", retentionRaw)
+	}
+
+	cleanupOnStart := true
+	if raw := strings.TrimSpace(os.Getenv("FORGE_BUILD_CLEANUP_ON_START")); raw != "" {
+		v, err := strconv.ParseBool(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("FORGE_BUILD_CLEANUP_ON_START must be a boolean, got %q", raw)
+		}
+		cleanupOnStart = v
+	}
+
 	return Config{
 		Port:                    port,
 		ServiceName:             name,
@@ -205,6 +236,9 @@ func Load() (Config, error) {
 		DefaultProject:          defaultProject,
 		PushLatest:              pushLatest,
 		PushRetries:             pushRetries,
+		StoreDir:                storeDir,
+		Retention:               time.Duration(retentionHours) * time.Hour,
+		CleanupOnStart:          cleanupOnStart,
 		DockerStartupRetries:    retries,
 		DockerStartupRetryDelay: time.Duration(delayMs) * time.Millisecond,
 	}, nil

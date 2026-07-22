@@ -4,11 +4,40 @@ info:
   version: 0.1.0
   description: |
     Source-to-image build job API. Create a build from a Git repo/ref, poll status,
-    and stream build logs. Validation failures use the shared error envelope.
+    list/filter builds, cancel in-flight jobs, and stream build logs.
+    Validation failures use the shared error envelope.
 servers:
   - url: http://127.0.0.1:4103
 paths:
   /v1/builds:
+    get:
+      operationId: listBuilds
+      summary: List builds with optional filters
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/BuildStatus'
+        - name: service
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by forge.yaml service name.
+      responses:
+        '200':
+          description: Build records (newest first)
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BuildRecord'
     post:
       operationId: createBuild
       summary: Queue a build job
@@ -53,6 +82,27 @@ paths:
               schema:
                 $ref: '#/components/schemas/BuildRecord'
         '404':
+          $ref: '#/components/responses/Error'
+  /v1/builds/{buildId}/cancel:
+    post:
+      operationId: cancelBuild
+      summary: Cancel a queued or running build
+      parameters:
+        - $ref: '#/components/parameters/BuildId'
+      responses:
+        '202':
+          description: Cancel accepted
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelAccepted'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
           $ref: '#/components/responses/Error'
   /v1/builds/{buildId}/logs:
     get:
@@ -105,7 +155,10 @@ components:
       format: uuid
     BuildStatus:
       type: string
-      enum: [queued, running, succeeded, failed]
+      enum: [queued, running, succeeded, failed, canceled]
+    BuildPhase:
+      type: string
+      enum: [queued, cloning, building, pushing, succeeded, failed, canceled]
     BuildRequest:
       type: object
       required: [repo, ref]
@@ -136,18 +189,37 @@ components:
           $ref: '#/components/schemas/Uuid'
         status:
           $ref: '#/components/schemas/BuildStatus'
+    CancelAccepted:
+      type: object
+      required: [status]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [canceling]
+    BuildError:
+      type: object
+      required: [code, message]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+        message:
+          type: string
     BuildRecord:
       type: object
-      required: [buildId, status, startedAt]
+      required: [buildId, status, phase, startedAt]
       additionalProperties: false
       properties:
         buildId:
           $ref: '#/components/schemas/Uuid'
         status:
           $ref: '#/components/schemas/BuildStatus'
+        phase:
+          $ref: '#/components/schemas/BuildPhase'
         image:
           type: string
-          description: Resulting image reference when the build succeeded.
+          description: Resulting image reference when the build succeeded. Present iff status=succeeded.
         digest:
           type: string
           description: Content digest (sha256:...) of the pushed image when the build succeeded.
@@ -161,8 +233,7 @@ components:
           type: string
           format: date-time
         error:
-          type: string
-          description: Failure message when status is failed.
+          $ref: '#/components/schemas/BuildError'
     ErrorEnvelope:
       type: object
       required: [error]

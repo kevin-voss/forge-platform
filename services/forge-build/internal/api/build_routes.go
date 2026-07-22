@@ -11,19 +11,19 @@ import (
 	"forge.local/services/forge-build/internal/jobs"
 )
 
-// BuildService is the job manager surface used by HTTP handlers.
+// BuildService is the job manager surface used by create/logs handlers.
 type BuildService interface {
 	Enqueue(req jobs.Request) (jobs.Accepted, error)
 	Get(id string) (*jobs.Record, bool)
 }
 
-// BuildHandler serves build create/status/logs endpoints.
+// BuildHandler serves build create/logs endpoints.
 type BuildHandler struct {
 	svc              BuildService
 	defaultForgeYAML string
 }
 
-// NewBuildHandler returns routes for the build API.
+// NewBuildHandler returns routes for the build create/logs API.
 func NewBuildHandler(svc BuildService, defaultForgeYAML string) *BuildHandler {
 	if strings.TrimSpace(defaultForgeYAML) == "" {
 		defaultForgeYAML = "forge.yaml"
@@ -31,10 +31,9 @@ func NewBuildHandler(svc BuildService, defaultForgeYAML string) *BuildHandler {
 	return &BuildHandler{svc: svc, defaultForgeYAML: defaultForgeYAML}
 }
 
-// Register mounts build routes on mux.
+// Register mounts build create/logs routes on mux.
 func (h *BuildHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/builds", h.handleCreate)
-	mux.HandleFunc("GET /v1/builds/{buildId}", h.handleGet)
 	mux.HandleFunc("GET /v1/builds/{buildId}/logs", h.handleLogs)
 }
 
@@ -66,19 +65,6 @@ func (h *BuildHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		BuildID: accepted.BuildID,
 		Status:  BuildStatus(accepted.Status),
 	})
-}
-
-func (h *BuildHandler) handleGet(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("buildId")
-	rec, ok := h.svc.Get(id)
-	if !ok {
-		WriteError(w, http.StatusNotFound, "not_found", "build not found", map[string]string{"buildId": id})
-		return
-	}
-	ensureRequestID(w)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(recordToAPI(rec))
 }
 
 func (h *BuildHandler) handleLogs(w http.ResponseWriter, r *http.Request) {
@@ -132,25 +118,6 @@ func (h *BuildHandler) handleLogs(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-}
-
-func recordToAPI(rec *jobs.Record) BuildRecord {
-	out := BuildRecord{
-		BuildID:   rec.ID,
-		Status:    BuildStatus(rec.Status),
-		Commit:    rec.Commit,
-		StartedAt: rec.StartedAt.UTC(),
-		Error:     rec.Error,
-	}
-	if rec.Status == jobs.StatusSucceeded {
-		out.Image = rec.Image
-		out.Digest = rec.Digest
-	}
-	if rec.FinishedAt != nil {
-		t := rec.FinishedAt.UTC()
-		out.FinishedAt = &t
-	}
-	return out
 }
 
 func parseBoolQuery(raw string) bool {

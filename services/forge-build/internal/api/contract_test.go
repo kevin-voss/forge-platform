@@ -27,23 +27,41 @@ func TestOpenAPIDeclaresBuildPaths(t *testing.T) {
 	if !ok {
 		t.Fatalf("paths missing or wrong type: %T", doc["paths"])
 	}
-	for _, p := range []string{"/v1/builds", "/v1/builds/{buildId}", "/v1/builds/{buildId}/logs"} {
+	for _, p := range []string{"/v1/builds", "/v1/builds/{buildId}", "/v1/builds/{buildId}/logs", "/v1/builds/{buildId}/cancel"} {
 		if _, ok := paths[p]; !ok {
 			t.Fatalf("openapi missing path %s", p)
 		}
 	}
+	buildsPath := digMap(t, paths, "/v1/builds")
+	if _, ok := buildsPath["get"]; !ok {
+		t.Fatal("openapi /v1/builds missing get")
+	}
 	schemas := digMap(t, doc, "components", "schemas")
-	for _, name := range []string{"BuildRequest", "BuildAccepted", "BuildRecord", "ErrorEnvelope", "BuildStatus"} {
+	for _, name := range []string{"BuildRequest", "BuildAccepted", "BuildRecord", "ErrorEnvelope", "BuildStatus", "BuildPhase", "BuildError", "CancelAccepted"} {
 		if _, ok := schemas[name]; !ok {
 			t.Fatalf("openapi missing schema %s", name)
 		}
 	}
 	buildRecord := digMap(t, schemas, "BuildRecord")
 	props := digMap(t, buildRecord, "properties")
-	for _, field := range []string{"image", "digest", "commit", "error"} {
+	for _, field := range []string{"image", "digest", "commit", "error", "phase"} {
 		if _, ok := props[field]; !ok {
 			t.Fatalf("BuildRecord missing property %s", field)
 		}
+	}
+	statusEnum := digMap(t, schemas, "BuildStatus")
+	enums, ok := statusEnum["enum"].([]any)
+	if !ok {
+		t.Fatalf("BuildStatus enum type %T", statusEnum["enum"])
+	}
+	hasCanceled := false
+	for _, v := range enums {
+		if v == "canceled" {
+			hasCanceled = true
+		}
+	}
+	if !hasCanceled {
+		t.Fatal("BuildStatus missing canceled")
 	}
 	buildReq := digMap(t, schemas, "BuildRequest")
 	reqProps := digMap(t, buildReq, "properties")
@@ -114,8 +132,11 @@ func TestExampleBuildPayloadsMatchDTOs(t *testing.T) {
 	if err := json.Unmarshal(stRaw, &rec); err != nil {
 		t.Fatal(err)
 	}
-	if rec.Status != api.BuildStatusSucceeded {
-		t.Fatalf("status = %q", rec.Status)
+	if rec.Status != api.BuildStatusSucceeded || rec.Phase != api.BuildPhaseSucceeded {
+		t.Fatalf("status = %q phase = %q", rec.Status, rec.Phase)
+	}
+	if !api.EnforceImageInvariant(rec) {
+		t.Fatalf("image invariant violated: %+v", rec)
 	}
 
 	var env api.Envelope

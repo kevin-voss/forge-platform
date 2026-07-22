@@ -6,7 +6,8 @@ Health-checked service on host port `4103` with Docker socket access and an
 isolated workspace volume. Accepts build jobs (`POST /v1/builds`), clones a
 local/`file://` Git ref into `workspace/<buildId>`, validates `forge.yaml`, runs
 `docker build` with a timeout, tags/pushes the image to the local OCI registry
-(`localhost:5000`), and streams logs via `GET /v1/builds/{id}/logs`.
+(`localhost:5000`), persists durable build status, and streams logs via
+`GET /v1/builds/{id}/logs`.
 
 ## Quick start
 
@@ -40,6 +41,8 @@ BID=$(curl -sf -X POST http://127.0.0.1:4103/v1/builds -H 'content-type: applica
   -d '{"repo":"file:///fixtures/app","ref":"main","forgeYamlPath":"forge.yaml","project":"acme"}' \
   | python3 -c 'import sys,json;print(json.load(sys.stdin)["buildId"])')
 curl -N "http://127.0.0.1:4103/v1/builds/$BID/logs?follow=true"
+curl -sf "http://127.0.0.1:4103/v1/builds/$BID" | python3 -m json.tool
+curl -sf 'http://127.0.0.1:4103/v1/builds?status=succeeded' | python3 -m json.tool
 IMG=$(curl -sf "http://127.0.0.1:4103/v1/builds/$BID" | python3 -c 'import sys,json;print(json.load(sys.stdin)["image"])')
 echo "$IMG"
 curl -sf http://localhost:5000/v2/_catalog
@@ -58,6 +61,9 @@ docker pull "$IMG"
 | `FORGE_AUTH_MODE` | `dev` | Auth enforcement deferred to epic 09. |
 | `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker Engine endpoint. |
 | `FORGE_BUILD_WORKSPACE_DIR` | `/workspace` | Absolute path for transient per-build clones. Must be writable. |
+| `FORGE_BUILD_STORE_DIR` | `/var/lib/forge-build` | Durable JSON build records (survives restart). |
+| `FORGE_BUILD_RETENTION_HOURS` | `72` | Terminal records older than this are pruned on startup. |
+| `FORGE_BUILD_CLEANUP_ON_START` | `true` | Sweep leftover workspace dirs on startup. |
 | `FORGE_DEFAULT_FORGE_YAML` | `forge.yaml` | Default relative path to the build manifest when the create request omits `forgeYamlPath`. |
 | `FORGE_BUILD_TIMEOUT_SECONDS` | `600` | Cancels clone/build/push when exceeded; build marked `failed`. |
 | `FORGE_BUILD_MAX_CONCURRENCY` | `2` | Bounded worker pool; additional jobs wait in queue. |
@@ -85,8 +91,14 @@ Invalid `PORT` or an unwritable workspace dir causes a non-zero exit at startup.
 | Endpoint | Behavior |
 |---|---|
 | `POST /v1/builds` | Validate body, enqueue job, `202` `{buildId,status:queued}`. |
-| `GET /v1/builds/{buildId}` | Current status (`queued\|running\|succeeded\|failed`), commit, image, digest, error. |
+| `GET /v1/builds` | List builds; optional `?status=` and `?service=` filters. |
+| `GET /v1/builds/{buildId}` | Status/phase, timestamps, commit, image/digest (success only), structured error. |
+| `POST /v1/builds/{buildId}/cancel` | `202` `{status:canceling}` for queued/running; `409` if already terminal. |
 | `GET /v1/builds/{buildId}/logs` | `text/plain` logs; `?follow=true` streams until the build finishes. |
+
+Status machine: `queued → running(cloning|building|pushing) → succeeded|failed`, or `canceled` from queued/running.
+
+Invariant: `image` is present if and only if `status == succeeded`. Failed/canceled builds never expose a deployable image.
 
 Only local absolute paths and `file://` repos are accepted in this epic. Remote Git URLs are rejected.
 
@@ -94,14 +106,15 @@ On success the image is tagged as
 `localhost:5000/<project>-<service>:<shortSha>-<buildId>` (plus `:latest` when
 enabled), pushed to the local registry, and recorded on the build with its
 content digest. Each build uses an isolated workspace directory that is removed
-when the job finishes.
+on every terminal path (success, failure, cancel). On restart, orphaned
+`queued`/`running` builds are marked `failed` (`interrupted`) and workspaces are swept.
 
 ## Contracts
 
 * `forge.yaml` JSON Schema: [`contracts/examples/forge.schema.json`](../../contracts/examples/forge.schema.json)
 * Build OpenAPI: [`contracts/openapi/forge-build.openapi.yaml`](../../contracts/openapi/forge-build.openapi.yaml)
 * Go parser: `internal/manifest`
-* Job engine: `internal/git`, `internal/builder`, `internal/registry`, `internal/jobs`, `internal/logbuf`
+* Job engine: `internal/git`, `internal/builder`, `internal/registry`, `internal/jobs`, `internal/store`, `internal/logbuf`
 
 ## Docker socket
 
@@ -112,8 +125,8 @@ harden before any non-local deployment.
 ## Observability
 
 Structured JSON logs on stdout with `timestamp`, `level`, `service`, and
-`message`. Build lifecycle logs include queued/running/checked-out/finished with
-`build_id` and active job counts.
+`message`. Build lifecycle logs include phase transitions with `build_id` and
+phase duration, plus startup orphan sweeps and workspace cleanup.
 
 ## Development
 

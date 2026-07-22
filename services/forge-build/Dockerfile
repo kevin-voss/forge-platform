@@ -20,8 +20,8 @@ WORKDIR /app
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends ca-certificates curl git \
 	&& rm -rf /var/lib/apt/lists/* \
-	&& mkdir -p /workspace \
-	&& chmod 0700 /workspace
+	&& mkdir -p /workspace /var/lib/forge-build \
+	&& chmod 0700 /workspace /var/lib/forge-build
 
 COPY --from=build /out/forge-build /app/forge-build
 
@@ -35,6 +35,9 @@ ENV PORT=8080 \
 	FORGE_AUTH_MODE=dev \
 	DOCKER_HOST=unix:///var/run/docker.sock \
 	FORGE_BUILD_WORKSPACE_DIR=/workspace \
+	FORGE_BUILD_STORE_DIR=/var/lib/forge-build \
+	FORGE_BUILD_RETENTION_HOURS=72 \
+	FORGE_BUILD_CLEANUP_ON_START=true \
 	FORGE_DEFAULT_FORGE_YAML=forge.yaml \
 	FORGE_BUILD_TIMEOUT_SECONDS=600 \
 	FORGE_BUILD_MAX_CONCURRENCY=2 \

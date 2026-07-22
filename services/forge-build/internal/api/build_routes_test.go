@@ -21,6 +21,7 @@ import (
 	"forge.local/services/forge-build/internal/jobs"
 	"forge.local/services/forge-build/internal/logbuf"
 	"forge.local/services/forge-build/internal/registry"
+	"forge.local/services/forge-build/internal/store"
 	"forge.local/services/forge-build/internal/workspace"
 )
 
@@ -38,6 +39,7 @@ func TestCreateBuildReturns202Contract(t *testing.T) {
 
 	mux := http.NewServeMux()
 	api.NewBuildHandler(mgr, "forge.yaml").Register(mux)
+	api.NewStatusHandler(mgr).Register(mux)
 
 	repo := initAPIFixtureRepo(t)
 	body := `{"repo":"` + repo + `","ref":"main","forgeYamlPath":"forge.yaml"}`
@@ -89,6 +91,7 @@ func TestIntegrationDockerBuildAndLogs(t *testing.T) {
 
 	mux := http.NewServeMux()
 	api.NewBuildHandler(mgr, "forge.yaml").Register(mux)
+	api.NewStatusHandler(mgr).Register(mux)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
@@ -128,7 +131,17 @@ func TestIntegrationDockerBuildAndLogs(t *testing.T) {
 
 	rec := waitBuild(t, srv.URL, accepted.BuildID, 90*time.Second)
 	if rec.Status != api.BuildStatusSucceeded {
-		t.Fatalf("status=%s error=%s", rec.Status, rec.Error)
+		errMsg := ""
+		if rec.Error != nil {
+			errMsg = rec.Error.Message
+		}
+		t.Fatalf("status=%s error=%s", rec.Status, errMsg)
+	}
+	if rec.Phase != api.BuildPhaseSucceeded {
+		t.Fatalf("phase=%s", rec.Phase)
+	}
+	if !api.EnforceImageInvariant(rec) {
+		t.Fatalf("image invariant violated: %+v", rec)
 	}
 	if rec.Image == "" || rec.Commit == "" || rec.Digest == "" {
 		t.Fatalf("record=%+v", rec)
@@ -188,6 +201,10 @@ func TestIntegrationRegistryDownFailsWithoutImage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	st, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	mgr := jobs.New(jobs.Config{
 		MaxConcurrency:   1,
 		BuildTimeout:     60 * time.Second,
@@ -196,12 +213,17 @@ func TestIntegrationRegistryDownFailsWithoutImage(t *testing.T) {
 		Registry:         "127.0.0.1:1", // nothing listening
 		ImageNamePattern: "{project}-{service}",
 		PushLatest:       false,
-	}, ws, builder.New(engine), pub, slog.Default())
+		CleanupOnStart:   true,
+	}, ws, builder.New(engine), pub, st, slog.Default())
+	if err := mgr.Recover(); err != nil {
+		t.Fatal(err)
+	}
 	mgr.Start()
 	defer mgr.Stop()
 
 	mux := http.NewServeMux()
 	api.NewBuildHandler(mgr, "forge.yaml").Register(mux)
+	api.NewStatusHandler(mgr).Register(mux)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
@@ -218,13 +240,20 @@ func TestIntegrationRegistryDownFailsWithoutImage(t *testing.T) {
 	}
 	rec := waitBuild(t, srv.URL, accepted.BuildID, 60*time.Second)
 	if rec.Status != api.BuildStatusFailed {
-		t.Fatalf("status=%s error=%s", rec.Status, rec.Error)
+		t.Fatalf("status=%s error=%+v", rec.Status, rec.Error)
 	}
 	if rec.Image != "" || rec.Digest != "" {
 		t.Fatalf("expected no image/digest on failure, got image=%q digest=%q", rec.Image, rec.Digest)
 	}
-	if !strings.Contains(strings.ToLower(rec.Error), "push") && !strings.Contains(strings.ToLower(rec.Error), "registry") {
-		t.Fatalf("error = %q", rec.Error)
+	if rec.Error == nil {
+		t.Fatal("expected structured error")
+	}
+	msg := strings.ToLower(rec.Error.Message)
+	if !strings.Contains(msg, "push") && !strings.Contains(msg, "registry") {
+		t.Fatalf("error = %+v", rec.Error)
+	}
+	if !api.EnforceImageInvariant(rec) {
+		t.Fatalf("image invariant violated: %+v", rec)
 	}
 }
 
@@ -237,6 +266,7 @@ func TestIntegrationInvalidDockerfileFails(t *testing.T) {
 	defer cleanup()
 	mux := http.NewServeMux()
 	api.NewBuildHandler(mgr, "forge.yaml").Register(mux)
+	api.NewStatusHandler(mgr).Register(mux)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
@@ -253,7 +283,7 @@ func TestIntegrationInvalidDockerfileFails(t *testing.T) {
 	}
 	rec := waitBuild(t, srv.URL, accepted.BuildID, 60*time.Second)
 	if rec.Status != api.BuildStatusFailed {
-		t.Fatalf("status=%s error=%s", rec.Status, rec.Error)
+		t.Fatalf("status=%s error=%+v", rec.Status, rec.Error)
 	}
 	logsResp, err := http.Get(srv.URL + "/v1/builds/" + accepted.BuildID + "/logs")
 	if err != nil {
@@ -296,6 +326,10 @@ func newTestManagerWithPublisher(t *testing.T, wsRoot string, b builder.ImageBui
 	if err != nil {
 		t.Fatal(err)
 	}
+	st, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	mgr := jobs.New(jobs.Config{
 		MaxConcurrency:   2,
 		BuildTimeout:     timeout,
@@ -304,7 +338,12 @@ func newTestManagerWithPublisher(t *testing.T, wsRoot string, b builder.ImageBui
 		Registry:         "localhost:5000",
 		ImageNamePattern: "{project}-{service}",
 		PushLatest:       true,
-	}, ws, b, pub, slog.Default())
+		CleanupOnStart:   true,
+		Retention:        72 * time.Hour,
+	}, ws, b, pub, st, slog.Default())
+	if err := mgr.Recover(); err != nil {
+		t.Fatal(err)
+	}
 	mgr.Start()
 	return mgr, func() { mgr.Stop() }
 }
@@ -405,7 +444,7 @@ func waitBuildViaManager(t *testing.T, mgr *jobs.Manager, id string, timeout tim
 		if !ok {
 			t.Fatal("missing build")
 		}
-		if rec.Status == jobs.StatusSucceeded || rec.Status == jobs.StatusFailed {
+		if jobs.IsTerminal(rec.Status) {
 			return rec
 		}
 		if time.Now().After(deadline) {
@@ -429,11 +468,16 @@ func waitBuild(t *testing.T, base, id string, timeout time.Duration) api.BuildRe
 		if err != nil {
 			t.Fatal(err)
 		}
-		if rec.Status == api.BuildStatusSucceeded || rec.Status == api.BuildStatusFailed {
+		switch rec.Status {
+		case api.BuildStatusSucceeded, api.BuildStatusFailed, api.BuildStatusCanceled:
 			return rec
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("timeout status=%s error=%s", rec.Status, rec.Error)
+			errMsg := ""
+			if rec.Error != nil {
+				errMsg = rec.Error.Message
+			}
+			t.Fatalf("timeout status=%s error=%s", rec.Status, errMsg)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

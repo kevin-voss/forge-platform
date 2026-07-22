@@ -58,17 +58,21 @@ func TestBuildAcceptedAndRecordShapes(t *testing.T) {
 	if err := json.Unmarshal(statusRaw, &rec); err != nil {
 		t.Fatal(err)
 	}
-	if rec.Status != BuildStatusSucceeded || rec.Image == "" || rec.Digest == "" || rec.FinishedAt == nil {
+	if rec.Status != BuildStatusSucceeded || rec.Phase != BuildPhaseSucceeded || rec.Image == "" || rec.Digest == "" || rec.FinishedAt == nil {
 		t.Fatalf("record = %+v", rec)
 	}
 	if rec.StartedAt.IsZero() {
 		t.Fatal("startedAt zero")
+	}
+	if !EnforceImageInvariant(rec) {
+		t.Fatal("image invariant violated on example")
 	}
 
 	// Ensure omitempty matches OpenAPI optional fields when re-marshaled.
 	minimal := BuildRecord{
 		BuildID:   "22222222-2222-4222-8222-222222222222",
 		Status:    BuildStatusQueued,
+		Phase:     BuildPhaseQueued,
 		StartedAt: time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC),
 	}
 	b, err := json.Marshal(minimal)

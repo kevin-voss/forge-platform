@@ -27,6 +27,9 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FORGE_DEFAULT_PROJECT", "")
 	t.Setenv("FORGE_PUSH_LATEST", "")
 	t.Setenv("FORGE_PUSH_RETRIES", "")
+	t.Setenv("FORGE_BUILD_STORE_DIR", "")
+	t.Setenv("FORGE_BUILD_RETENTION_HOURS", "")
+	t.Setenv("FORGE_BUILD_CLEANUP_ON_START", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -92,6 +95,15 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.PushRetries != 3 {
 		t.Fatalf("PushRetries = %d", cfg.PushRetries)
 	}
+	if cfg.StoreDir != "/var/lib/forge-build" {
+		t.Fatalf("StoreDir = %q", cfg.StoreDir)
+	}
+	if cfg.Retention != 72*time.Hour {
+		t.Fatalf("Retention = %v", cfg.Retention)
+	}
+	if !cfg.CleanupOnStart {
+		t.Fatal("CleanupOnStart want true")
+	}
 }
 
 func TestLoadInvalidPort(t *testing.T) {
@@ -137,6 +149,10 @@ func TestLoadCustomValues(t *testing.T) {
 	t.Setenv("FORGE_DEFAULT_PROJECT", "acme")
 	t.Setenv("FORGE_PUSH_LATEST", "false")
 	t.Setenv("FORGE_PUSH_RETRIES", "5")
+	storeDir := filepath.Join(t.TempDir(), "store")
+	t.Setenv("FORGE_BUILD_STORE_DIR", storeDir)
+	t.Setenv("FORGE_BUILD_RETENTION_HOURS", "24")
+	t.Setenv("FORGE_BUILD_CLEANUP_ON_START", "false")
 
 	cfg, err := Load()
 	if err != nil {
@@ -150,6 +166,9 @@ func TestLoadCustomValues(t *testing.T) {
 	}
 	if cfg.PushLatest || cfg.PushRetries != 5 {
 		t.Fatalf("push cfg: latest=%v retries=%d", cfg.PushLatest, cfg.PushRetries)
+	}
+	if cfg.StoreDir != filepath.Clean(storeDir) || cfg.Retention != 24*time.Hour || cfg.CleanupOnStart {
+		t.Fatalf("store cfg: dir=%q retention=%v cleanup=%v", cfg.StoreDir, cfg.Retention, cfg.CleanupOnStart)
 	}
 	if cfg.DefaultForgeYAML != "deploy/forge.yaml" {
 		t.Fatalf("DefaultForgeYAML = %q", cfg.DefaultForgeYAML)

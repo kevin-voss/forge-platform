@@ -20,6 +20,7 @@ import (
 	"forge.local/services/forge-build/internal/health"
 	"forge.local/services/forge-build/internal/jobs"
 	"forge.local/services/forge-build/internal/registry"
+	"forge.local/services/forge-build/internal/store"
 	"forge.local/services/forge-build/internal/workspace"
 )
 
@@ -45,6 +46,9 @@ func run() error {
 		"log_level", cfg.LogLevel,
 		"docker_host", cfg.DockerHost,
 		"workspace_dir", cfg.WorkspaceDir,
+		"store_dir", cfg.StoreDir,
+		"retention_hours", int(cfg.Retention.Hours()),
+		"cleanup_on_start", cfg.CleanupOnStart,
 		"build_timeout_seconds", int(cfg.BuildTimeout.Seconds()),
 		"max_concurrency", cfg.MaxConcurrency,
 		"log_buffer_lines", cfg.LogBufferLines,
@@ -57,6 +61,11 @@ func run() error {
 	)
 
 	ws, err := workspace.New(cfg.WorkspaceDir)
+	if err != nil {
+		return err
+	}
+
+	st, err := store.New(cfg.StoreDir)
 	if err != nil {
 		return err
 	}
@@ -92,13 +101,19 @@ func run() error {
 		ImageNamePattern: cfg.ImageNamePattern,
 		DefaultProject:   cfg.DefaultProject,
 		PushLatest:       cfg.PushLatest,
-	}, ws, builder.New(engine), publisher, log)
+		Retention:        cfg.Retention,
+		CleanupOnStart:   cfg.CleanupOnStart,
+	}, ws, builder.New(engine), publisher, st, log)
+	if err := jobMgr.Recover(); err != nil {
+		return fmt.Errorf("recover build store: %w", err)
+	}
 	jobMgr.Start()
 	defer jobMgr.Stop()
 
 	mux := http.NewServeMux()
 	health.NewHandler(engine).Register(mux)
 	api.NewBuildHandler(jobMgr, cfg.DefaultForgeYAML).Register(mux)
+	api.NewStatusHandler(jobMgr).Register(mux)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

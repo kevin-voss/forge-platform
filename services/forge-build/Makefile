@@ -6,12 +6,13 @@ SERVICE := forge-build
 IMAGE := forge/forge-build:local
 HOST_PORT ?= 4103
 LOCAL_WORKSPACE ?= $(ROOT_DIR)/services/forge-build/.tmp/workspace
+LOCAL_STORE ?= $(ROOT_DIR)/services/forge-build/.tmp/store
 FIXTURE_DIR := $(ROOT_DIR)/services/forge-build/testdata/app
 
 .PHONY: dev build run test test-unit test-integration lint format docker-build docker-run clean wait prepare-fixture
 
 dev:
-	@mkdir -p "$(LOCAL_WORKSPACE)"
+	@mkdir -p "$(LOCAL_WORKSPACE)" "$(LOCAL_STORE)"
 	PORT=$${PORT:-8080} \
 	FORGE_SERVICE_NAME=$${FORGE_SERVICE_NAME:-forge-build} \
 	FORGE_SERVICE_VERSION=$${FORGE_SERVICE_VERSION:-0.1.0} \
@@ -20,6 +21,9 @@ dev:
 	FORGE_AUTH_MODE=$${FORGE_AUTH_MODE:-dev} \
 	DOCKER_HOST=$${DOCKER_HOST:-unix:///var/run/docker.sock} \
 	FORGE_BUILD_WORKSPACE_DIR=$${FORGE_BUILD_WORKSPACE_DIR:-$(LOCAL_WORKSPACE)} \
+	FORGE_BUILD_STORE_DIR=$${FORGE_BUILD_STORE_DIR:-$(LOCAL_STORE)} \
+	FORGE_BUILD_RETENTION_HOURS=$${FORGE_BUILD_RETENTION_HOURS:-72} \
+	FORGE_BUILD_CLEANUP_ON_START=$${FORGE_BUILD_CLEANUP_ON_START:-true} \
 	FORGE_DEFAULT_FORGE_YAML=$${FORGE_DEFAULT_FORGE_YAML:-forge.yaml} \
 	FORGE_BUILD_TIMEOUT_SECONDS=$${FORGE_BUILD_TIMEOUT_SECONDS:-600} \
 	FORGE_BUILD_MAX_CONCURRENCY=$${FORGE_BUILD_MAX_CONCURRENCY:-2} \
@@ -100,8 +104,8 @@ test-integration: run
 		docker pull "$$IMG" >/dev/null; \
 		echo "Build $$BID succeeded with image $$IMG digest $$DIGEST"
 	@# Invalid PORT fails startup (config validation).
-	@mkdir -p "$(LOCAL_WORKSPACE)"
-	@! PORT=not-a-port FORGE_BUILD_WORKSPACE_DIR="$(LOCAL_WORKSPACE)" go run . >/tmp/forge-build-bad-port.out 2>&1
+	@mkdir -p "$(LOCAL_WORKSPACE)" "$(LOCAL_STORE)"
+	@! PORT=not-a-port FORGE_BUILD_WORKSPACE_DIR="$(LOCAL_WORKSPACE)" FORGE_BUILD_STORE_DIR="$(LOCAL_STORE)" go run . >/tmp/forge-build-bad-port.out 2>&1
 	@grep -q 'PORT' /tmp/forge-build-bad-port.out
 	@# Bad Docker socket → readiness 503 (live still 200).
 	@docker run --rm -d --name forge-build-bad-socket-$$$$ \
@@ -109,6 +113,7 @@ test-integration: run
 		-e FORGE_SERVICE_NAME=forge-build \
 		-e DOCKER_HOST=unix:///no/such/docker.sock \
 		-e FORGE_BUILD_WORKSPACE_DIR=/workspace \
+		-e FORGE_BUILD_STORE_DIR=/var/lib/forge-build \
 		-e FORGE_DOCKER_STARTUP_RETRIES=0 \
 		-p 14103:8080 \
 		$(IMAGE) >/tmp/forge-build-bad-socket.cid
