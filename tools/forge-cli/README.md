@@ -2,7 +2,7 @@
 
 `forge` is the Go command-line client for Forge Control. It manages CLI-side
 endpoint profiles and creates and reads projects, environments, applications,
-and services through the Control HTTP API.
+services, and desired deployments through the Control HTTP API.
 
 ## Build and test
 
@@ -59,7 +59,13 @@ forge app create --project <project-id> --name web
 forge app list --project <project-id>
 forge service create --app <app-id> --name api --port 8080
 forge service list --app <app-id>
+forge deployment create --service <service-id> --image localhost:5000/demo-go:latest --env <environment-id>
+forge deployment status <deployment-id>
+forge deployment list --service <service-id>
 ```
+
+`deployment create` sends an `Idempotency-Key` for safe retries. It generates a
+UUID v4 by default; scripts can reuse a value with `--idempotency-key`.
 
 Control errors are printed to stderr with their `requestId` and result in a
 non-zero exit status. Use `--verbose` to log each HTTP request summary to

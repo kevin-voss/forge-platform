@@ -56,6 +56,7 @@ func NewRootCommand(version string) *cobra.Command {
 		newEnvironmentCommand(state),
 		newApplicationCommand(state),
 		newServiceCommand(state),
+		newDeploymentCommand(state),
 	)
 	return root
 }

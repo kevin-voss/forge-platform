@@ -56,7 +56,7 @@ make demo DEMO=03
 |---|---|---|---|
 | [03.01](../steps/03-forge-cli/03.01-cli-skeleton-and-config.md) | CLI skeleton, profiles, endpoint config, global flags | Complete | Cobra tree, secure config file, global flags, HTTP client factory |
 | [03.02](../steps/03-forge-cli/03.02-project-app-service-commands.md) | `project` / `app` / `service` commands | Complete | Typed Control client, resource commands, basic table/JSON output |
-| [03.03](../steps/03-forge-cli/03.03-deployment-commands.md) | `deployment create\|status` | Not started | Depends on 03.02 + Control 02.05 |
+| [03.03](../steps/03-forge-cli/03.03-deployment-commands.md) | `deployment create\|status` | Complete | Deployment create, status, list, and idempotent retries |
 | [03.04](../steps/03-forge-cli/03.04-output-exit-codes-timeouts.md) | Table/JSON output, exit codes, timeouts, request IDs | Not started | Depends on 03.02/03.03 |
 | [03.05](../steps/03-forge-cli/03.05-completion-and-non-interactive.md) | Shell completion + non-interactive mode | Not started | Depends on 03.01+ |
 | [03.06](../steps/03-forge-cli/03.06-demo-cli-control-and-gate.md) | Demo `03-cli-control` + gate | Not started | Depends on all prior |
@@ -80,4 +80,4 @@ make demo DEMO=03
 
 ## Next step to implement
 
-**[03.03](../steps/03-forge-cli/03.03-deployment-commands.md) — `deployment create|status`** (add deployment commands over the established resource hierarchy).
+**[03.04](../steps/03-forge-cli/03.04-output-exit-codes-timeouts.md) — table/JSON output, exit codes, timeouts, request IDs**.

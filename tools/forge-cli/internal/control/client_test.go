@@ -130,3 +130,62 @@ func TestControlErrorEnvelopeIncludesRequestID(t *testing.T) {
 		t.Fatalf("error message = %q", got)
 	}
 }
+
+func TestDeploymentMethodsUseControlContract(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/v1/services/service-1/deployments":
+			if request.Method == http.MethodPost {
+				requests++
+				if got := request.Header.Get("Idempotency-Key"); got != "retry-key" {
+					t.Errorf("Idempotency-Key = %q, want retry-key", got)
+				}
+				body, _ := io.ReadAll(request.Body)
+				if got, want := string(body), `{"image":"registry.example/api:1","desiredReplicas":2,"environmentId":"env-1"}`; got != want {
+					t.Errorf("create body = %s, want %s", got, want)
+				}
+				writer.WriteHeader(http.StatusCreated)
+				_, _ = writer.Write([]byte(`{"id":"deployment-1","serviceId":"service-1","environmentId":"env-1","image":"registry.example/api:1","desiredReplicas":2,"status":"pending","createdAt":"now","updatedAt":"now"}`))
+				return
+			}
+			_, _ = writer.Write([]byte(`[{"id":"deployment-1","serviceId":"service-1","environmentId":"env-1","image":"registry.example/api:1","desiredReplicas":2,"status":"pending","createdAt":"now","updatedAt":"now"}]`))
+		case "/v1/deployments/deployment-1":
+			_, _ = writer.Write([]byte(`{"id":"deployment-1","serviceId":"service-1","environmentId":"env-1","image":"registry.example/api:1","desiredReplicas":2,"status":"pending","createdAt":"now","updatedAt":"now"}`))
+		case "/v1/deployments/missing":
+			writer.WriteHeader(http.StatusNotFound)
+			_, _ = writer.Write([]byte(`{"error":{"code":"DEPLOYMENT_NOT_FOUND","message":"deployment not found","requestId":"request-404"}}`))
+		default:
+			t.Errorf("unexpected request %s %s", request.Method, request.URL.Path)
+			writer.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer server.Close()
+
+	client, err := New(server.URL, time.Second, nil)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	created, err := client.CreateDeployment(context.Background(), "service-1", "registry.example/api:1", 2, "env-1", "retry-key")
+	if err != nil || created.Status != "pending" {
+		t.Fatalf("CreateDeployment() = %#v, %v", created, err)
+	}
+	if _, err := client.CreateDeployment(context.Background(), "service-1", "registry.example/api:1", 2, "env-1", "retry-key"); err != nil {
+		t.Fatalf("idempotent replay = %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("create requests = %d, want 2", requests)
+	}
+	if deployment, err := client.GetDeployment(context.Background(), "deployment-1"); err != nil || deployment.ID != "deployment-1" {
+		t.Fatalf("GetDeployment() = %#v, %v", deployment, err)
+	}
+	if deployments, err := client.ListDeployments(context.Background(), "service-1"); err != nil || len(deployments) != 1 {
+		t.Fatalf("ListDeployments() = %#v, %v", deployments, err)
+	}
+	_, err = client.GetDeployment(context.Background(), "missing")
+	var apiError *APIError
+	if !errors.As(err, &apiError) || apiError.Status != http.StatusNotFound {
+		t.Fatalf("GetDeployment(missing) error = %#v, want 404 APIError", err)
+	}
+}

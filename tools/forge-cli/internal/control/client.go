@@ -111,7 +111,45 @@ func (c *Client) ListServices(ctx context.Context, applicationID string) ([]Serv
 	return services, err
 }
 
+// CreateDeployment records a desired deployment for a service.
+func (c *Client) CreateDeployment(ctx context.Context, serviceID, image string, desiredReplicas int, environmentID, idempotencyKey string) (Deployment, error) {
+	var deployment Deployment
+	headers := make(http.Header)
+	headers.Set("Idempotency-Key", idempotencyKey)
+	err := c.doJSONWithHeaders(
+		ctx,
+		http.MethodPost,
+		"/v1/services/"+url.PathEscape(serviceID)+"/deployments",
+		createDeploymentRequest{
+			Image:           image,
+			DesiredReplicas: desiredReplicas,
+			EnvironmentID:   environmentID,
+		},
+		&deployment,
+		headers,
+	)
+	return deployment, err
+}
+
+// GetDeployment returns a deployment by ID.
+func (c *Client) GetDeployment(ctx context.Context, id string) (Deployment, error) {
+	var deployment Deployment
+	err := c.doJSON(ctx, http.MethodGet, "/v1/deployments/"+url.PathEscape(id), nil, &deployment)
+	return deployment, err
+}
+
+// ListDeployments returns a service's deployments.
+func (c *Client) ListDeployments(ctx context.Context, serviceID string) ([]Deployment, error) {
+	var deployments []Deployment
+	err := c.doJSON(ctx, http.MethodGet, "/v1/services/"+url.PathEscape(serviceID)+"/deployments", nil, &deployments)
+	return deployments, err
+}
+
 func (c *Client) doJSON(ctx context.Context, method, path string, input, output any) error {
+	return c.doJSONWithHeaders(ctx, method, path, input, output, nil)
+}
+
+func (c *Client) doJSONWithHeaders(ctx context.Context, method, path string, input, output any, headers http.Header) error {
 	var body io.Reader
 	if input != nil {
 		payload, err := json.Marshal(input)
@@ -127,6 +165,11 @@ func (c *Client) doJSON(ctx context.Context, method, path string, input, output 
 	}
 	if input != nil {
 		request.Header.Set("Content-Type", "application/json")
+	}
+	for name, values := range headers {
+		for _, value := range values {
+			request.Header.Add(name, value)
+		}
 	}
 
 	response, err := c.client.Do(request)

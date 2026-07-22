@@ -47,6 +47,22 @@ func Write(writer io.Writer, format string, value any) error {
 		for _, service := range value {
 			fmt.Fprintf(table, "%s\t%s\t%s\t%d\n", service.ID, service.ApplicationID, service.Name, service.Port)
 		}
+	case control.Deployment:
+		writeDeployment(table, value)
+	case []control.Deployment:
+		fmt.Fprintln(table, "ID\tSERVICE ID\tENVIRONMENT ID\tIMAGE\tREPLICAS\tSTATUS")
+		for _, deployment := range value {
+			fmt.Fprintf(
+				table,
+				"%s\t%s\t%s\t%s\t%d\t%s\n",
+				deployment.ID,
+				deployment.ServiceID,
+				deployment.EnvironmentID,
+				deployment.Image,
+				deployment.DesiredReplicas,
+				deployment.Status,
+			)
+		}
 	default:
 		return fmt.Errorf("unsupported table output type %T", value)
 	}
@@ -71,4 +87,18 @@ func writeApplication(table *tabwriter.Writer, application control.Application) 
 func writeService(table *tabwriter.Writer, service control.Service) {
 	fmt.Fprintln(table, "ID\tAPPLICATION ID\tNAME\tPORT")
 	fmt.Fprintf(table, "%s\t%s\t%s\t%d\n", service.ID, service.ApplicationID, service.Name, service.Port)
+}
+
+func writeDeployment(table *tabwriter.Writer, deployment control.Deployment) {
+	fmt.Fprintln(table, "ID\tSERVICE ID\tENVIRONMENT ID\tIMAGE\tREPLICAS\tSTATUS")
+	fmt.Fprintf(
+		table,
+		"%s\t%s\t%s\t%s\t%d\t%s\n",
+		deployment.ID,
+		deployment.ServiceID,
+		deployment.EnvironmentID,
+		deployment.Image,
+		deployment.DesiredReplicas,
+		deployment.Status,
+	)
 }

@@ -38,6 +38,18 @@ type Service struct {
 	UpdatedAt     string `json:"updatedAt"`
 }
 
+// Deployment is a desired service deployment returned by Control.
+type Deployment struct {
+	ID              string `json:"id"`
+	ServiceID       string `json:"serviceId"`
+	EnvironmentID   string `json:"environmentId"`
+	Image           string `json:"image"`
+	DesiredReplicas int    `json:"desiredReplicas"`
+	Status          string `json:"status"`
+	CreatedAt       string `json:"createdAt"`
+	UpdatedAt       string `json:"updatedAt"`
+}
+
 type createProjectRequest struct {
 	Name string `json:"name"`
 	Slug string `json:"slug,omitempty"`
@@ -50,6 +62,12 @@ type createNameRequest struct {
 type createServiceRequest struct {
 	Name string `json:"name"`
 	Port int    `json:"port"`
+}
+
+type createDeploymentRequest struct {
+	Image           string `json:"image"`
+	DesiredReplicas int    `json:"desiredReplicas"`
+	EnvironmentID   string `json:"environmentId"`
 }
 
 type errorEnvelope struct {
