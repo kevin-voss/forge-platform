@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Goal
 
@@ -75,7 +75,7 @@ GET /v1/projects/{id}?expand=tree   → full hierarchy
 | [02.05](../steps/02-forge-control/02.05-deployments-desired-state-api.md) | Deployments desired-state API + basic audit | Complete | Desired-state API, project tree read model, and audit records |
 | [02.06](../steps/02-forge-control/02.06-errors-openapi-contract-idempotency.md) | Shared errors, OpenAPI, contract tests, idempotency | Complete | Canonical errors/request IDs, OpenAPI, and idempotent creates |
 | [02.07](../steps/02-forge-control/02.07-structured-logs-and-otel.md) | Structured logs + OTEL | Complete | JSON logs with request/trace correlation; OTLP spans and metrics |
-| [02.08](../steps/02-forge-control/02.08-demo-control-plane-and-gate.md) | Demo `02-control-plane` + epic gate | Not started | Depends on all prior |
+| [02.08](../steps/02-forge-control/02.08-demo-control-plane-and-gate.md) | Demo `02-control-plane` + epic gate | Complete | End-to-end hierarchy, error-envelope, migration, and restart-durability gate passed |
 
 ## Assumptions
 
@@ -96,6 +96,7 @@ GET /v1/projects/{id}?expand=tree   → full hierarchy
 * **Soft delete vs hard delete:** Do we need soft-delete/audit retention now, or is a simple audit table sufficient for the epic? (Assumption: append-only audit table, hard delete of resources deferred.)
 * **Idempotency scope:** Which creates require `Idempotency-Key` support — all creates or only deployments? (Assumption: all `POST` creates accept an optional key; deployments strongly recommended.)
 
-## Next step to implement
+## Completion
 
-**[02.08](../steps/02-forge-control/02.08-demo-control-plane-and-gate.md) — Demo `02-control-plane` + epic gate** (depends on all prior steps).
+All eight Forge Control steps are complete. Continue the global queue with
+**`N = 16`** ([03.01 Forge CLI skeleton](../steps/03-forge-cli/03.01-cli-skeleton-and-config.md)).
