@@ -44,6 +44,33 @@ profile file, then the built-in local endpoint `http://127.0.0.1:4001`.
 environment defaults. Command-line flags take precedence over their
 corresponding environment variables.
 
+## Output, errors, and timeouts
+
+Resource commands write only results to stdout. `--output json` emits the
+Control resource object unchanged in shape for creates and reads, and a JSON
+array of resource objects for lists. This makes output safe to pipe:
+
+```bash
+forge project list --output json | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))'
+```
+
+Table output is the default and uses aligned columns. Diagnostics, including
+Control request IDs, are always written to stderr so they never contaminate
+JSON output. `--verbose` also writes each successful HTTP method, status,
+duration, and `requestId` to stderr.
+
+Every Control HTTP request is cancelled when `--timeout` (or `FORGE_TIMEOUT`)
+expires. The default is `30s`.
+
+| Exit code | Meaning |
+|---:|---|
+| 0 | Success |
+| 1 | Unexpected error |
+| 2 | Usage or validation error |
+| 3 | Control resource not found (HTTP 404) |
+| 4 | Control conflict (HTTP 409) |
+| 5 | Request timeout or network failure |
+
 ## Resources
 
 Resource commands use the resolved Control endpoint and support `--output table`
@@ -67,6 +94,5 @@ forge deployment list --service <service-id>
 `deployment create` sends an `Idempotency-Key` for safe retries. It generates a
 UUID v4 by default; scripts can reuse a value with `--idempotency-key`.
 
-Control errors are printed to stderr with their `requestId` and result in a
-non-zero exit status. Use `--verbose` to log each HTTP request summary to
-stderr.
+Control errors are printed to stderr with their `requestId` and result in the
+documented non-zero exit status.

@@ -17,7 +17,7 @@ import (
 // Client is a typed client for Forge Control resource endpoints.
 type Client struct {
 	client  *sharedclient.Client
-	verbose func(method, path string, status int, requestID string)
+	verbose func(method, path string, status int, requestID string, duration time.Duration)
 }
 
 // APIError is an error returned by Forge Control.
@@ -40,7 +40,7 @@ func (e *APIError) Error() string {
 }
 
 // New creates a typed Control API client.
-func New(endpoint string, timeout time.Duration, verbose func(method, path string, status int, requestID string)) (*Client, error) {
+func New(endpoint string, timeout time.Duration, verbose func(method, path string, status int, requestID string, duration time.Duration)) (*Client, error) {
 	client, err := sharedclient.New(endpoint, timeout)
 	if err != nil {
 		return nil, err
@@ -172,13 +172,14 @@ func (c *Client) doJSONWithHeaders(ctx context.Context, method, path string, inp
 		}
 	}
 
+	started := time.Now()
 	response, err := c.client.Do(request)
 	if err != nil {
 		return fmt.Errorf("request Control: %w", err)
 	}
 	defer response.Body.Close()
 	if c.verbose != nil {
-		c.verbose(method, path, response.StatusCode, response.RequestID)
+		c.verbose(method, path, response.StatusCode, response.RequestID, time.Since(started))
 	}
 
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {

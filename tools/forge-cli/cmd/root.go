@@ -109,9 +109,9 @@ func (s *State) TimeoutDuration() time.Duration {
 }
 
 func (s *State) controlClient(cmd *cobra.Command) (*control.Client, error) {
-	return control.New(s.Resolved.Endpoint, s.TimeoutDuration(), func(method, path string, status int, requestID string) {
+	return control.New(s.Resolved.Endpoint, s.TimeoutDuration(), func(method, path string, status int, requestID string, duration time.Duration) {
 		if s.Verbose {
-			fmt.Fprintf(cmd.ErrOrStderr(), "forge: %s %s status=%d requestId=%s\n", method, path, status, requestID)
+			fmt.Fprintf(cmd.ErrOrStderr(), "forge: %s %s status=%d duration=%s requestId=%s\n", method, path, status, duration.Round(time.Millisecond), requestID)
 		}
 	})
 }
@@ -120,6 +120,6 @@ func (s *State) render(cmd *cobra.Command, value any) error {
 	return render.Write(cmd.OutOrStdout(), s.Output, value)
 }
 
-func commandContext(cmd *cobra.Command) context.Context {
-	return cmd.Context()
+func (s *State) requestContext(cmd *cobra.Command) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(cmd.Context(), s.TimeoutDuration())
 }

@@ -58,7 +58,7 @@ func TestProjectMethodsUseControlContract(t *testing.T) {
 	defer server.Close()
 
 	var diagnostics []string
-	client, err := New(server.URL, time.Second, func(method, path string, status int, requestID string) {
+	client, err := New(server.URL, time.Second, func(method, path string, status int, requestID string, _ time.Duration) {
 		diagnostics = append(diagnostics, method+" "+path+" "+requestID)
 	})
 	if err != nil {

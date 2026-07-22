@@ -28,7 +28,9 @@ func newProjectCreateCommand(state *State) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			project, err := client.CreateProject(commandContext(cmd), name, slug)
+			ctx, cancel := state.requestContext(cmd)
+			defer cancel()
+			project, err := client.CreateProject(ctx, name, slug)
 			if err != nil {
 				return err
 			}
@@ -50,7 +52,9 @@ func newProjectListCommand(state *State) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			projects, err := client.ListProjects(commandContext(cmd))
+			ctx, cancel := state.requestContext(cmd)
+			defer cancel()
+			projects, err := client.ListProjects(ctx)
 			if err != nil {
 				return err
 			}
@@ -69,7 +73,9 @@ func newProjectGetCommand(state *State) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			project, err := client.GetProject(commandContext(cmd), args[0])
+			ctx, cancel := state.requestContext(cmd)
+			defer cancel()
+			project, err := client.GetProject(ctx, args[0])
 			if err != nil {
 				return err
 			}

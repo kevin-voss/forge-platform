@@ -28,7 +28,9 @@ func newApplicationCreateCommand(state *State) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			application, err := client.CreateApplication(commandContext(cmd), projectID, name)
+			ctx, cancel := state.requestContext(cmd)
+			defer cancel()
+			application, err := client.CreateApplication(ctx, projectID, name)
 			if err != nil {
 				return err
 			}
@@ -53,7 +55,9 @@ func newApplicationListCommand(state *State) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			applications, err := client.ListApplications(commandContext(cmd), projectID)
+			ctx, cancel := state.requestContext(cmd)
+			defer cancel()
+			applications, err := client.ListApplications(ctx, projectID)
 			if err != nil {
 				return err
 			}

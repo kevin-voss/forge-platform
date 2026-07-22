@@ -13,8 +13,7 @@ import (
 // Write renders a resource or resource list in the requested output format.
 func Write(writer io.Writer, format string, value any) error {
 	if format == "json" {
-		encoder := json.NewEncoder(writer)
-		return encoder.Encode(value)
+		return writeJSON(writer, value)
 	}
 
 	table := tabwriter.NewWriter(writer, 0, 4, 2, ' ', 0)
@@ -67,6 +66,15 @@ func Write(writer io.Writer, format string, value any) error {
 		return fmt.Errorf("unsupported table output type %T", value)
 	}
 	return table.Flush()
+}
+
+// writeJSON emits resource structs and resource lists without a CLI envelope.
+// Struct declaration order and encoding/json's sorted map keys make the output
+// stable for scripts while preserving Control's resource shape.
+func writeJSON(writer io.Writer, value any) error {
+	encoder := json.NewEncoder(writer)
+	encoder.SetEscapeHTML(false)
+	return encoder.Encode(value)
 }
 
 func writeProject(table *tabwriter.Writer, project control.Project) {

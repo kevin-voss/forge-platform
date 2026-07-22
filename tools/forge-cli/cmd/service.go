@@ -35,7 +35,9 @@ func newServiceCreateCommand(state *State) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			service, err := client.CreateService(commandContext(cmd), applicationID, name, port)
+			ctx, cancel := state.requestContext(cmd)
+			defer cancel()
+			service, err := client.CreateService(ctx, applicationID, name, port)
 			if err != nil {
 				return err
 			}
@@ -61,7 +63,9 @@ func newServiceListCommand(state *State) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			services, err := client.ListServices(commandContext(cmd), applicationID)
+			ctx, cancel := state.requestContext(cmd)
+			defer cancel()
+			services, err := client.ListServices(ctx, applicationID)
 			if err != nil {
 				return err
 			}

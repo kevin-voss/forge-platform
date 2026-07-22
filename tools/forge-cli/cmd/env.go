@@ -28,7 +28,9 @@ func newEnvironmentCreateCommand(state *State) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			environment, err := client.CreateEnvironment(commandContext(cmd), projectID, name)
+			ctx, cancel := state.requestContext(cmd)
+			defer cancel()
+			environment, err := client.CreateEnvironment(ctx, projectID, name)
 			if err != nil {
 				return err
 			}
@@ -53,7 +55,9 @@ func newEnvironmentListCommand(state *State) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			environments, err := client.ListEnvironments(commandContext(cmd), projectID)
+			ctx, cancel := state.requestContext(cmd)
+			defer cancel()
+			environments, err := client.ListEnvironments(ctx, projectID)
 			if err != nil {
 				return err
 			}

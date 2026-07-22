@@ -52,8 +52,10 @@ func newDeploymentCreateCommand(state *State) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			ctx, cancel := state.requestContext(cmd)
+			defer cancel()
 			deployment, err := client.CreateDeployment(
-				commandContext(cmd),
+				ctx,
 				serviceID,
 				image,
 				replicas,
@@ -84,7 +86,9 @@ func newDeploymentStatusCommand(state *State) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			deployment, err := client.GetDeployment(commandContext(cmd), args[0])
+			ctx, cancel := state.requestContext(cmd)
+			defer cancel()
+			deployment, err := client.GetDeployment(ctx, args[0])
 			if err != nil {
 				return err
 			}
@@ -106,7 +110,9 @@ func newDeploymentListCommand(state *State) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			deployments, err := client.ListDeployments(commandContext(cmd), serviceID)
+			ctx, cancel := state.requestContext(cmd)
+			defer cancel()
+			deployments, err := client.ListDeployments(ctx, serviceID)
 			if err != nil {
 				return err
 			}
