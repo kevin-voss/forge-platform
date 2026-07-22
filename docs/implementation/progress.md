@@ -2,14 +2,14 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 3`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 4`**.
 
 ## Epics
 
 | Epic | Title | Status | Notes |
 |---|---|---|---|
 | [00](epics/00-repository-foundation.md) | Repository foundation | Complete | Local Compose foundation + docs system |
-| [01](epics/01-runtime-contract.md) | Runtime contract | In progress | 7 steps; `N = 1`–`2` complete; next `N = 3` |
+| [01](epics/01-runtime-contract.md) | Runtime contract | In progress | 7 steps; `N = 1`–`3` complete; next `N = 4` |
 | [02](epics/02-forge-control.md) | Forge Control | Planning | 8 steps |
 | [03](epics/03-forge-cli.md) | Forge CLI | Planning | 6 steps |
 | [04](epics/04-forge-runtime.md) | Forge Runtime | Planning | 8 steps |
@@ -36,8 +36,8 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | — | [Initialize repository foundation](steps/00-repository-foundation/00.01-initialize-foundation.md) (foundation) | Complete |  | Pre-queue |
 | **1** | [Document runtime contract](steps/01-runtime-contract/01.01-document-runtime-contract.md) | Complete |  | Docs + OpenAPI + log schema + ports `4201–4205` |
 | **2** | [Shared contract test runner](steps/01-runtime-contract/01.02-contract-test-runner.md) | Complete |  | `tools/contract-validator` + fixture tests |
-| **3** | [Go demo application](steps/01-runtime-contract/01.03-go-demo-app.md) | Not started |  | **implement next** |
-| **4** | [Python demo application](steps/01-runtime-contract/01.04-python-demo-app.md) | Not started |  |  |
+| **3** | [Go demo application](steps/01-runtime-contract/01.03-go-demo-app.md) | Complete |  | `demos/01-container-runtime` Go slice + validator |
+| **4** | [Python demo application](steps/01-runtime-contract/01.04-python-demo-app.md) | Not started |  | **implement next** |
 | **5** | [Kotlin demo application](steps/01-runtime-contract/01.05-kotlin-demo-app.md) | Not started |  |  |
 | **6** | [Rust demo application](steps/01-runtime-contract/01.06-rust-demo-app.md) | Not started |  |  |
 | **7** | [Elixir demo and full five-language suite](steps/01-runtime-contract/01.07-elixir-demo-and-full-suite.md) | Not started |  |  |

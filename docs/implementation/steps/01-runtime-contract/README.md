@@ -6,7 +6,7 @@ Atomic steps for [Runtime contract](../../epics/01-runtime-contract.md).
 |---|---|---|
 | 01.01 | [01.01-document-runtime-contract.md](01.01-document-runtime-contract.md) | Complete |
 | 01.02 | [01.02-contract-test-runner.md](01.02-contract-test-runner.md) | Complete |
-| 01.03 | [01.03-go-demo-app.md](01.03-go-demo-app.md) | Not started |
+| 01.03 | [01.03-go-demo-app.md](01.03-go-demo-app.md) | Complete |
 | 01.04 | [01.04-python-demo-app.md](01.04-python-demo-app.md) | Not started |
 | 01.05 | [01.05-kotlin-demo-app.md](01.05-kotlin-demo-app.md) | Not started |
 | 01.06 | [01.06-rust-demo-app.md](01.06-rust-demo-app.md) | Not started |

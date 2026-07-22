@@ -43,6 +43,7 @@ make test-unit
 
 Tests use an in-tree fixture HTTP server (`fixture_server.py`) so they do not depend on unfinished demo apps.
 
-### Language demos (upcoming)
+### Language demos
 
-Steps `01.03`–`01.07` will start each demo on ports `4201`–`4205` and invoke the same runner. `make demo DEMO=01` will exercise all five languages once those apps exist.
+* Go (`01.03`): `make demo DEMO=01` builds `demo-go-api` on host port `4201` and runs this validator (HTTP, logs, graceful shutdown).
+* Steps `01.04`–`01.07` add Python, Kotlin, Rust, and Elixir on ports `4202`–`4205`; the same runner checks each language.

@@ -1,0 +1,16 @@
+services:
+  demo-go-api:
+    build:
+      context: ./apps/go
+    image: forge/demo-go-api:local
+    container_name: demo-go-api
+    ports:
+      - "4201:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: demo-go-api
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: info
+      FORGE_ENV: development
+    stop_grace_period: 10s
+    restart: "no"

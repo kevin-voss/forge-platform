@@ -67,7 +67,7 @@ Docker Compose
 |---|---|---|---|
 | [01.01](../steps/01-runtime-contract/01.01-document-runtime-contract.md) | Document runtime contract | Complete | Docs + OpenAPI + log schema + port reservations |
 | [01.02](../steps/01-runtime-contract/01.02-contract-test-runner.md) | Shared contract test runner | Complete | `tools/contract-validator`; fixture-tested |
-| [01.03](../steps/01-runtime-contract/01.03-go-demo-app.md) | Go demo application | Not started | First vertical slice + demo 01 scaffold |
+| [01.03](../steps/01-runtime-contract/01.03-go-demo-app.md) | Go demo application | Complete | First vertical slice + demo 01 scaffold |
 | [01.04](../steps/01-runtime-contract/01.04-python-demo-app.md) | Python demo application | Not started | Depends on 01.03; port 4204 |
 | [01.05](../steps/01-runtime-contract/01.05-kotlin-demo-app.md) | Kotlin demo application | Not started | Depends on 01.03; port 4202 |
 | [01.06](../steps/01-runtime-contract/01.06-rust-demo-app.md) | Rust demo application | Not started | Depends on 01.03; port 4203; matches spec example |
@@ -93,4 +93,4 @@ Docker Compose
 
 ## Next step to implement
 
-**[01.03](../steps/01-runtime-contract/01.03-go-demo-app.md) — Go demo application** (depends on completed 01.02).
+**[01.04](../steps/01-runtime-contract/01.04-python-demo-app.md) — Python demo application** (depends on completed 01.03).

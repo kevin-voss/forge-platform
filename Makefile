@@ -43,7 +43,7 @@ help:
 	@echo "  make service-run SERVICE=  Run one service locally"
 
 setup: env-check
-	@chmod +x scripts/*.sh scripts/lib/*.sh demos/00-foundation/run.sh \
+	@chmod +x scripts/*.sh scripts/lib/*.sh demos/*/run.sh \
 		tests/infrastructure/test_infrastructure.sh \
 		tests/contracts/test_runtime_contract_validator.sh \
 		tools/contract-validator/*.sh tools/contract-validator/*.py
