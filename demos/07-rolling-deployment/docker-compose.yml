@@ -8,6 +8,7 @@
 services:
   forge-control:
     environment:
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
       FORGE_RECONCILE_INTERVAL_MS: ${FORGE_RECONCILE_INTERVAL_MS:-1000}
       # 90s: enough for 2-replica batch=1 rolls; still under the platform default 120s.
       FORGE_ROLLOUT_TIMEOUT_S: ${FORGE_ROLLOUT_TIMEOUT_S:-90}

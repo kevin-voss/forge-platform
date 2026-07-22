@@ -94,7 +94,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **58** | [Registration, login, sessions](steps/09-forge-identity/09.03-registration-login-sessions.md) | Complete |  | Argon2id credentials; opaque sessions; register/login/introspect/logout + lockout |
 | **59** | [Roles + project membership](steps/09-forge-identity/09.04-roles-and-project-membership.md) | Complete |  | Role enum + permission matrix; authz/check + matrix APIs; AuthzMatrixTest |
 | **60** | [API tokens + service accounts + revocation](steps/09-forge-identity/09.05-api-tokens-service-accounts-revocation.md) | Complete |  | Hashed API tokens + service accounts; introspect sessions/tokens; revoke |
-| **61** | [Control authz middleware (end `FORGE_AUTH_MODE=dev` default)](steps/09-forge-identity/09.06-control-authz-middleware.md) | Not started |  |  |
+| **61** | [Control authz middleware (end `FORGE_AUTH_MODE=dev` default)](steps/09-forge-identity/09.06-control-authz-middleware.md) | Complete |  | AuthMiddleware + IdentityClient; default `FORGE_AUTH_MODE=enforce`; 401/403; AuthMiddlewareTest |
 | **62** | [CLI `forge login` + token profile](steps/09-forge-identity/09.07-cli-login-and-token-profile.md) | Not started |  |  |
 | **63** | [Demo `09-platform-identity` + epic gate](steps/09-forge-identity/09.08-demo-09-platform-identity.md) | Not started |  |  |
 | **64** | [Skeleton + encryption key bootstrap](steps/10-forge-secrets/10.01-skeleton-and-encryption-key-bootstrap.md) | Not started |  |  |

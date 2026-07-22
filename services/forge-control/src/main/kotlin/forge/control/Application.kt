@@ -1,5 +1,13 @@
 package forge.control
 
+import forge.control.auth.AuthMiddleware
+import forge.control.auth.AuthzCache
+import forge.control.auth.HttpIdentityClient
+import forge.control.auth.IntrospectionCache
+import forge.control.auth.MapProjectScopeResolver
+import forge.control.auth.RepositoryProjectScopeResolver
+import forge.control.auth.RouteActionMap
+import forge.control.auth.installAuthMiddleware
 import forge.control.config.AppConfig
 import forge.control.config.loadAppConfig
 import forge.control.db.Db
@@ -123,8 +131,14 @@ fun main() {
         }
     }
 
-    // FORGE_AUTH_MODE=dev: attribute creates to synthetic actor until Identity 09.06.
-    val actor = "dev"
+    // Creates attributed to the configured auth mode actor (dev bypass or enforce).
+    val actor = if (cfg.authMode.equals("dev", ignoreCase = true)) "dev" else "system"
+    if (cfg.authMode.equals("dev", ignoreCase = true)) {
+        log.warn(
+            "FORGE_AUTH_MODE=dev is enabled — authentication and authorization are BYPASSED. " +
+                "This is insecure; set FORGE_AUTH_MODE=enforce (default) for production-shaped runs.",
+        )
+    }
     val projectRepo = JdbcProjectRepository(db.dataSource)
     val environmentRepo = JdbcEnvironmentRepository(db.dataSource)
     val applicationRepo = JdbcApplicationRepository(db.dataSource)
@@ -295,8 +309,36 @@ fun main() {
     val graceMillis = cfg.shutdownGraceSeconds.toLong().coerceAtLeast(1) * 1_000
     val dbProbe = DbProbe { db.check() }
 
+    val identityClient = HttpIdentityClient(
+        identityUrl = cfg.identityUrl,
+        introspectCache = IntrospectionCache(ttlMillis = cfg.introspectCacheTtlS * 1_000),
+        authzCache = AuthzCache(ttlMillis = cfg.authzCacheTtlS * 1_000),
+    )
+    val routeActionMap = RouteActionMap(
+        scope = RepositoryProjectScopeResolver(
+            applications = applicationRepo,
+            services = serviceRepo,
+            environments = environmentRepo,
+            deployments = deploymentRepo,
+        ),
+    )
+    val authMiddleware = AuthMiddleware(
+        authMode = cfg.authMode,
+        identity = identityClient,
+        routes = routeActionMap,
+        log = log,
+    )
+
     val server = embeddedServer(Netty, port = cfg.port, host = "0.0.0.0") {
-        forgeControlModule(cfg, readiness, dbProbe, services, log, telemetry) { cause ->
+        forgeControlModule(
+            cfg = cfg,
+            readiness = readiness,
+            dbProbe = dbProbe,
+            services = services,
+            log = log,
+            telemetry = telemetry,
+            authMiddleware = authMiddleware,
+        ) { cause ->
             log.error("readiness db check failed", "error" to cause)
         }
         monitor.subscribe(ApplicationStarted) {
@@ -360,6 +402,9 @@ fun main() {
         "version" to cfg.serviceVersion,
         "env" to cfg.env,
         "auth_mode" to cfg.authMode,
+        "identity_url" to cfg.identityUrl,
+        "introspect_cache_ttl_s" to cfg.introspectCacheTtlS,
+        "authz_cache_ttl_s" to cfg.authzCacheTtlS,
         "log_level" to cfg.logLevel,
         "otel_enabled" to cfg.otelEnabled,
         "shutdown_grace_seconds" to cfg.shutdownGraceSeconds,
@@ -389,6 +434,7 @@ fun Application.forgeControlModule(
     services: ControlServices? = null,
     log: JsonLog? = null,
     telemetry: Telemetry = Telemetry.current(),
+    authMiddleware: AuthMiddleware? = null,
     onDbFailure: (String) -> Unit = {},
 ) {
     install(ContentNegotiation) {
@@ -406,6 +452,22 @@ fun Application.forgeControlModule(
         filter { call -> !call.request.path().startsWith("/health") }
     }
     installRequestId()
+
+    val resolvedAuth = authMiddleware ?: AuthMiddleware(
+        authMode = cfg.authMode,
+        identity = HttpIdentityClient(
+            identityUrl = cfg.identityUrl,
+            introspectCache = IntrospectionCache(ttlMillis = cfg.introspectCacheTtlS * 1_000),
+            authzCache = AuthzCache(ttlMillis = cfg.authzCacheTtlS * 1_000),
+        ),
+        routes = RouteActionMap(MapProjectScopeResolver()),
+        log = log,
+    )
+    if (resolvedAuth.isDevBypass) {
+        log?.warn(
+            "FORGE_AUTH_MODE=dev — auth bypass active (insecure; opt-in only)",
+        )
+    }
 
     install(StatusPages) {
         exception<ApiException> { call, cause ->
@@ -439,6 +501,9 @@ fun Application.forgeControlModule(
             )
         }
     }
+
+    // After StatusPages so Unauthorized/Forbidden are rendered as ErrorEnvelope.
+    installAuthMiddleware(resolvedAuth)
 
     if (log != null) {
         intercept(ApplicationCallPipeline.Monitoring) {
@@ -475,10 +540,6 @@ fun Application.forgeControlModule(
             }
         }
     }
-
-    // cfg reserved for future auth middleware / request context (FORGE_AUTH_MODE).
-    @Suppress("UNUSED_VARIABLE")
-    val authMode = cfg.authMode
 
     routing {
         healthRoutes(readiness, dbProbe, onDbFailure)

@@ -23,7 +23,7 @@ Forge CLI → Forge Control → Forge Runtime → Docker Engine → demo-go cont
 * Container name is `forge-<deploymentId>` with labels `forge.deployment_id`,
   `forge.managed=true`, and `forge.node_id`.
 
-Until Identity epic 09, Control and Runtime use `FORGE_AUTH_MODE=dev`. Runtime
+This pre-09 demo sets `FORGE_AUTH_MODE=dev` explicitly (Control defaults to `enforce` as of `09.06`). Runtime
 mounts the host Docker socket — a privileged local-dev convenience, not for
 production.
 
@@ -47,7 +47,7 @@ Expect a final `Demo 04 passed.` line and exit code `0`.
 | `FORGE_PROFILE` | `demo` | Isolated CLI profile name |
 | `DEMO_IMAGE` | `localhost:5000/demo-go:latest` | Image deployed by the gate |
 | `FORGE_RECONCILE_INTERVAL_SECONDS` | `3` (set by `run.sh`) | Faster desired→actual cycles for the demo |
-| `FORGE_AUTH_MODE` | `dev` in Compose | Temporary auth bypass until `09.06` |
+| `FORGE_AUTH_MODE` | `dev` (explicit in `run.sh`) | Insecure bypass; Control defaults to `enforce` as of `09.06` |
 
 No secrets are stored. CLI config lives under a temporary `XDG_CONFIG_HOME`
 removed on exit.

@@ -17,7 +17,7 @@ Phase 2 — reschedule
 
 Assertions use the Control node fleet and placement APIs (not log scraping).
 
-Until Identity epic 09, Control / Runtime use `FORGE_AUTH_MODE=dev`. Runtime
+This pre-09 demo sets `FORGE_AUTH_MODE=dev` explicitly (Control defaults to `enforce` as of `09.06`). Runtime
 agents mount the host Docker socket — a privileged local-dev convenience, not
 for production. Control owns workload lifecycle (`FORGE_LIFECYCLE_OWNER=control`).
 
@@ -60,7 +60,7 @@ Optional phase split:
 | `FORGE_RESCHEDULE_GRACE_S` | `3` | Flap suppression before reschedule |
 | `FORGE_SCHEDULER_STRATEGY` | `least-allocated` | Placement strategy |
 | `FORGE_LIFECYCLE_OWNER` | `control` | Control creates/stops workloads |
-| `FORGE_AUTH_MODE` | `dev` in Compose | Temporary auth bypass until `09.06` |
+| `FORGE_AUTH_MODE` | `dev` (explicit in `run.sh` / overlay) | Insecure bypass; Control defaults to `enforce` as of `09.06` |
 
 `docker-compose.yml` in this directory is an overlay on the root `compose.yaml`
 that adds `forge-runtime-b` and shortens scheduler timeouts.

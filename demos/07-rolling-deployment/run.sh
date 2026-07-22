@@ -3,6 +3,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Pre-09 demos opt into the insecure auth bypass (Control default is enforce as of 09.06).
+export FORGE_AUTH_MODE="${FORGE_AUTH_MODE:-dev}"
 DEMO_DIR="${ROOT_DIR}/demos/07-rolling-deployment"
 APP_DIR="${DEMO_DIR}/apps/demo"
 COMPOSE=(

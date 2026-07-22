@@ -22,7 +22,7 @@ python.demo.localhost  ┘
 * A route change (admin replace) and a Control sync refresh both take effect
   without restarting the gateway.
 
-Until Identity epic 09, Control / Runtime / Gateway use `FORGE_AUTH_MODE=dev`.
+This pre-09 demo sets `FORGE_AUTH_MODE=dev` explicitly (Control defaults to `enforce` as of `09.06`).
 Runtime mounts the host Docker socket — a privileged local-dev convenience, not
 for production. `/admin/routes` is unauthenticated in this mode.
 
@@ -65,7 +65,7 @@ Expect a final `Demo 05 passed.` line and exit code `0`.
 | `FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS` | `2` (set by `run.sh`) | Faster unready detection |
 | `FORGE_UPSTREAM_FAILURE_THRESHOLD` | `1` (set by `run.sh`) | Drop stopped upstreams quickly |
 | `FORGE_RECONCILE_INTERVAL_SECONDS` | `3` (set by `run.sh`) | Faster Control→Runtime converge |
-| `FORGE_AUTH_MODE` | `dev` in Compose | Temporary auth bypass until `09.06` |
+| `FORGE_AUTH_MODE` | `dev` (explicit in `run.sh`) | Insecure bypass; Control defaults to `enforce` as of `09.06` |
 
 No secrets are stored. CLI config lives under a temporary `XDG_CONFIG_HOME`
 removed on exit.

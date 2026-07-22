@@ -96,7 +96,10 @@ make dev
 | `FORGE_OTEL_ENABLED` | `true` | Set `false` for hermetic tests; keeps no-op tracing and metrics. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel-collector:4317` | OTLP/gRPC Collector endpoint. |
 | `FORGE_ENV` | `development` | |
-| `FORGE_AUTH_MODE` | `dev` | Auth bypass until Identity `09.06`; creates attributed to actor `dev` |
+| `FORGE_AUTH_MODE` | `enforce` | `enforce` (default) authenticates via Identity + enforces project roles; `dev` is an explicit insecure bypass (loud startup warning) |
+| `FORGE_IDENTITY_URL` | `http://forge-identity:4002` | Identity base URL for introspect + authz/check |
+| `FORGE_INTROSPECT_CACHE_TTL_S` | `10` | Short TTL so token revocation is honored quickly |
+| `FORGE_AUTHZ_CACHE_TTL_S` | `10` | Short TTL for authz/check decisions |
 | `FORGE_SHUTDOWN_GRACE_SECONDS` | `10` | SIGTERM drain window |
 | `DATABASE_URL` | `jdbc:postgresql://127.0.0.1:5001/forge` (local) / `…://postgres:5432/forge` (Compose) | JDBC URL |
 | `DATABASE_USER` | `forge` | |

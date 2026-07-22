@@ -18,6 +18,9 @@ data class AppConfig(
     val otlpEndpoint: String,
     val env: String,
     val authMode: String,
+    val identityUrl: String = "http://forge-identity:4002",
+    val introspectCacheTtlS: Long = 10,
+    val authzCacheTtlS: Long = 10,
     val shutdownGraceSeconds: Int,
     val database: DatabaseConfig,
     val reconcileEnabled: Boolean = true,
@@ -358,7 +361,23 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         otlpEndpoint = env["OTEL_EXPORTER_OTLP_ENDPOINT"]?.trim().orEmpty()
             .ifEmpty { "http://otel-collector:4317" },
         env = env["FORGE_ENV"]?.trim().orEmpty().ifEmpty { "development" },
-        authMode = env["FORGE_AUTH_MODE"]?.trim().orEmpty().ifEmpty { "dev" },
+        authMode = env["FORGE_AUTH_MODE"]?.trim().orEmpty().ifEmpty { "enforce" },
+        identityUrl = env["FORGE_IDENTITY_URL"]?.trim().orEmpty()
+            .ifEmpty { "http://forge-identity:4002" },
+        introspectCacheTtlS = env["FORGE_INTROSPECT_CACHE_TTL_S"]?.trim().orEmpty()
+            .ifEmpty { "10" }
+            .toLongOrNull()
+            ?.takeIf { it >= 0 }
+            ?: throw IllegalArgumentException(
+                "FORGE_INTROSPECT_CACHE_TTL_S must be a non-negative integer",
+            ),
+        authzCacheTtlS = env["FORGE_AUTHZ_CACHE_TTL_S"]?.trim().orEmpty()
+            .ifEmpty { "10" }
+            .toLongOrNull()
+            ?.takeIf { it >= 0 }
+            ?: throw IllegalArgumentException(
+                "FORGE_AUTHZ_CACHE_TTL_S must be a non-negative integer",
+            ),
         shutdownGraceSeconds = grace,
         database = DatabaseConfig(
             url = env["DATABASE_URL"]?.trim().orEmpty()

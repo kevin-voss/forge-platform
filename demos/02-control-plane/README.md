@@ -53,7 +53,7 @@ curl -sf http://127.0.0.1:4001/health/ready
 | Variable | Default | Purpose |
 |---|---|---|
 | `FORGE_CONTROL_URL` | `http://127.0.0.1:4001` | Control endpoint used by the checks |
-| `FORGE_AUTH_MODE` | `dev` in Compose | Temporary development auth bypass until Identity step `09.06` |
+| `FORGE_AUTH_MODE` | `dev` (explicit in `run.sh`) | Insecure bypass; Control defaults to `enforce` as of `09.06` |
 
 No secrets are stored in this demo. The `localhost:5000/demo-go:latest` image
 reference is data only and is not pulled.

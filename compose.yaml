@@ -237,7 +237,11 @@ services:
       FORGE_OTEL_ENABLED: ${FORGE_OTEL_ENABLED:-true}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
       FORGE_ENV: ${FORGE_ENV:-development}
-      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+      # Default enforce (09.06). Pre-09 demos must set FORGE_AUTH_MODE=dev explicitly.
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-enforce}
+      FORGE_IDENTITY_URL: ${FORGE_IDENTITY_URL:-http://forge-identity:8080}
+      FORGE_INTROSPECT_CACHE_TTL_S: ${FORGE_INTROSPECT_CACHE_TTL_S:-10}
+      FORGE_AUTHZ_CACHE_TTL_S: ${FORGE_AUTHZ_CACHE_TTL_S:-10}
       FORGE_SHUTDOWN_GRACE_SECONDS: ${FORGE_SHUTDOWN_GRACE_SECONDS:-10}
       DATABASE_URL: jdbc:postgresql://postgres:5432/forge
       DATABASE_USER: ${POSTGRES_USER:-forge}

@@ -32,8 +32,8 @@ Runtime (converge container) → Gateway → api.demo.localhost
 * A broken Dockerfile build ends `failed`, exposes no image, creates no
   deployment, and removes its temporary workspace.
 
-Until Identity epic 09, Control / Runtime / Gateway / Build use
-`FORGE_AUTH_MODE=dev`. Build and Runtime mount the host Docker socket — a
+This pre-09 demo sets `FORGE_AUTH_MODE=dev` explicitly (Control defaults to
+`enforce` as of `09.06`). Build and Runtime mount the host Docker socket — a
 privileged local-dev convenience, not for production.
 
 ## Fixture repos
@@ -68,7 +68,7 @@ Expect a final `Demo 06 passed.` line and exit code `0`.
 | `FORGE_ENDPOINT` | same as Control | CLI profile endpoint |
 | `FORGE_PROFILE` | `demo` | Isolated CLI profile name |
 | `FORGE_HOST_PATTERN` | `{service}.demo.localhost` | Hostname template (set by `run.sh`) |
-| `FORGE_AUTH_MODE` | `dev` in Compose | Temporary auth bypass until `09.06` |
+| `FORGE_AUTH_MODE` | `dev` (explicit in `run.sh`) | Insecure bypass; Control defaults to `enforce` as of `09.06` |
 
 No secrets are stored. CLI config lives under a temporary `XDG_CONFIG_HOME`
 removed on exit. Gateway curls use `curl -H 'Host: api.demo.localhost'` so no

@@ -3,6 +3,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Pre-09 demos opt into the insecure auth bypass (Control default is enforce as of 09.06).
+export FORGE_AUTH_MODE="${FORGE_AUTH_MODE:-dev}"
 COMPOSE=(docker compose -f "${ROOT_DIR}/compose.yaml" --project-directory "${ROOT_DIR}")
 CONTROL_URL="${FORGE_CONTROL_URL:-http://127.0.0.1:4001}"
 CONTROL_SERVICE="forge-control"

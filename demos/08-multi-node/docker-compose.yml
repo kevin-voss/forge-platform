@@ -8,6 +8,7 @@
 services:
   forge-control:
     environment:
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
       FORGE_RECONCILE_INTERVAL_MS: ${FORGE_RECONCILE_INTERVAL_MS:-1000}
       FORGE_SCHEDULER_ENABLED: "true"
       FORGE_SCHEDULER_STRATEGY: ${FORGE_SCHEDULER_STRATEGY:-least-allocated}

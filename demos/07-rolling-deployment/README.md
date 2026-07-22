@@ -19,7 +19,7 @@ Scenario B — unhealthy rollout + automatic rollback
 Traffic is served through Forge Gateway on `demo.localhost`
 (`FORGE_HOST_PATTERN={service}.localhost`, service name `demo`).
 
-Until Identity epic 09, Control / Runtime / Gateway use `FORGE_AUTH_MODE=dev`.
+This pre-09 demo sets `FORGE_AUTH_MODE=dev` explicitly (Control defaults to `enforce` as of `09.06`).
 Runtime mounts the host Docker socket — a privileged local-dev convenience, not
 for production. Control owns workload lifecycle (`FORGE_LIFECYCLE_OWNER=control`).
 
@@ -64,7 +64,7 @@ Optional scenario split (both still need a live stack):
 | `FORGE_ROLLOUT_TIMEOUT_S` | `90` | Shortened vs platform default 120; enough for 2-replica rolls |
 | `FORGE_ROLLOUT_BATCH_SIZE` | `1` | One-at-a-time rolling update |
 | `FORGE_LIFECYCLE_OWNER` | `control` | Control creates/stops workloads |
-| `FORGE_AUTH_MODE` | `dev` in Compose | Temporary auth bypass until `09.06` |
+| `FORGE_AUTH_MODE` | `dev` (explicit in `run.sh` / overlay) | Insecure bypass; Control defaults to `enforce` as of `09.06` |
 
 `docker-compose.yml` in this directory is an overlay on the root `compose.yaml`
 that injects the shortened rollout timeout into Control.

@@ -41,6 +41,24 @@ sealed class ApiException(
         details: Map<String, String>? = null,
         code: String = "conflict",
     ) : ApiException(HttpStatusCode.Conflict, code, message, details)
+
+    class Unauthorized(
+        message: String,
+        details: Map<String, String>? = null,
+        code: String = "unauthenticated",
+    ) : ApiException(HttpStatusCode.Unauthorized, code, message, details)
+
+    class Forbidden(
+        message: String,
+        details: Map<String, String>? = null,
+        code: String = "forbidden",
+    ) : ApiException(HttpStatusCode.Forbidden, code, message, details)
+
+    class ServiceUnavailable(
+        message: String,
+        details: Map<String, String>? = null,
+        code: String = "service_unavailable",
+    ) : ApiException(HttpStatusCode.ServiceUnavailable, code, message, details)
 }
 
 fun ApiException.toEnvelope(): ErrorEnvelope =

@@ -27,8 +27,8 @@ project
 
 Control still records desired state only. The demo does not pull or run the
 illustrative deployment image; workload execution is introduced in epic 04.
-Until Identity epic 09, Control runs with the temporary `FORGE_AUTH_MODE=dev`
-bypass.
+This pre-09 demo sets `FORGE_AUTH_MODE=dev` explicitly (Control defaults to
+`enforce` as of `09.06`). That bypass is insecure and opt-in only.
 
 ## Run
 
@@ -58,7 +58,7 @@ curl -sf http://127.0.0.1:4001/health/ready
 | `FORGE_ENDPOINT` | same as `FORGE_CONTROL_URL` | Endpoint written into the CLI profile |
 | `FORGE_PROFILE` | `demo` | Named CLI profile used for the run |
 | `CI` | `1` (set by `run.sh`) | Forces non-interactive CLI behavior |
-| `FORGE_AUTH_MODE` | `dev` in Compose | Temporary development auth bypass until Identity step `09.06` |
+| `FORGE_AUTH_MODE` | `dev` (explicit in `run.sh`) | Insecure bypass; Control defaults to `enforce` as of `09.06` |
 
 No secrets are stored. The demo config file lives under a temporary
 `XDG_CONFIG_HOME` and is removed on exit.
