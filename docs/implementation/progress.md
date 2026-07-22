@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 16`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 17`**.
 
 ## Epics
 
@@ -11,7 +11,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [00](epics/00-repository-foundation.md) | Repository foundation | Complete | Local Compose foundation + docs system |
 | [01](epics/01-runtime-contract.md) | Runtime contract | Complete | 7 steps; five-language demo 01 + shared validator |
 | [02](epics/02-forge-control.md) | Forge Control | Complete | 8/8 steps complete; demo 02 acceptance gate passed |
-| [03](epics/03-forge-cli.md) | Forge CLI | Planning | 6 steps |
+| [03](epics/03-forge-cli.md) | Forge CLI | In progress | 1/6 steps complete; CLI skeleton and profiles |
 | [04](epics/04-forge-runtime.md) | Forge Runtime | Planning | 8 steps |
 | [05](epics/05-forge-gateway.md) | Forge Gateway | Planning | 7 steps |
 | [06](epics/06-forge-build.md) | Forge Build | Planning | 7 steps |
@@ -49,7 +49,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **13** | [Shared errors, OpenAPI, contract tests, idempotency](steps/02-forge-control/02.06-errors-openapi-contract-idempotency.md) | Complete |  | Canonical errors/request IDs, OpenAPI contract, and persisted idempotent creates |
 | **14** | [Structured logs + OTEL](steps/02-forge-control/02.07-structured-logs-and-otel.md) | Complete |  | JSON log correlation, OTLP HTTP/DB spans, and request metrics |
 | **15** | [Demo `02-control-plane` + epic gate](steps/02-forge-control/02.08-demo-control-plane-and-gate.md) | Complete |  | End-to-end HTTP hierarchy, error envelope, migrations, and restart durability |
-| **16** | [CLI skeleton, profiles, endpoint config, global flags](steps/03-forge-cli/03.01-cli-skeleton-and-config.md) | Not started |  |  |
+| **16** | [CLI skeleton, profiles, endpoint config, global flags](steps/03-forge-cli/03.01-cli-skeleton-and-config.md) | Complete |  | Go Cobra CLI, secure XDG profiles, global config resolution, HTTP client factory |
 | **17** | [`project` / `app` / `service` commands](steps/03-forge-cli/03.02-project-app-service-commands.md) | Not started |  |  |
 | **18** | [`deployment create|status`](steps/03-forge-cli/03.03-deployment-commands.md) | Not started |  |  |
 | **19** | [Table/JSON output, exit codes, timeouts, request IDs](steps/03-forge-cli/03.04-output-exit-codes-timeouts.md) | Not started |  |  |

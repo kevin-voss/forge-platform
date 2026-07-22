@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning
+In progress
 
 ## Goal
 
@@ -54,7 +54,7 @@ make demo DEMO=03
 
 | Step | Title | Status | Notes |
 |---|---|---|---|
-| [03.01](../steps/03-forge-cli/03.01-cli-skeleton-and-config.md) | CLI skeleton, profiles, endpoint config, global flags | Not started | Cobra tree, config file, `--output`, `--endpoint` |
+| [03.01](../steps/03-forge-cli/03.01-cli-skeleton-and-config.md) | CLI skeleton, profiles, endpoint config, global flags | Complete | Cobra tree, secure config file, global flags, HTTP client factory |
 | [03.02](../steps/03-forge-cli/03.02-project-app-service-commands.md) | `project` / `app` / `service` commands | Not started | Depends on 03.01 + Control 02.03/02.04 |
 | [03.03](../steps/03-forge-cli/03.03-deployment-commands.md) | `deployment create\|status` | Not started | Depends on 03.02 + Control 02.05 |
 | [03.04](../steps/03-forge-cli/03.04-output-exit-codes-timeouts.md) | Table/JSON output, exit codes, timeouts, request IDs | Not started | Depends on 03.02/03.03 |
@@ -80,4 +80,4 @@ make demo DEMO=03
 
 ## Next step to implement
 
-**[03.01](../steps/03-forge-cli/03.01-cli-skeleton-and-config.md) — CLI skeleton, profiles, endpoint config, global flags** (build the command tree, config/profile loading, and global flags before any resource commands).
+**[03.02](../steps/03-forge-cli/03.02-project-app-service-commands.md) — `project` / `app` / `service` commands** (add the first resource command groups on the established CLI foundation).
