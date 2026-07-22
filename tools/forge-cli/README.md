@@ -1,8 +1,9 @@
 # Forge CLI
 
 `forge` is the Go command-line client for Forge Control. It manages CLI-side
-endpoint profiles and creates and reads projects, environments, applications,
-services, and desired deployments through the Control HTTP API.
+endpoint profiles, authenticates via Forge Identity (`forge login`), and creates
+and reads projects, environments, applications, services, and desired
+deployments through the Control HTTP API.
 
 ## Build and test
 
@@ -45,6 +46,25 @@ profile file, then the built-in local endpoint `http://127.0.0.1:4001`.
 environment defaults. Command-line flags take precedence over their
 corresponding environment variables.
 
+## Authentication
+
+`forge login` authenticates against Forge Identity and stores a bearer token for
+the active profile. All Control API calls then send `Authorization: Bearer`.
+
+```bash
+export FORGE_IDENTITY_URL=http://127.0.0.1:4002
+forge login --email dev@example.com          # prompts for password (no echo)
+forge login --token "$PAT"                   # non-interactive / CI
+FORGE_TOKEN="$PAT" forge login               # same via environment
+forge whoami                                 # principal, project, role
+forge logout                                 # revoke server-side + clear local
+```
+
+Tokens are stored per profile. The CLI prefers the OS keychain when available,
+otherwise `$XDG_CONFIG_HOME/forge/credentials` (or `~/.config/forge/credentials`)
+with mode `0600`. Override with `FORGE_CREDENTIALS_BACKEND=keychain|file`.
+`FORGE_TOKEN` overrides the stored profile token for a single invocation.
+
 ## Shell completion
 
 Generate a completion script for the shell you use, then install it according
@@ -67,12 +87,13 @@ network requests.
 
 ## Non-interactive use
 
-Forge has no interactive prompts. Every required value must be passed by flag,
+Resource commands do not prompt. Every required value must be passed by flag,
 environment, or stdin where a command documents stdin input. Missing required
-flags fail with exit code `2`; the CLI does not wait for terminal input.
+flags fail with exit code `2`. The only interactive prompt is `forge login`
+password entry; use `--token` / `FORGE_TOKEN` in CI.
 
-Use `--no-input` to make this explicit. `FORGE_NO_INPUT=1`, a non-TTY stdin,
-or any set `CI` environment variable enable the same non-interactive policy:
+Use `--no-input` to make non-interactive policy explicit. `FORGE_NO_INPUT=1`, a
+non-TTY stdin, or any set `CI` environment variable enable the same policy:
 
 ```bash
 forge --no-input project create --name acme --slug acme
@@ -104,8 +125,11 @@ expires. The default is `30s`.
 | 1 | Unexpected error |
 | 2 | Usage or validation error |
 | 3 | Control resource not found (HTTP 404) |
-| 4 | Control conflict (HTTP 409) |
+| 4 | Auth error (HTTP 401/403) or Control conflict (HTTP 409) |
 | 5 | Request timeout or network failure |
+
+HTTP `401` prints guidance to run `forge login`. HTTP `403` surfaces the
+required action and current role from Control's error details.
 
 ## Resources
 

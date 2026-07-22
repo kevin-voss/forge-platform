@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 61`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 63`**.
 
 ## Epics
 
@@ -17,7 +17,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [06](epics/06-forge-build.md) | Forge Build | Complete | 7/7 steps complete; demo 06 source-to-deployment acceptance gate passed |
 | [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | Complete | 6/6 steps complete; demo 07 rolling-deployment acceptance gate passed |
 | [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | Complete | 6/6 steps complete; demo 08 multi-node acceptance gate passed |
-| [09](epics/09-forge-identity.md) | Forge Identity | In progress | 5/8 steps complete |
+| [09](epics/09-forge-identity.md) | Forge Identity | In progress | 7/8 steps complete |
 | [10](epics/10-forge-secrets.md) | Forge Secrets | Planning | 7 steps |
 | [11](epics/11-forge-events.md) | Forge Events | Planning | 7 steps |
 | [12](epics/12-forge-observe.md) | Forge Observe | Planning | 7 steps |
@@ -95,7 +95,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **59** | [Roles + project membership](steps/09-forge-identity/09.04-roles-and-project-membership.md) | Complete |  | Role enum + permission matrix; authz/check + matrix APIs; AuthzMatrixTest |
 | **60** | [API tokens + service accounts + revocation](steps/09-forge-identity/09.05-api-tokens-service-accounts-revocation.md) | Complete |  | Hashed API tokens + service accounts; introspect sessions/tokens; revoke |
 | **61** | [Control authz middleware (end `FORGE_AUTH_MODE=dev` default)](steps/09-forge-identity/09.06-control-authz-middleware.md) | Complete |  | AuthMiddleware + IdentityClient; default `FORGE_AUTH_MODE=enforce`; 401/403; AuthMiddlewareTest |
-| **62** | [CLI `forge login` + token profile](steps/09-forge-identity/09.07-cli-login-and-token-profile.md) | Not started |  |  |
+| **62** | [CLI `forge login` + token profile](steps/09-forge-identity/09.07-cli-login-and-token-profile.md) | Complete |  | `forge login`/`whoami`/`logout`; credential store; Bearer on Control calls |
 | **63** | [Demo `09-platform-identity` + epic gate](steps/09-forge-identity/09.08-demo-09-platform-identity.md) | Not started |  |  |
 | **64** | [Skeleton + encryption key bootstrap](steps/10-forge-secrets/10.01-skeleton-and-encryption-key-bootstrap.md) | Not started |  |  |
 | **65** | [Encrypted store + key versioning + metadata APIs](steps/10-forge-secrets/10.02-encrypted-store-key-versioning-metadata.md) | Not started |  |  |

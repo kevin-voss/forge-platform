@@ -17,6 +17,7 @@ import (
 // Client is a typed client for Forge Control resource endpoints.
 type Client struct {
 	client  *sharedclient.Client
+	token   string
 	verbose func(method, path string, status int, requestID string, duration time.Duration)
 }
 
@@ -26,12 +27,25 @@ type APIError struct {
 	Code      string
 	Message   string
 	RequestID string
+	Details   map[string]string
 }
 
 func (e *APIError) Error() string {
 	message := e.Message
 	if message == "" {
 		message = http.StatusText(e.Status)
+	}
+	switch e.Status {
+	case http.StatusUnauthorized:
+		message = "not logged in or session expired; run forge login"
+	case http.StatusForbidden:
+		message = "forbidden"
+		if action := e.Details["required_action"]; action != "" {
+			message = fmt.Sprintf("forbidden: insufficient role for %s", action)
+		}
+		if role := e.Details["role"]; role != "" {
+			message = fmt.Sprintf("%s (current role: %s)", message, role)
+		}
 	}
 	if e.RequestID != "" {
 		return fmt.Sprintf("%s (requestId: %s)", message, e.RequestID)
@@ -46,6 +60,11 @@ func New(endpoint string, timeout time.Duration, verbose func(method, path strin
 		return nil, err
 	}
 	return &Client{client: client, verbose: verbose}, nil
+}
+
+// SetBearerToken configures the Authorization header for subsequent Control calls.
+func (c *Client) SetBearerToken(token string) {
+	c.token = strings.TrimSpace(token)
 }
 
 // CreateProject creates a project.
@@ -171,6 +190,9 @@ func (c *Client) doJSONWithHeaders(ctx context.Context, method, path string, inp
 			request.Header.Add(name, value)
 		}
 	}
+	if c.token != "" {
+		request.Header.Set("Authorization", "Bearer "+c.token)
+	}
 
 	started := time.Now()
 	response, err := c.client.Do(request)
@@ -191,7 +213,13 @@ func (c *Client) doJSONWithHeaders(ctx context.Context, method, path string, inp
 		if requestID == "" {
 			requestID = response.RequestID
 		}
-		return &APIError{Status: response.StatusCode, Code: envelope.Error.Code, Message: envelope.Error.Message, RequestID: requestID}
+		return &APIError{
+			Status:    response.StatusCode,
+			Code:      envelope.Error.Code,
+			Message:   envelope.Error.Message,
+			RequestID: requestID,
+			Details:   envelope.Error.Details,
+		}
 	}
 	if output == nil {
 		return nil

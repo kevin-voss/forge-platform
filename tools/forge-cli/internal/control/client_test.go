@@ -105,6 +105,50 @@ func TestProjectMethodsUseControlContract(t *testing.T) {
 	}
 }
 
+func TestControlClientInjectsBearerToken(t *testing.T) {
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		gotAuth = request.Header.Get("Authorization")
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+
+	client, err := New(server.URL, time.Second, nil)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	client.SetBearerToken("opaque-token")
+	if _, err := client.ListProjects(context.Background()); err != nil {
+		t.Fatalf("ListProjects() error = %v", err)
+	}
+	if gotAuth != "Bearer opaque-token" {
+		t.Fatalf("Authorization = %q, want Bearer opaque-token", gotAuth)
+	}
+}
+
+func TestControlAuthErrorsSurfaceActionAndExitMapping(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusForbidden)
+		_, _ = writer.Write([]byte(`{"error":{"code":"forbidden","message":"forbidden","details":{"required_action":"project.create","role":"viewer"},"requestId":"req-403"}}`))
+	}))
+	defer server.Close()
+
+	client, err := New(server.URL, time.Second, nil)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	_, err = client.ListProjects(context.Background())
+	var apiError *APIError
+	if !errors.As(err, &apiError) {
+		t.Fatalf("error = %v, want APIError", err)
+	}
+	if got := apiError.Error(); !strings.Contains(got, "project.create") || !strings.Contains(got, "viewer") {
+		t.Fatalf("error message = %q", got)
+	}
+}
+
 func TestControlErrorEnvelopeIncludesRequestID(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")

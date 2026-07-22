@@ -5,8 +5,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
+	"forge.local/tools/forge-cli/internal/auth"
 	"forge.local/tools/forge-cli/internal/config"
 	"forge.local/tools/forge-cli/internal/control"
 	"forge.local/tools/forge-cli/internal/interactive"
@@ -63,6 +65,9 @@ func NewRootCommand(version string) *cobra.Command {
 		newVersionCommand(version),
 		newConfigCommand(state),
 		newCompletionCommand(),
+		newLoginCommand(state),
+		newLogoutCommand(state),
+		newWhoamiCommand(state),
 		newProjectCommand(state),
 		newEnvironmentCommand(state),
 		newApplicationCommand(state),
@@ -120,11 +125,31 @@ func (s *State) TimeoutDuration() time.Duration {
 }
 
 func (s *State) controlClient(cmd *cobra.Command) (*control.Client, error) {
-	return control.New(s.Resolved.Endpoint, s.TimeoutDuration(), func(method, path string, status int, requestID string, duration time.Duration) {
+	client, err := control.New(s.Resolved.Endpoint, s.TimeoutDuration(), func(method, path string, status int, requestID string, duration time.Duration) {
 		if s.Verbose {
 			fmt.Fprintf(cmd.ErrOrStderr(), "forge: %s %s status=%d duration=%s requestId=%s\n", method, path, status, duration.Round(time.Millisecond), requestID)
 		}
 	})
+	if err != nil {
+		return nil, err
+	}
+	token, err := s.resolveBearerToken()
+	if err != nil {
+		return nil, err
+	}
+	client.SetBearerToken(token)
+	return client, nil
+}
+
+func (s *State) resolveBearerToken() (string, error) {
+	if token := strings.TrimSpace(os.Getenv("FORGE_TOKEN")); token != "" {
+		return token, nil
+	}
+	store, err := auth.OpenStore()
+	if err != nil {
+		return "", err
+	}
+	return auth.ResolveToken(store, s.Resolved.Profile)
 }
 
 func (s *State) render(cmd *cobra.Command, value any) error {
