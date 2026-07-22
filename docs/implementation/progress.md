@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 8`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 9`**.
 
 ## Epics
 
@@ -10,7 +10,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 |---|---|---|---|
 | [00](epics/00-repository-foundation.md) | Repository foundation | Complete | Local Compose foundation + docs system |
 | [01](epics/01-runtime-contract.md) | Runtime contract | Complete | 7 steps; five-language demo 01 + shared validator |
-| [02](epics/02-forge-control.md) | Forge Control | Planning | 8 steps |
+| [02](epics/02-forge-control.md) | Forge Control | In progress | 1/8 steps complete |
 | [03](epics/03-forge-cli.md) | Forge CLI | Planning | 6 steps |
 | [04](epics/04-forge-runtime.md) | Forge Runtime | Planning | 8 steps |
 | [05](epics/05-forge-gateway.md) | Forge Gateway | Planning | 7 steps |
@@ -41,7 +41,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **5** | [Kotlin demo application](steps/01-runtime-contract/01.05-kotlin-demo-app.md) | Complete |  | `demo-kotlin-api` on `4202` + Go/Python regression |
 | **6** | [Rust demo application](steps/01-runtime-contract/01.06-rust-demo-app.md) | Complete |  | `demo-rust-api` on `4203` + Go/Kotlin/Python regression |
 | **7** | [Elixir demo and full five-language suite](steps/01-runtime-contract/01.07-elixir-demo-and-full-suite.md) | Complete |  | `demo-elixir-api` on `4205` + full five-language suite |
-| **8** | [Service skeleton, health, Compose](steps/02-forge-control/02.01-service-skeleton.md) | Not started |  |  |
+| **8** | [Service skeleton, health, Compose](steps/02-forge-control/02.01-service-skeleton.md) | Complete |  | Ktor skeleton, health, Compose on `4001` |
 | **9** | [Domain model + Postgres migrations](steps/02-forge-control/02.02-domain-model-and-migrations.md) | Not started |  |  |
 | **10** | [Projects & environments API](steps/02-forge-control/02.03-projects-environments-api.md) | Not started |  |  |
 | **11** | [Applications & services API + relationship validation](steps/02-forge-control/02.04-applications-services-api.md) | Not started |  |  |

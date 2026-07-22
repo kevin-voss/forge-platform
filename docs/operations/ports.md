@@ -25,6 +25,12 @@
 | OTLP HTTP | 4318 |
 | OTEL health | 13133 |
 
+## Platform public APIs
+
+| Service | Host port |
+|---|---:|
+| Forge Control | 4001 |
+
 ## Demo allocations (epic 01)
 
 Reserved host ports for `demos/01-container-runtime` (five-language runtime contract suite):
