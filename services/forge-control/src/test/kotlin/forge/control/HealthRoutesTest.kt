@@ -1,6 +1,9 @@
 package forge.control
 
 import forge.control.config.AppConfig
+import forge.control.config.DatabaseConfig
+import forge.control.http.AlwaysHealthyDb
+import forge.control.http.DbProbe
 import forge.control.http.HealthResponse
 import forge.control.http.Readiness
 import io.ktor.client.call.body
@@ -22,12 +25,20 @@ class HealthRoutesTest {
         env = "test",
         authMode = "dev",
         shutdownGraceSeconds = 10,
+        database = DatabaseConfig(
+            url = "jdbc:postgresql://127.0.0.1:5001/forge",
+            user = "forge",
+            password = "forge",
+            schema = "control",
+            poolMax = 10,
+            migrateOnStart = true,
+        ),
     )
 
     @Test
     fun liveReturnsLiveStatus() = testApplication {
         application {
-            forgeControlModule(cfg, Readiness(initial = true))
+            forgeControlModule(cfg, Readiness(initial = true), AlwaysHealthyDb)
         }
         val client = createClient {
             install(ContentNegotiation) {
@@ -40,9 +51,9 @@ class HealthRoutesTest {
     }
 
     @Test
-    fun readyReturnsReadyWhenStarted() = testApplication {
+    fun readyReturnsReadyWhenStartedAndDbHealthy() = testApplication {
         application {
-            forgeControlModule(cfg, Readiness(initial = true))
+            forgeControlModule(cfg, Readiness(initial = true), AlwaysHealthyDb)
         }
         val client = createClient {
             install(ContentNegotiation) {
@@ -57,7 +68,23 @@ class HealthRoutesTest {
     @Test
     fun readyReturns503BeforeStarted() = testApplication {
         application {
-            forgeControlModule(cfg, Readiness(initial = false))
+            forgeControlModule(cfg, Readiness(initial = false), AlwaysHealthyDb)
+        }
+        val client = createClient {
+            install(ContentNegotiation) {
+                json(Json { ignoreUnknownKeys = true })
+            }
+        }
+        val response = client.get("/health/ready")
+        assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
+        assertEquals("not_ready", response.body<HealthResponse>().status)
+    }
+
+    @Test
+    fun readyReturns503WhenDbUnavailable() = testApplication {
+        val failingDb = DbProbe { "connection refused" }
+        application {
+            forgeControlModule(cfg, Readiness(initial = true), failingDb)
         }
         val client = createClient {
             install(ContentNegotiation) {

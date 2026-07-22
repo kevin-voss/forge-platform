@@ -21,15 +21,34 @@ class Readiness(initial: Boolean = false) {
     fun isReady(): Boolean = ready.get()
 }
 
-fun Route.healthRoutes(readiness: Readiness) {
+/** Database readiness probe. Returns null when healthy, else an error message. */
+fun interface DbProbe {
+    fun check(): String?
+}
+
+object AlwaysHealthyDb : DbProbe {
+    override fun check(): String? = null
+}
+
+fun Route.healthRoutes(
+    readiness: Readiness,
+    dbProbe: DbProbe = AlwaysHealthyDb,
+    onDbFailure: (String) -> Unit = {},
+) {
     get("/health/live") {
         call.respond(HealthResponse(status = "live"))
     }
     get("/health/ready") {
-        if (readiness.isReady()) {
-            call.respond(HealthResponse(status = "ready"))
-        } else {
+        if (!readiness.isReady()) {
             call.respond(HttpStatusCode.ServiceUnavailable, HealthResponse(status = "not_ready"))
+            return@get
         }
+        val dbError = dbProbe.check()
+        if (dbError != null) {
+            onDbFailure(dbError)
+            call.respond(HttpStatusCode.ServiceUnavailable, HealthResponse(status = "not_ready"))
+            return@get
+        }
+        call.respond(HealthResponse(status = "ready"))
     }
 }

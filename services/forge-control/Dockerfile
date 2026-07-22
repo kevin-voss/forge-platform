@@ -31,6 +31,12 @@ ENV PORT=8080 \
 	FORGE_LOG_LEVEL=info \
 	FORGE_ENV=development \
 	FORGE_AUTH_MODE=dev \
-	FORGE_SHUTDOWN_GRACE_SECONDS=10
+	FORGE_SHUTDOWN_GRACE_SECONDS=10 \
+	DATABASE_URL=jdbc:postgresql://postgres:5432/forge \
+	DATABASE_USER=forge \
+	DATABASE_PASSWORD=forge \
+	DATABASE_SCHEMA=control \
+	DATABASE_POOL_MAX=10 \
+	DATABASE_MIGRATE_ON_START=true
 
 ENTRYPOINT ["java", "-jar", "/app/forge-control.jar"]

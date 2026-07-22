@@ -69,7 +69,7 @@ GET /v1/projects/{id}?expand=tree   → full hierarchy
 | Step | Title | Status | Notes |
 |---|---|---|---|
 | [02.01](../steps/02-forge-control/02.01-service-skeleton.md) | Service skeleton, health, Compose | Complete | Ktor module, Makefile, Dockerfile, port 4001 |
-| [02.02](../steps/02-forge-control/02.02-domain-model-and-migrations.md) | Domain model + Postgres migrations | Not started | Depends on 02.01; Project/Environment/Application/Service/Deployment |
+| [02.02](../steps/02-forge-control/02.02-domain-model-and-migrations.md) | Domain model + Postgres migrations | Complete | Schema `control`, Flyway, Hikari, JDBC repos |
 | [02.03](../steps/02-forge-control/02.03-projects-environments-api.md) | Projects & environments API | Not started | Depends on 02.02; first curlable slice |
 | [02.04](../steps/02-forge-control/02.04-applications-services-api.md) | Applications & services API + relationship validation | Not started | Depends on 02.03 |
 | [02.05](../steps/02-forge-control/02.05-deployments-desired-state-api.md) | Deployments desired-state API + basic audit | Not started | Depends on 02.04 |
@@ -98,4 +98,4 @@ GET /v1/projects/{id}?expand=tree   → full hierarchy
 
 ## Next step to implement
 
-**[02.02](../steps/02-forge-control/02.02-domain-model-and-migrations.md) — Domain model + Postgres migrations** (entities, schema, Flyway/migrations; depends on 02.01 skeleton).
+**[02.03](../steps/02-forge-control/02.03-projects-environments-api.md) — Projects & environments API** (first curlable slice; depends on 02.02).

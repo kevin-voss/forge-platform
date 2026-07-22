@@ -179,6 +179,12 @@ services:
       FORGE_ENV: ${FORGE_ENV:-development}
       FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
       FORGE_SHUTDOWN_GRACE_SECONDS: ${FORGE_SHUTDOWN_GRACE_SECONDS:-10}
+      DATABASE_URL: jdbc:postgresql://postgres:5432/forge
+      DATABASE_USER: ${POSTGRES_USER:-forge}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-forge}
+      DATABASE_SCHEMA: control
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
+      DATABASE_MIGRATE_ON_START: ${DATABASE_MIGRATE_ON_START:-true}
     depends_on:
       postgres:
         condition: service_healthy

@@ -2,6 +2,9 @@ package forge.control
 
 import forge.control.config.AppConfig
 import forge.control.config.loadAppConfig
+import forge.control.db.Db
+import forge.control.http.AlwaysHealthyDb
+import forge.control.http.DbProbe
 import forge.control.http.HealthResponse
 import forge.control.http.Readiness
 import forge.control.http.healthRoutes
@@ -32,11 +35,37 @@ fun main() {
     }
 
     val log = JsonLog(cfg.serviceName, cfg.logLevel)
+    val db = try {
+        Db.open(cfg.database, log)
+    } catch (e: Exception) {
+        log.error("db pool failed to initialize", "error" to (e.message ?: e.javaClass.simpleName))
+        exitProcess(1)
+    }
+
+    if (cfg.database.migrateOnStart) {
+        try {
+            val result = db.migrate()
+            log.info(
+                "migrations applied",
+                "from" to result.initialSchemaVersion,
+                "to" to result.targetSchemaVersion,
+                "migrations_executed" to result.migrationsExecuted,
+            )
+        } catch (e: Exception) {
+            log.error("migration failed", "error" to (e.message ?: e.javaClass.simpleName))
+            db.close()
+            exitProcess(1)
+        }
+    }
+
     val readiness = Readiness()
     val graceMillis = cfg.shutdownGraceSeconds.toLong().coerceAtLeast(1) * 1_000
+    val dbProbe = DbProbe { db.check() }
 
     val server = embeddedServer(Netty, port = cfg.port, host = "0.0.0.0") {
-        forgeControlModule(cfg, readiness)
+        forgeControlModule(cfg, readiness, dbProbe) { cause ->
+            log.error("readiness db check failed", "error" to cause)
+        }
         monitor.subscribe(ApplicationStarted) {
             readiness.markReady()
             log.info(
@@ -53,6 +82,7 @@ fun main() {
         Thread {
             log.info("shutdown signal received", "signal" to "SIGTERM")
             server.stop(gracePeriodMillis = 1_000, timeoutMillis = graceMillis)
+            db.close()
             log.info("shutdown complete")
             // HotSpot reports SIGTERM as 143 unless we halt(0) after a clean drain.
             // Do not call System.exit/exitProcess from a shutdown hook (deadlocks).
@@ -68,12 +98,23 @@ fun main() {
         "auth_mode" to cfg.authMode,
         "log_level" to cfg.logLevel,
         "shutdown_grace_seconds" to cfg.shutdownGraceSeconds,
+        "db_schema" to cfg.database.schema,
+        "db_migrate_on_start" to cfg.database.migrateOnStart,
     )
 
-    server.start(wait = true)
+    try {
+        server.start(wait = true)
+    } finally {
+        db.close()
+    }
 }
 
-fun Application.forgeControlModule(cfg: AppConfig, readiness: Readiness) {
+fun Application.forgeControlModule(
+    cfg: AppConfig,
+    readiness: Readiness,
+    dbProbe: DbProbe = AlwaysHealthyDb,
+    onDbFailure: (String) -> Unit = {},
+) {
     install(ContentNegotiation) {
         json(
             Json {
@@ -106,6 +147,6 @@ fun Application.forgeControlModule(cfg: AppConfig, readiness: Readiness) {
     val authMode = cfg.authMode
 
     routing {
-        healthRoutes(readiness)
+        healthRoutes(readiness, dbProbe, onDbFailure)
     }
 }

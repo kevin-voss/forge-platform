@@ -38,6 +38,40 @@ class AppConfigTest {
         assertEquals("development", cfg.env)
         assertEquals("dev", cfg.authMode)
         assertEquals(10, cfg.shutdownGraceSeconds)
+        assertEquals("jdbc:postgresql://127.0.0.1:5001/forge", cfg.database.url)
+        assertEquals("forge", cfg.database.user)
+        assertEquals("forge", cfg.database.password)
+        assertEquals("control", cfg.database.schema)
+        assertEquals(10, cfg.database.poolMax)
+        assertEquals(true, cfg.database.migrateOnStart)
+    }
+
+    @Test
+    fun parsesDatabaseEnv() {
+        val cfg = loadAppConfig(
+            mapOf(
+                "PORT" to "8080",
+                "DATABASE_URL" to "jdbc:postgresql://postgres:5432/forge",
+                "DATABASE_USER" to "control",
+                "DATABASE_PASSWORD" to "secret",
+                "DATABASE_SCHEMA" to "control",
+                "DATABASE_POOL_MAX" to "5",
+                "DATABASE_MIGRATE_ON_START" to "false",
+            ),
+        )
+        assertEquals("jdbc:postgresql://postgres:5432/forge", cfg.database.url)
+        assertEquals("control", cfg.database.user)
+        assertEquals("secret", cfg.database.password)
+        assertEquals("control", cfg.database.schema)
+        assertEquals(5, cfg.database.poolMax)
+        assertEquals(false, cfg.database.migrateOnStart)
+    }
+
+    @Test
+    fun rejectsInvalidDatabaseSchema() {
+        assertFailsWith<IllegalArgumentException> {
+            loadAppConfig(mapOf("PORT" to "8080", "DATABASE_SCHEMA" to "control;drop"))
+        }
     }
 
     @Test

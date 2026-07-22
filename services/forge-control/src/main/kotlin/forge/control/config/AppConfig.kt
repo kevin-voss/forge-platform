@@ -1,5 +1,14 @@
 package forge.control.config
 
+data class DatabaseConfig(
+    val url: String,
+    val user: String,
+    val password: String,
+    val schema: String,
+    val poolMax: Int,
+    val migrateOnStart: Boolean,
+)
+
 data class AppConfig(
     val port: Int,
     val serviceName: String,
@@ -8,6 +17,7 @@ data class AppConfig(
     val env: String,
     val authMode: String,
     val shutdownGraceSeconds: Int,
+    val database: DatabaseConfig,
 )
 
 fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
@@ -39,6 +49,29 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         )
     }
 
+    val poolRaw = env["DATABASE_POOL_MAX"]?.trim().orEmpty().ifEmpty { "10" }
+    val poolMax = poolRaw.toIntOrNull()
+        ?: throw IllegalArgumentException("DATABASE_POOL_MAX must be a positive integer, got '$poolRaw'")
+    if (poolMax < 1) {
+        throw IllegalArgumentException("DATABASE_POOL_MAX must be a positive integer, got '$poolRaw'")
+    }
+
+    val migrateRaw = env["DATABASE_MIGRATE_ON_START"]?.trim()?.lowercase().orEmpty().ifEmpty { "true" }
+    val migrateOnStart = when (migrateRaw) {
+        "true", "1", "yes" -> true
+        "false", "0", "no" -> false
+        else -> throw IllegalArgumentException(
+            "DATABASE_MIGRATE_ON_START must be true|false, got '$migrateRaw'",
+        )
+    }
+
+    val schema = env["DATABASE_SCHEMA"]?.trim().orEmpty().ifEmpty { "control" }
+    if (!schema.matches(Regex("^[a-zA-Z_][a-zA-Z0-9_]*$"))) {
+        throw IllegalArgumentException(
+            "DATABASE_SCHEMA must be a simple SQL identifier, got '$schema'",
+        )
+    }
+
     return AppConfig(
         port = port,
         serviceName = env["FORGE_SERVICE_NAME"]?.trim().orEmpty().ifEmpty { "forge-control" },
@@ -47,5 +80,14 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         env = env["FORGE_ENV"]?.trim().orEmpty().ifEmpty { "development" },
         authMode = env["FORGE_AUTH_MODE"]?.trim().orEmpty().ifEmpty { "dev" },
         shutdownGraceSeconds = grace,
+        database = DatabaseConfig(
+            url = env["DATABASE_URL"]?.trim().orEmpty()
+                .ifEmpty { "jdbc:postgresql://127.0.0.1:5001/forge" },
+            user = env["DATABASE_USER"]?.trim().orEmpty().ifEmpty { "forge" },
+            password = env["DATABASE_PASSWORD"]?.trim().orEmpty().ifEmpty { "forge" },
+            schema = schema,
+            poolMax = poolMax,
+            migrateOnStart = migrateOnStart,
+        ),
     )
 }
