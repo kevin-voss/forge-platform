@@ -1,0 +1,9 @@
+# Normative epic 01 workload / demo environment
+PORT=8080
+FORGE_SERVICE_NAME=demo-go-api
+FORGE_SERVICE_VERSION=0.1.0
+FORGE_LOG_LEVEL=info
+FORGE_ENV=development
+
+# If both PORT and FORGE_HTTP_PORT are set, PORT wins for binding.
+# FORGE_HTTP_PORT=8080

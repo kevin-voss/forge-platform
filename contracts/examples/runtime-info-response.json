@@ -1,0 +1,7 @@
+{
+  "service": "demo-go-api",
+  "language": "go",
+  "status": "running",
+  "version": "0.1.0",
+  "uptime_seconds": 12.5
+}

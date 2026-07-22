@@ -1,0 +1,113 @@
+openapi: 3.0.3
+info:
+  title: Forge Platform Runtime Contract
+  description: |
+    Language-agnostic HTTP surface every Forge deployable must expose.
+    Normative companion to docs/contracts/runtime-contract.md.
+  version: 0.1.0
+
+servers:
+  - url: http://localhost:{port}
+    description: Local demo or workload
+    variables:
+      port:
+        default: "8080"
+
+paths:
+  /health/live:
+    get:
+      operationId: getHealthLive
+      summary: Liveness probe
+      description: Returns 200 when the process is alive.
+      responses:
+        "200":
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: ok
+        "503":
+          description: Process not alive (unusual for a responding server)
+
+  /health/ready:
+    get:
+      operationId: getHealthReady
+      summary: Readiness probe
+      description: Returns 200 when ready to receive traffic; non-200 when not ready.
+      responses:
+        "200":
+          description: Ready to receive traffic
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: ok
+        "503":
+          description: Not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: not_ready
+
+  /:
+    get:
+      operationId: getIdentity
+      summary: Service identity
+      description: |
+        Returns JSON identity for the running service. Minimum fields are
+        service, language, and status. version and uptime_seconds are optional.
+      responses:
+        "200":
+          description: Identity payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Identity"
+              example:
+                service: demo-go-api
+                language: go
+                status: running
+                version: 0.1.0
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      additionalProperties: true
+      properties:
+        status:
+          type: string
+          description: Short health indicator (e.g. ok, not_ready)
+
+    Identity:
+      type: object
+      required:
+        - service
+        - language
+        - status
+      properties:
+        service:
+          type: string
+          description: Logical service name
+          example: demo-go-api
+        language:
+          type: string
+          description: Implementation language
+          example: go
+        status:
+          type: string
+          description: Runtime status
+          example: running
+        version:
+          type: string
+          description: Optional service version
+          example: 0.1.0
+        uptime_seconds:
+          type: number
+          description: Optional seconds since process start
+          example: 12.5

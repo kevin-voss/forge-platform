@@ -1,0 +1,9 @@
+{
+  "timestamp": "2026-07-22T14:30:00Z",
+  "level": "info",
+  "service": "demo-go-api",
+  "version": "0.1.0",
+  "message": "listening",
+  "request_id": "req-demo-001",
+  "trace_id": "trace-demo-001"
+}

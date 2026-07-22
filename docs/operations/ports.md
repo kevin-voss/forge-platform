@@ -24,3 +24,15 @@
 | OTLP gRPC | 4317 |
 | OTLP HTTP | 4318 |
 | OTEL health | 13133 |
+
+## Demo allocations (epic 01)
+
+Reserved host ports for `demos/01-container-runtime` (five-language runtime contract suite):
+
+| Demo app | Host port |
+|---|---:|
+| Go | 4201 |
+| Kotlin | 4202 |
+| Rust | 4203 |
+| Python | 4204 |
+| Elixir | 4205 |

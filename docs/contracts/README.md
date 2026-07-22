@@ -8,4 +8,12 @@ This folder holds human-oriented notes:
 * review checklist for new contracts
 * examples of platform-wide conventions
 
-Populate as epics introduce real schemas.
+## Runtime contract (epic 01)
+
+Normative language-agnostic deployable contract:
+
+* Human doc: [runtime-contract.md](runtime-contract.md)
+* OpenAPI: [`contracts/openapi/runtime-contract.openapi.yaml`](../../contracts/openapi/runtime-contract.openapi.yaml)
+* Log schema + examples: [`contracts/examples/`](../../contracts/examples/)
+
+Covers listen port, health endpoints, identity JSON, structured logs, env configuration, and graceful shutdown.

@@ -14,6 +14,8 @@ Every deployable service:
 6. shuts down gracefully
 7. publishes OpenTelemetry signals where supported
 
+The formal, language-agnostic contract (HTTP paths, identity JSON, log fields, env vars, shutdown grace, and epic 01 decisions such as `PORT` over `FORGE_HTTP_PORT`) is in [runtime-contract.md](../contracts/runtime-contract.md), with OpenAPI and examples under `/contracts`.
+
 ## Local topology (Epic 00)
 
 See [local-infrastructure.md](local-infrastructure.md) for the Compose substrate delivered by step `00.01`.

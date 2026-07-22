@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning
+In progress
 
 ## Goal
 
@@ -65,7 +65,7 @@ Docker Compose
 
 | Step | Title | Status | Notes |
 |---|---|---|---|
-| [01.01](../steps/01-runtime-contract/01.01-document-runtime-contract.md) | Document runtime contract | Not started | Docs + OpenAPI + log schema + port reservations |
+| [01.01](../steps/01-runtime-contract/01.01-document-runtime-contract.md) | Document runtime contract | Complete | Docs + OpenAPI + log schema + port reservations |
 | [01.02](../steps/01-runtime-contract/01.02-contract-test-runner.md) | Shared contract test runner | Not started | Depends on 01.01; fixture-tested validator |
 | [01.03](../steps/01-runtime-contract/01.03-go-demo-app.md) | Go demo application | Not started | First vertical slice + demo 01 scaffold |
 | [01.04](../steps/01-runtime-contract/01.04-python-demo-app.md) | Python demo application | Not started | Depends on 01.03; port 4204 |
@@ -85,9 +85,12 @@ Docker Compose
 
 * Should CI run `make demo DEMO=01` on every PR, or only a subset (e.g. Go + validator) until image build times are acceptable?
 * Preferred stacks per language (Ktor vs raw JDK; Axum vs Actix; Bandit vs Cowboy) — leave to implementers unless a repo standard appears?
-* Exact required structured-log field set for demos: strictly the §5.4 platform fields, or a reduced demo subset (`timestamp`, `level`, `service`, `message`)?
-* May `/health/ready` intentionally fail in a future negative test image, or do all five demos keep ready≡live for this epic?
+
+## Decisions (from 01.01)
+
+* Demo structured-log required fields: reduced subset `timestamp`, `level`, `service`, `message` (see `docs/contracts/runtime-contract.md`).
+* Positive demos may keep ready≡live; negative “not ready” fixtures belong to the validator if needed.
 
 ## Next step to implement
 
-**[01.01](../steps/01-runtime-contract/01.01-document-runtime-contract.md) — Document runtime contract** (no application code; unblocks the validator and all demos).
+**[01.02](../steps/01-runtime-contract/01.02-contract-test-runner.md) — Shared contract test runner** (depends on completed 01.01).

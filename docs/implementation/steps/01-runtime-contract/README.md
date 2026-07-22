@@ -4,7 +4,7 @@ Atomic steps for [Runtime contract](../../epics/01-runtime-contract.md).
 
 | Step | File | Status |
 |---|---|---|
-| 01.01 | [01.01-document-runtime-contract.md](01.01-document-runtime-contract.md) | Not started |
+| 01.01 | [01.01-document-runtime-contract.md](01.01-document-runtime-contract.md) | Complete |
 | 01.02 | [01.02-contract-test-runner.md](01.02-contract-test-runner.md) | Not started |
 | 01.03 | [01.03-go-demo-app.md](01.03-go-demo-app.md) | Not started |
 | 01.04 | [01.04-python-demo-app.md](01.04-python-demo-app.md) | Not started |
