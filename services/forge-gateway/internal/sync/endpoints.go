@@ -95,13 +95,18 @@ func (s *RuntimeInterimSource) Fetch(ctx context.Context) ([]Endpoint, error) {
 		if w.HostPort < 1 || w.HostPort > 65535 {
 			continue
 		}
-		m, ok := meta[w.DeploymentID]
+		m, ok := lookupDeploymentMeta(meta, w.DeploymentID)
 		if !ok {
 			// Skip workloads we cannot name; malformed/orphan entries are ignored.
 			continue
 		}
-		ready := strings.EqualFold(w.Status, "ready") || strings.EqualFold(w.Status, "running")
-		readyCopy := ready
+		// Only emit ready workloads. Omitting drained/`stopped`/`running` keeps
+		// them out of the route table entirely so active probes cannot re-add a
+		// draining replica that still answers /health/ready before SIGTERM.
+		if !strings.EqualFold(w.Status, "ready") {
+			continue
+		}
+		ready := true
 		out = append(out, Endpoint{
 			Host:    "", // filled by host pattern during DeriveRoutes
 			Service: m.Service,
@@ -109,10 +114,35 @@ func (s *RuntimeInterimSource) Fetch(ctx context.Context) ([]Endpoint, error) {
 			Upstreams: []UpstreamRef{
 				{URL: fmt.Sprintf("http://%s:%d", host, w.HostPort)},
 			},
-			Ready: &readyCopy,
+			Ready: &ready,
 		})
 	}
 	return out, nil
+}
+
+// lookupDeploymentMeta resolves Control deployment metadata for a Runtime
+// workload id. Exact UUID match covers Runtime-owned single containers; epic 07
+// replica ids look like `<service>-<deploymentShort8>-<index>` and match by the
+// 8-char hex short prefix of the Control deployment UUID.
+func lookupDeploymentMeta(meta map[string]deploymentMeta, runtimeDeploymentID string) (deploymentMeta, bool) {
+	id := strings.TrimSpace(runtimeDeploymentID)
+	if id == "" {
+		return deploymentMeta{}, false
+	}
+	if m, ok := meta[id]; ok {
+		return m, true
+	}
+	lower := strings.ToLower(id)
+	for depID, m := range meta {
+		short := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(depID)), "-", "")
+		if len(short) > 8 {
+			short = short[:8]
+		}
+		if short != "" && strings.Contains(lower, short) {
+			return m, true
+		}
+	}
+	return deploymentMeta{}, false
 }
 
 type nodeStateResponse struct {

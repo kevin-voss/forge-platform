@@ -248,6 +248,9 @@ services:
       FORGE_RECONCILE_ENABLED: ${FORGE_RECONCILE_ENABLED:-true}
       FORGE_RECONCILE_INTERVAL_MS: ${FORGE_RECONCILE_INTERVAL_MS:-2000}
       FORGE_RECONCILE_MAX_ACTIONS_PER_TICK: ${FORGE_RECONCILE_MAX_ACTIONS_PER_TICK:-5}
+      # Optional global rollout overrides (unset → per-deployment defaults).
+      FORGE_ROLLOUT_BATCH_SIZE: ${FORGE_ROLLOUT_BATCH_SIZE:-}
+      FORGE_ROLLOUT_TIMEOUT_S: ${FORGE_ROLLOUT_TIMEOUT_S:-}
       # In-compose Runtime listens on 8080 (host maps 4102:8080).
       FORGE_RUNTIME_URL: ${FORGE_RUNTIME_URL:-http://forge-runtime:8080}
       FORGE_GATEWAY_URL: ${FORGE_GATEWAY_URL:-http://forge-gateway:8080}

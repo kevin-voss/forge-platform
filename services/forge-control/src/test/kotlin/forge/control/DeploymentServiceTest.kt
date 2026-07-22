@@ -97,6 +97,26 @@ class DeploymentServiceTest {
     }
 
     @Test
+    fun updateDesiredPatchesImageAndReplicas() {
+        val deployments = FakeDeployments()
+        val audit = FakeAudit()
+        val deploymentService = service(deployments, audit)
+        val created = deploymentService.create(serviceId, "registry.local/api:1", 1, environmentId)
+
+        val updated = deploymentService.updateDesired(created.id, " registry.local/api:2 ", 2)
+        assertEquals("registry.local/api:2", updated.image)
+        assertEquals(2, updated.desiredReplicas)
+        assertEquals(listOf("create", "update"), audit.entries.map { it.action })
+
+        assertFailsWith<ApiException.BadRequest> {
+            deploymentService.updateDesired(created.id, null, null)
+        }
+        assertFailsWith<ApiException.BadRequest> {
+            deploymentService.updateDesired(created.id, " ", null)
+        }
+    }
+
+    @Test
     fun assemblesCompleteProjectTree() {
         val deployment = Deployment(
             UUID.randomUUID(),

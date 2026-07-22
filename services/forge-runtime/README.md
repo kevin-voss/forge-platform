@@ -131,7 +131,8 @@ If Control is unreachable, the cycle is skipped (warning logged) with no local c
 |---|---|
 | `POST /v1/workloads` | Idempotent ensure: `201` when created, `200` when an existing managed container is reused/restarted. Conflicting image → recreate (default) or `409`. |
 | `GET /v1/workloads/{deploymentId}` | Inspect by name `forge-<deploymentId>`; `404` if missing. |
-| `DELETE /v1/workloads/{deploymentId}` | Graceful stop (SIGTERM + grace) then remove; `204` (idempotent when already gone). Only `forge.managed=true` containers are touched. |
+| `DELETE /v1/workloads/{deploymentId}` | Marks unready, then graceful stop (SIGTERM + grace) and remove; `204` (idempotent when already gone). Only `forge.managed=true` containers are touched. |
+| `POST /v1/workloads/{deploymentId}/drain` | Marks status `stopped` without removing the container so Gateway can drop the upstream before stop (rolling updates). |
 | `GET /v1/workloads/{deploymentId}/status` | Normalized status + last probe details. |
 | `GET /v1/workloads/{deploymentId}/logs` | Bounded log fetch (`tail`, `since`, `streams`) or SSE follow (`follow=true`). |
 

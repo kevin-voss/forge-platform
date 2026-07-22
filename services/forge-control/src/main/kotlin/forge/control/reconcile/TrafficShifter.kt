@@ -30,7 +30,9 @@ class GatewayUnreachableException(
 
 /**
  * Ensures Gateway upstreams reflect the ready replica set and drains old
- * replicas before stop. Fail-closed: unreachable Gateway blocks stops.
+ * replicas before stop. Callers mark Runtime status unready first; this
+ * forces a Gateway refresh so Ready=false takes effect. Fail-closed:
+ * unreachable Gateway blocks stops.
  */
 class TrafficShifter(
     private val gatewayClient: GatewayClient,

@@ -165,6 +165,7 @@ request handling.
 | `GET` | `/v1/deployments/{deploymentId}` | Get deployment |
 | `POST` | `/v1/deployments/{deploymentId}/status` | Runtime actual-state report: `{"status","nodeId","endpoint":{"hostPort"?}}` → `pending`/`active`/`failed`/`stopped` |
 | `DELETE` | `/v1/deployments/{deploymentId}` | Remove desired deployment (`204`); Runtime orphan cleanup removes the container |
+| `PATCH` | `/v1/deployments/{deploymentId}` | Update desired `image` and/or `desiredReplicas` (triggers rolling update / rollback paths) |
 | `GET` | `/v1/deployments/{deploymentId}/reconcile` | Desired/actual snapshot, plan, `phase`, `updatedReplicas`, `currentImage`/`targetImage`, `status` (`deploying`/`deployed`/`rolling_back`/`rolled_back`/…), `lastHealthyImage`, controller health (`07.01`–`07.04`) |
 | `GET` | `/v1/deployments/{deploymentId}/history` | Chronological append-only transition trail (`07.05`) |
 | `GET` | `/v1/projects/{projectId}?expand=tree` | Project, environments, applications, services, and deployments |

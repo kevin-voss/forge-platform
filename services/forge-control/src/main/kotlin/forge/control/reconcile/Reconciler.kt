@@ -66,7 +66,7 @@ class Reconciler(
                     ReconcileAction.ShiftTraffic.name ->
                         executeShift(item)
                     ReconcileAction.DrainReplica.name ->
-                        executeDrain(item)
+                        executeDrain(desired, item)
                     ReconcileAction.NoOp.name ->
                         ExecutedAction(
                             action = item.action,
@@ -267,11 +267,20 @@ class Reconciler(
         }
     }
 
-    private fun executeDrain(item: ReconcileActionItem): ExecutedAction {
+    private fun executeDrain(desired: DesiredState, item: ReconcileActionItem): ExecutedAction {
         val index = item.replicaId?.toIntOrNull()
             ?: WorkloadNamer.parseReplicaIndex(item.replicaId)
+            ?: throw IllegalArgumentException("DrainReplica missing replica index")
+        val deploymentId = UUID.fromString(desired.deploymentId)
+        val runtimeId = WorkloadNamer.runtimeDeploymentId(
+            desired.serviceSlug,
+            deploymentId,
+            index,
+        )
         return telemetry.inSpan("reconcile.drain_replica") {
-            val result = trafficShifter.drain(item.replicaId ?: index?.toString().orEmpty())
+            // Mark Runtime status stopped first so Gateway sync Ready=false.
+            runtimeClient.drainWorkload(runtimeId)
+            val result = trafficShifter.drain(runtimeId)
             when (result.outcome) {
                 ShiftOutcome.Drained, ShiftOutcome.Shifted ->
                     ExecutedAction(

@@ -287,6 +287,70 @@ func TestRuntimeInterimSourceJoinsControlMetadata(t *testing.T) {
 	}
 }
 
+func TestRuntimeInterimSourceMatchesReplicaWorkloadIDs(t *testing.T) {
+	depID := "6452c0e9-1fee-429a-8e1a-a4fb62255e36"
+	projectID := "22222222-2222-2222-2222-222222222222"
+	// Control reconcile names replicas: <service>-<short8>-<index>
+	replica0 := "demo-6452c0e9-0"
+	replica1 := "demo-6452c0e9-1"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/node/state", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"nodeId": "node-1",
+			"workloads": []map[string]any{
+				{"deploymentId": replica0, "status": "ready", "hostPort": 49101, "image": "demo:v1"},
+				{"deploymentId": replica1, "status": "ready", "hostPort": 49102, "image": "demo:v1"},
+			},
+		})
+	})
+	mux.HandleFunc("GET /v1/projects", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode([]map[string]any{{
+			"id": projectID, "name": "Demo", "slug": "demo-rolling",
+		}})
+	})
+	mux.HandleFunc("GET /v1/projects/"+projectID, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("expand") != "tree" {
+			http.Error(w, "missing expand", 400)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"project": map[string]any{"id": projectID, "name": "Demo", "slug": "demo-rolling"},
+			"applications": []map[string]any{{
+				"services": []map[string]any{{
+					"name": "demo",
+					"deployments": []map[string]any{{
+						"id": depID,
+					}},
+				}},
+			}},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	src := &RuntimeInterimSource{
+		ControlURL:   srv.URL,
+		RuntimeURL:   srv.URL,
+		UpstreamHost: "host.docker.internal",
+		Client:       srv.Client(),
+	}
+	eps, err := src.Fetch(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(eps) != 2 {
+		t.Fatalf("len=%d want 2 replica endpoints", len(eps))
+	}
+	derived := DeriveRoutes(eps, "{service}.localhost")
+	if len(derived) != 1 || derived[0].Host != "demo.localhost" {
+		t.Fatalf("routes=%+v", derived)
+	}
+	if len(derived[0].Upstreams) != 2 {
+		t.Fatalf("upstreams=%+v want 2", derived[0].Upstreams)
+	}
+}
+
 func TestSyncOnceAppliesUpstreamReadiness(t *testing.T) {
 	table := routes.NewTable()
 	tracker := health.NewUpstreamTracker(health.UpstreamConfig{

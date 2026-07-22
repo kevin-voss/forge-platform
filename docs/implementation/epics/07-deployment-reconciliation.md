@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress (5/6)
+Complete (6/6)
 
 ## Goal
 
@@ -75,7 +75,7 @@ Scenario B — unhealthy rollout + rollback
 | [07.03](../steps/07-deployment-reconciliation/07.03-rolling-update.md) | Rolling update (start new → ready → shift → stop old) | Complete | No total downtime; Gateway traffic shift |
 | [07.04](../steps/07-deployment-reconciliation/07.04-unhealthy-rollout-automatic-rollback.md) | Unhealthy rollout → automatic rollback | Complete | Deployment timeout + rollback to last-good |
 | [07.05](../steps/07-deployment-reconciliation/07.05-deployment-history-and-restart-safety.md) | Deployment history + controller restart safety | Complete | Durable history; idempotent recovery |
-| [07.06](../steps/07-deployment-reconciliation/07.06-demo-07-rolling-deployment.md) | Demo `07-rolling-deployment` + gate | Not started | Both scenarios; epic acceptance gate |
+| [07.06](../steps/07-deployment-reconciliation/07.06-demo-07-rolling-deployment.md) | Demo `07-rolling-deployment` + gate | Complete | Both scenarios; epic acceptance gate |
 
 ## Assumptions
 
@@ -95,4 +95,5 @@ Scenario B — unhealthy rollout + rollback
 
 ## Next step to implement
 
-**[07.06](../steps/07-deployment-reconciliation/07.06-demo-07-rolling-deployment.md) — Demo `07-rolling-deployment` + epic gate**.
+Epic complete. Next implementable step is **`N = 50`**
+([08.01](../steps/08-multi-node-scheduler/08.01-scheduler-skeleton-and-placement-apis.md)).

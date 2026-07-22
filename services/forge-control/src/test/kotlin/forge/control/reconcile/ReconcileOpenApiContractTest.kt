@@ -6,24 +6,30 @@ import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
+import org.junit.jupiter.api.Assumptions.assumeTrue
 
 class ReconcileOpenApiContractTest {
-    private val openApiPath = Path.of(
-        System.getenv("FORGE_ROOT")
+    private fun openApiYaml(): String? {
+        val root = System.getenv("FORGE_ROOT")?.let { Path.of(it) }
             ?: Path.of("").toAbsolutePath().let { cwd ->
-                generateSequence(cwd) { it.parent }.first { Files.exists(it.resolve("contracts")) }
-            }.toString(),
-        "contracts/openapi/forge-control.openapi.yaml",
-    )
+                generateSequence(cwd) { it.parent }.firstOrNull { Files.exists(it.resolve("contracts")) }
+            }
+            ?: return null
+        val path = root.resolve("contracts/openapi/forge-control.openapi.yaml")
+        if (!Files.exists(path)) return null
+        return Files.readString(path)
+    }
 
     @Test
     fun openApiDeclaresReconcilePathAndSchema() {
-        assertTrue(Files.exists(openApiPath), "missing OpenAPI at $openApiPath")
-        val yaml = Files.readString(openApiPath)
-        assertTrue(yaml.contains("/v1/deployments/{deploymentId}/reconcile"))
+        val yaml = openApiYaml()
+        assumeTrue(yaml != null, "contracts/ not available in this build context (e.g. service Dockerfile)")
+        assertTrue(yaml!!.contains("/v1/deployments/{deploymentId}/reconcile"))
         assertTrue(yaml.contains("x-get-reconcile-status"))
         assertTrue(yaml.contains("ReconcileStatus:"))
         assertTrue(yaml.contains("operationId: getReconcileStatus") || yaml.contains("getReconcileStatus"))
+        assertTrue(yaml.contains("x-update-deployment") || yaml.contains("updateDeployment"))
+        assertTrue(yaml.contains("patch:") || yaml.contains("patch: "))
     }
 
     @Test
@@ -66,8 +72,9 @@ class ReconcileOpenApiContractTest {
 
     @Test
     fun openApiDeclaresRollingActionsAndPhase() {
-        val yaml = Files.readString(openApiPath)
-        assertTrue(yaml.contains("WaitReady"))
+        val yaml = openApiYaml()
+        assumeTrue(yaml != null, "contracts/ not available in this build context (e.g. service Dockerfile)")
+        assertTrue(yaml!!.contains("WaitReady"))
         assertTrue(yaml.contains("ShiftTraffic"))
         assertTrue(yaml.contains("DrainReplica"))
         assertTrue(yaml.contains("updatedReplicas"))
@@ -80,8 +87,9 @@ class ReconcileOpenApiContractTest {
 
     @Test
     fun openApiDeclaresDeploymentHistory() {
-        val yaml = Files.readString(openApiPath)
-        assertTrue(yaml.contains("/v1/deployments/{deploymentId}/history"))
+        val yaml = openApiYaml()
+        assumeTrue(yaml != null, "contracts/ not available in this build context (e.g. service Dockerfile)")
+        assertTrue(yaml!!.contains("/v1/deployments/{deploymentId}/history"))
         assertTrue(yaml.contains("x-get-deployment-history"))
         assertTrue(yaml.contains("DeploymentHistory:"))
         assertTrue(yaml.contains("DeploymentEvent:"))

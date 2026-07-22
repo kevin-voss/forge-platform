@@ -124,78 +124,114 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer cancel()
 
-	start := time.Now()
-	rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-	upstreamURL := upstream.String()
-	proxy := &httputil.ReverseProxy{
-		Transport:     h.transport,
-		FlushInterval: -1, // flush immediately so SSE/chunked upstreams are not buffered
-		// Rewrite (not Director) so we fully own X-Forwarded-* without ReverseProxy appending again.
-		Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.SetURL(upstream)
-			pr.Out.Host = upstream.Host
-			middleware.StripHopByHop(pr.Out.Header)
-			middleware.ApplyForwardedFrom(pr.Out, pr.In, middleware.ForwardedOptions{
-				TrustInboundXFF: h.cfg.TrustInboundXFF,
-			})
-			if requestID != "" {
-				pr.Out.Header.Set(h.cfg.RequestIDHeader, requestID)
-			}
-		},
-		ModifyResponse: func(resp *http.Response) error {
-			if requestID != "" {
-				resp.Header.Set(h.cfg.RequestIDHeader, requestID)
-			}
-			if h.tracker == nil {
+	// Retry connection errors against another ready upstream (rolling drain window).
+	excluded := map[string]bool{}
+	current := upstream
+	for {
+		start := time.Now()
+		upstreamURL := current.String()
+		excluded[upstreamURL] = true
+		excluded[normalizeUpstreamKey(upstreamURL)] = true
+		rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		var dialErr error
+		var dialTimeout bool
+		proxy := &httputil.ReverseProxy{
+			Transport:     h.transport,
+			FlushInterval: -1, // flush immediately so SSE/chunked upstreams are not buffered
+			// Rewrite (not Director) so we fully own X-Forwarded-* without ReverseProxy appending again.
+			Rewrite: func(pr *httputil.ProxyRequest) {
+				pr.SetURL(current)
+				pr.Out.Host = current.Host
+				middleware.StripHopByHop(pr.Out.Header)
+				middleware.ApplyForwardedFrom(pr.Out, pr.In, middleware.ForwardedOptions{
+					TrustInboundXFF: h.cfg.TrustInboundXFF,
+				})
+				if requestID != "" {
+					pr.Out.Header.Set(h.cfg.RequestIDHeader, requestID)
+				}
+			},
+			ModifyResponse: func(resp *http.Response) error {
+				if requestID != "" {
+					resp.Header.Set(h.cfg.RequestIDHeader, requestID)
+				}
+				if h.tracker == nil {
+					return nil
+				}
+				if resp.StatusCode >= 500 {
+					h.tracker.RecordPassiveFailure(upstreamURL)
+				} else {
+					h.tracker.RecordPassiveSuccess(upstreamURL)
+				}
 				return nil
-			}
-			if resp.StatusCode >= 500 {
-				h.tracker.RecordPassiveFailure(upstreamURL)
-			} else {
-				h.tracker.RecordPassiveSuccess(upstreamURL)
-			}
-			return nil
-		},
-		ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
-			if h.tracker != nil {
-				h.tracker.RecordPassiveFailure(upstreamURL)
-			}
-			elapsed := time.Since(start)
-			if isTimeout(err) {
-				h.log.Warn("upstream timeout",
-					"requestId", requestID,
-					"host", originalHost,
-					"path", req.URL.Path,
-					"upstream", upstreamURL,
-					"elapsed_ms", elapsed.Milliseconds(),
-					"error", err.Error(),
-				)
-				httperr.Write(rw, http.StatusGatewayTimeout, "gateway_timeout", "upstream request timed out")
-				return
-			}
+			},
+			ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
+				if h.tracker != nil {
+					h.tracker.RecordPassiveFailure(upstreamURL)
+				}
+				dialErr = err
+				dialTimeout = isTimeout(err)
+				if dialTimeout || !h.hasOtherReady(route, excluded) {
+					elapsed := time.Since(start)
+					if dialTimeout {
+						h.log.Warn("upstream timeout",
+							"requestId", requestID,
+							"host", originalHost,
+							"path", req.URL.Path,
+							"upstream", upstreamURL,
+							"elapsed_ms", elapsed.Milliseconds(),
+							"error", err.Error(),
+						)
+						httperr.Write(rw, http.StatusGatewayTimeout, "gateway_timeout", "upstream request timed out")
+						return
+					}
+					h.log.Warn("upstream error",
+						"requestId", requestID,
+						"host", originalHost,
+						"path", req.URL.Path,
+						"upstream", upstreamURL,
+						"error", err.Error(),
+					)
+					httperr.Write(rw, http.StatusBadGateway, "bad_gateway", "upstream connection error")
+				}
+				// Else: leave response unset so the caller can failover.
+			},
+		}
+		proxy.ServeHTTP(rw, req)
+
+		if dialErr == nil || dialTimeout || rw.status != http.StatusOK || rw.wrote {
+			h.log.Info("proxied request",
+				"requestId", requestID,
+				"route_host", route.Host,
+				"route_path_prefix", route.PathPrefix,
+				"upstream", upstreamURL,
+				"status", rw.status,
+				"duration_ms", time.Since(start).Milliseconds(),
+				"method", r.Method,
+				"path", r.URL.Path,
+				"host", originalHost,
+			)
+			return
+		}
+
+		next, err := h.pickExcluding(route, excluded)
+		if err != nil {
 			h.log.Warn("upstream error",
 				"requestId", requestID,
 				"host", originalHost,
-				"path", req.URL.Path,
+				"path", r.URL.Path,
 				"upstream", upstreamURL,
-				"error", err.Error(),
+				"error", dialErr.Error(),
 			)
-			httperr.Write(rw, http.StatusBadGateway, "bad_gateway", "upstream connection error")
-		},
+			httperr.Write(w, http.StatusBadGateway, "bad_gateway", "upstream connection error")
+			return
+		}
+		h.log.Info("retrying upstream after connection error",
+			"requestId", requestID,
+			"failed_upstream", upstreamURL,
+			"next_upstream", next.String(),
+		)
+		current = next
 	}
-	proxy.ServeHTTP(rw, req)
-
-	h.log.Info("proxied request",
-		"requestId", requestID,
-		"route_host", route.Host,
-		"route_path_prefix", route.PathPrefix,
-		"upstream", upstreamURL,
-		"status", rw.status,
-		"duration_ms", time.Since(start).Milliseconds(),
-		"method", r.Method,
-		"path", r.URL.Path,
-		"host", originalHost,
-	)
 }
 
 func isTimeout(err error) bool {
@@ -214,9 +250,23 @@ func isTimeout(err error) bool {
 }
 
 func (h *Handler) pick(route routes.Route) (*url.URL, error) {
+	return h.pickExcluding(route, nil)
+}
+
+func (h *Handler) pickExcluding(route routes.Route, excluded map[string]bool) (*url.URL, error) {
 	candidates := route.Upstreams
 	if h.tracker != nil {
 		candidates = h.tracker.FilterReady(route.Upstreams)
+	}
+	if len(excluded) > 0 {
+		filtered := make([]routes.Upstream, 0, len(candidates))
+		for _, u := range candidates {
+			if excluded[u.URL] || excluded[normalizeUpstreamKey(u.URL)] {
+				continue
+			}
+			filtered = append(filtered, u)
+		}
+		candidates = filtered
 	}
 	if len(candidates) == 0 {
 		if len(route.Upstreams) == 0 {
@@ -234,6 +284,11 @@ func (h *Handler) pick(route routes.Route) (*url.URL, error) {
 		h.pickers.Store(key, rr)
 	}
 	return rr.next()
+}
+
+func (h *Handler) hasOtherReady(route routes.Route, excluded map[string]bool) bool {
+	_, err := h.pickExcluding(route, excluded)
+	return err == nil
 }
 
 // InvalidatePickers drops cached balancers (call after route replace).
@@ -281,14 +336,29 @@ func routeKey(r routes.Route) string {
 	return r.Host + "\x00" + r.PathPrefix + "\x00" + r.Strategy
 }
 
+func normalizeUpstreamKey(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" {
+		return strings.TrimSpace(raw)
+	}
+	return u.String()
+}
+
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
+	wrote  bool
 }
 
 func (s *statusRecorder) WriteHeader(code int) {
 	s.status = code
+	s.wrote = true
 	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusRecorder) Write(b []byte) (int, error) {
+	s.wrote = true
+	return s.ResponseWriter.Write(b)
 }
 
 func (s *statusRecorder) Flush() {

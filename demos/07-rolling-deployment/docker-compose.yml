@@ -1,0 +1,31 @@
+# Demo 07 overlay — shortens Control rollout timeout for the acceptance gate.
+# Used with the root compose file:
+#   docker compose -f compose.yaml -f demos/07-rolling-deployment/docker-compose.yml up -d ...
+#
+# Workloads (demo:v1 / v2 / v3-broken) are started by Control→Runtime, not as
+# Compose services. Control owns lifecycle (FORGE_LIFECYCLE_OWNER=control).
+
+services:
+  forge-control:
+    environment:
+      FORGE_RECONCILE_INTERVAL_MS: ${FORGE_RECONCILE_INTERVAL_MS:-1000}
+      # 90s: enough for 2-replica batch=1 rolls; still under the platform default 120s.
+      FORGE_ROLLOUT_TIMEOUT_S: ${FORGE_ROLLOUT_TIMEOUT_S:-90}
+      FORGE_ROLLOUT_BATCH_SIZE: ${FORGE_ROLLOUT_BATCH_SIZE:-1}
+      FORGE_READINESS_POLL_MS: ${FORGE_READINESS_POLL_MS:-500}
+      FORGE_READINESS_MAX_WAIT_S: ${FORGE_READINESS_MAX_WAIT_S:-45}
+  forge-runtime:
+    environment:
+      FORGE_PROBE_INTERVAL_SECONDS: ${FORGE_PROBE_INTERVAL_SECONDS:-2}
+      FORGE_PROBE_FAILURE_THRESHOLD: ${FORGE_PROBE_FAILURE_THRESHOLD:-2}
+      # Short grace: DrainReplica already shifted traffic off the replica.
+      FORGE_STOP_GRACE_SECONDS: ${FORGE_STOP_GRACE_SECONDS:-2}
+  forge-gateway:
+    environment:
+      # Quoted so Compose does not treat {service} as interpolation.
+      FORGE_HOST_PATTERN: "{service}.localhost"
+      FORGE_ROUTE_SYNC_INTERVAL_SECONDS: ${FORGE_ROUTE_SYNC_INTERVAL_SECONDS:-1}
+      FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS: ${FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS:-1}
+      FORGE_UPSTREAM_FAILURE_THRESHOLD: ${FORGE_UPSTREAM_FAILURE_THRESHOLD:-1}
+      FORGE_UPSTREAM_SUCCESS_THRESHOLD: ${FORGE_UPSTREAM_SUCCESS_THRESHOLD:-1}
+      FORGE_UPSTREAM_TRUST_RUNTIME_STATUS: "true"

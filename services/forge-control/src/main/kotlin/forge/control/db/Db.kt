@@ -75,8 +75,14 @@ class Db(
             if (override.isNotEmpty()) {
                 return override.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toTypedArray()
             }
+            // Prefer filesystem (image-shipped SQL) but always include classpath so
+            // newly added versioned scripts packaged in the jar are not missed when
+            // the filesystem copy is stale relative to the running jar.
             if (filesystemDir.isDirectory && !filesystemDir.list().isNullOrEmpty()) {
-                return arrayOf("filesystem:${filesystemDir.absolutePath}")
+                return arrayOf(
+                    "filesystem:${filesystemDir.absolutePath}",
+                    "classpath:db/migration",
+                )
             }
             return arrayOf("classpath:db/migration")
         }

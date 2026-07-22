@@ -10,6 +10,13 @@ data class CreateDeploymentRequest(
     val environmentId: String? = null,
 )
 
+/** Patch desired image / replica count to trigger reconcile (07.03+ rolling update). */
+@Serializable
+data class UpdateDeploymentRequest(
+    val image: String? = null,
+    val desiredReplicas: Int? = null,
+)
+
 /** Runtime → Control actual-state report (`04.07` / `04.08` contract). */
 @Serializable
 data class DeploymentStatusReportRequest(

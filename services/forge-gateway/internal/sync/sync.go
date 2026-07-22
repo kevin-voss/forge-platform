@@ -248,10 +248,22 @@ func DeriveRoutes(endpoints []Endpoint, pattern string) []routes.Route {
 }
 
 // ApplyHostPattern substitutes {service} and {project} tokens.
+// {service} is always required when present in the pattern. {project} is only
+// required when the pattern references it (allows `{service}.localhost`).
 func ApplyHostPattern(pattern, service, project string) string {
 	service = strings.TrimSpace(service)
 	project = strings.TrimSpace(project)
-	if service == "" || project == "" {
+	needsService := strings.Contains(pattern, "{service}")
+	needsProject := strings.Contains(pattern, "{project}")
+	if needsService && service == "" {
+		return ""
+	}
+	if needsProject && project == "" {
+		return ""
+	}
+	// Legacy default patterns always included both tokens; keep prior guard
+	// when the pattern is empty/unknown so we never emit a bare placeholder.
+	if !needsService && !needsProject && (service == "" || project == "") {
 		return ""
 	}
 	host := pattern

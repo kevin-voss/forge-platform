@@ -44,6 +44,12 @@ interface RuntimeClient {
 
     fun stopWorkload(runtimeDeploymentId: String)
 
+    /**
+     * Mark a workload drained/unready without removing it so Gateway can
+     * drop the upstream before StopReplica. Default no-op for test fakes.
+     */
+    fun drainWorkload(runtimeDeploymentId: String) {}
+
     /** All workloads on the node (for startup orphan GC). */
     fun listWorkloads(): List<WorkloadHandle> = emptyList()
 }
@@ -150,6 +156,26 @@ class HttpRuntimeClient(
         }
         createWorkload(runtimeId, request)
         return EnsureOutcome.Created
+    }
+
+    override fun drainWorkload(runtimeDeploymentId: String) {
+        val base = runtimeUrl.trimEnd('/')
+        val request = HttpRequest.newBuilder()
+            .uri(URI.create("$base/v1/workloads/${encodePath(runtimeDeploymentId)}/drain"))
+            .timeout(Duration.ofSeconds(5))
+            .POST(HttpRequest.BodyPublishers.noBody())
+            .build()
+        val response = try {
+            httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+        } catch (e: Exception) {
+            throw RuntimeUnreachableException("runtime unreachable at $base: ${e.message}", e)
+        }
+        // 200 drained; 404 already gone — both OK for rolling drain.
+        if (response.statusCode() !in setOf(200, 404) && response.statusCode() !in 200..299) {
+            throw RuntimeApiException(
+                "runtime drain workload HTTP ${response.statusCode()} for $runtimeDeploymentId",
+            )
+        }
     }
 
     override fun stopWorkload(runtimeDeploymentId: String) {

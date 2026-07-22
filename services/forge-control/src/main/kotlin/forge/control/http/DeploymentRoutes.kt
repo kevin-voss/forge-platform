@@ -2,6 +2,7 @@ package forge.control.http
 
 import forge.control.http.dto.CreateDeploymentRequest
 import forge.control.http.dto.DeploymentStatusReportRequest
+import forge.control.http.dto.UpdateDeploymentRequest
 import forge.control.http.dto.toResponse
 import forge.control.service.DeploymentService
 import forge.control.repo.IdempotencyStore
@@ -11,6 +12,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
+import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import java.util.UUID
@@ -35,6 +37,12 @@ fun Route.deploymentRoutes(deployments: DeploymentService, idempotency: Idempote
     get("/v1/deployments/{deploymentId}") {
         val deploymentId = call.parameters.requireUuid("deploymentId")
         call.respond(deployments.get(deploymentId).toResponse())
+    }
+    patch("/v1/deployments/{deploymentId}") {
+        val deploymentId = call.parameters.requireUuid("deploymentId")
+        val body = call.receive<UpdateDeploymentRequest>()
+        val updated = deployments.updateDesired(deploymentId, body.image, body.desiredReplicas)
+        call.respond(updated.toResponse())
     }
     post("/v1/deployments/{deploymentId}/status") {
         val deploymentId = call.parameters.requireUuid("deploymentId")

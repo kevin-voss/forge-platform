@@ -62,6 +62,41 @@ class DeploymentService(
         deployments.findById(id)
             ?: throw ApiException.NotFound("deployment not found", mapOf("id" to id.toString()))
 
+    /**
+     * Update desired image and/or replica count. Changing the image triggers a
+     * rolling update (or rollback path) in the reconciliation controller.
+     */
+    fun updateDesired(
+        id: UUID,
+        imageRaw: String?,
+        desiredReplicasRaw: Int?,
+    ): Deployment {
+        if (imageRaw == null && desiredReplicasRaw == null) {
+            throw ApiException.BadRequest(
+                "at least one of image or desiredReplicas is required",
+                mapOf("field" to "image"),
+            )
+        }
+        val existing = get(id)
+        val image = imageRaw?.let { validateImage(it) }
+        val desiredReplicas = desiredReplicasRaw?.let { validateDesiredReplicas(it) }
+        val updated = try {
+            deployments.update(id, image = image, desiredReplicas = desiredReplicas)
+        } catch (e: RepositoryException) {
+            throw mapRepo(e)
+        }
+        if (existing.image != updated.image || existing.desiredReplicas != updated.desiredReplicas) {
+            audit.append(
+                entityType = "deployment",
+                entityId = id,
+                action = "update",
+                actor = actor,
+                detailJson = """{"oldImage":${jsonString(existing.image)},"newImage":${jsonString(updated.image)},"oldDesiredReplicas":${existing.desiredReplicas},"newDesiredReplicas":${updated.desiredReplicas}}""",
+            )
+        }
+        return updated
+    }
+
     fun list(serviceId: UUID): List<Deployment> {
         if (services.findById(serviceId) == null) {
             throw ApiException.NotFound("service not found", mapOf("id" to serviceId.toString()))

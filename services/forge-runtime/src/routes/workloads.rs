@@ -27,6 +27,10 @@ pub fn router() -> Router<AppState> {
             "/v1/workloads/{deployment_id}",
             get(handle_get).delete(handle_delete),
         )
+        .route(
+            "/v1/workloads/{deployment_id}/drain",
+            post(handle_drain),
+        )
 }
 
 async fn handle_create(
@@ -78,6 +82,12 @@ async fn handle_delete(
     State(state): State<AppState>,
     Path(deployment_id): Path<String>,
 ) -> impl IntoResponse {
+    // Mark unready before SIGTERM so Gateway sync can drop the upstream
+    // while the container is still draining (zero-downtime rolls).
+    state
+        .prober
+        .cache()
+        .mark_stopped_by_operator(&deployment_id);
     match lifecycle::delete_workload(
         state.docker.as_ref(),
         state.deployment_locks.as_ref(),
@@ -89,6 +99,34 @@ async fn handle_delete(
         Ok(()) => {
             note_workload_deleted(state.prober.cache().as_ref(), &deployment_id);
             StatusCode::NO_CONTENT.into_response()
+        }
+        Err(err) => error_response(err).into_response(),
+    }
+}
+
+/// Mark a workload drained (status `stopped`) without removing the container.
+/// Control calls this before Gateway refresh + StopReplica so traffic shifts
+/// off the replica before SIGTERM.
+async fn handle_drain(
+    State(state): State<AppState>,
+    Path(deployment_id): Path<String>,
+) -> impl IntoResponse {
+    match workload::get_workload(state.docker.as_ref(), &deployment_id).await {
+        Ok(view) => {
+            state
+                .prober
+                .cache()
+                .mark_stopped_by_operator(&deployment_id);
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "deploymentId": view.deployment_id,
+                    "status": "stopped",
+                    "draining": true,
+                    "hostPort": view.host_port,
+                })),
+            )
+                .into_response()
         }
         Err(err) => error_response(err).into_response(),
     }
@@ -178,6 +216,35 @@ mod tests {
             serde_json::from_slice(&bytes).unwrap()
         };
         (status, json)
+    }
+
+    #[tokio::test]
+    async fn post_drain_marks_stopped_without_delete() {
+        let docker = Arc::new(RecordingDocker::ok(49152));
+        let app = test_app(docker).await;
+        let (create_status, _) = json_request(
+            app.clone(),
+            "POST",
+            "/v1/workloads",
+            Some(serde_json::json!({
+                "deployment_id": "deployment-drain",
+                "image": "localhost:5000/demo:v1",
+                "port": 8080
+            })),
+        )
+        .await;
+        assert_eq!(create_status, StatusCode::CREATED);
+
+        let (drain_status, drain_body) =
+            json_request(app.clone(), "POST", "/v1/workloads/deployment-drain/drain", None).await;
+        assert_eq!(drain_status, StatusCode::OK);
+        assert_eq!(drain_body["status"], "stopped");
+        assert_eq!(drain_body["draining"], true);
+
+        // Container still present after drain.
+        let (get_status, _) =
+            json_request(app, "GET", "/v1/workloads/deployment-drain", None).await;
+        assert_eq!(get_status, StatusCode::OK);
     }
 
     #[tokio::test]
