@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 64`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 65`**.
 
 ## Epics
 
@@ -18,7 +18,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | Complete | 6/6 steps complete; demo 07 rolling-deployment acceptance gate passed |
 | [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | Complete | 6/6 steps complete; demo 08 multi-node acceptance gate passed |
 | [09](epics/09-forge-identity.md) | Forge Identity | Complete | 8/8 steps complete; demo 09 platform-identity acceptance gate passed; default auth enforce |
-| [10](epics/10-forge-secrets.md) | Forge Secrets | Planning | 7 steps |
+| [10](epics/10-forge-secrets.md) | Forge Secrets | In progress | 1/7 steps; skeleton + master-key bootstrap on `4104` |
 | [11](epics/11-forge-events.md) | Forge Events | Planning | 7 steps |
 | [12](epics/12-forge-observe.md) | Forge Observe | Planning | 7 steps |
 | [13](epics/13-forge-storage.md) | Forge Storage | Planning | 7 steps |
@@ -97,7 +97,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **61** | [Control authz middleware (end `FORGE_AUTH_MODE=dev` default)](steps/09-forge-identity/09.06-control-authz-middleware.md) | Complete |  | AuthMiddleware + IdentityClient; default `FORGE_AUTH_MODE=enforce`; 401/403; AuthMiddlewareTest |
 | **62** | [CLI `forge login` + token profile](steps/09-forge-identity/09.07-cli-login-and-token-profile.md) | Complete |  | `forge login`/`whoami`/`logout`; credential store; Bearer on Control calls |
 | **63** | [Demo `09-platform-identity` + epic gate](steps/09-forge-identity/09.08-demo-09-platform-identity.md) | Complete |  | Demo 09: enforce-mode identity gate; developer 201 / viewer 403 / revoke 401 |
-| **64** | [Skeleton + encryption key bootstrap](steps/10-forge-secrets/10.01-skeleton-and-encryption-key-bootstrap.md) | Not started |  |  |
+| **64** | [Skeleton + encryption key bootstrap](steps/10-forge-secrets/10.01-skeleton-and-encryption-key-bootstrap.md) | Complete |  | Rust/Axum on `4104`, `KeyProvider` + AES-GCM wrap, `forge_secrets` DB |
 | **65** | [Encrypted store + key versioning + metadata APIs](steps/10-forge-secrets/10.02-encrypted-store-key-versioning-metadata.md) | Not started |  |  |
 | **66** | [Config vs secrets APIs; project isolation](steps/10-forge-secrets/10.03-config-vs-secrets-and-project-isolation.md) | Not started |  |  |
 | **67** | [Runtime injection at deploy](steps/10-forge-secrets/10.04-runtime-injection-at-deploy.md) | Not started |  |  |

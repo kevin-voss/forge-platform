@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning
+In progress
 
 ## Goal
 
@@ -62,7 +62,7 @@ Logs → configured secret values masked
 
 | Step | Title | Status | Notes |
 |---|---|---|---|
-| [10.01](../steps/10-forge-secrets/10.01-skeleton-and-encryption-key-bootstrap.md) | Skeleton + encryption key bootstrap | Not started | Rust service on 4104, master key + data keys |
+| [10.01](../steps/10-forge-secrets/10.01-skeleton-and-encryption-key-bootstrap.md) | Skeleton + encryption key bootstrap | Complete | Rust service on 4104, master key + data keys |
 | [10.02](../steps/10-forge-secrets/10.02-encrypted-store-key-versioning-metadata.md) | Encrypted store + key versioning + metadata APIs | Not started | Encrypt-at-rest; version keys; metadata list |
 | [10.03](../steps/10-forge-secrets/10.03-config-vs-secrets-and-project-isolation.md) | Config vs secrets APIs; project isolation | Not started | Separate config; enforce project scope |
 | [10.04](../steps/10-forge-secrets/10.04-runtime-injection-at-deploy.md) | Runtime injection at deploy | Not started | Deliver secrets/config into workloads |
@@ -87,4 +87,4 @@ Logs → configured secret values masked
 
 ## Next step to implement
 
-**[10.01](../steps/10-forge-secrets/10.01-skeleton-and-encryption-key-bootstrap.md) — Skeleton + encryption key bootstrap** (Rust service on 4104, master-key load, per-project data-key generation; unblocks the encrypted store).
+**[10.02](../steps/10-forge-secrets/10.02-encrypted-store-key-versioning-metadata.md) — Encrypted store + key versioning + metadata APIs** (encrypt-at-rest; version keys; metadata list).

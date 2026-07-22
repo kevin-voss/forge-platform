@@ -374,6 +374,35 @@ services:
       retries: 10
       start_period: 20s
 
+  forge-secrets:
+    build:
+      context: ./services/forge-secrets
+    image: forge/forge-secrets:local
+    container_name: forge-secrets
+    restart: unless-stopped
+    ports:
+      - "4104:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: forge-secrets
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-info}
+      FORGE_ENV: ${FORGE_ENV:-development}
+      FORGE_SHUTDOWN_GRACE_SECONDS: ${FORGE_SHUTDOWN_GRACE_SECONDS:-10}
+      FORGE_SECRETS_DB_URL: postgres://forge:forge@postgres:5432/forge_secrets
+      FORGE_SECRETS_MASTER_KEY: ${FORGE_SECRETS_MASTER_KEY:-bG9jYWwtZGV2LWZvcmdlLXNlY3JldHMta2V5ISEhISE=}
+      FORGE_SECRETS_MASTER_KEY_ID: ${FORGE_SECRETS_MASTER_KEY_ID:-m1}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health/live | grep -q live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
   forge-build:
     build:
       context: ./services/forge-build

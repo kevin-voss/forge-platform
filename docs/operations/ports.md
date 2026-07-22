@@ -39,6 +39,7 @@
 |---|---:|
 | Forge Runtime | 4102 |
 | Forge Build | 4103 |
+| Forge Secrets | 4104 |
 
 ## Reserved for the standalone-cloud phase (epics 20–43)
 
