@@ -1,9 +1,12 @@
 package middleware
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
+	"net"
 	"net/http"
 	"regexp"
 )
@@ -73,4 +76,18 @@ func (w *requestIDWriter) Write(b []byte) (int, error) {
 	// Ensure header is present even if WriteHeader was skipped.
 	w.Header().Set(w.header, w.id)
 	return w.ResponseWriter.Write(b)
+}
+
+func (w *requestIDWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *requestIDWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hj, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("hijack not supported")
+	}
+	return hj.Hijack()
 }

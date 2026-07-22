@@ -2,10 +2,10 @@
 
 HTTP edge gateway for Forge Platform (Go + `net/http` + `httputil.ReverseProxy`).
 
-This step (`05.05`) adds request-id propagation, forwarded headers, and proxy
-timeouts so proxied traffic is correlatable and hung upstreams cannot stall the
-gateway. WebSocket/SSE support arrives in `05.06` (streaming routes can set
-`timeoutExempt` to skip the overall deadline).
+This step (`05.06`) adds WebSocket upgrade proxying (full-duplex byte copy) and
+SSE flush-through streaming, with idle timeouts and request-id / forwarded
+header propagation on the upgrade/stream request. Streaming traffic skips the
+overall proxy deadline from `05.05` (`timeoutExempt` or WS/SSE detection).
 
 ## Quick start
 
@@ -58,6 +58,10 @@ make dev
 | `FORGE_PROXY_RESPONSE_HEADER_TIMEOUT_SECONDS` | `15` | Time to first response header. |
 | `FORGE_PROXY_OVERALL_TIMEOUT_SECONDS` | `30` | Per-request deadline; `0` disables. Streaming routes may set `timeoutExempt`. |
 | `FORGE_TRUST_INBOUND_XFF` | `false` | When false, discard client `X-Forwarded-For` and set observed peer only. |
+| `FORGE_WS_ENABLED` | `true` | Proxy `Upgrade: websocket` with hijack + bidirectional copy. |
+| `FORGE_SSE_ENABLED` | `true` | Proxy `Accept: text/event-stream` with immediate flush (no buffering). |
+| `FORGE_WS_IDLE_TIMEOUT_SECONDS` | `300` | Close idle WS/SSE streams after this many seconds with no bytes; `0` disables. |
+| `FORGE_STREAM_READ_TIMEOUT_SECONDS` | `0` | Optional fixed per-read deadline for streams when idle timeout is `0`; `0` = none. |
 
 Sync is enabled when `FORGE_CONTROL_URL` is set (`runtime` source also requires `FORGE_RUNTIME_URL`).
 
@@ -83,13 +87,30 @@ route table:
 
 Only configured upstream URLs are targeted (no open-proxy / client-chosen targets).
 
+### WebSocket + SSE (05.06)
+
+* `Upgrade: websocket` → dial configured upstream, require `101`, hijack client, bidirectional copy until either side closes.
+* `Accept: text/event-stream` → reverse-proxy with flush-after-write (no response buffering).
+* WS/SSE skip the overall request timeout; idle timeout (`FORGE_WS_IDLE_TIMEOUT_SECONDS`) still applies.
+* Request-id and forwarded headers are set on the initial upgrade/stream request.
+* Upstream refuses WS upgrade → `502` before hijack completes.
+* Only configured route upstreams are targeted (no open relay).
+
+```bash
+# SSE (with a tick/event upstream routed as sse.demo.localhost)
+curl -N -H 'Host: sse.demo.localhost' -H 'Accept: text/event-stream' http://127.0.0.1:4000/events | head -c 200
+
+# WebSocket (websocat / wscat)
+# websocat -H 'Host: ws.demo.localhost' ws://127.0.0.1:4000/echo
+```
+
 ### Request IDs, forwarded headers, timeouts (05.05)
 
 * Every request gets `X-Request-Id` (reuse valid inbound value, else generate `req_…`).
 * The id is echoed to the client, forwarded upstream, included in access logs, and present in error envelopes.
 * Proxied requests receive `X-Forwarded-For` (append peer; inbound trust configurable), `X-Forwarded-Proto`, `X-Forwarded-Host`, and RFC 7239 `Forwarded`.
-* Hop-by-hop headers are stripped before forwarding (RFC 7230).
-* Routes may set `"timeoutExempt": true` to skip the overall deadline (for long-lived streams in 05.06). Connect/response-header timeouts still apply unless set to `0`.
+* Hop-by-hop headers are stripped before forwarding (RFC 7230); WebSocket re-applies `Connection`/`Upgrade` for the handshake.
+* Routes may set `"timeoutExempt": true` to skip the overall deadline. WS/SSE detection also skips it. Connect/response-header timeouts still apply unless set to `0`.
 
 ### Health-aware upstreams (05.04)
 
@@ -175,10 +196,11 @@ curl -sf -X PUT http://127.0.0.1:4000/admin/routes -H 'content-type: application
 
 Structured JSON logs (`timestamp`, `level`, `service`, `message`). Proxied
 requests log `requestId`, matched route, chosen upstream, status, and duration.
-Timeouts log distinctly with upstream and elapsed time. Sync cycles log source,
-routes built, and added/removed host diffs. Upstream ready↔unready transitions
-log the reason (`sync` / `probe` / `passive`). Sync failures retain the
-last-good table.
+WebSocket/SSE open and close log duration, approximate bytes, and close reason
+(including `idle_timeout`). Timeouts log distinctly with upstream and elapsed
+time. Sync cycles log source, routes built, and added/removed host diffs.
+Upstream ready↔unready transitions log the reason (`sync` / `probe` / `passive`).
+Sync failures retain the last-good table.
 
 ## Development
 

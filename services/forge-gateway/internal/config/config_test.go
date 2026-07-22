@@ -30,6 +30,10 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FORGE_PROXY_RESPONSE_HEADER_TIMEOUT_SECONDS", "")
 	t.Setenv("FORGE_PROXY_OVERALL_TIMEOUT_SECONDS", "")
 	t.Setenv("FORGE_TRUST_INBOUND_XFF", "")
+	t.Setenv("FORGE_WS_ENABLED", "")
+	t.Setenv("FORGE_SSE_ENABLED", "")
+	t.Setenv("FORGE_WS_IDLE_TIMEOUT_SECONDS", "")
+	t.Setenv("FORGE_STREAM_READ_TIMEOUT_SECONDS", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -95,6 +99,15 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.TrustInboundXFF {
 		t.Fatal("TrustInboundXFF should default false")
 	}
+	if !cfg.WSEnabled || !cfg.SSEEnabled {
+		t.Fatalf("WS/SSE enabled defaults: ws=%v sse=%v", cfg.WSEnabled, cfg.SSEEnabled)
+	}
+	if cfg.WSIdleTimeout != 300*time.Second {
+		t.Fatalf("WSIdleTimeout = %v, want 300s", cfg.WSIdleTimeout)
+	}
+	if cfg.StreamReadTimeout != 0 {
+		t.Fatalf("StreamReadTimeout = %v, want 0", cfg.StreamReadTimeout)
+	}
 }
 
 func TestLoadInvalidPort(t *testing.T) {
@@ -134,6 +147,10 @@ func TestLoadCustomValues(t *testing.T) {
 	t.Setenv("FORGE_PROXY_RESPONSE_HEADER_TIMEOUT_SECONDS", "8")
 	t.Setenv("FORGE_PROXY_OVERALL_TIMEOUT_SECONDS", "12")
 	t.Setenv("FORGE_TRUST_INBOUND_XFF", "true")
+	t.Setenv("FORGE_WS_ENABLED", "false")
+	t.Setenv("FORGE_SSE_ENABLED", "false")
+	t.Setenv("FORGE_WS_IDLE_TIMEOUT_SECONDS", "120")
+	t.Setenv("FORGE_STREAM_READ_TIMEOUT_SECONDS", "60")
 
 	cfg, err := Load()
 	if err != nil {
@@ -177,6 +194,12 @@ func TestLoadCustomValues(t *testing.T) {
 	}
 	if !cfg.TrustInboundXFF {
 		t.Fatal("TrustInboundXFF should be true")
+	}
+	if cfg.WSEnabled || cfg.SSEEnabled {
+		t.Fatalf("WS/SSE should be disabled: ws=%v sse=%v", cfg.WSEnabled, cfg.SSEEnabled)
+	}
+	if cfg.WSIdleTimeout != 120*time.Second || cfg.StreamReadTimeout != 60*time.Second {
+		t.Fatalf("stream timeouts: idle=%v read=%v", cfg.WSIdleTimeout, cfg.StreamReadTimeout)
 	}
 }
 

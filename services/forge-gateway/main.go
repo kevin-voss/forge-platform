@@ -58,6 +58,10 @@ func run() error {
 		"proxy_response_header_timeout_seconds", int(cfg.ProxyResponseHeaderTimeout.Seconds()),
 		"proxy_overall_timeout_seconds", int(cfg.ProxyOverallTimeout.Seconds()),
 		"trust_inbound_xff", cfg.TrustInboundXFF,
+		"ws_enabled", cfg.WSEnabled,
+		"sse_enabled", cfg.SSEEnabled,
+		"ws_idle_timeout_seconds", int(cfg.WSIdleTimeout.Seconds()),
+		"stream_read_timeout_seconds", int(cfg.StreamReadTimeout.Seconds()),
 	)
 
 	table := routes.NewTable()
@@ -92,6 +96,10 @@ func run() error {
 		ResponseHeaderTimeout: cfg.ProxyResponseHeaderTimeout,
 		OverallTimeout:        cfg.ProxyOverallTimeout,
 		TrustInboundXFF:       cfg.TrustInboundXFF,
+		WSEnabled:             cfg.WSEnabled,
+		SSEEnabled:            cfg.SSEEnabled,
+		WSIdleTimeout:         cfg.WSIdleTimeout,
+		StreamReadTimeout:     cfg.StreamReadTimeout,
 	})
 
 	var syncer *gwync.Syncer

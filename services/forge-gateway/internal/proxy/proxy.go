@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"log/slog"
@@ -24,13 +25,17 @@ var (
 	errNoHealthyUpstream = errors.New("no healthy upstream")
 )
 
-// Config holds proxy timeout and header behavior.
+// Config holds proxy timeout, header, and streaming behavior.
 type Config struct {
 	RequestIDHeader       string
 	ConnectTimeout        time.Duration
 	ResponseHeaderTimeout time.Duration
 	OverallTimeout        time.Duration
 	TrustInboundXFF       bool
+	WSEnabled             bool
+	SSEEnabled            bool
+	WSIdleTimeout         time.Duration
+	StreamReadTimeout     time.Duration // 0 = no fixed per-read deadline
 }
 
 // Handler dispatches matched requests to upstreams via httputil.ReverseProxy.
@@ -92,15 +97,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req := r
-	cancel := func() {}
-	if !route.TimeoutExempt && h.cfg.OverallTimeout > 0 {
-		var ctx context.Context
-		ctx, cancel = context.WithTimeout(r.Context(), h.cfg.OverallTimeout)
-		req = r.WithContext(ctx)
-	}
-	defer cancel()
-
 	// Capture client view before Director rewrites Host/URL.
 	originalHost := r.Host
 	requestID := middleware.RequestIDFromContext(r.Context())
@@ -108,11 +104,32 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		requestID = r.Header.Get(h.cfg.RequestIDHeader)
 	}
 
+	// Long-lived streams: dedicated paths (no overall request timeout).
+	if h.cfg.WSEnabled && IsWebSocketUpgrade(r) {
+		h.serveWebSocket(w, r, upstream, originalHost, requestID)
+		return
+	}
+	if h.cfg.SSEEnabled && IsSSERequest(r) {
+		h.serveSSE(w, r, upstream, originalHost, requestID)
+		return
+	}
+
+	streaming := route.TimeoutExempt || (h.cfg.SSEEnabled && IsSSEContentType(r.Header.Get("Accept")))
+	req := r
+	cancel := func() {}
+	if !streaming && h.cfg.OverallTimeout > 0 {
+		var ctx context.Context
+		ctx, cancel = context.WithTimeout(r.Context(), h.cfg.OverallTimeout)
+		req = r.WithContext(ctx)
+	}
+	defer cancel()
+
 	start := time.Now()
 	rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	upstreamURL := upstream.String()
 	proxy := &httputil.ReverseProxy{
-		Transport: h.transport,
+		Transport:     h.transport,
+		FlushInterval: -1, // flush immediately so SSE/chunked upstreams are not buffered
 		// Rewrite (not Director) so we fully own X-Forwarded-* without ReverseProxy appending again.
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(upstream)
@@ -272,4 +289,18 @@ type statusRecorder struct {
 func (s *statusRecorder) WriteHeader(code int) {
 	s.status = code
 	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusRecorder) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (s *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hj, ok := s.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("hijack not supported")
+	}
+	return hj.Hijack()
 }

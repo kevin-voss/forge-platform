@@ -38,6 +38,11 @@ type Config struct {
 	ProxyResponseHeaderTimeout time.Duration
 	ProxyOverallTimeout        time.Duration
 	TrustInboundXFF            bool
+
+	WSEnabled         bool
+	SSEEnabled        bool
+	WSIdleTimeout     time.Duration
+	StreamReadTimeout time.Duration
 }
 
 // Load reads configuration from the process environment.
@@ -224,6 +229,33 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("FORGE_TRUST_INBOUND_XFF must be true|false, got %q", xffTrustRaw)
 	}
 
+	wsEnabled, err := parseBoolEnv("FORGE_WS_ENABLED", true)
+	if err != nil {
+		return Config{}, err
+	}
+	sseEnabled, err := parseBoolEnv("FORGE_SSE_ENABLED", true)
+	if err != nil {
+		return Config{}, err
+	}
+
+	wsIdleRaw := strings.TrimSpace(os.Getenv("FORGE_WS_IDLE_TIMEOUT_SECONDS"))
+	if wsIdleRaw == "" {
+		wsIdleRaw = "300"
+	}
+	wsIdleSecs, err := strconv.Atoi(wsIdleRaw)
+	if err != nil || wsIdleSecs < 0 {
+		return Config{}, fmt.Errorf("FORGE_WS_IDLE_TIMEOUT_SECONDS must be a non-negative integer, got %q", wsIdleRaw)
+	}
+
+	streamReadRaw := strings.TrimSpace(os.Getenv("FORGE_STREAM_READ_TIMEOUT_SECONDS"))
+	if streamReadRaw == "" {
+		streamReadRaw = "0"
+	}
+	streamReadSecs, err := strconv.Atoi(streamReadRaw)
+	if err != nil || streamReadSecs < 0 {
+		return Config{}, fmt.Errorf("FORGE_STREAM_READ_TIMEOUT_SECONDS must be a non-negative integer, got %q", streamReadRaw)
+	}
+
 	return Config{
 		Port:                       port,
 		ServiceName:                name,
@@ -250,5 +282,24 @@ func Load() (Config, error) {
 		ProxyResponseHeaderTimeout: time.Duration(respHdrSecs) * time.Second,
 		ProxyOverallTimeout:        time.Duration(overallSecs) * time.Second,
 		TrustInboundXFF:            trustInboundXFF,
+		WSEnabled:                  wsEnabled,
+		SSEEnabled:                 sseEnabled,
+		WSIdleTimeout:              time.Duration(wsIdleSecs) * time.Second,
+		StreamReadTimeout:          time.Duration(streamReadSecs) * time.Second,
 	}, nil
+}
+
+func parseBoolEnv(name string, defaultVal bool) (bool, error) {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	if raw == "" {
+		return defaultVal, nil
+	}
+	switch raw {
+	case "true", "1", "yes":
+		return true, nil
+	case "false", "0", "no":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s must be true|false, got %q", name, raw)
+	}
 }
