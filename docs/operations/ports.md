@@ -37,6 +37,7 @@
 | Service | Host port |
 |---|---:|
 | Forge Runtime | 4102 |
+| Forge Build | 4103 |
 
 ## Demo allocations (epic 01)
 
