@@ -25,6 +25,7 @@ type BuildRequest struct {
 	Repo          string `json:"repo"`
 	Ref           string `json:"ref"`
 	ForgeYamlPath string `json:"forgeYamlPath,omitempty"`
+	Project       string `json:"project,omitempty"`
 }
 
 // BuildAccepted is the 202 response from POST /v1/builds.
@@ -38,6 +39,7 @@ type BuildRecord struct {
 	BuildID    string      `json:"buildId"`
 	Status     BuildStatus `json:"status"`
 	Image      string      `json:"image,omitempty"`
+	Digest     string      `json:"digest,omitempty"`
 	Commit     string      `json:"commit,omitempty"`
 	StartedAt  time.Time   `json:"startedAt"`
 	FinishedAt *time.Time  `json:"finishedAt,omitempty"`

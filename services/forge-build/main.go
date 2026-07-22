@@ -19,6 +19,7 @@ import (
 	"forge.local/services/forge-build/internal/docker"
 	"forge.local/services/forge-build/internal/health"
 	"forge.local/services/forge-build/internal/jobs"
+	"forge.local/services/forge-build/internal/registry"
 	"forge.local/services/forge-build/internal/workspace"
 )
 
@@ -47,6 +48,11 @@ func run() error {
 		"build_timeout_seconds", int(cfg.BuildTimeout.Seconds()),
 		"max_concurrency", cfg.MaxConcurrency,
 		"log_buffer_lines", cfg.LogBufferLines,
+		"registry", cfg.Registry,
+		"image_name_pattern", cfg.ImageNamePattern,
+		"default_project", cfg.DefaultProject,
+		"push_latest", cfg.PushLatest,
+		"push_retries", cfg.PushRetries,
 		"shutdown_grace_seconds", int(cfg.ShutdownGrace.Seconds()),
 	)
 
@@ -76,12 +82,17 @@ func run() error {
 		)
 	}
 
+	publisher := registry.New(engine, cfg.PushRetries, log)
 	jobMgr := jobs.New(jobs.Config{
 		MaxConcurrency:   cfg.MaxConcurrency,
 		BuildTimeout:     cfg.BuildTimeout,
 		LogBufferLines:   cfg.LogBufferLines,
 		DefaultForgeYAML: cfg.DefaultForgeYAML,
-	}, ws, builder.New(engine), log)
+		Registry:         cfg.Registry,
+		ImageNamePattern: cfg.ImageNamePattern,
+		DefaultProject:   cfg.DefaultProject,
+		PushLatest:       cfg.PushLatest,
+	}, ws, builder.New(engine), publisher, log)
 	jobMgr.Start()
 	defer jobMgr.Stop()
 

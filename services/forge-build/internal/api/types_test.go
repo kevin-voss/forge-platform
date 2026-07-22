@@ -58,7 +58,7 @@ func TestBuildAcceptedAndRecordShapes(t *testing.T) {
 	if err := json.Unmarshal(statusRaw, &rec); err != nil {
 		t.Fatal(err)
 	}
-	if rec.Status != BuildStatusSucceeded || rec.Image == "" || rec.FinishedAt == nil {
+	if rec.Status != BuildStatusSucceeded || rec.Image == "" || rec.Digest == "" || rec.FinishedAt == nil {
 		t.Fatalf("record = %+v", rec)
 	}
 	if rec.StartedAt.IsZero() {
@@ -79,7 +79,7 @@ func TestBuildAcceptedAndRecordShapes(t *testing.T) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"image", "commit", "finishedAt", "error"} {
+	for _, key := range []string{"image", "digest", "commit", "finishedAt", "error"} {
 		if _, ok := m[key]; ok {
 			t.Fatalf("expected %s omitted, got %v", key, m)
 		}

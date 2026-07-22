@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+In progress — 4/7 steps complete
 
 ## Goal
 
@@ -63,7 +63,7 @@ Git repo → Forge Build → docker build → localhost:5000 → Control (image 
 | [06.01](../steps/06-forge-build/06.01-skeleton-docker-workspace.md) | Skeleton + Docker + workspace | Complete | Go service, port 4103, workspace volume |
 | [06.02](../steps/06-forge-build/06.02-forge-yaml-schema-and-openapi.md) | `forge.yaml` schema + build OpenAPI | Complete | Schema, OpenAPI, manifest parser, DTOs |
 | [06.03](../steps/06-forge-build/06.03-clone-checkout-docker-build-logs.md) | Clone/checkout + docker build + streamed logs | Complete | Clone, docker build, log stream, worker pool |
-| [06.04](../steps/06-forge-build/06.04-tag-and-push-registry.md) | Tag + push local registry `:5000` | Not started | Depends on 06.03 |
+| [06.04](../steps/06-forge-build/06.04-tag-and-push-registry.md) | Tag + push local registry `:5000` | Complete | Tag/push + digest on build record |
 | [06.05](../steps/06-forge-build/06.05-build-status-and-failure-paths.md) | Build status + failure paths | Not started | Depends on 06.03/06.04 |
 | [06.06](../steps/06-forge-build/06.06-control-integration-image-ref.md) | Control integration (image ref on service) | Not started | Depends on 06.04 + Control 02 |
 | [06.07](../steps/06-forge-build/06.07-demo-source-to-deployment-and-gate.md) | Demo `06-source-to-deployment` + gate | Not started | Depends on all prior + Runtime 04 + Gateway 05 |
@@ -88,4 +88,4 @@ Git repo → Forge Build → docker build → localhost:5000 → Control (image 
 
 ## Next step to implement
 
-**[06.04](../steps/06-forge-build/06.04-tag-and-push-registry.md) — Tag + push local registry `:5000`**.
+**[06.05](../steps/06-forge-build/06.05-build-status-and-failure-paths.md) — Build status + failure paths**.

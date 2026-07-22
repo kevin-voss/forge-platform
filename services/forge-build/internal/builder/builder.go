@@ -10,6 +10,7 @@ import (
 
 	"forge.local/services/forge-build/internal/docker"
 	"forge.local/services/forge-build/internal/logbuf"
+	"forge.local/services/forge-build/internal/registry"
 )
 
 // Options describe a single docker build invocation.
@@ -103,4 +104,16 @@ func (b *DockerBuilder) Build(ctx context.Context, opts Options, logs *logbuf.Bu
 func LocalTag(buildID string) string {
 	id := strings.TrimSpace(buildID)
 	return "forge-build-local:" + id
+}
+
+// PublishTags tags the local build image and pushes it to the configured registry.
+// Called after a successful Build; returns the content digest of the versioned ref.
+func PublishTags(ctx context.Context, pub registry.Publisher, localImage string, refs registry.Refs, logs *logbuf.Buffer) (string, error) {
+	if pub == nil {
+		return "", fmt.Errorf("registry publisher is not configured")
+	}
+	if strings.TrimSpace(localImage) == "" {
+		return "", fmt.Errorf("local image is required")
+	}
+	return pub.TagAndPush(ctx, localImage, refs, logs)
 }

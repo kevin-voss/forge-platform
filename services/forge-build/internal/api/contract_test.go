@@ -38,6 +38,18 @@ func TestOpenAPIDeclaresBuildPaths(t *testing.T) {
 			t.Fatalf("openapi missing schema %s", name)
 		}
 	}
+	buildRecord := digMap(t, schemas, "BuildRecord")
+	props := digMap(t, buildRecord, "properties")
+	for _, field := range []string{"image", "digest", "commit", "error"} {
+		if _, ok := props[field]; !ok {
+			t.Fatalf("BuildRecord missing property %s", field)
+		}
+	}
+	buildReq := digMap(t, schemas, "BuildRequest")
+	reqProps := digMap(t, buildReq, "properties")
+	if _, ok := reqProps["project"]; !ok {
+		t.Fatal("BuildRequest missing property project")
+	}
 }
 
 func TestExampleForgeYAMLAgainstSchema(t *testing.T) {

@@ -24,6 +24,11 @@ dev:
 	FORGE_BUILD_TIMEOUT_SECONDS=$${FORGE_BUILD_TIMEOUT_SECONDS:-600} \
 	FORGE_BUILD_MAX_CONCURRENCY=$${FORGE_BUILD_MAX_CONCURRENCY:-2} \
 	FORGE_BUILD_LOG_BUFFER_LINES=$${FORGE_BUILD_LOG_BUFFER_LINES:-5000} \
+	FORGE_REGISTRY=$${FORGE_REGISTRY:-localhost:5000} \
+	FORGE_IMAGE_NAME_PATTERN=$${FORGE_IMAGE_NAME_PATTERN:-\{project\}-\{service\}} \
+	FORGE_DEFAULT_PROJECT=$${FORGE_DEFAULT_PROJECT:-} \
+	FORGE_PUSH_LATEST=$${FORGE_PUSH_LATEST:-true} \
+	FORGE_PUSH_RETRIES=$${FORGE_PUSH_RETRIES:-3} \
 	FORGE_SHUTDOWN_GRACE_SECONDS=$${FORGE_SHUTDOWN_GRACE_SECONDS:-10} \
 	FORGE_DOCKER_STARTUP_RETRIES=$${FORGE_DOCKER_STARTUP_RETRIES:-5} \
 	FORGE_DOCKER_STARTUP_RETRY_DELAY_MS=$${FORGE_DOCKER_STARTUP_RETRY_DELAY_MS:-500} \
@@ -67,7 +72,7 @@ test-integration: run
 	@# Clone → docker build → streamed logs against the mounted fixture.
 	@BID="$$(curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/builds" \
 		-H 'content-type: application/json' \
-		-d '{"repo":"file:///fixtures/app","ref":"main","forgeYamlPath":"forge.yaml"}' \
+		-d '{"repo":"file:///fixtures/app","ref":"main","forgeYamlPath":"forge.yaml","project":"acme"}' \
 		| python3 -c 'import sys,json; print(json.load(sys.stdin)["buildId"])')"; \
 		test -n "$$BID"; \
 		STATUS=""; \
@@ -85,10 +90,15 @@ test-integration: run
 		LOGS="$$(curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/builds/$$BID/logs")"; \
 		echo "$$LOGS" | grep -q 'checked out commit'; \
 		echo "$$LOGS" | grep -q 'build succeeded'; \
+		echo "$$LOGS" | grep -q 'docker push'; \
 		IMG="$$(printf '%s' "$$BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("image",""))')"; \
+		DIGEST="$$(printf '%s' "$$BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("digest",""))')"; \
 		test -n "$$IMG"; \
-		docker image inspect "$$IMG" >/dev/null; \
-		echo "Build $$BID succeeded with image $$IMG"
+		test -n "$$DIGEST"; \
+		echo "$$IMG" | grep -q '^localhost:5000/acme-api:'; \
+		curl -sf http://127.0.0.1:5000/v2/_catalog | grep -q acme-api; \
+		docker pull "$$IMG" >/dev/null; \
+		echo "Build $$BID succeeded with image $$IMG digest $$DIGEST"
 	@# Invalid PORT fails startup (config validation).
 	@mkdir -p "$(LOCAL_WORKSPACE)"
 	@! PORT=not-a-port FORGE_BUILD_WORKSPACE_DIR="$(LOCAL_WORKSPACE)" go run . >/tmp/forge-build-bad-port.out 2>&1

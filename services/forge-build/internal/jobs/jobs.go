@@ -14,6 +14,7 @@ import (
 	"forge.local/services/forge-build/internal/git"
 	"forge.local/services/forge-build/internal/logbuf"
 	"forge.local/services/forge-build/internal/manifest"
+	"forge.local/services/forge-build/internal/registry"
 	"forge.local/services/forge-build/internal/workspace"
 )
 
@@ -33,9 +34,12 @@ type Record struct {
 	Repo         string
 	Ref          string
 	ForgeYAML    string
+	Project      string
 	Commit       string
 	Status       Status
 	LocalImage   string
+	Image        string
+	Digest       string
 	StartedAt    time.Time
 	FinishedAt   *time.Time
 	Error        string
@@ -48,6 +52,7 @@ type Request struct {
 	Repo      string
 	Ref       string
 	ForgeYAML string
+	Project   string
 }
 
 // Accepted is returned when a build is queued.
@@ -62,14 +67,19 @@ type Config struct {
 	BuildTimeout     time.Duration
 	LogBufferLines   int
 	DefaultForgeYAML string
+	Registry         string
+	ImageNamePattern string
+	DefaultProject   string
+	PushLatest       bool
 }
 
 // Manager owns the queue, workers, and build records.
 type Manager struct {
-	cfg     Config
-	ws      *workspace.Manager
-	builder builder.ImageBuilder
-	log     *slog.Logger
+	cfg       Config
+	ws        *workspace.Manager
+	builder   builder.ImageBuilder
+	publisher registry.Publisher
+	log       *slog.Logger
 
 	mu      sync.RWMutex
 	records map[string]*Record
@@ -83,7 +93,8 @@ type Manager struct {
 }
 
 // New creates a job manager. Call Start to begin workers.
-func New(cfg Config, ws *workspace.Manager, b builder.ImageBuilder, log *slog.Logger) *Manager {
+// publisher may be a stub in unit tests; production uses registry.Client.
+func New(cfg Config, ws *workspace.Manager, b builder.ImageBuilder, pub registry.Publisher, log *slog.Logger) *Manager {
 	if cfg.MaxConcurrency < 1 {
 		cfg.MaxConcurrency = 1
 	}
@@ -93,20 +104,27 @@ func New(cfg Config, ws *workspace.Manager, b builder.ImageBuilder, log *slog.Lo
 	if strings.TrimSpace(cfg.DefaultForgeYAML) == "" {
 		cfg.DefaultForgeYAML = manifest.DefaultPath
 	}
+	if strings.TrimSpace(cfg.Registry) == "" {
+		cfg.Registry = registry.DefaultRegistry
+	}
+	if strings.TrimSpace(cfg.ImageNamePattern) == "" {
+		cfg.ImageNamePattern = registry.DefaultImageNamePattern
+	}
 	if log == nil {
 		log = slog.Default()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
-		cfg:     cfg,
-		ws:      ws,
-		builder: b,
-		log:     log,
-		records: make(map[string]*Record),
-		queue:   make(chan string, 1024),
-		workers: cfg.MaxConcurrency,
-		ctx:     ctx,
-		cancel:  cancel,
+		cfg:       cfg,
+		ws:        ws,
+		builder:   b,
+		publisher: pub,
+		log:       log,
+		records:   make(map[string]*Record),
+		queue:     make(chan string, 1024),
+		workers:   cfg.MaxConcurrency,
+		ctx:       ctx,
+		cancel:    cancel,
 	}
 }
 
@@ -147,12 +165,18 @@ func (m *Manager) Enqueue(req Request) (Accepted, error) {
 		return Accepted{}, err
 	}
 
+	project := strings.TrimSpace(req.Project)
+	if project == "" {
+		project = m.cfg.DefaultProject
+	}
+
 	id := newBuildID()
 	rec := &Record{
 		ID:        id,
 		Repo:      strings.TrimSpace(req.Repo),
 		Ref:       strings.TrimSpace(req.Ref),
 		ForgeYAML: forgeYAML,
+		Project:   project,
 		Status:    StatusQueued,
 		StartedAt: time.Now().UTC(),
 		Logs:      logbuf.New(m.cfg.LogBufferLines),
@@ -227,6 +251,8 @@ func (m *Manager) runBuild(workerID int, rec *Record) {
 			"status", string(rec.Status),
 			"duration_ms", time.Since(start).Milliseconds(),
 			"active_builds", m.ActiveCount(),
+			"image", rec.Image,
+			"digest", rec.Digest,
 		)
 	}()
 
@@ -300,9 +326,39 @@ func (m *Manager) runBuild(workerID int, rec *Record) {
 		return
 	}
 
+	refs, err := registry.ComputeRefs(registry.TagInput{
+		Registry:   m.cfg.Registry,
+		Pattern:    m.cfg.ImageNamePattern,
+		Project:    rec.Project,
+		Service:    mf.Service.Name,
+		Commit:     rec.Commit,
+		BuildID:    rec.ID,
+		PushLatest: m.cfg.PushLatest,
+	})
+	if err != nil {
+		m.fail(rec, "image tag computation failed: "+err.Error())
+		return
+	}
+	rec.Logs.Append(fmt.Sprintf("==> image refs versioned=%s latest=%s", refs.Versioned, refs.Latest))
+	m.log.Info("image refs computed",
+		"build_id", rec.ID,
+		"versioned", refs.Versioned,
+		"latest", refs.Latest,
+	)
+
+	pushCtx, cancelPush := context.WithTimeout(m.ctx, m.cfg.BuildTimeout)
+	digest, err := builder.PublishTags(pushCtx, m.publisher, tag, refs, rec.Logs)
+	cancelPush()
+	if err != nil {
+		m.fail(rec, "registry push failed: "+err.Error())
+		return
+	}
+
 	now := time.Now().UTC()
 	m.mu.Lock()
 	rec.Status = StatusSucceeded
+	rec.Image = refs.Versioned
+	rec.Digest = digest
 	rec.FinishedAt = &now
 	rec.Error = ""
 	m.mu.Unlock()
@@ -323,6 +379,8 @@ func (m *Manager) fail(rec *Record, message string) {
 	rec.FinishedAt = &now
 	rec.Error = message
 	rec.LocalImage = ""
+	rec.Image = ""
+	rec.Digest = ""
 	m.mu.Unlock()
 	rec.Logs.Append("==> FAILED: " + message)
 	m.log.Warn("build failed", "build_id", rec.ID, "error", message)

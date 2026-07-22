@@ -53,6 +53,7 @@ func (h *BuildHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		Repo:      req.Repo,
 		Ref:       req.Ref,
 		ForgeYAML: req.EffectiveForgeYAMLPath(h.defaultForgeYAML),
+		Project:   req.Project,
 	})
 	if err != nil {
 		WriteManifestValidation(w, err)
@@ -142,7 +143,8 @@ func recordToAPI(rec *jobs.Record) BuildRecord {
 		Error:     rec.Error,
 	}
 	if rec.Status == jobs.StatusSucceeded {
-		out.Image = rec.LocalImage
+		out.Image = rec.Image
+		out.Digest = rec.Digest
 	}
 	if rec.FinishedAt != nil {
 		t := rec.FinishedAt.UTC()

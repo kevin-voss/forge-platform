@@ -20,6 +20,7 @@ import (
 	"forge.local/services/forge-build/internal/docker"
 	"forge.local/services/forge-build/internal/jobs"
 	"forge.local/services/forge-build/internal/logbuf"
+	"forge.local/services/forge-build/internal/registry"
 	"forge.local/services/forge-build/internal/workspace"
 )
 
@@ -78,9 +79,12 @@ func TestCreateBuildReturns202Contract(t *testing.T) {
 func TestIntegrationDockerBuildAndLogs(t *testing.T) {
 	engine := requireDocker(t)
 	defer engine.Close()
+	requireRegistry(t)
 
 	wsRoot := t.TempDir()
-	mgr, cleanup := newTestManager(t, wsRoot, builder.New(engine), 120*time.Second)
+	pub := registry.New(engine, 3, slog.Default())
+	registry.SetBackoffForTest(pub, 100*time.Millisecond)
+	mgr, cleanup := newTestManagerWithPublisher(t, wsRoot, builder.New(engine), pub, 120*time.Second)
 	defer cleanup()
 
 	mux := http.NewServeMux()
@@ -93,6 +97,7 @@ func TestIntegrationDockerBuildAndLogs(t *testing.T) {
 		"repo":          "file://" + repo,
 		"ref":           "main",
 		"forgeYamlPath": "forge.yaml",
+		"project":       "acme",
 	})
 	resp, err := http.Post(srv.URL+"/v1/builds", "application/json", bytes.NewReader(payload))
 	if err != nil {
@@ -125,14 +130,34 @@ func TestIntegrationDockerBuildAndLogs(t *testing.T) {
 	if rec.Status != api.BuildStatusSucceeded {
 		t.Fatalf("status=%s error=%s", rec.Status, rec.Error)
 	}
-	if rec.Image == "" || rec.Commit == "" {
+	if rec.Image == "" || rec.Commit == "" || rec.Digest == "" {
 		t.Fatalf("record=%+v", rec)
+	}
+	if !strings.HasPrefix(rec.Image, "localhost:5000/acme-api:") {
+		t.Fatalf("image = %q, want localhost:5000/acme-api:...", rec.Image)
+	}
+	if !strings.Contains(rec.Image, registry.ShortSHA(rec.Commit)) {
+		t.Fatalf("image %q missing short sha from commit %s", rec.Image, rec.Commit)
+	}
+	if !strings.HasPrefix(rec.Digest, "sha256:") {
+		t.Fatalf("digest = %q", rec.Digest)
 	}
 	exists, err := engine.ImageExists(context.Background(), rec.Image)
 	if err != nil || !exists {
 		t.Fatalf("image %q exists=%v err=%v", rec.Image, exists, err)
 	}
 	t.Cleanup(func() { _ = engine.RemoveImage(context.Background(), rec.Image) })
+
+	_, imgTag, ok := strings.Cut(rec.Image, "localhost:5000/acme-api:")
+	if !ok || imgTag == "" {
+		t.Fatalf("unexpected image ref %q", rec.Image)
+	}
+	assertRegistryHasTag(t, "acme-api", imgTag)
+	pull := exec.Command("docker", "pull", rec.Image)
+	if out, err := pull.CombinedOutput(); err != nil {
+		t.Fatalf("docker pull %s: %v\n%s", rec.Image, err, out)
+	}
+	t.Cleanup(func() { _ = exec.Command("docker", "rmi", "-f", rec.Image).Run() })
 
 	select {
 	case logs := <-logsDone:
@@ -142,11 +167,65 @@ func TestIntegrationDockerBuildAndLogs(t *testing.T) {
 		if !strings.Contains(logs, "checked out commit") {
 			t.Fatalf("unexpected logs: %s", logs)
 		}
+		if !strings.Contains(logs, "docker push") {
+			t.Fatalf("logs missing push: %s", logs)
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("logs follow did not finish")
 	}
 
 	waitWorkspaceGone(t, filepath.Join(wsRoot, accepted.BuildID), 3*time.Second)
+}
+
+func TestIntegrationRegistryDownFailsWithoutImage(t *testing.T) {
+	engine := requireDocker(t)
+	defer engine.Close()
+
+	wsRoot := t.TempDir()
+	pub := registry.New(engine, 1, slog.Default())
+	registry.SetBackoffForTest(pub, 0)
+	ws, err := workspace.New(wsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr := jobs.New(jobs.Config{
+		MaxConcurrency:   1,
+		BuildTimeout:     60 * time.Second,
+		LogBufferLines:   2000,
+		DefaultForgeYAML: "forge.yaml",
+		Registry:         "127.0.0.1:1", // nothing listening
+		ImageNamePattern: "{project}-{service}",
+		PushLatest:       false,
+	}, ws, builder.New(engine), pub, slog.Default())
+	mgr.Start()
+	defer mgr.Stop()
+
+	mux := http.NewServeMux()
+	api.NewBuildHandler(mgr, "forge.yaml").Register(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	repo := initAPIFixtureRepo(t)
+	payload, _ := json.Marshal(map[string]string{"repo": repo, "ref": "main", "project": "acme"})
+	resp, err := http.Post(srv.URL+"/v1/builds", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var accepted api.BuildAccepted
+	if err := json.NewDecoder(resp.Body).Decode(&accepted); err != nil {
+		t.Fatal(err)
+	}
+	rec := waitBuild(t, srv.URL, accepted.BuildID, 60*time.Second)
+	if rec.Status != api.BuildStatusFailed {
+		t.Fatalf("status=%s error=%s", rec.Status, rec.Error)
+	}
+	if rec.Image != "" || rec.Digest != "" {
+		t.Fatalf("expected no image/digest on failure, got image=%q digest=%q", rec.Image, rec.Digest)
+	}
+	if !strings.Contains(strings.ToLower(rec.Error), "push") && !strings.Contains(strings.ToLower(rec.Error), "registry") {
+		t.Fatalf("error = %q", rec.Error)
+	}
 }
 
 func TestIntegrationInvalidDockerfileFails(t *testing.T) {
@@ -208,6 +287,11 @@ func waitWorkspaceGone(t *testing.T, dir string, timeout time.Duration) {
 
 func newTestManager(t *testing.T, wsRoot string, b builder.ImageBuilder, timeout time.Duration) (*jobs.Manager, func()) {
 	t.Helper()
+	return newTestManagerWithPublisher(t, wsRoot, b, &registry.StubPublisher{Digest: "sha256:stub"}, timeout)
+}
+
+func newTestManagerWithPublisher(t *testing.T, wsRoot string, b builder.ImageBuilder, pub registry.Publisher, timeout time.Duration) (*jobs.Manager, func()) {
+	t.Helper()
 	ws, err := workspace.New(wsRoot)
 	if err != nil {
 		t.Fatal(err)
@@ -217,7 +301,10 @@ func newTestManager(t *testing.T, wsRoot string, b builder.ImageBuilder, timeout
 		BuildTimeout:     timeout,
 		LogBufferLines:   2000,
 		DefaultForgeYAML: "forge.yaml",
-	}, ws, b, slog.Default())
+		Registry:         "localhost:5000",
+		ImageNamePattern: "{project}-{service}",
+		PushLatest:       true,
+	}, ws, b, pub, slog.Default())
 	mgr.Start()
 	return mgr, func() { mgr.Stop() }
 }
@@ -238,6 +325,76 @@ func requireDocker(t *testing.T) *docker.Client {
 		t.Skipf("docker unavailable: %v", err)
 	}
 	return c
+}
+
+func requireRegistry(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:5000/v2/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Skipf("registry unavailable at localhost:5000: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Skipf("registry status %d", resp.StatusCode)
+	}
+}
+
+func assertRegistryHasTag(t *testing.T, name, tag string) {
+	t.Helper()
+	catalogResp, err := http.Get("http://127.0.0.1:5000/v2/_catalog")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer catalogResp.Body.Close()
+	var catalog struct {
+		Repositories []string `json:"repositories"`
+	}
+	if err := json.NewDecoder(catalogResp.Body).Decode(&catalog); err != nil {
+		t.Fatal(err)
+	}
+	foundRepo := false
+	for _, r := range catalog.Repositories {
+		if r == name {
+			foundRepo = true
+			break
+		}
+	}
+	if !foundRepo {
+		t.Fatalf("registry catalog missing %q: %v", name, catalog.Repositories)
+	}
+	tagsResp, err := http.Get("http://127.0.0.1:5000/v2/" + name + "/tags/list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tagsResp.Body.Close()
+	var tags struct {
+		Tags []string `json:"tags"`
+	}
+	if err := json.NewDecoder(tagsResp.Body).Decode(&tags); err != nil {
+		t.Fatal(err)
+	}
+	hasVersioned := false
+	hasLatest := false
+	for _, got := range tags.Tags {
+		if got == tag {
+			hasVersioned = true
+		}
+		if got == "latest" {
+			hasLatest = true
+		}
+	}
+	if !hasVersioned {
+		t.Fatalf("registry tags for %s missing %q: %v", name, tag, tags.Tags)
+	}
+	if !hasLatest {
+		t.Fatalf("registry tags for %s missing latest: %v", name, tags.Tags)
+	}
 }
 
 func waitBuildViaManager(t *testing.T, mgr *jobs.Manager, id string, timeout time.Duration) *jobs.Record {

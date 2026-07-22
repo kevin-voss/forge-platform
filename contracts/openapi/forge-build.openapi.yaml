@@ -123,6 +123,10 @@ components:
           type: string
           minLength: 1
           description: Optional path to forge.yaml relative to the repo root (default forge.yaml).
+        project:
+          type: string
+          minLength: 1
+          description: Optional project slug used in the image name pattern (with service from forge.yaml).
     BuildAccepted:
       type: object
       required: [buildId, status]
@@ -144,6 +148,9 @@ components:
         image:
           type: string
           description: Resulting image reference when the build succeeded.
+        digest:
+          type: string
+          description: Content digest (sha256:...) of the pushed image when the build succeeded.
         commit:
           type: string
           description: Resolved commit SHA for the checkout.

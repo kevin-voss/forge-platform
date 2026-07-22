@@ -2,6 +2,7 @@ package jobs_test
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -15,8 +16,13 @@ import (
 	"forge.local/services/forge-build/internal/builder"
 	"forge.local/services/forge-build/internal/jobs"
 	"forge.local/services/forge-build/internal/logbuf"
+	"forge.local/services/forge-build/internal/registry"
 	"forge.local/services/forge-build/internal/workspace"
 )
+
+func stubPublisher() registry.Publisher {
+	return &registry.StubPublisher{Digest: "sha256:stub"}
+}
 
 type fakeBuilder struct {
 	started   atomic.Int32
@@ -66,7 +72,8 @@ func TestQueueRespectsConcurrencyLimit(t *testing.T) {
 		BuildTimeout:     10 * time.Second,
 		LogBufferLines:   100,
 		DefaultForgeYAML: "forge.yaml",
-	}, ws, fb, slog.Default())
+		PushLatest:       true,
+	}, ws, fb, stubPublisher(), slog.Default())
 	mgr.Start()
 	defer mgr.Stop()
 
@@ -112,7 +119,8 @@ func TestTimeoutCancelsLongBuild(t *testing.T) {
 		BuildTimeout:     200 * time.Millisecond,
 		LogBufferLines:   100,
 		DefaultForgeYAML: "forge.yaml",
-	}, ws, fb, slog.Default())
+		PushLatest:       true,
+	}, ws, fb, stubPublisher(), slog.Default())
 	mgr.Start()
 	defer mgr.Stop()
 
@@ -141,7 +149,8 @@ func TestBadRefFailsAndCleansWorkspace(t *testing.T) {
 		MaxConcurrency: 1,
 		BuildTimeout:   10 * time.Second,
 		LogBufferLines: 100,
-	}, ws, &fakeBuilder{}, slog.Default())
+		PushLatest:     true,
+	}, ws, &fakeBuilder{}, stubPublisher(), slog.Default())
 	mgr.Start()
 	defer mgr.Stop()
 
@@ -250,12 +259,85 @@ func initFixtureRepo(t *testing.T) string {
 // Ensure fakeBuilder satisfies interface at compile time.
 var _ builder.ImageBuilder = (*fakeBuilder)(nil)
 
+func TestSuccessfulBuildRecordsPushedImage(t *testing.T) {
+	wsRoot := t.TempDir()
+	ws, err := workspace.New(wsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := initFixtureRepo(t)
+	pub := &registry.StubPublisher{Digest: "sha256:unit-test"}
+	mgr := jobs.New(jobs.Config{
+		MaxConcurrency:   1,
+		BuildTimeout:     10 * time.Second,
+		DefaultForgeYAML: "forge.yaml",
+		Registry:         "localhost:5000",
+		ImageNamePattern: "{project}-{service}",
+		PushLatest:       true,
+	}, ws, &fakeBuilder{}, pub, slog.Default())
+	mgr.Start()
+	defer mgr.Stop()
+
+	acc, err := mgr.Enqueue(jobs.Request{Repo: repo, Ref: "main", Project: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := waitTerminal(t, mgr, acc.BuildID, 5*time.Second)
+	if rec.Status != jobs.StatusSucceeded {
+		t.Fatalf("status=%s error=%s", rec.Status, rec.Error)
+	}
+	if pub.Calls != 1 {
+		t.Fatalf("publisher calls = %d", pub.Calls)
+	}
+	if rec.Digest != "sha256:unit-test" {
+		t.Fatalf("digest = %q", rec.Digest)
+	}
+	if !strings.HasPrefix(rec.Image, "localhost:5000/acme-api:") {
+		t.Fatalf("image = %q", rec.Image)
+	}
+	if !strings.Contains(rec.Image, registry.ShortSHA(rec.Commit)) {
+		t.Fatalf("image missing short sha: %q commit=%s", rec.Image, rec.Commit)
+	}
+	if rec.Image == rec.LocalImage {
+		t.Fatalf("expected registry ref, got local tag %q", rec.Image)
+	}
+}
+
+func TestPushFailureLeavesNoImage(t *testing.T) {
+	wsRoot := t.TempDir()
+	ws, err := workspace.New(wsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := initFixtureRepo(t)
+	pub := &registry.StubPublisher{Err: errors.New("registry unreachable")}
+	mgr := jobs.New(jobs.Config{
+		MaxConcurrency: 1,
+		BuildTimeout:   10 * time.Second,
+		PushLatest:     true,
+	}, ws, &fakeBuilder{}, pub, slog.Default())
+	mgr.Start()
+	defer mgr.Stop()
+
+	acc, err := mgr.Enqueue(jobs.Request{Repo: repo, Ref: "main", Project: "acme"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := waitTerminal(t, mgr, acc.BuildID, 5*time.Second)
+	if rec.Status != jobs.StatusFailed {
+		t.Fatalf("status=%s", rec.Status)
+	}
+	if rec.Image != "" || rec.Digest != "" {
+		t.Fatalf("image=%q digest=%q", rec.Image, rec.Digest)
+	}
+}
+
 func TestRejectRemoteRepoOnEnqueue(t *testing.T) {
 	ws, err := workspace.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	mgr := jobs.New(jobs.Config{MaxConcurrency: 1, BuildTimeout: time.Second}, ws, &fakeBuilder{}, slog.Default())
+	mgr := jobs.New(jobs.Config{MaxConcurrency: 1, BuildTimeout: time.Second}, ws, &fakeBuilder{}, stubPublisher(), slog.Default())
 	_, err = mgr.Enqueue(jobs.Request{Repo: "https://example.com/x.git", Ref: "main"})
 	if err == nil {
 		t.Fatal("expected error")
@@ -271,7 +353,8 @@ func TestConcurrentEnqueueIDsUnique(t *testing.T) {
 	mgr := jobs.New(jobs.Config{
 		MaxConcurrency: 4,
 		BuildTimeout:   5 * time.Second,
-	}, ws, &fakeBuilder{delay: 10 * time.Millisecond}, slog.Default())
+		PushLatest:     true,
+	}, ws, &fakeBuilder{delay: 10 * time.Millisecond}, stubPublisher(), slog.Default())
 	mgr.Start()
 
 	var mu sync.Mutex

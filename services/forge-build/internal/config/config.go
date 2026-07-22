@@ -26,6 +26,12 @@ type Config struct {
 	MaxConcurrency int
 	LogBufferLines int
 
+	Registry         string
+	ImageNamePattern string
+	DefaultProject   string
+	PushLatest       bool
+	PushRetries      int
+
 	DockerStartupRetries    int
 	DockerStartupRetryDelay time.Duration
 }
@@ -144,6 +150,42 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("FORGE_BUILD_LOG_BUFFER_LINES must be a positive integer, got %q", logLinesRaw)
 	}
 
+	registryHost := strings.TrimSpace(os.Getenv("FORGE_REGISTRY"))
+	if registryHost == "" {
+		registryHost = "localhost:5000"
+	}
+	if strings.Contains(registryHost, "://") {
+		return Config{}, fmt.Errorf("FORGE_REGISTRY must be host[:port] without scheme, got %q", registryHost)
+	}
+
+	imagePattern := strings.TrimSpace(os.Getenv("FORGE_IMAGE_NAME_PATTERN"))
+	if imagePattern == "" {
+		imagePattern = "{project}-{service}"
+	}
+	if !strings.Contains(imagePattern, "{service}") {
+		return Config{}, fmt.Errorf("FORGE_IMAGE_NAME_PATTERN must contain {service}, got %q", imagePattern)
+	}
+
+	defaultProject := strings.TrimSpace(os.Getenv("FORGE_DEFAULT_PROJECT"))
+
+	pushLatest := true
+	if raw := strings.TrimSpace(os.Getenv("FORGE_PUSH_LATEST")); raw != "" {
+		v, err := strconv.ParseBool(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("FORGE_PUSH_LATEST must be a boolean, got %q", raw)
+		}
+		pushLatest = v
+	}
+
+	pushRetriesRaw := strings.TrimSpace(os.Getenv("FORGE_PUSH_RETRIES"))
+	if pushRetriesRaw == "" {
+		pushRetriesRaw = "3"
+	}
+	pushRetries, err := strconv.Atoi(pushRetriesRaw)
+	if err != nil || pushRetries < 0 {
+		return Config{}, fmt.Errorf("FORGE_PUSH_RETRIES must be a non-negative integer, got %q", pushRetriesRaw)
+	}
+
 	return Config{
 		Port:                    port,
 		ServiceName:             name,
@@ -158,6 +200,11 @@ func Load() (Config, error) {
 		BuildTimeout:            time.Duration(timeoutSecs) * time.Second,
 		MaxConcurrency:          concurrency,
 		LogBufferLines:          logLines,
+		Registry:                registryHost,
+		ImageNamePattern:        imagePattern,
+		DefaultProject:          defaultProject,
+		PushLatest:              pushLatest,
+		PushRetries:             pushRetries,
 		DockerStartupRetries:    retries,
 		DockerStartupRetryDelay: time.Duration(delayMs) * time.Millisecond,
 	}, nil

@@ -22,6 +22,11 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FORGE_BUILD_TIMEOUT_SECONDS", "")
 	t.Setenv("FORGE_BUILD_MAX_CONCURRENCY", "")
 	t.Setenv("FORGE_BUILD_LOG_BUFFER_LINES", "")
+	t.Setenv("FORGE_REGISTRY", "")
+	t.Setenv("FORGE_IMAGE_NAME_PATTERN", "")
+	t.Setenv("FORGE_DEFAULT_PROJECT", "")
+	t.Setenv("FORGE_PUSH_LATEST", "")
+	t.Setenv("FORGE_PUSH_RETRIES", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -72,6 +77,21 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.LogBufferLines != 5000 {
 		t.Fatalf("LogBufferLines = %d, want 5000", cfg.LogBufferLines)
 	}
+	if cfg.Registry != "localhost:5000" {
+		t.Fatalf("Registry = %q", cfg.Registry)
+	}
+	if cfg.ImageNamePattern != "{project}-{service}" {
+		t.Fatalf("ImageNamePattern = %q", cfg.ImageNamePattern)
+	}
+	if cfg.DefaultProject != "" {
+		t.Fatalf("DefaultProject = %q", cfg.DefaultProject)
+	}
+	if !cfg.PushLatest {
+		t.Fatal("PushLatest want true")
+	}
+	if cfg.PushRetries != 3 {
+		t.Fatalf("PushRetries = %d", cfg.PushRetries)
+	}
 }
 
 func TestLoadInvalidPort(t *testing.T) {
@@ -112,6 +132,11 @@ func TestLoadCustomValues(t *testing.T) {
 	t.Setenv("FORGE_BUILD_TIMEOUT_SECONDS", "120")
 	t.Setenv("FORGE_BUILD_MAX_CONCURRENCY", "3")
 	t.Setenv("FORGE_BUILD_LOG_BUFFER_LINES", "100")
+	t.Setenv("FORGE_REGISTRY", "localhost:5000")
+	t.Setenv("FORGE_IMAGE_NAME_PATTERN", "{service}")
+	t.Setenv("FORGE_DEFAULT_PROJECT", "acme")
+	t.Setenv("FORGE_PUSH_LATEST", "false")
+	t.Setenv("FORGE_PUSH_RETRIES", "5")
 
 	cfg, err := Load()
 	if err != nil {
@@ -119,6 +144,12 @@ func TestLoadCustomValues(t *testing.T) {
 	}
 	if cfg.Port != 9090 || cfg.ServiceName != "build" || cfg.ServiceVersion != "1.2.3" {
 		t.Fatalf("unexpected cfg: %+v", cfg)
+	}
+	if cfg.Registry != "localhost:5000" || cfg.ImageNamePattern != "{service}" || cfg.DefaultProject != "acme" {
+		t.Fatalf("registry cfg: %+v", cfg)
+	}
+	if cfg.PushLatest || cfg.PushRetries != 5 {
+		t.Fatalf("push cfg: latest=%v retries=%d", cfg.PushLatest, cfg.PushRetries)
 	}
 	if cfg.DefaultForgeYAML != "deploy/forge.yaml" {
 		t.Fatalf("DefaultForgeYAML = %q", cfg.DefaultForgeYAML)
