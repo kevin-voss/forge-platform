@@ -2,10 +2,10 @@
 
 Source-to-image build service for Forge Platform (Go + Docker Engine API).
 
-Health-checked skeleton on host port `4103` with Docker socket access and an
-isolated workspace volume (`06.01`). The `forge.yaml` schema, OpenAPI build-job
-contract, and Go manifest/DTO validators are in place (`06.02`). Clone,
-`docker build`, and registry push arrive in later `06.xx` steps.
+Health-checked service on host port `4103` with Docker socket access and an
+isolated workspace volume. Accepts build jobs (`POST /v1/builds`), clones a
+local/`file://` Git ref into `workspace/<buildId>`, validates `forge.yaml`, runs
+`docker build` with a timeout, and streams logs via `GET /v1/builds/{id}/logs`.
 
 ## Quick start
 
@@ -30,6 +30,18 @@ Local binary (uses the host Docker socket and a local workspace dir):
 make dev
 ```
 
+## Build a fixture
+
+```bash
+make prepare-fixture
+make run
+BID=$(curl -sf -X POST http://127.0.0.1:4103/v1/builds -H 'content-type: application/json' \
+  -d '{"repo":"file:///fixtures/app","ref":"main","forgeYamlPath":"forge.yaml"}' \
+  | python3 -c 'import sys,json;print(json.load(sys.stdin)["buildId"])')
+curl -N "http://127.0.0.1:4103/v1/builds/$BID/logs?follow=true"
+curl -sf "http://127.0.0.1:4103/v1/builds/$BID"
+```
+
 ## Configuration
 
 | Variable | Default | Notes |
@@ -43,6 +55,9 @@ make dev
 | `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker Engine endpoint. |
 | `FORGE_BUILD_WORKSPACE_DIR` | `/workspace` | Absolute path for transient per-build clones. Must be writable. |
 | `FORGE_DEFAULT_FORGE_YAML` | `forge.yaml` | Default relative path to the build manifest when the create request omits `forgeYamlPath`. |
+| `FORGE_BUILD_TIMEOUT_SECONDS` | `600` | Cancels clone/build when exceeded; build marked `failed`. |
+| `FORGE_BUILD_MAX_CONCURRENCY` | `2` | Bounded worker pool; additional jobs wait in queue. |
+| `FORGE_BUILD_LOG_BUFFER_LINES` | `5000` | Retained log lines per build (ring buffer). |
 | `FORGE_SHUTDOWN_GRACE_SECONDS` | `10` | Compose `stop_grace_period` should be ≥ this. |
 | `FORGE_DOCKER_STARTUP_RETRIES` | `5` | Bounded ping retries at boot. |
 | `FORGE_DOCKER_STARTUP_RETRY_DELAY_MS` | `500` | Delay between startup ping attempts. |
@@ -56,30 +71,24 @@ Invalid `PORT` or an unwritable workspace dir causes a non-zero exit at startup.
 | `GET /health/live` | `200` `{"status":"ok"}` while the process is up. |
 | `GET /health/ready` | `200` `{"status":"ok"}` only when `docker.ping()` succeeds; otherwise `503` `{"status":"not_ready"}`. |
 
-If Docker is unreachable at startup, the process continues serving liveness after
-bounded retries; readiness stays `503` until the Engine is reachable again.
+## Build API
 
-## Workspace
+| Endpoint | Behavior |
+|---|---|
+| `POST /v1/builds` | Validate body, enqueue job, `202` `{buildId,status:queued}`. |
+| `GET /v1/builds/{buildId}` | Current status (`queued\|running\|succeeded\|failed`), commit, image, error. |
+| `GET /v1/builds/{buildId}/logs` | `text/plain` logs; `?follow=true` streams until the build finishes. |
 
-Each build gets an isolated directory under `FORGE_BUILD_WORKSPACE_DIR/<buildId>/`
-(mode `0700`). The manager creates and fully removes these directories; no build
-orchestration is wired yet (see `06.03`).
+Only local absolute paths and `file://` repos are accepted in this epic. Remote Git URLs are rejected.
+
+On success the image is tagged locally as `forge-build-local:<buildId>` (registry push is `06.04`). Each build uses an isolated workspace directory that is removed when the job finishes.
 
 ## Contracts
 
 * `forge.yaml` JSON Schema: [`contracts/examples/forge.schema.json`](../../contracts/examples/forge.schema.json)
 * Build OpenAPI: [`contracts/openapi/forge-build.openapi.yaml`](../../contracts/openapi/forge-build.openapi.yaml)
-* Go parser: `internal/manifest` (path-traversal safe)
-* DTOs + error envelope: `internal/api`
-
-```text
-POST /v1/builds              → 202 {buildId,status:queued}
-GET  /v1/builds/{buildId}    → build status record
-GET  /v1/builds/{buildId}/logs → streamed/plain logs
-```
-
-HTTP handlers that execute builds arrive in `06.03` / `06.05`; this step defines
-the contract, fixtures, and validators.
+* Go parser: `internal/manifest`
+* Job engine: `internal/git`, `internal/builder`, `internal/jobs`, `internal/logbuf`
 
 ## Docker socket
 
@@ -90,7 +99,8 @@ harden before any non-local deployment.
 ## Observability
 
 Structured JSON logs on stdout with `timestamp`, `level`, `service`, and
-`message`. Startup logs the Docker Engine version and workspace directory.
+`message`. Build lifecycle logs include queued/running/checked-out/finished with
+`build_id` and active job counts.
 
 ## Development
 

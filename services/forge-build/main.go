@@ -13,9 +13,12 @@ import (
 	"syscall"
 	"time"
 
+	"forge.local/services/forge-build/internal/api"
+	"forge.local/services/forge-build/internal/builder"
 	"forge.local/services/forge-build/internal/config"
 	"forge.local/services/forge-build/internal/docker"
 	"forge.local/services/forge-build/internal/health"
+	"forge.local/services/forge-build/internal/jobs"
 	"forge.local/services/forge-build/internal/workspace"
 )
 
@@ -41,6 +44,9 @@ func run() error {
 		"log_level", cfg.LogLevel,
 		"docker_host", cfg.DockerHost,
 		"workspace_dir", cfg.WorkspaceDir,
+		"build_timeout_seconds", int(cfg.BuildTimeout.Seconds()),
+		"max_concurrency", cfg.MaxConcurrency,
+		"log_buffer_lines", cfg.LogBufferLines,
 		"shutdown_grace_seconds", int(cfg.ShutdownGrace.Seconds()),
 	)
 
@@ -70,8 +76,18 @@ func run() error {
 		)
 	}
 
+	jobMgr := jobs.New(jobs.Config{
+		MaxConcurrency:   cfg.MaxConcurrency,
+		BuildTimeout:     cfg.BuildTimeout,
+		LogBufferLines:   cfg.LogBufferLines,
+		DefaultForgeYAML: cfg.DefaultForgeYAML,
+	}, ws, builder.New(engine), log)
+	jobMgr.Start()
+	defer jobMgr.Stop()
+
 	mux := http.NewServeMux()
 	health.NewHandler(engine).Register(mux)
+	api.NewBuildHandler(jobMgr, cfg.DefaultForgeYAML).Register(mux)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

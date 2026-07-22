@@ -19,6 +19,9 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FORGE_SHUTDOWN_GRACE_SECONDS", "")
 	t.Setenv("FORGE_DOCKER_STARTUP_RETRIES", "")
 	t.Setenv("FORGE_DOCKER_STARTUP_RETRY_DELAY_MS", "")
+	t.Setenv("FORGE_BUILD_TIMEOUT_SECONDS", "")
+	t.Setenv("FORGE_BUILD_MAX_CONCURRENCY", "")
+	t.Setenv("FORGE_BUILD_LOG_BUFFER_LINES", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -60,6 +63,15 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.DockerStartupRetryDelay != 500*time.Millisecond {
 		t.Fatalf("DockerStartupRetryDelay = %v, want 500ms", cfg.DockerStartupRetryDelay)
 	}
+	if cfg.BuildTimeout != 600*time.Second {
+		t.Fatalf("BuildTimeout = %v, want 600s", cfg.BuildTimeout)
+	}
+	if cfg.MaxConcurrency != 2 {
+		t.Fatalf("MaxConcurrency = %d, want 2", cfg.MaxConcurrency)
+	}
+	if cfg.LogBufferLines != 5000 {
+		t.Fatalf("LogBufferLines = %d, want 5000", cfg.LogBufferLines)
+	}
 }
 
 func TestLoadInvalidPort(t *testing.T) {
@@ -97,6 +109,9 @@ func TestLoadCustomValues(t *testing.T) {
 	t.Setenv("FORGE_SHUTDOWN_GRACE_SECONDS", "5")
 	t.Setenv("FORGE_DOCKER_STARTUP_RETRIES", "2")
 	t.Setenv("FORGE_DOCKER_STARTUP_RETRY_DELAY_MS", "100")
+	t.Setenv("FORGE_BUILD_TIMEOUT_SECONDS", "120")
+	t.Setenv("FORGE_BUILD_MAX_CONCURRENCY", "3")
+	t.Setenv("FORGE_BUILD_LOG_BUFFER_LINES", "100")
 
 	cfg, err := Load()
 	if err != nil {
@@ -122,6 +137,9 @@ func TestLoadCustomValues(t *testing.T) {
 	}
 	if cfg.DockerStartupRetries != 2 || cfg.DockerStartupRetryDelay != 100*time.Millisecond {
 		t.Fatalf("docker startup: retries=%d delay=%v", cfg.DockerStartupRetries, cfg.DockerStartupRetryDelay)
+	}
+	if cfg.BuildTimeout != 120*time.Second || cfg.MaxConcurrency != 3 || cfg.LogBufferLines != 100 {
+		t.Fatalf("build cfg: timeout=%v concurrency=%d lines=%d", cfg.BuildTimeout, cfg.MaxConcurrency, cfg.LogBufferLines)
 	}
 }
 

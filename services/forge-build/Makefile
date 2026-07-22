@@ -6,8 +6,9 @@ SERVICE := forge-build
 IMAGE := forge/forge-build:local
 HOST_PORT ?= 4103
 LOCAL_WORKSPACE ?= $(ROOT_DIR)/services/forge-build/.tmp/workspace
+FIXTURE_DIR := $(ROOT_DIR)/services/forge-build/testdata/app
 
-.PHONY: dev build run test test-unit test-integration lint format docker-build docker-run clean wait
+.PHONY: dev build run test test-unit test-integration lint format docker-build docker-run clean wait prepare-fixture
 
 dev:
 	@mkdir -p "$(LOCAL_WORKSPACE)"
@@ -19,6 +20,10 @@ dev:
 	FORGE_AUTH_MODE=$${FORGE_AUTH_MODE:-dev} \
 	DOCKER_HOST=$${DOCKER_HOST:-unix:///var/run/docker.sock} \
 	FORGE_BUILD_WORKSPACE_DIR=$${FORGE_BUILD_WORKSPACE_DIR:-$(LOCAL_WORKSPACE)} \
+	FORGE_DEFAULT_FORGE_YAML=$${FORGE_DEFAULT_FORGE_YAML:-forge.yaml} \
+	FORGE_BUILD_TIMEOUT_SECONDS=$${FORGE_BUILD_TIMEOUT_SECONDS:-600} \
+	FORGE_BUILD_MAX_CONCURRENCY=$${FORGE_BUILD_MAX_CONCURRENCY:-2} \
+	FORGE_BUILD_LOG_BUFFER_LINES=$${FORGE_BUILD_LOG_BUFFER_LINES:-5000} \
 	FORGE_SHUTDOWN_GRACE_SECONDS=$${FORGE_SHUTDOWN_GRACE_SECONDS:-10} \
 	FORGE_DOCKER_STARTUP_RETRIES=$${FORGE_DOCKER_STARTUP_RETRIES:-5} \
 	FORGE_DOCKER_STARTUP_RETRY_DELAY_MS=$${FORGE_DOCKER_STARTUP_RETRY_DELAY_MS:-500} \
@@ -27,7 +32,17 @@ dev:
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/forge-build .
 
-run: docker-build
+prepare-fixture:
+	@test -f "$(FIXTURE_DIR)/Dockerfile" && test -f "$(FIXTURE_DIR)/forge.yaml"
+	@if [ ! -d "$(FIXTURE_DIR)/.git" ]; then \
+		git -C "$(FIXTURE_DIR)" init -b main >/dev/null; \
+		git -C "$(FIXTURE_DIR)" config user.email "forge@local"; \
+		git -C "$(FIXTURE_DIR)" config user.name "forge"; \
+		git -C "$(FIXTURE_DIR)" add Dockerfile forge.yaml; \
+		git -C "$(FIXTURE_DIR)" commit -m "fixture" >/dev/null; \
+	fi
+
+run: prepare-fixture docker-build
 	@$(COMPOSE) up -d --build $(SERVICE)
 	@$(MAKE) wait
 	@echo "$(SERVICE) is up on http://127.0.0.1:$(HOST_PORT)"
@@ -49,6 +64,31 @@ test-integration: run
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"message":"starting forge-build"'
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q 'docker_engine_version'
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q 'workspace_dir'
+	@# Clone → docker build → streamed logs against the mounted fixture.
+	@BID="$$(curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/builds" \
+		-H 'content-type: application/json' \
+		-d '{"repo":"file:///fixtures/app","ref":"main","forgeYamlPath":"forge.yaml"}' \
+		| python3 -c 'import sys,json; print(json.load(sys.stdin)["buildId"])')"; \
+		test -n "$$BID"; \
+		STATUS=""; \
+		for i in $$(seq 1 90); do \
+			BODY="$$(curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/builds/$$BID")"; \
+			STATUS="$$(printf '%s' "$$BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])')"; \
+			if [ "$$STATUS" = "succeeded" ] || [ "$$STATUS" = "failed" ]; then break; fi; \
+			sleep 1; \
+		done; \
+		if [ "$$STATUS" != "succeeded" ]; then \
+			echo "build $$BID did not succeed: $$BODY" >&2; \
+			curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/builds/$$BID/logs" >&2 || true; \
+			exit 1; \
+		fi; \
+		LOGS="$$(curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/builds/$$BID/logs")"; \
+		echo "$$LOGS" | grep -q 'checked out commit'; \
+		echo "$$LOGS" | grep -q 'build succeeded'; \
+		IMG="$$(printf '%s' "$$BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("image",""))')"; \
+		test -n "$$IMG"; \
+		docker image inspect "$$IMG" >/dev/null; \
+		echo "Build $$BID succeeded with image $$IMG"
 	@# Invalid PORT fails startup (config validation).
 	@mkdir -p "$(LOCAL_WORKSPACE)"
 	@! PORT=not-a-port FORGE_BUILD_WORKSPACE_DIR="$(LOCAL_WORKSPACE)" go run . >/tmp/forge-build-bad-port.out 2>&1
@@ -81,7 +121,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (health + docker ready/503 + structured logs + invalid PORT + graceful SIGTERM)."
+	@echo "Integration checks passed (build+logs + health + docker ready/503 + structured logs + invalid PORT + graceful SIGTERM)."
 
 lint:
 	@go vet ./...

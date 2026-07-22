@@ -334,6 +334,10 @@ services:
       FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
       DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
       FORGE_BUILD_WORKSPACE_DIR: ${FORGE_BUILD_WORKSPACE_DIR:-/workspace}
+      FORGE_DEFAULT_FORGE_YAML: ${FORGE_DEFAULT_FORGE_YAML:-forge.yaml}
+      FORGE_BUILD_TIMEOUT_SECONDS: ${FORGE_BUILD_TIMEOUT_SECONDS:-600}
+      FORGE_BUILD_MAX_CONCURRENCY: ${FORGE_BUILD_MAX_CONCURRENCY:-2}
+      FORGE_BUILD_LOG_BUFFER_LINES: ${FORGE_BUILD_LOG_BUFFER_LINES:-5000}
       FORGE_SHUTDOWN_GRACE_SECONDS: ${FORGE_SHUTDOWN_GRACE_SECONDS:-10}
       FORGE_DOCKER_STARTUP_RETRIES: ${FORGE_DOCKER_STARTUP_RETRIES:-5}
       FORGE_DOCKER_STARTUP_RETRY_DELAY_MS: ${FORGE_DOCKER_STARTUP_RETRY_DELAY_MS:-500}
@@ -341,6 +345,8 @@ services:
       # Privileged local-dev mount — grants broad host control; harden later.
       - /var/run/docker.sock:/var/run/docker.sock
       - forge-build-workspace:/workspace
+      # Local fixture Git repo for build smoke tests / demos (init via forge-build Makefile).
+      - ./services/forge-build/testdata/app:/fixtures/app
     # Socket is typically root:root mode 660 inside the container on Docker Desktop.
     # Run as root for this privileged local-dev mount (documented; harden later).
     user: "0:0"

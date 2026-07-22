@@ -22,6 +22,10 @@ type Config struct {
 	DefaultForgeYAML string
 	ShutdownGrace    time.Duration
 
+	BuildTimeout   time.Duration
+	MaxConcurrency int
+	LogBufferLines int
+
 	DockerStartupRetries    int
 	DockerStartupRetryDelay time.Duration
 }
@@ -113,6 +117,33 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("FORGE_DOCKER_STARTUP_RETRY_DELAY_MS must be a non-negative integer, got %q", delayRaw)
 	}
 
+	timeoutRaw := strings.TrimSpace(os.Getenv("FORGE_BUILD_TIMEOUT_SECONDS"))
+	if timeoutRaw == "" {
+		timeoutRaw = "600"
+	}
+	timeoutSecs, err := strconv.Atoi(timeoutRaw)
+	if err != nil || timeoutSecs < 1 {
+		return Config{}, fmt.Errorf("FORGE_BUILD_TIMEOUT_SECONDS must be a positive integer, got %q", timeoutRaw)
+	}
+
+	concurrencyRaw := strings.TrimSpace(os.Getenv("FORGE_BUILD_MAX_CONCURRENCY"))
+	if concurrencyRaw == "" {
+		concurrencyRaw = "2"
+	}
+	concurrency, err := strconv.Atoi(concurrencyRaw)
+	if err != nil || concurrency < 1 {
+		return Config{}, fmt.Errorf("FORGE_BUILD_MAX_CONCURRENCY must be a positive integer, got %q", concurrencyRaw)
+	}
+
+	logLinesRaw := strings.TrimSpace(os.Getenv("FORGE_BUILD_LOG_BUFFER_LINES"))
+	if logLinesRaw == "" {
+		logLinesRaw = "5000"
+	}
+	logLines, err := strconv.Atoi(logLinesRaw)
+	if err != nil || logLines < 1 {
+		return Config{}, fmt.Errorf("FORGE_BUILD_LOG_BUFFER_LINES must be a positive integer, got %q", logLinesRaw)
+	}
+
 	return Config{
 		Port:                    port,
 		ServiceName:             name,
@@ -124,6 +155,9 @@ func Load() (Config, error) {
 		WorkspaceDir:            workspaceDir,
 		DefaultForgeYAML:        defaultForgeYAML,
 		ShutdownGrace:           time.Duration(graceSecs) * time.Second,
+		BuildTimeout:            time.Duration(timeoutSecs) * time.Second,
+		MaxConcurrency:          concurrency,
+		LogBufferLines:          logLines,
 		DockerStartupRetries:    retries,
 		DockerStartupRetryDelay: time.Duration(delayMs) * time.Millisecond,
 	}, nil

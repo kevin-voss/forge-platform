@@ -3,7 +3,11 @@
 FROM golang:1.24-bookworm AS build
 WORKDIR /src
 
-COPY go.mod ./
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends git \
+	&& rm -rf /var/lib/apt/lists/*
+
+COPY go.mod go.sum ./
 COPY main.go ./
 COPY internal ./internal
 
@@ -14,7 +18,7 @@ FROM debian:bookworm-slim AS runtime
 WORKDIR /app
 
 RUN apt-get update \
-	&& apt-get install -y --no-install-recommends ca-certificates curl \
+	&& apt-get install -y --no-install-recommends ca-certificates curl git \
 	&& rm -rf /var/lib/apt/lists/* \
 	&& mkdir -p /workspace \
 	&& chmod 0700 /workspace
@@ -31,6 +35,10 @@ ENV PORT=8080 \
 	FORGE_AUTH_MODE=dev \
 	DOCKER_HOST=unix:///var/run/docker.sock \
 	FORGE_BUILD_WORKSPACE_DIR=/workspace \
+	FORGE_DEFAULT_FORGE_YAML=forge.yaml \
+	FORGE_BUILD_TIMEOUT_SECONDS=600 \
+	FORGE_BUILD_MAX_CONCURRENCY=2 \
+	FORGE_BUILD_LOG_BUFFER_LINES=5000 \
 	FORGE_SHUTDOWN_GRACE_SECONDS=10
 
 # Privileged local-dev: Docker socket is typically root-owned mode 660.
