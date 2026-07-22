@@ -14,3 +14,19 @@ services:
       FORGE_ENV: development
     stop_grace_period: 10s
     restart: "no"
+
+  demo-python-api:
+    build:
+      context: ./apps/python
+    image: forge/demo-python-api:local
+    container_name: demo-python-api
+    ports:
+      - "4204:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: demo-python-api
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: info
+      FORGE_ENV: development
+    stop_grace_period: 10s
+    restart: "no"

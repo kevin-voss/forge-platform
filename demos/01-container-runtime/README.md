@@ -1,25 +1,27 @@
-# Demo 01: Container runtime (Go)
+# Demo 01: Container runtime (Go + Python)
 
-First language slice of the Forge runtime contract: a production-shaped Go
-workload that listens on `PORT`, exposes health + identity, emits structured
-JSON logs, and shuts down cleanly on `SIGTERM`.
+Language slices of the Forge runtime contract: production-shaped workloads that
+listen on `PORT`, expose health + identity, emit structured JSON logs, and shut
+down cleanly on `SIGTERM`.
 
-Later steps add Python, Kotlin, Rust, and Elixir on ports `4202`–`4205`.
+This step covers **Go** (port `4201`) and **Python** (port `4204`). Later steps
+add Kotlin, Rust, and Elixir on ports `4202`, `4203`, and `4205`.
 
 ## What this demo checks
 
-* Go image builds via Compose
+* Go and Python images build via Compose
 * `GET /health/live` and `GET /health/ready` → `200`
-* `GET /` identity JSON includes `"language":"go"`
+* `GET /` identity JSON includes the expected `"language"`
 * Structured stdout logs match the epic 01 required fields
 * `docker stop` (SIGTERM) exits within the 10s grace window
-* Shared [`tools/contract-validator`](../../tools/contract-validator/README.md) passes
+* Shared [`tools/contract-validator`](../../tools/contract-validator/README.md) passes for each language
 
 ## Ports
 
 | Service | Host | Container |
 |---|---:|---:|
 | `demo-go-api` | 4201 | 8080 (`PORT`) |
+| `demo-python-api` | 4204 | 8080 (`PORT`) |
 
 See [`docs/operations/ports.md`](../../docs/operations/ports.md).
 
@@ -29,13 +31,13 @@ In-container defaults (Compose / Dockerfile / `.env.example`):
 
 ```text
 PORT=8080
-FORGE_SERVICE_NAME=demo-go-api
+FORGE_SERVICE_NAME=demo-<lang>-api
 FORGE_SERVICE_VERSION=0.1.0
 FORGE_LOG_LEVEL=info
 FORGE_ENV=development
 ```
 
-Host publish pattern: `4201:8080`.
+Host publish pattern: `4201:8080` (Go), `4204:8080` (Python).
 
 ## Run
 
@@ -49,11 +51,14 @@ Or directly:
 ./demos/01-container-runtime/run.sh
 ```
 
-## Local unit tests (Go)
+## Local unit tests
 
 ```bash
 cd demos/01-container-runtime/apps/go
 go test ./...
+
+cd demos/01-container-runtime/apps/python
+python -m unittest -v test_server.py
 ```
 
 ## Layout
@@ -63,5 +68,7 @@ demos/01-container-runtime/
 ├── README.md
 ├── run.sh
 ├── compose.yaml
-└── apps/go/          # demo-go-api (no platform SDK imports)
+└── apps/
+    ├── go/       # demo-go-api (no platform SDK imports)
+    └── python/   # demo-python-api (stdlib only; no platform SDK)
 ```
