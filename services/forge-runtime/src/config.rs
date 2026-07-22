@@ -1,4 +1,5 @@
 use std::env;
+use std::path::PathBuf;
 use std::time::Duration;
 
 /// Env-backed configuration for forge-runtime.
@@ -15,6 +16,11 @@ pub struct Config {
     /// Bounded startup retries against Docker before continuing with readiness=503.
     pub docker_startup_retries: u32,
     pub docker_startup_retry_delay: Duration,
+    /// Directory for persisted node identity (`node_id` file).
+    pub data_dir: PathBuf,
+    pub heartbeat_interval: Duration,
+    /// Optional Control base URL for the outbound registration stub (04.07).
+    pub control_url: Option<String>,
 }
 
 impl Config {
@@ -81,6 +87,29 @@ impl Config {
             )
         })?;
 
+        let data_dir_raw =
+            env::var("FORGE_RUNTIME_DATA_DIR").unwrap_or_else(|_| "/var/lib/forge-runtime".into());
+        let data_dir_raw = data_dir_raw.trim();
+        if data_dir_raw.is_empty() {
+            return Err("FORGE_RUNTIME_DATA_DIR must not be empty".into());
+        }
+        let data_dir = PathBuf::from(data_dir_raw);
+
+        let hb_raw = env::var("FORGE_HEARTBEAT_INTERVAL_SECONDS").unwrap_or_else(|_| "10".into());
+        let hb_secs: u64 = hb_raw.trim().parse().map_err(|_| {
+            format!("FORGE_HEARTBEAT_INTERVAL_SECONDS must be a positive integer, got {hb_raw:?}")
+        })?;
+        if hb_secs == 0 {
+            return Err(format!(
+                "FORGE_HEARTBEAT_INTERVAL_SECONDS must be a positive integer, got {hb_raw:?}"
+            ));
+        }
+
+        let control_url = env::var("FORGE_CONTROL_URL")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
         Ok(Self {
             port,
             service_name,
@@ -92,6 +121,9 @@ impl Config {
             shutdown_grace: Duration::from_secs(grace_secs),
             docker_startup_retries,
             docker_startup_retry_delay: Duration::from_millis(delay_ms),
+            data_dir,
+            heartbeat_interval: Duration::from_secs(hb_secs),
+            control_url,
         })
     }
 }
@@ -129,6 +161,9 @@ mod tests {
             "FORGE_SHUTDOWN_GRACE_SECONDS",
             "FORGE_DOCKER_STARTUP_RETRIES",
             "FORGE_DOCKER_STARTUP_RETRY_DELAY_MS",
+            "FORGE_RUNTIME_DATA_DIR",
+            "FORGE_HEARTBEAT_INTERVAL_SECONDS",
+            "FORGE_CONTROL_URL",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()
@@ -210,6 +245,9 @@ mod tests {
                 ("FORGE_AUTH_MODE", None),
                 ("DOCKER_HOST", None),
                 ("FORGE_SHUTDOWN_GRACE_SECONDS", None),
+                ("FORGE_RUNTIME_DATA_DIR", None),
+                ("FORGE_HEARTBEAT_INTERVAL_SECONDS", None),
+                ("FORGE_CONTROL_URL", None),
             ],
             || {
                 let cfg = Config::from_env().expect("config");
@@ -221,6 +259,43 @@ mod tests {
                 assert_eq!(cfg.auth_mode, "dev");
                 assert_eq!(cfg.docker_host, "unix:///var/run/docker.sock");
                 assert_eq!(cfg.shutdown_grace, Duration::from_secs(10));
+                assert_eq!(cfg.data_dir, PathBuf::from("/var/lib/forge-runtime"));
+                assert_eq!(cfg.heartbeat_interval, Duration::from_secs(10));
+                assert!(cfg.control_url.is_none());
+            },
+        );
+    }
+
+    #[test]
+    fn rejects_zero_heartbeat_interval() {
+        with_env(
+            &[
+                ("PORT", Some("8080")),
+                ("FORGE_HEARTBEAT_INTERVAL_SECONDS", Some("0")),
+            ],
+            || {
+                assert!(Config::from_env().is_err());
+            },
+        );
+    }
+
+    #[test]
+    fn loads_control_url() {
+        with_env(
+            &[
+                ("PORT", Some("8080")),
+                ("FORGE_CONTROL_URL", Some("http://forge-control:8080")),
+                ("FORGE_RUNTIME_DATA_DIR", Some("/tmp/forge-runtime-data")),
+                ("FORGE_HEARTBEAT_INTERVAL_SECONDS", Some("5")),
+            ],
+            || {
+                let cfg = Config::from_env().expect("config");
+                assert_eq!(
+                    cfg.control_url.as_deref(),
+                    Some("http://forge-control:8080")
+                );
+                assert_eq!(cfg.data_dir, PathBuf::from("/tmp/forge-runtime-data"));
+                assert_eq!(cfg.heartbeat_interval, Duration::from_secs(5));
             },
         );
     }

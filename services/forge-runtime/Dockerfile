@@ -20,7 +20,8 @@ RUN apt-get update \
 	&& useradd --uid 10001 --gid appgroup --create-home --shell /usr/sbin/nologin appuser
 
 COPY --from=build /forge-runtime /app/forge-runtime
-RUN chown -R appuser:appgroup /app
+RUN mkdir -p /var/lib/forge-runtime \
+	&& chown -R appuser:appgroup /app /var/lib/forge-runtime
 
 # Docker socket mount is a privileged local-dev convenience. The process runs as
 # appuser; Compose adds the host docker GID via group_add when needed.
@@ -35,6 +36,8 @@ ENV PORT=8080 \
 	FORGE_ENV=development \
 	FORGE_AUTH_MODE=dev \
 	DOCKER_HOST=unix:///var/run/docker.sock \
-	FORGE_SHUTDOWN_GRACE_SECONDS=10
+	FORGE_SHUTDOWN_GRACE_SECONDS=10 \
+	FORGE_RUNTIME_DATA_DIR=/var/lib/forge-runtime \
+	FORGE_HEARTBEAT_INTERVAL_SECONDS=10
 
 ENTRYPOINT ["/app/forge-runtime"]

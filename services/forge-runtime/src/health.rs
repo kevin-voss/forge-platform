@@ -1,4 +1,6 @@
 use crate::docker::DockerProbe;
+use crate::heartbeat::Heartbeat;
+use crate::node::Node;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -10,6 +12,8 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct AppState {
     pub docker: Arc<dyn DockerProbe>,
+    pub node: Arc<Node>,
+    pub heartbeat: Arc<Heartbeat>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -17,11 +21,10 @@ pub struct HealthResponse {
     pub status: String,
 }
 
-pub fn router(state: AppState) -> Router {
+pub fn router() -> Router<AppState> {
     Router::new()
         .route("/health/live", get(handle_live))
         .route("/health/ready", get(handle_ready))
-        .with_state(state)
 }
 
 async fn handle_live() -> impl IntoResponse {
@@ -54,8 +57,24 @@ async fn handle_ready(State(state): State<AppState>) -> impl IntoResponse {
 mod tests {
     use super::*;
     use crate::docker::test_support::StubDocker;
+    use crate::heartbeat::Heartbeat;
+    use crate::node::Node;
     use http_body_util::BodyExt;
+    use tempfile::tempdir;
     use tower::ServiceExt;
+
+    async fn test_state(docker: Arc<dyn DockerProbe>) -> AppState {
+        let dir = tempdir().unwrap();
+        let node = Node::bootstrap(dir.path(), docker.as_ref())
+            .await
+            .expect("node");
+        // Node id is in-memory; tempdir may drop.
+        AppState {
+            docker,
+            node: Arc::new(node),
+            heartbeat: Arc::new(Heartbeat::new()),
+        }
+    }
 
     async fn get_json(app: Router, path: &str) -> (StatusCode, serde_json::Value) {
         let response = app
@@ -75,9 +94,8 @@ mod tests {
 
     #[tokio::test]
     async fn live_always_ok() {
-        let app = router(AppState {
-            docker: Arc::new(StubDocker::down()),
-        });
+        let state = test_state(Arc::new(StubDocker::down())).await;
+        let app = router().with_state(state);
         let (status, body) = get_json(app, "/health/live").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["status"], "ok");
@@ -85,9 +103,8 @@ mod tests {
 
     #[tokio::test]
     async fn ready_ok_when_docker_reachable() {
-        let app = router(AppState {
-            docker: Arc::new(StubDocker::ok("1.0.0")),
-        });
+        let state = test_state(Arc::new(StubDocker::ok("1.0.0"))).await;
+        let app = router().with_state(state);
         let (status, body) = get_json(app, "/health/ready").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["status"], "ok");
@@ -95,9 +112,8 @@ mod tests {
 
     #[tokio::test]
     async fn ready_503_when_docker_unreachable() {
-        let app = router(AppState {
-            docker: Arc::new(StubDocker::down()),
-        });
+        let state = test_state(Arc::new(StubDocker::down())).await;
+        let app = router().with_state(state);
         let (status, body) = get_json(app, "/health/ready").await;
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(body["status"], "not_ready");
@@ -108,9 +124,8 @@ mod tests {
         use crate::docker::BollardDocker;
 
         let docker = BollardDocker::connect("unix:///tmp/forge-runtime-missing.sock");
-        let app = router(AppState {
-            docker: Arc::new(docker),
-        });
+        let state = test_state(Arc::new(docker)).await;
+        let app = router().with_state(state);
         let (status, body) = get_json(app, "/health/ready").await;
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(body["status"], "not_ready");
@@ -124,9 +139,8 @@ mod tests {
         if docker.ping().await.is_err() {
             return;
         }
-        let app = router(AppState {
-            docker: Arc::new(docker),
-        });
+        let state = test_state(Arc::new(docker)).await;
+        let app = router().with_state(state);
         let (status, body) = get_json(app, "/health/ready").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["status"], "ok");

@@ -63,7 +63,7 @@ Forge CLI → Forge Control → Forge Runtime → Docker Engine → demo-go cont
 | Step | Title | Status | Notes |
 |---|---|---|---|
 | [04.01](../steps/04-forge-runtime/04.01-skeleton-docker-socket-health.md) | Skeleton + Docker socket + health | Complete | Rust/Axum, port 4102, Docker ping |
-| [04.02](../steps/04-forge-runtime/04.02-node-identity-registration-heartbeat.md) | Node identity + registration/heartbeat | Not started | Depends on 04.01 |
+| [04.02](../steps/04-forge-runtime/04.02-node-identity-registration-heartbeat.md) | Node identity + registration/heartbeat | Complete | Stable node id, `/v1/node`, heartbeat, label helper |
 | [04.03](../steps/04-forge-runtime/04.03-workload-create-start.md) | Workload create/start (pull, env, ports, labels) | Not started | Depends on 04.01/04.02 |
 | [04.04](../steps/04-forge-runtime/04.04-health-probing-status-model.md) | Health probing + status model | Not started | Depends on 04.03 |
 | [04.05](../steps/04-forge-runtime/04.05-log-streaming.md) | Log streaming | Not started | Depends on 04.03 |
@@ -91,4 +91,4 @@ Forge CLI → Forge Control → Forge Runtime → Docker Engine → demo-go cont
 
 ## Next step to implement
 
-**[04.02](../steps/04-forge-runtime/04.02-node-identity-registration-heartbeat.md) — Node identity + registration/heartbeat** (stable node id, register with Control, periodic heartbeat).
+**[04.03](../steps/04-forge-runtime/04.03-workload-create-start.md) — Workload create/start (pull, env, ports, labels)**.

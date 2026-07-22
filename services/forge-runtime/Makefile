@@ -17,6 +17,8 @@ dev:
 	FORGE_AUTH_MODE=$${FORGE_AUTH_MODE:-dev} \
 	DOCKER_HOST=$${DOCKER_HOST:-unix:///var/run/docker.sock} \
 	FORGE_SHUTDOWN_GRACE_SECONDS=$${FORGE_SHUTDOWN_GRACE_SECONDS:-10} \
+	FORGE_RUNTIME_DATA_DIR=$${FORGE_RUNTIME_DATA_DIR:-.tmp/forge-runtime-data} \
+	FORGE_HEARTBEAT_INTERVAL_SECONDS=$${FORGE_HEARTBEAT_INTERVAL_SECONDS:-10} \
 	cargo run
 
 build:
@@ -41,6 +43,14 @@ test-integration: run
 	@curl -sf "http://127.0.0.1:$(HOST_PORT)/health/ready" | grep -q '"status":"ok"'
 	@# Confirm structured startup log recorded Docker Engine version.
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q 'docker_engine_version'
+	@# Node identity + heartbeat.
+	@curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/node" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["id"]; assert "lastHeartbeat" in d'
+	@curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/node/heartbeat" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["nodeId"]; assert d["healthy"] is True'
+	@ID1=$$(curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/node" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])'); \
+		docker restart $(SERVICE) >/dev/null; \
+		$(MAKE) wait; \
+		ID2=$$(curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/node" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])'); \
+		test "$$ID1" = "$$ID2"
 	@# SIGTERM / docker stop exits 0 within grace.
 	@cid="$$($(COMPOSE) ps -q $(SERVICE))"; \
 		test -n "$$cid"; \
@@ -49,7 +59,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (health + docker ready + graceful SIGTERM)."
+	@echo "Integration checks passed (health + node identity + heartbeat + graceful SIGTERM)."
 
 lint:
 	@cargo fmt --check

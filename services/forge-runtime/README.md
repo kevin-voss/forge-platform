@@ -2,10 +2,9 @@
 
 Single-node container runtime for Forge Platform (Rust + Axum + bollard).
 
-This step (`04.01`) delivers the service skeleton: env-based configuration,
-structured JSON logs, graceful shutdown, Docker Engine connectivity over the
-mounted socket, and health endpoints. Workload lifecycle APIs arrive in later
-steps (`04.03+`).
+This service exposes Docker-backed readiness, a stable node identity that
+persists across restarts, and a periodic heartbeat. Workload lifecycle APIs
+arrive in later steps (`04.03+`).
 
 ## Quick start
 
@@ -15,6 +14,8 @@ From the repository root:
 make service-run SERVICE=forge-runtime
 curl -sf http://127.0.0.1:4102/health/live
 curl -sf http://127.0.0.1:4102/health/ready
+curl -sf http://127.0.0.1:4102/v1/node | python3 -m json.tool
+curl -sf http://127.0.0.1:4102/v1/node/heartbeat | python3 -m json.tool
 ```
 
 Or from this directory:
@@ -24,7 +25,7 @@ make run
 make test
 ```
 
-Local binary (uses the host Docker socket):
+Local binary (uses the host Docker socket and a local data dir):
 
 ```bash
 make dev
@@ -44,8 +45,11 @@ make dev
 | `FORGE_SHUTDOWN_GRACE_SECONDS` | `10` | Compose `stop_grace_period` should be ≥ this. |
 | `FORGE_DOCKER_STARTUP_RETRIES` | `5` | Bounded ping retries at boot. |
 | `FORGE_DOCKER_STARTUP_RETRY_DELAY_MS` | `500` | Delay between startup ping attempts. |
+| `FORGE_RUNTIME_DATA_DIR` | `/var/lib/forge-runtime` | Persists `node_id` (mode `0600`). Must be writable or startup fails. |
+| `FORGE_HEARTBEAT_INTERVAL_SECONDS` | `10` | Periodic liveness tick interval. |
+| `FORGE_CONTROL_URL` | _(unset)_ | Optional; registration stub logs intent when set (real register in 04.07). |
 
-Invalid `PORT` causes a non-zero exit at startup.
+Invalid `PORT` or an unwritable data dir causes a non-zero exit at startup.
 
 ## Health
 
@@ -56,6 +60,17 @@ Invalid `PORT` causes a non-zero exit at startup.
 
 If Docker is unreachable at startup, the process continues serving liveness after
 bounded retries; readiness stays `503` until the Engine is reachable again.
+
+## Node identity
+
+| Endpoint | Behavior |
+|---|---|
+| `GET /v1/node` | Stable node id, hostname, Docker version, best-effort cpu/memory, `startedAt`, `lastHeartbeat`. |
+| `GET /v1/node/heartbeat` | `{ "nodeId", "at", "healthy" }` reflecting the latest liveness tick. |
+
+The node id is generated once (UUID) and stored at `$FORGE_RUNTIME_DATA_DIR/node_id`.
+Compose mounts a named volume (`forge-runtime-data`) so the id survives container
+restarts. The value is also exposed for later workload labeling as `forge.node_id`.
 
 ## Docker socket (local dev)
 
@@ -68,11 +83,13 @@ broad host control and is flagged for later hardening (drop root, tighten
 ## Observability
 
 Structured JSON logs to stdout (`tracing` + JSON subscriber) include
-`timestamp`, `level`, `service`, and `message`. Startup logs the Docker Engine
-version when the ping succeeds. OTEL export is deferred.
+`timestamp`, `level`, `service`, and `message`. Startup logs whether the node id
+was generated or loaded, and the Docker Engine version when the ping succeeds.
+Heartbeat healthy↔unhealthy transitions are logged. OTEL export is deferred.
 
 ## Security
 
-* Health endpoints are unauthenticated by design.
-* No secrets are logged; `FORGE_AUTH_MODE` is recorded at startup for auditability.
+* Health and node info endpoints are unauthenticated by design and expose only
+  non-sensitive host facts (no env dumps, no secrets).
+* Node id is non-secret but stable; the on-disk file is mode `0600`.
 * Do not expose the Docker socket mount outside trusted local development.

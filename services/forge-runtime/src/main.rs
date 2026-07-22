@@ -1,10 +1,15 @@
 mod config;
 mod docker;
 mod health;
+mod heartbeat;
+mod node;
+mod routes;
 
 use config::Config;
 use docker::{startup_ping, BollardDocker};
-use health::{router, AppState};
+use health::{router as health_router, AppState};
+use heartbeat::Heartbeat;
+use node::{maybe_register, Node};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::signal;
@@ -33,6 +38,9 @@ async fn run() -> Result<(), String> {
         env = %cfg.env,
         auth_mode = %cfg.auth_mode,
         docker_host = %cfg.docker_host,
+        data_dir = %cfg.data_dir.display(),
+        heartbeat_interval_seconds = cfg.heartbeat_interval.as_secs(),
+        control_url = cfg.control_url.as_deref().unwrap_or(""),
         shutdown_grace_seconds = cfg.shutdown_grace.as_secs(),
         "starting forge-runtime"
     );
@@ -61,10 +69,32 @@ async fn run() -> Result<(), String> {
         }
     }
 
+    let node = Node::bootstrap(&cfg.data_dir, &docker).await?;
+    let workload_labels = node.labels();
+    info!(
+        node_id = %node.info.id,
+        label = %node::NODE_ID_LABEL,
+        label_value = %workload_labels
+            .get(node::NODE_ID_LABEL)
+            .map(String::as_str)
+            .unwrap_or(""),
+        "node identity ready for workload labeling"
+    );
+    maybe_register(cfg.control_url.as_deref(), &node.info).await;
+
+    let heartbeat = Arc::new(Heartbeat::new());
+    let _heartbeat_task = heartbeat.spawn(cfg.heartbeat_interval);
+
     let state = AppState {
         docker: Arc::new(docker),
+        node: Arc::new(node),
+        heartbeat,
     };
-    let app = router(state);
+
+    let app = axum::Router::new()
+        .merge(health_router())
+        .merge(routes::node::router())
+        .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], cfg.port));
     let listener = tokio::net::TcpListener::bind(addr)
