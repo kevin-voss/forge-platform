@@ -1,5 +1,6 @@
 use crate::health::AppState;
-use crate::prober::note_workload_created;
+use crate::lifecycle::{self, EnsureOutcome};
+use crate::prober::{note_workload_created, StatusCache};
 use crate::workload::{self, WorkloadSpec};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -22,7 +23,10 @@ pub struct ErrorEnvelope {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/v1/workloads", post(handle_create))
-        .route("/v1/workloads/{deployment_id}", get(handle_get))
+        .route(
+            "/v1/workloads/{deployment_id}",
+            get(handle_get).delete(handle_delete),
+        )
 }
 
 async fn handle_create(
@@ -30,15 +34,19 @@ async fn handle_create(
     Json(spec): Json<WorkloadSpec>,
 ) -> impl IntoResponse {
     let container_port = spec.port;
-    match workload::create_and_start(
+    match lifecycle::ensure_workload(
         state.docker.as_ref(),
         state.node.as_ref(),
+        state.deployment_locks.as_ref(),
         spec,
         state.pull_timeout,
+        state.stop_grace,
+        state.on_config_conflict,
     )
     .await
     {
-        Ok(view) => {
+        Ok(outcome) => {
+            let view = outcome.view().clone();
             note_workload_created(
                 state.prober.cache().as_ref(),
                 &view.deployment_id,
@@ -46,7 +54,11 @@ async fn handle_create(
                 container_port,
                 &view.container_id,
             );
-            (StatusCode::CREATED, Json(view)).into_response()
+            let status = match &outcome {
+                EnsureOutcome::Created(_) => StatusCode::CREATED,
+                EnsureOutcome::Existing(_) => StatusCode::OK,
+            };
+            (status, Json(view)).into_response()
         }
         Err(err) => error_response(err).into_response(),
     }
@@ -60,6 +72,31 @@ async fn handle_get(
         Ok(view) => (StatusCode::OK, Json(view)).into_response(),
         Err(err) => error_response(err).into_response(),
     }
+}
+
+async fn handle_delete(
+    State(state): State<AppState>,
+    Path(deployment_id): Path<String>,
+) -> impl IntoResponse {
+    match lifecycle::delete_workload(
+        state.docker.as_ref(),
+        state.deployment_locks.as_ref(),
+        &deployment_id,
+        state.stop_grace,
+    )
+    .await
+    {
+        Ok(()) => {
+            note_workload_deleted(state.prober.cache().as_ref(), &deployment_id);
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Err(err) => error_response(err).into_response(),
+    }
+}
+
+fn note_workload_deleted(cache: &StatusCache, deployment_id: &str) {
+    cache.mark_stopped_by_operator(deployment_id);
+    cache.remove(deployment_id);
 }
 
 fn error_response(err: workload::WorkloadError) -> (StatusCode, Json<ErrorEnvelope>) {
@@ -80,6 +117,7 @@ mod tests {
     use crate::docker::test_support::RecordingDocker;
     use crate::docker::DockerEngine;
     use crate::heartbeat::Heartbeat;
+    use crate::lifecycle::{DeploymentLocks, OnConfigConflict};
     use crate::node::Node;
     use http_body_util::BodyExt;
     use std::sync::Arc;
@@ -108,6 +146,9 @@ mod tests {
             prober,
             log_default_tail: 100,
             log_stream_buffer: 8192,
+            stop_grace: Duration::from_secs(2),
+            on_config_conflict: OnConfigConflict::Recreate,
+            deployment_locks: Arc::new(DeploymentLocks::new()),
         };
         Router::new().merge(router()).with_state(state)
     }
@@ -160,6 +201,53 @@ mod tests {
         assert!(!body["containerId"].as_str().unwrap().is_empty());
         assert_eq!(body["hostPort"], 49152);
         assert_eq!(body["state"], "starting");
+    }
+
+    #[tokio::test]
+    async fn post_idempotent_returns_200_on_reuse() {
+        let docker: Arc<dyn DockerEngine> = Arc::new(RecordingDocker::ok(49152));
+        let app = test_app(Arc::clone(&docker)).await;
+        let body = serde_json::json!({
+            "deployment_id": "deployment-123",
+            "image": "localhost:5000/demo-go:latest",
+            "port": 8080,
+            "environment": {}
+        });
+        let (status, first) = json_request(app, "POST", "/v1/workloads", Some(body.clone())).await;
+        assert_eq!(status, StatusCode::CREATED);
+
+        let app = test_app(Arc::clone(&docker)).await;
+        let (status, second) = json_request(app, "POST", "/v1/workloads", Some(body)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(second["containerId"], first["containerId"]);
+        assert_eq!(second["deploymentId"], "deployment-123");
+    }
+
+    #[tokio::test]
+    async fn delete_returns_204_and_is_idempotent() {
+        let docker: Arc<dyn DockerEngine> = Arc::new(RecordingDocker::ok(49152));
+        let app = test_app(Arc::clone(&docker)).await;
+        let (status, _) = json_request(
+            app,
+            "POST",
+            "/v1/workloads",
+            Some(serde_json::json!({
+                "deployment_id": "deployment-123",
+                "image": "localhost:5000/demo-go:latest",
+                "port": 8080,
+                "environment": {}
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+
+        let app = test_app(Arc::clone(&docker)).await;
+        let (status, _) = json_request(app, "DELETE", "/v1/workloads/deployment-123", None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        let app = test_app(Arc::clone(&docker)).await;
+        let (status, _) = json_request(app, "DELETE", "/v1/workloads/deployment-123", None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
     }
 
     #[tokio::test]

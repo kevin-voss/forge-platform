@@ -3,10 +3,11 @@
 Single-node container runtime for Forge Platform (Rust + Axum + bollard).
 
 This service exposes Docker-backed readiness, a stable node identity that
-persists across restarts, a periodic heartbeat, workload create/start
-(`POST/GET /v1/workloads`), health probing with a normalized status model
+persists across restarts, a periodic heartbeat, idempotent workload
+create/start (`POST/GET /v1/workloads`), graceful stop/delete
+(`DELETE /v1/workloads/{id}`), health probing with a normalized status model
 (`GET /v1/workloads/{id}/status`), and workload log fetch/follow
-(`GET /v1/workloads/{id}/logs`). Stop/delete arrives in `04.06`.
+(`GET /v1/workloads/{id}/logs`). Control desired→actual sync arrives in `04.07`.
 
 ## Quick start
 
@@ -29,6 +30,14 @@ curl -sf http://127.0.0.1:4102/v1/workloads/deployment-123/status | python3 -m j
 curl -sf "http://127.0.0.1:4102/v1/workloads/deployment-123/logs?tail=20"
 # follow (Ctrl-C to stop):
 curl -N "http://127.0.0.1:4102/v1/workloads/deployment-123/logs?follow=true"
+# idempotent retry (200, no duplicate container), then delete:
+curl -sf -X POST http://127.0.0.1:4102/v1/workloads -H 'content-type: application/json' -d '{
+  "deployment_id":"deployment-123",
+  "image":"localhost:5000/demo-go:latest",
+  "port":8080,
+  "environment":{"FORGE_ENV":"development","PORT":"8080"}
+}'
+curl -sf -X DELETE http://127.0.0.1:4102/v1/workloads/deployment-123 -o /dev/null -w '%{http_code}\n'
 ```
 
 Or from this directory:
@@ -70,6 +79,8 @@ make dev
 | `FORGE_PROBE_HOST` | `127.0.0.1` | Host paired with published ports when container IP is unavailable. Compose sets `host.docker.internal`. |
 | `FORGE_LOG_DEFAULT_TAIL` | `100` | Default `tail` for workload log fetch when omitted. |
 | `FORGE_LOG_STREAM_BUFFER` | `8192` | Soft buffer (bytes) used to size follow-stream backpressure. |
+| `FORGE_STOP_GRACE_SECONDS` | `10` | SIGTERM→SIGKILL grace when stopping a workload container. |
+| `FORGE_ON_CONFIG_CONFLICT` | `recreate` | `recreate` replaces a conflicting image; `reject` returns `409`. |
 | `FORGE_CONTROL_URL` | _(unset)_ | Optional; registration stub logs intent when set (real register in 04.07). |
 
 Invalid `PORT` or an unwritable data dir causes a non-zero exit at startup.
@@ -99,14 +110,16 @@ restarts. Workload containers are labeled with this value as `forge.node_id`.
 
 | Endpoint | Behavior |
 |---|---|
-| `POST /v1/workloads` | Pull image, create+start container with env/port/labels; `201` with `hostPort`. |
+| `POST /v1/workloads` | Idempotent ensure: `201` when created, `200` when an existing managed container is reused/restarted. Conflicting image → recreate (default) or `409`. |
 | `GET /v1/workloads/{deploymentId}` | Inspect by name `forge-<deploymentId>`; `404` if missing. |
+| `DELETE /v1/workloads/{deploymentId}` | Graceful stop (SIGTERM + grace) then remove; `204` (idempotent when already gone). Only `forge.managed=true` containers are touched. |
 | `GET /v1/workloads/{deploymentId}/status` | Normalized status + last probe details. |
 | `GET /v1/workloads/{deploymentId}/logs` | Bounded log fetch (`tail`, `since`, `streams`) or SSE follow (`follow=true`). |
 
 Container name is deterministic (`forge-<deployment_id>`). Labels always include
 `forge.deployment_id`, `forge.node_id`, and `forge.managed=true`. The container
 port is published to an ephemeral host port. Env values are not logged — only keys.
+Concurrent creates for the same deployment id are serialized by an in-process lock.
 
 ### Logs
 

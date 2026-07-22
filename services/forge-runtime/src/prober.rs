@@ -147,8 +147,7 @@ impl StatusCache {
         entry.restarts = meta.restarts;
     }
 
-    /// Mark operator-initiated stop (used by 04.06 stop/delete).
-    #[allow(dead_code)]
+    /// Mark operator-initiated stop (used by stop/delete).
     pub fn mark_stopped_by_operator(&self, deployment_id: &str) {
         let mut guard = self.inner.lock().expect("status cache");
         if let Some(entry) = guard.get_mut(deployment_id) {
@@ -169,8 +168,7 @@ impl StatusCache {
         }
     }
 
-    /// Drop a workload from the cache after delete (04.06).
-    #[allow(dead_code)]
+    /// Drop a workload from the cache after delete.
     pub fn remove(&self, deployment_id: &str) {
         self.inner
             .lock()
@@ -731,6 +729,9 @@ mod tests {
         }
         async fn start_container(&self, id_or_name: &str) -> Result<(), String> {
             self.inner.start_container(id_or_name).await
+        }
+        async fn stop_container(&self, id_or_name: &str, grace_seconds: u64) -> Result<(), String> {
+            self.inner.stop_container(id_or_name, grace_seconds).await
         }
         async fn remove_container(&self, id_or_name: &str, force: bool) -> Result<(), String> {
             self.inner.remove_container(id_or_name, force).await

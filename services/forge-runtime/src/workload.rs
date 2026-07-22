@@ -37,8 +37,10 @@ pub enum WorkloadError {
     Pull(String),
     Create(String),
     Start(String),
+    Remove(String),
     Inspect(String),
     NotFound(String),
+    Conflict(String),
 }
 
 impl WorkloadError {
@@ -47,8 +49,9 @@ impl WorkloadError {
         match self {
             Self::Validation(_) => StatusCode::BAD_REQUEST,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
+            Self::Conflict(_) => StatusCode::CONFLICT,
             Self::Pull(_) => StatusCode::BAD_GATEWAY,
-            Self::Create(_) | Self::Start(_) | Self::Inspect(_) => {
+            Self::Create(_) | Self::Start(_) | Self::Remove(_) | Self::Inspect(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
         }
@@ -58,9 +61,11 @@ impl WorkloadError {
         match self {
             Self::Validation(_) => "validation_error",
             Self::NotFound(_) => "not_found",
+            Self::Conflict(_) => "conflict",
             Self::Pull(_) => "image_pull_failed",
             Self::Create(_) => "container_create_failed",
             Self::Start(_) => "container_start_failed",
+            Self::Remove(_) => "container_remove_failed",
             Self::Inspect(_) => "container_inspect_failed",
         }
     }
@@ -71,8 +76,10 @@ impl WorkloadError {
             | Self::Pull(m)
             | Self::Create(m)
             | Self::Start(m)
+            | Self::Remove(m)
             | Self::Inspect(m)
-            | Self::NotFound(m) => m,
+            | Self::NotFound(m)
+            | Self::Conflict(m) => m,
         }
     }
 }
@@ -129,7 +136,7 @@ pub fn validate_spec(spec: &WorkloadSpec) -> Result<WorkloadSpec, WorkloadError>
     })
 }
 
-fn is_valid_deployment_id(id: &str) -> bool {
+pub(crate) fn is_valid_deployment_id(id: &str) -> bool {
     // Docker name fragment: keep forge-<id> within Docker's name rules.
     if id.len() > 200 {
         return false;
@@ -137,6 +144,11 @@ fn is_valid_deployment_id(id: &str) -> bool {
     id.chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
         && id.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
+}
+
+/// Public alias used by delete/lifecycle paths.
+pub fn is_valid_deployment_id_for_delete(id: &str) -> bool {
+    is_valid_deployment_id(id)
 }
 
 fn is_valid_image_ref(image: &str) -> bool {

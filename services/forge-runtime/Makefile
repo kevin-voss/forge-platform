@@ -27,6 +27,8 @@ dev:
 	FORGE_PROBE_HOST=$${FORGE_PROBE_HOST:-127.0.0.1} \
 	FORGE_LOG_DEFAULT_TAIL=$${FORGE_LOG_DEFAULT_TAIL:-100} \
 	FORGE_LOG_STREAM_BUFFER=$${FORGE_LOG_STREAM_BUFFER:-8192} \
+	FORGE_STOP_GRACE_SECONDS=$${FORGE_STOP_GRACE_SECONDS:-10} \
+	FORGE_ON_CONFIG_CONFLICT=$${FORGE_ON_CONFIG_CONFLICT:-recreate} \
 	cargo run
 
 build:
@@ -115,7 +117,22 @@ test-integration: run
 		-d '{"deployment_id":"deployment-bogus","image":"localhost:5000/definitely-missing:latest","port":8080,"environment":{}}'); \
 		test "$$code" = "502" -o "$$code" = "422" -o "$$code" = "500"; \
 		! docker ps -a --format '{{.Names}}' | grep -qx 'forge-deployment-bogus'
-	@docker rm -f forge-deployment-123 >/dev/null 2>&1 || true
+	@# Idempotent create: second POST returns 200 and never duplicates the container.
+	@code=$$(curl -s -o /tmp/forge-runtime-idempotent.json -w '%{http_code}' -X POST "http://127.0.0.1:$(HOST_PORT)/v1/workloads" \
+		-H 'content-type: application/json' \
+		-d '{"deployment_id":"deployment-123","image":"localhost:5000/demo-go:latest","port":8080,"environment":{"FORGE_ENV":"development","PORT":"8080"}}'); \
+		test "$$code" = "200"; \
+		count=$$(docker ps -aq --filter label=forge.deployment_id=deployment-123 | wc -l | tr -d ' '); \
+		test "$$count" = "1"
+	@# Foreign (unmanaged) containers are never stopped/removed by DELETE.
+	@-docker rm -f forge-runtime-foreign-probe >/dev/null 2>&1 || true
+	@docker run -d --name forge-runtime-foreign-probe --label com.example.foreign=true alpine:3.20 sleep 3600 >/dev/null
+	@curl -sf -o /dev/null -w '%{http_code}' -X DELETE "http://127.0.0.1:$(HOST_PORT)/v1/workloads/deployment-123" | grep -q 204
+	@docker inspect forge-runtime-foreign-probe >/dev/null
+	@docker rm -f forge-runtime-foreign-probe >/dev/null 2>&1 || true
+	@# DELETE removes the managed container; second DELETE is still 204.
+	@! docker ps -aq --filter label=forge.deployment_id=deployment-123 --filter label=forge.managed=true | grep -q .
+	@curl -sf -o /dev/null -w '%{http_code}' -X DELETE "http://127.0.0.1:$(HOST_PORT)/v1/workloads/deployment-123" | grep -q 204
 	@# SIGTERM / docker stop exits 0 within grace.
 	@cid="$$($(COMPOSE) ps -q $(SERVICE))"; \
 		test -n "$$cid"; \
@@ -124,7 +141,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (health + node + workloads + status + logs + graceful SIGTERM)."
+	@echo "Integration checks passed (health + node + workloads + status + logs + idempotent create/delete + graceful SIGTERM)."
 
 lint:
 	@cargo fmt --check

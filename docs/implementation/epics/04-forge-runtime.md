@@ -67,7 +67,7 @@ Forge CLI → Forge Control → Forge Runtime → Docker Engine → demo-go cont
 | [04.03](../steps/04-forge-runtime/04.03-workload-create-start.md) | Workload create/start (pull, env, ports, labels) | Complete | Pull/create/start + host port + labels |
 | [04.04](../steps/04-forge-runtime/04.04-health-probing-status-model.md) | Health probing + status model | Complete | Prober + normalized status + `/status` API |
 | [04.05](../steps/04-forge-runtime/04.05-log-streaming.md) | Log streaming | Complete | Bounded + SSE follow via Docker logs |
-| [04.06](../steps/04-forge-runtime/04.06-stop-delete-no-duplicates.md) | Stop/delete; no duplicate containers | Not started | Depends on 04.03 |
+| [04.06](../steps/04-forge-runtime/04.06-stop-delete-no-duplicates.md) | Stop/delete; no duplicate containers | Complete | Idempotent POST + graceful DELETE |
 | [04.07](../steps/04-forge-runtime/04.07-control-integration.md) | Control integration (desired→actual) | Not started | Depends on 04.03–04.06 + Control 02.05 |
 | [04.08](../steps/04-forge-runtime/04.08-demo-runtime-and-gate.md) | Demo `04-runtime` + gate | Not started | Depends on all prior |
 
@@ -91,4 +91,4 @@ Forge CLI → Forge Control → Forge Runtime → Docker Engine → demo-go cont
 
 ## Next step to implement
 
-**[04.06](../steps/04-forge-runtime/04.06-stop-delete-no-duplicates.md) — Stop/delete; no duplicate containers**.
+**[04.07](../steps/04-forge-runtime/04.07-control-integration.md) — Control integration (desired→actual)**.

@@ -36,6 +36,10 @@ pub struct Config {
     pub log_default_tail: u32,
     /// Soft buffer size (bytes) used to size log-follow backpressure channels.
     pub log_stream_buffer: usize,
+    /// Grace period before Docker escalates SIGTERM → SIGKILL on workload stop.
+    pub stop_grace: Duration,
+    /// How to handle create requests that conflict with an existing container's image.
+    pub on_config_conflict: crate::lifecycle::OnConfigConflict,
 }
 
 impl Config {
@@ -195,6 +199,17 @@ impl Config {
             ));
         }
 
+        let stop_grace_raw = env::var("FORGE_STOP_GRACE_SECONDS").unwrap_or_else(|_| "10".into());
+        let stop_grace_secs: u64 = stop_grace_raw.trim().parse().map_err(|_| {
+            format!(
+                "FORGE_STOP_GRACE_SECONDS must be a non-negative integer, got {stop_grace_raw:?}"
+            )
+        })?;
+
+        let conflict_raw =
+            env::var("FORGE_ON_CONFIG_CONFLICT").unwrap_or_else(|_| "recreate".into());
+        let on_config_conflict = crate::lifecycle::OnConfigConflict::parse(&conflict_raw)?;
+
         Ok(Self {
             port,
             service_name,
@@ -219,6 +234,8 @@ impl Config {
             probe_host,
             log_default_tail,
             log_stream_buffer,
+            stop_grace: Duration::from_secs(stop_grace_secs),
+            on_config_conflict,
         })
     }
 }
@@ -269,6 +286,8 @@ mod tests {
             "FORGE_PROBE_HOST",
             "FORGE_LOG_DEFAULT_TAIL",
             "FORGE_LOG_STREAM_BUFFER",
+            "FORGE_STOP_GRACE_SECONDS",
+            "FORGE_ON_CONFIG_CONFLICT",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()
@@ -363,6 +382,8 @@ mod tests {
                 ("FORGE_PROBE_HOST", None),
                 ("FORGE_LOG_DEFAULT_TAIL", None),
                 ("FORGE_LOG_STREAM_BUFFER", None),
+                ("FORGE_STOP_GRACE_SECONDS", None),
+                ("FORGE_ON_CONFIG_CONFLICT", None),
             ],
             || {
                 let cfg = Config::from_env().expect("config");
@@ -387,6 +408,11 @@ mod tests {
                 assert_eq!(cfg.probe_host, "127.0.0.1");
                 assert_eq!(cfg.log_default_tail, 100);
                 assert_eq!(cfg.log_stream_buffer, 8192);
+                assert_eq!(cfg.stop_grace, Duration::from_secs(10));
+                assert_eq!(
+                    cfg.on_config_conflict,
+                    crate::lifecycle::OnConfigConflict::Recreate
+                );
             },
         );
     }

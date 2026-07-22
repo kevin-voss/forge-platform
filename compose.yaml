@@ -230,6 +230,8 @@ services:
       FORGE_PROBE_HOST: ${FORGE_PROBE_HOST:-host.docker.internal}
       FORGE_LOG_DEFAULT_TAIL: ${FORGE_LOG_DEFAULT_TAIL:-100}
       FORGE_LOG_STREAM_BUFFER: ${FORGE_LOG_STREAM_BUFFER:-8192}
+      FORGE_STOP_GRACE_SECONDS: ${FORGE_STOP_GRACE_SECONDS:-10}
+      FORGE_ON_CONFIG_CONFLICT: ${FORGE_ON_CONFIG_CONFLICT:-recreate}
       # Reserved for 04.07 Control registration (stub no-op when unset).
       FORGE_CONTROL_URL: ${FORGE_CONTROL_URL:-}
     extra_hosts:

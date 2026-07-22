@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use bollard::container::{
     Config, CreateContainerOptions, InspectContainerOptions, ListContainersOptions, LogOutput,
-    LogsOptions, RemoveContainerOptions, StartContainerOptions,
+    LogsOptions, RemoveContainerOptions, StartContainerOptions, StopContainerOptions,
 };
 use bollard::image::CreateImageOptions;
 use bollard::models::{HostConfig, PortBinding};
@@ -90,6 +90,8 @@ pub trait DockerEngine: DockerProbe {
     async fn pull_image(&self, image: &str, timeout: Duration) -> Result<(), String>;
     async fn create_container(&self, params: &CreateWorkloadParams) -> Result<String, String>;
     async fn start_container(&self, id_or_name: &str) -> Result<(), String>;
+    /// Graceful stop: Docker sends SIGTERM, then SIGKILL after `grace_seconds`.
+    async fn stop_container(&self, id_or_name: &str, grace_seconds: u64) -> Result<(), String>;
     async fn remove_container(&self, id_or_name: &str, force: bool) -> Result<(), String>;
     async fn inspect_container(&self, id_or_name: &str) -> Result<ContainerInspectInfo, String>;
     /// List containers labeled `forge.managed=true` (all states).
@@ -229,6 +231,15 @@ impl DockerEngine for BollardDocker {
             .start_container(id_or_name, None::<StartContainerOptions<String>>)
             .await
             .map_err(|e| format!("container start failed: {e}"))
+    }
+
+    async fn stop_container(&self, id_or_name: &str, grace_seconds: u64) -> Result<(), String> {
+        let docker = self.client()?;
+        let t = i64::try_from(grace_seconds).unwrap_or(i64::MAX);
+        docker
+            .stop_container(id_or_name, Some(StopContainerOptions { t }))
+            .await
+            .map_err(|e| format!("container stop failed: {e}"))
     }
 
     async fn remove_container(&self, id_or_name: &str, force: bool) -> Result<(), String> {
@@ -551,6 +562,14 @@ pub mod test_support {
             Err("stub: start not implemented".into())
         }
 
+        async fn stop_container(
+            &self,
+            _id_or_name: &str,
+            _grace_seconds: u64,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+
         async fn remove_container(&self, _id_or_name: &str, _force: bool) -> Result<(), String> {
             Ok(())
         }
@@ -583,11 +602,16 @@ pub mod test_support {
         pub created_port: Mutex<Option<u16>>,
         pub container_id: String,
         pub remove_calls: AtomicUsize,
+        pub stop_calls: AtomicUsize,
         pub missing: bool,
+        pub unmanaged: bool,
         pub started: Mutex<bool>,
         pub log_chunks: Mutex<Vec<RawLogChunk>>,
         pub log_follow_hold: bool,
         pub logs_calls: AtomicUsize,
+        pub create_delay: Mutex<Option<Duration>>,
+        pub stop_leaves_running: Mutex<bool>,
+        pub force_removed: Mutex<bool>,
     }
 
     impl RecordingDocker {
@@ -602,7 +626,9 @@ pub mod test_support {
                 created_port: Mutex::new(None),
                 container_id: "container-deadbeef".into(),
                 remove_calls: AtomicUsize::new(0),
+                stop_calls: AtomicUsize::new(0),
                 missing: false,
+                unmanaged: false,
                 started: Mutex::new(false),
                 log_chunks: Mutex::new(vec![
                     RawLogChunk {
@@ -616,6 +642,9 @@ pub mod test_support {
                 ]),
                 log_follow_hold: false,
                 logs_calls: AtomicUsize::new(0),
+                create_delay: Mutex::new(None),
+                stop_leaves_running: Mutex::new(false),
+                force_removed: Mutex::new(false),
             }
         }
 
@@ -631,6 +660,25 @@ pub mod test_support {
             d
         }
 
+        /// Seed an unmanaged container that collides on the Forge name.
+        pub fn unmanaged_named(name: &str) -> Self {
+            let mut d = Self::ok(0);
+            d.unmanaged = true;
+            *d.created_name.lock().unwrap() = Some(name.to_string());
+            *d.created_labels.lock().unwrap() =
+                HashMap::from([("com.example.foreign".into(), "true".into())]);
+            *d.started.lock().unwrap() = true;
+            d
+        }
+
+        pub fn set_create_delay(&self, delay: Duration) {
+            *self.create_delay.lock().unwrap() = Some(delay);
+        }
+
+        pub fn set_stop_leaves_running(&self, leave: bool) {
+            *self.stop_leaves_running.lock().unwrap() = leave;
+        }
+
         fn record(&self, op: &'static str) {
             self.calls.lock().expect("calls").push(op);
         }
@@ -642,6 +690,15 @@ pub mod test_support {
             } else {
                 Ok(())
             }
+        }
+
+        fn clear_container(&self) {
+            *self.created_name.lock().unwrap() = None;
+            *self.created_labels.lock().unwrap() = HashMap::new();
+            *self.created_image.lock().unwrap() = None;
+            *self.created_port.lock().unwrap() = None;
+            *self.started.lock().unwrap() = false;
+            *self.stop_leaves_running.lock().unwrap() = false;
         }
     }
 
@@ -663,6 +720,10 @@ pub mod test_support {
         }
 
         async fn create_container(&self, params: &CreateWorkloadParams) -> Result<String, String> {
+            let delay = *self.create_delay.lock().unwrap();
+            if let Some(delay) = delay {
+                tokio::time::sleep(delay).await;
+            }
             self.maybe_fail("create")?;
             *self.created_name.lock().unwrap() = Some(params.name.clone());
             *self.created_labels.lock().unwrap() = params.labels.clone();
@@ -677,9 +738,32 @@ pub mod test_support {
             Ok(())
         }
 
-        async fn remove_container(&self, _id_or_name: &str, _force: bool) -> Result<(), String> {
+        async fn stop_container(
+            &self,
+            _id_or_name: &str,
+            _grace_seconds: u64,
+        ) -> Result<(), String> {
+            self.record("stop");
+            self.stop_calls.fetch_add(1, Ordering::SeqCst);
+            if self.fail_op == Some("stop") {
+                return Err("stub: stop failed".into());
+            }
+            if !*self.stop_leaves_running.lock().unwrap() {
+                *self.started.lock().unwrap() = false;
+            }
+            Ok(())
+        }
+
+        async fn remove_container(&self, _id_or_name: &str, force: bool) -> Result<(), String> {
             self.record("remove");
             self.remove_calls.fetch_add(1, Ordering::SeqCst);
+            if force {
+                *self.force_removed.lock().unwrap() = true;
+            }
+            if self.fail_op == Some("remove") {
+                return Err("stub: remove failed".into());
+            }
+            self.clear_container();
             Ok(())
         }
 
@@ -712,29 +796,43 @@ pub mod test_support {
 
             let port = self.created_port.lock().unwrap().unwrap_or(8080);
             let mut port_bindings = HashMap::new();
-            port_bindings.insert(format!("{port}/tcp"), vec![self.host_port]);
+            if !self.unmanaged {
+                port_bindings.insert(format!("{port}/tcp"), vec![self.host_port]);
+            }
+
+            let state = if *self.started.lock().unwrap() {
+                "running".into()
+            } else if name.is_some() {
+                "exited".into()
+            } else {
+                "created".into()
+            };
 
             Ok(ContainerInspectInfo {
                 id: self.container_id.clone(),
                 image: self.created_image.lock().unwrap().clone(),
-                state: if *self.started.lock().unwrap() {
-                    "running".into()
-                } else {
-                    "created".into()
-                },
+                state,
                 port_bindings,
                 labels: Some(self.created_labels.lock().unwrap().clone()),
-                ip_address: Some("172.17.0.2".into()),
+                ip_address: if self.unmanaged {
+                    None
+                } else {
+                    Some("172.17.0.2".into())
+                },
                 restart_count: 0,
             })
         }
 
         async fn list_managed_containers(&self) -> Result<Vec<ContainerInspectInfo>, String> {
-            if self.missing {
+            if self.missing || self.unmanaged {
                 return Ok(Vec::new());
             }
             let name = self.created_name.lock().unwrap().clone();
             if name.is_none() {
+                return Ok(Vec::new());
+            }
+            let labels = self.created_labels.lock().unwrap().clone();
+            if labels.get("forge.managed").map(String::as_str) != Some("true") {
                 return Ok(Vec::new());
             }
             match self.inspect_container(&self.container_id).await {

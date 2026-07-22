@@ -1,5 +1,6 @@
 use crate::docker::DockerEngine;
 use crate::heartbeat::Heartbeat;
+use crate::lifecycle::{DeploymentLocks, OnConfigConflict};
 use crate::node::Node;
 use crate::prober::Prober;
 use axum::extract::State;
@@ -20,6 +21,9 @@ pub struct AppState {
     pub prober: Arc<Prober>,
     pub log_default_tail: u32,
     pub log_stream_buffer: usize,
+    pub stop_grace: Duration,
+    pub on_config_conflict: OnConfigConflict,
+    pub deployment_locks: Arc<DeploymentLocks>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -94,6 +98,9 @@ mod tests {
             prober,
             log_default_tail: 100,
             log_stream_buffer: 8192,
+            stop_grace: Duration::from_secs(10),
+            on_config_conflict: OnConfigConflict::Recreate,
+            deployment_locks: Arc::new(DeploymentLocks::new()),
         }
     }
 

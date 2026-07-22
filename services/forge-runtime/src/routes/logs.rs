@@ -192,6 +192,9 @@ mod tests {
             prober,
             log_default_tail: 100,
             log_stream_buffer: 8192,
+            stop_grace: Duration::from_secs(10),
+            on_config_conflict: crate::lifecycle::OnConfigConflict::Recreate,
+            deployment_locks: Arc::new(crate::lifecycle::DeploymentLocks::new()),
         };
         Router::new()
             .merge(crate::routes::workloads::router())
@@ -342,6 +345,9 @@ mod tests {
             prober,
             log_default_tail: 100,
             log_stream_buffer: 8192,
+            stop_grace: Duration::from_secs(10),
+            on_config_conflict: crate::lifecycle::OnConfigConflict::Recreate,
+            deployment_locks: Arc::new(crate::lifecycle::DeploymentLocks::new()),
         };
         let app = Router::new().merge(router()).with_state(state);
 

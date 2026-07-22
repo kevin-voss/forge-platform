@@ -2,6 +2,7 @@ mod config;
 mod docker;
 mod health;
 mod heartbeat;
+mod lifecycle;
 mod logs;
 mod node;
 mod prober;
@@ -13,6 +14,7 @@ use config::Config;
 use docker::{startup_ping, BollardDocker};
 use health::{router as health_router, AppState};
 use heartbeat::Heartbeat;
+use lifecycle::DeploymentLocks;
 use node::{maybe_register, Node};
 use prober::{ProbeConfig, Prober, StatusCache};
 use std::net::SocketAddr;
@@ -53,6 +55,8 @@ async fn run() -> Result<(), String> {
         probe_host = %cfg.probe_host,
         log_default_tail = cfg.log_default_tail,
         log_stream_buffer = cfg.log_stream_buffer,
+        stop_grace_seconds = cfg.stop_grace.as_secs(),
+        on_config_conflict = ?cfg.on_config_conflict,
         control_url = cfg.control_url.as_deref().unwrap_or(""),
         shutdown_grace_seconds = cfg.shutdown_grace.as_secs(),
         "starting forge-runtime"
@@ -122,6 +126,9 @@ async fn run() -> Result<(), String> {
         prober,
         log_default_tail: cfg.log_default_tail,
         log_stream_buffer: cfg.log_stream_buffer,
+        stop_grace: cfg.stop_grace,
+        on_config_conflict: cfg.on_config_conflict,
+        deployment_locks: Arc::new(DeploymentLocks::new()),
     };
 
     let app = axum::Router::new()
