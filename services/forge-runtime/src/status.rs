@@ -32,6 +32,18 @@ impl std::fmt::Display for WorkloadStatus {
     }
 }
 
+/// Map Runtime workload status → Control deployment status vocabulary.
+///
+/// Control statuses: `pending` | `active` | `failed` | `stopped`.
+pub fn to_control_status(status: WorkloadStatus) -> &'static str {
+    match status {
+        WorkloadStatus::Ready | WorkloadStatus::Running => "active",
+        WorkloadStatus::Failed | WorkloadStatus::Unhealthy => "failed",
+        WorkloadStatus::Stopped => "stopped",
+        WorkloadStatus::Starting => "pending",
+    }
+}
+
 /// Coarse Docker container state used for derivation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DockerState {
@@ -255,5 +267,20 @@ mod tests {
         assert_eq!(DockerState::parse("running"), DockerState::Running);
         assert_eq!(DockerState::parse("Exited"), DockerState::Exited);
         assert_eq!(DockerState::parse("weird"), DockerState::Unknown);
+    }
+
+    #[test]
+    fn runtime_to_control_status_mapping() {
+        let cases = [
+            (WorkloadStatus::Starting, "pending"),
+            (WorkloadStatus::Running, "active"),
+            (WorkloadStatus::Ready, "active"),
+            (WorkloadStatus::Unhealthy, "failed"),
+            (WorkloadStatus::Failed, "failed"),
+            (WorkloadStatus::Stopped, "stopped"),
+        ];
+        for (runtime, control) in cases {
+            assert_eq!(to_control_status(runtime), control, "{runtime}");
+        }
     }
 }

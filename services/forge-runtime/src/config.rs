@@ -1,3 +1,4 @@
+use crate::converge::ReportMode;
 use std::env;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -19,8 +20,12 @@ pub struct Config {
     /// Directory for persisted node identity (`node_id` file).
     pub data_dir: PathBuf,
     pub heartbeat_interval: Duration,
-    /// Optional Control base URL for the outbound registration stub (04.07).
+    /// Optional Control base URL for desired-state poll + status report.
     pub control_url: Option<String>,
+    /// Interval for Control desired→actual reconcile cycles.
+    pub reconcile_interval: Duration,
+    /// `push` reports status to Control; `pull` relies on `GET /v1/node/state`.
+    pub control_report_mode: ReportMode,
     /// Max time to wait for an image pull.
     pub pull_timeout: Duration,
     /// Informational default registry host (images are fully qualified).
@@ -129,6 +134,23 @@ impl Config {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
 
+        let reconcile_raw =
+            env::var("FORGE_RECONCILE_INTERVAL_SECONDS").unwrap_or_else(|_| "10".into());
+        let reconcile_secs: u64 = reconcile_raw.trim().parse().map_err(|_| {
+            format!(
+                "FORGE_RECONCILE_INTERVAL_SECONDS must be a positive integer, got {reconcile_raw:?}"
+            )
+        })?;
+        if reconcile_secs == 0 {
+            return Err(format!(
+                "FORGE_RECONCILE_INTERVAL_SECONDS must be a positive integer, got {reconcile_raw:?}"
+            ));
+        }
+
+        let report_mode_raw =
+            env::var("FORGE_CONTROL_REPORT_MODE").unwrap_or_else(|_| "push".into());
+        let control_report_mode = ReportMode::parse(&report_mode_raw)?;
+
         let pull_raw = env::var("FORGE_PULL_TIMEOUT_SECONDS").unwrap_or_else(|_| "120".into());
         let pull_secs: u64 = pull_raw.trim().parse().map_err(|_| {
             format!("FORGE_PULL_TIMEOUT_SECONDS must be a positive integer, got {pull_raw:?}")
@@ -224,6 +246,8 @@ impl Config {
             data_dir,
             heartbeat_interval: Duration::from_secs(hb_secs),
             control_url,
+            reconcile_interval: Duration::from_secs(reconcile_secs),
+            control_report_mode,
             pull_timeout: Duration::from_secs(pull_secs),
             default_registry,
             probe_interval: Duration::from_secs(probe_interval_secs),
@@ -276,6 +300,8 @@ mod tests {
             "FORGE_RUNTIME_DATA_DIR",
             "FORGE_HEARTBEAT_INTERVAL_SECONDS",
             "FORGE_CONTROL_URL",
+            "FORGE_RECONCILE_INTERVAL_SECONDS",
+            "FORGE_CONTROL_REPORT_MODE",
             "FORGE_PULL_TIMEOUT_SECONDS",
             "FORGE_DEFAULT_REGISTRY",
             "FORGE_PROBE_INTERVAL_SECONDS",
@@ -372,6 +398,8 @@ mod tests {
                 ("FORGE_RUNTIME_DATA_DIR", None),
                 ("FORGE_HEARTBEAT_INTERVAL_SECONDS", None),
                 ("FORGE_CONTROL_URL", None),
+                ("FORGE_RECONCILE_INTERVAL_SECONDS", None),
+                ("FORGE_CONTROL_REPORT_MODE", None),
                 ("FORGE_PULL_TIMEOUT_SECONDS", None),
                 ("FORGE_DEFAULT_REGISTRY", None),
                 ("FORGE_PROBE_INTERVAL_SECONDS", None),
@@ -398,6 +426,8 @@ mod tests {
                 assert_eq!(cfg.data_dir, PathBuf::from("/var/lib/forge-runtime"));
                 assert_eq!(cfg.heartbeat_interval, Duration::from_secs(10));
                 assert!(cfg.control_url.is_none());
+                assert_eq!(cfg.reconcile_interval, Duration::from_secs(10));
+                assert_eq!(cfg.control_report_mode, ReportMode::Push);
                 assert_eq!(cfg.pull_timeout, Duration::from_secs(120));
                 assert_eq!(cfg.default_registry, "localhost:5000");
                 assert_eq!(cfg.probe_interval, Duration::from_secs(5));
@@ -451,6 +481,8 @@ mod tests {
                 ("FORGE_CONTROL_URL", Some("http://forge-control:8080")),
                 ("FORGE_RUNTIME_DATA_DIR", Some("/tmp/forge-runtime-data")),
                 ("FORGE_HEARTBEAT_INTERVAL_SECONDS", Some("5")),
+                ("FORGE_RECONCILE_INTERVAL_SECONDS", Some("3")),
+                ("FORGE_CONTROL_REPORT_MODE", Some("pull")),
             ],
             || {
                 let cfg = Config::from_env().expect("config");
@@ -460,6 +492,8 @@ mod tests {
                 );
                 assert_eq!(cfg.data_dir, PathBuf::from("/tmp/forge-runtime-data"));
                 assert_eq!(cfg.heartbeat_interval, Duration::from_secs(5));
+                assert_eq!(cfg.reconcile_interval, Duration::from_secs(3));
+                assert_eq!(cfg.control_report_mode, ReportMode::Pull);
             },
         );
     }

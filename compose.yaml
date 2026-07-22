@@ -232,8 +232,11 @@ services:
       FORGE_LOG_STREAM_BUFFER: ${FORGE_LOG_STREAM_BUFFER:-8192}
       FORGE_STOP_GRACE_SECONDS: ${FORGE_STOP_GRACE_SECONDS:-10}
       FORGE_ON_CONFIG_CONFLICT: ${FORGE_ON_CONFIG_CONFLICT:-recreate}
-      # Reserved for 04.07 Control registration (stub no-op when unset).
-      FORGE_CONTROL_URL: ${FORGE_CONTROL_URL:-}
+      # Desired→actual reconcile against Control (skip cycles when Control is down).
+      # Use ${VAR-default} (no ':') so an explicit empty value disables reconcile in tests.
+      FORGE_CONTROL_URL: ${FORGE_CONTROL_URL-http://forge-control:8080}
+      FORGE_RECONCILE_INTERVAL_SECONDS: ${FORGE_RECONCILE_INTERVAL_SECONDS:-10}
+      FORGE_CONTROL_REPORT_MODE: ${FORGE_CONTROL_REPORT_MODE:-push}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -245,6 +248,9 @@ services:
     user: "0:0"
     group_add:
       - "${DOCKER_GID:-0}"
+    depends_on:
+      forge-control:
+        condition: service_healthy
     stop_grace_period: 15s
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health/live | grep -q ok"]

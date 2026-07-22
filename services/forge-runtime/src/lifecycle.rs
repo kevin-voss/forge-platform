@@ -429,9 +429,6 @@ async fn remove_with_retry(
 
 /// Remove Forge-managed containers whose `forge.deployment_id` is not in `known`.
 /// Returns the deployment ids that were removed.
-///
-/// Used by unit tests today; Control desired-set convergence (`04.07`) will call this.
-#[allow(dead_code)]
 pub async fn cleanup_orphans(
     docker: &dyn DockerEngine,
     known_deployment_ids: &HashSet<String>,

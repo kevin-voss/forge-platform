@@ -1,4 +1,6 @@
 mod config;
+mod control_client;
+mod converge;
 mod docker;
 mod health;
 mod heartbeat;
@@ -11,6 +13,8 @@ mod status;
 mod workload;
 
 use config::Config;
+use control_client::ControlClient;
+use converge::{spawn_reconciler, ReconcilerConfig};
 use docker::{startup_ping, BollardDocker};
 use health::{router as health_router, AppState};
 use heartbeat::Heartbeat;
@@ -58,6 +62,8 @@ async fn run() -> Result<(), String> {
         stop_grace_seconds = cfg.stop_grace.as_secs(),
         on_config_conflict = ?cfg.on_config_conflict,
         control_url = cfg.control_url.as_deref().unwrap_or(""),
+        reconcile_interval_seconds = cfg.reconcile_interval.as_secs(),
+        control_report_mode = ?cfg.control_report_mode,
         shutdown_grace_seconds = cfg.shutdown_grace.as_secs(),
         "starting forge-runtime"
     );
@@ -118,9 +124,45 @@ async fn run() -> Result<(), String> {
     )?);
     let _prober_task = prober.spawn();
 
+    let node = Arc::new(node);
+    let deployment_locks = Arc::new(DeploymentLocks::new());
+
+    let _reconcile_task = if let Some(control_url) = cfg.control_url.as_deref() {
+        match ControlClient::new(control_url, node.info.id.clone()) {
+            Ok(client) => {
+                info!(
+                    control_url = %control_url,
+                    node_id = %node.info.id,
+                    interval_seconds = cfg.reconcile_interval.as_secs(),
+                    report_mode = ?cfg.control_report_mode,
+                    "starting control reconcile loop"
+                );
+                Some(spawn_reconciler(ReconcilerConfig {
+                    docker: Arc::clone(&docker) as Arc<dyn docker::DockerEngine>,
+                    node: Arc::clone(&node),
+                    locks: Arc::clone(&deployment_locks),
+                    prober: Arc::clone(&prober),
+                    control: client,
+                    interval: cfg.reconcile_interval,
+                    pull_timeout: cfg.pull_timeout,
+                    stop_grace: cfg.stop_grace,
+                    on_conflict: cfg.on_config_conflict,
+                    report_mode: cfg.control_report_mode,
+                }))
+            }
+            Err(err) => {
+                error!(error = %err, "invalid FORGE_CONTROL_URL; reconcile loop disabled");
+                None
+            }
+        }
+    } else {
+        info!("control reconcile loop disabled (FORGE_CONTROL_URL unset)");
+        None
+    };
+
     let state = AppState {
         docker,
-        node: Arc::new(node),
+        node,
         heartbeat,
         pull_timeout: cfg.pull_timeout,
         prober,
@@ -128,12 +170,13 @@ async fn run() -> Result<(), String> {
         log_stream_buffer: cfg.log_stream_buffer,
         stop_grace: cfg.stop_grace,
         on_config_conflict: cfg.on_config_conflict,
-        deployment_locks: Arc::new(DeploymentLocks::new()),
+        deployment_locks,
     };
 
     let app = axum::Router::new()
         .merge(health_router())
         .merge(routes::node::router())
+        .merge(routes::node_state::router())
         .merge(routes::workloads::router())
         .merge(routes::status::router())
         .merge(routes::logs::router())

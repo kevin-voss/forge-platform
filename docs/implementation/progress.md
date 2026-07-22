@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 28`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 29`**.
 
 ## Epics
 
@@ -12,7 +12,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [01](epics/01-runtime-contract.md) | Runtime contract | Complete | 7 steps; five-language demo 01 + shared validator |
 | [02](epics/02-forge-control.md) | Forge Control | Complete | 8/8 steps complete; demo 02 acceptance gate passed |
 | [03](epics/03-forge-cli.md) | Forge CLI | Complete | 6/6 steps complete; demo 03 CLI control-plane acceptance gate passed |
-| [04](epics/04-forge-runtime.md) | Forge Runtime | In progress | 6/8 steps complete |
+| [04](epics/04-forge-runtime.md) | Forge Runtime | In progress | 7/8 steps complete |
 | [05](epics/05-forge-gateway.md) | Forge Gateway | Planning | 7 steps |
 | [06](epics/06-forge-build.md) | Forge Build | Planning | 7 steps |
 | [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | Planning | 6 steps |
@@ -61,7 +61,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **25** | [Health probing + status model](steps/04-forge-runtime/04.04-health-probing-status-model.md) | Complete |  | Prober + status enum, `GET /v1/workloads/{id}/status`, rediscovery |
 | **26** | [Log streaming](steps/04-forge-runtime/04.05-log-streaming.md) | Complete |  | Bounded + SSE follow; stdout/stderr demux; managed-only |
 | **27** | [Stop/delete; no duplicate containers](steps/04-forge-runtime/04.06-stop-delete-no-duplicates.md) | Complete |  | Idempotent `POST`, graceful `DELETE`, managed-only |
-| **28** | [Control integration (desired→actual)](steps/04-forge-runtime/04.07-control-integration.md) | Not started |  |  |
+| **28** | [Control integration (desired→actual)](steps/04-forge-runtime/04.07-control-integration.md) | Complete |  | Poll Control, converge containers, `/v1/node/state`, status push contract |
 | **29** | [Demo `04-runtime` + gate](steps/04-forge-runtime/04.08-demo-runtime-and-gate.md) | Not started |  |  |
 | **30** | [Skeleton + health](steps/05-forge-gateway/05.01-skeleton-and-health.md) | Not started |  |  |
 | **31** | [Route table + reverse proxy core](steps/05-forge-gateway/05.02-route-table-and-proxy-core.md) | Not started |  |  |

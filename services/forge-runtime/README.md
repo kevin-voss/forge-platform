@@ -6,8 +6,10 @@ This service exposes Docker-backed readiness, a stable node identity that
 persists across restarts, a periodic heartbeat, idempotent workload
 create/start (`POST/GET /v1/workloads`), graceful stop/delete
 (`DELETE /v1/workloads/{id}`), health probing with a normalized status model
-(`GET /v1/workloads/{id}/status`), and workload log fetch/follow
-(`GET /v1/workloads/{id}/logs`). Control desired→actual sync arrives in `04.07`.
+(`GET /v1/workloads/{id}/status`), workload log fetch/follow
+(`GET /v1/workloads/{id}/logs`), and Control desired→actual reconcile
+(poll Control, converge containers, expose `GET /v1/node/state`, optionally
+push status).
 
 ## Quick start
 
@@ -81,7 +83,9 @@ make dev
 | `FORGE_LOG_STREAM_BUFFER` | `8192` | Soft buffer (bytes) used to size follow-stream backpressure. |
 | `FORGE_STOP_GRACE_SECONDS` | `10` | SIGTERM→SIGKILL grace when stopping a workload container. |
 | `FORGE_ON_CONFIG_CONFLICT` | `recreate` | `recreate` replaces a conflicting image; `reject` returns `409`. |
-| `FORGE_CONTROL_URL` | _(unset)_ | Optional; registration stub logs intent when set (real register in 04.07). |
+| `FORGE_CONTROL_URL` | _(unset)_ locally / `http://forge-control:8080` in Compose | When set, starts the desired→actual reconcile loop. |
+| `FORGE_RECONCILE_INTERVAL_SECONDS` | `10` | Poll/converge interval. |
+| `FORGE_CONTROL_REPORT_MODE` | `push` | `push` POSTs status to Control (404 tolerated); `pull` relies on `GET /v1/node/state`. |
 
 Invalid `PORT` or an unwritable data dir causes a non-zero exit at startup.
 
@@ -101,10 +105,24 @@ bounded retries; readiness stays `503` until the Engine is reachable again.
 |---|---|
 | `GET /v1/node` | Stable node id, hostname, Docker version, best-effort cpu/memory, `startedAt`, `lastHeartbeat`. |
 | `GET /v1/node/heartbeat` | `{ "nodeId", "at", "healthy" }` reflecting the latest liveness tick. |
+| `GET /v1/node/state` | Actual workloads on this node: `{ nodeId, workloads:[{deploymentId,status,hostPort,image}] }` (Control pull interim). |
 
 The node id is generated once (UUID) and stored at `$FORGE_RUNTIME_DATA_DIR/node_id`.
 Compose mounts a named volume (`forge-runtime-data`) so the id survives container
 restarts. Workload containers are labeled with this value as `forge.node_id`.
+
+## Control integration
+
+When `FORGE_CONTROL_URL` is set, Runtime polls Control each reconcile interval:
+
+1. Prefer `GET /v1/deployments?nodeId=&desired=true` (documented contract).
+2. If that endpoint is missing (404), walk `GET /v1/projects` + `?expand=tree` and treat every deployment with `desiredReplicas > 0` as desired for this single node.
+3. Converge: idempotent ensure for desired ids; delete managed containers not in the desired set.
+4. Report: with `FORGE_CONTROL_REPORT_MODE=push`, `POST /v1/deployments/{id}/status` with `{status,nodeId,endpoint:{hostPort}}` (404 is tolerated — pull via `/v1/node/state` is the interim until Control implements the endpoint).
+
+Runtime status maps to Control as: `ready`/`running`→`active`, `failed`/`unhealthy`→`failed`, `stopped`→`stopped`, `starting`→`pending`.
+
+If Control is unreachable, the cycle is skipped (warning logged) with no local churn.
 
 ## Workloads
 

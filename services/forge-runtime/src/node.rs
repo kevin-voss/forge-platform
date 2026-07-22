@@ -78,7 +78,7 @@ impl Node {
 }
 
 /// Optional outbound registration hook. No-op when `control_url` is unset.
-/// Real Control registration is deferred to 04.07 / epic 08.
+/// Full multi-node registration lands in epic 08; 04.07 uses Control for desired/actual sync.
 pub async fn maybe_register(control_url: Option<&str>, node: &NodeInfo) {
     let Some(base) = control_url.map(str::trim).filter(|s| !s.is_empty()) else {
         info!(
@@ -93,7 +93,7 @@ pub async fn maybe_register(control_url: Option<&str>, node: &NodeInfo) {
         node_id = %node.id,
         control_url = %base,
         endpoint = %endpoint,
-        "registration stub: would POST node identity to Control (deferred to 04.07)"
+        "registration stub: node identity available; Control node registry deferred to epic 08"
     );
 }
 

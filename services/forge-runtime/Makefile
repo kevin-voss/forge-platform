@@ -29,6 +29,9 @@ dev:
 	FORGE_LOG_STREAM_BUFFER=$${FORGE_LOG_STREAM_BUFFER:-8192} \
 	FORGE_STOP_GRACE_SECONDS=$${FORGE_STOP_GRACE_SECONDS:-10} \
 	FORGE_ON_CONFIG_CONFLICT=$${FORGE_ON_CONFIG_CONFLICT:-recreate} \
+	FORGE_CONTROL_URL=$${FORGE_CONTROL_URL:-} \
+	FORGE_RECONCILE_INTERVAL_SECONDS=$${FORGE_RECONCILE_INTERVAL_SECONDS:-10} \
+	FORGE_CONTROL_REPORT_MODE=$${FORGE_CONTROL_REPORT_MODE:-push} \
 	cargo run
 
 build:
@@ -48,7 +51,10 @@ test: test-unit test-integration
 test-unit:
 	cargo test --quiet
 
-test-integration: run
+# Disable Control reconcile for direct /v1/workloads tests (otherwise orphans are deleted).
+# The Control converge section below re-enables FORGE_CONTROL_URL with a short interval.
+test-integration:
+	@FORGE_CONTROL_URL= $(MAKE) run
 	@curl -sf "http://127.0.0.1:$(HOST_PORT)/health/live" | grep -q '"status":"ok"'
 	@curl -sf "http://127.0.0.1:$(HOST_PORT)/health/ready" | grep -q '"status":"ok"'
 	@# Confirm structured startup log recorded Docker Engine version.
@@ -133,6 +139,45 @@ test-integration: run
 	@# DELETE removes the managed container; second DELETE is still 204.
 	@! docker ps -aq --filter label=forge.deployment_id=deployment-123 --filter label=forge.managed=true | grep -q .
 	@curl -sf -o /dev/null -w '%{http_code}' -X DELETE "http://127.0.0.1:$(HOST_PORT)/v1/workloads/deployment-123" | grep -q 204
+	@# Control desired→actual: create deployment → Runtime converges → /v1/node/state.
+	@FORGE_CONTROL_URL=http://forge-control:8080 FORGE_RECONCILE_INTERVAL_SECONDS=3 $(COMPOSE) up -d $(SERVICE) >/dev/null
+	@$(MAKE) wait
+	@$(ROOT_DIR)/scripts/wait-for-service.sh http://127.0.0.1:4001/health/ready 90
+	@SLUG="runtime-int-$$(date +%s)"; \
+		PID=$$(curl -sf -X POST http://127.0.0.1:4001/v1/projects -H 'content-type: application/json' \
+		-d "{\"name\":\"$$SLUG\",\"slug\":\"$$SLUG\"}" | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])'); \
+		EID=$$(curl -sf -X POST http://127.0.0.1:4001/v1/projects/$$PID/environments -H 'content-type: application/json' \
+			-d '{"name":"development"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])'); \
+		AID=$$(curl -sf -X POST http://127.0.0.1:4001/v1/projects/$$PID/applications -H 'content-type: application/json' \
+			-d '{"name":"api"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])'); \
+		SID=$$(curl -sf -X POST http://127.0.0.1:4001/v1/applications/$$AID/services -H 'content-type: application/json' \
+			-d '{"name":"web","port":8080}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])'); \
+		DID=$$(curl -sf -X POST http://127.0.0.1:4001/v1/services/$$SID/deployments -H 'content-type: application/json' \
+			-d "{\"image\":\"localhost:5000/demo-go:latest\",\"desiredReplicas\":1,\"environmentId\":\"$$EID\"}" \
+			| python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])'); \
+		echo "created deployment $$DID"; \
+		for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do \
+			if docker ps --filter label=forge.deployment_id=$$DID --filter label=forge.managed=true -q | grep -q .; then break; fi; \
+			sleep 2; \
+		done; \
+		docker ps --filter label=forge.deployment_id=$$DID --filter label=forge.managed=true -q | grep -q .; \
+		curl -sf http://127.0.0.1:$(HOST_PORT)/v1/node/state | DID="$$DID" python3 -c 'import sys,json,os; d=json.load(sys.stdin); assert d["nodeId"]; assert any(w["deploymentId"]==os.environ["DID"] for w in d["workloads"]), d'; \
+		test -n "$$DID"; \
+		docker exec forge-postgres psql -U forge -d forge -v ON_ERROR_STOP=1 -c "DELETE FROM control.deployments WHERE id = '$$DID'"; \
+		for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do \
+			if ! docker ps -aq --filter label=forge.deployment_id=$$DID --filter label=forge.managed=true | grep -q .; then break; fi; \
+			sleep 2; \
+		done; \
+		! docker ps -aq --filter label=forge.deployment_id=$$DID --filter label=forge.managed=true | grep -q .
+	@# Control down for a cycle: stop Control, confirm Runtime stays up and does not churn.
+	@EXISTING=$$(docker ps -aq --filter label=forge.managed=true | wc -l | tr -d ' '); \
+		$(COMPOSE) stop forge-control >/dev/null; \
+		sleep 12; \
+		curl -sf http://127.0.0.1:$(HOST_PORT)/health/live | grep -q '"status":"ok"'; \
+		AFTER=$$(docker ps -aq --filter label=forge.managed=true | wc -l | tr -d ' '); \
+		test "$$EXISTING" = "$$AFTER"; \
+		$(COMPOSE) start forge-control >/dev/null; \
+		$(ROOT_DIR)/scripts/wait-for-service.sh http://127.0.0.1:4001/health/ready 90
 	@# SIGTERM / docker stop exits 0 within grace.
 	@cid="$$($(COMPOSE) ps -q $(SERVICE))"; \
 		test -n "$$cid"; \
@@ -141,7 +186,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (health + node + workloads + status + logs + idempotent create/delete + graceful SIGTERM)."
+	@echo "Integration checks passed (health + node + workloads + status + logs + idempotent create/delete + control converge + graceful SIGTERM)."
 
 lint:
 	@cargo fmt --check
