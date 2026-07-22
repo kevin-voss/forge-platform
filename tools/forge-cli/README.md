@@ -38,11 +38,47 @@ profile file, then the built-in local endpoint `http://127.0.0.1:4001`.
 --output table|json  Output format (default: table)
 --timeout DURATION   HTTP timeout (default: 30s)
 --verbose            Emit resolved configuration diagnostics to stderr
+--no-input           Fail instead of prompting for input
 ```
 
 `FORGE_ENDPOINT`, `FORGE_PROFILE`, `FORGE_OUTPUT`, and `FORGE_TIMEOUT` provide
 environment defaults. Command-line flags take precedence over their
 corresponding environment variables.
+
+## Shell completion
+
+Generate a completion script for the shell you use, then install it according
+to that shell's conventions:
+
+```bash
+# bash (current shell)
+source <(forge completion bash)
+
+# zsh (put _forge in a directory on $fpath, then restart the shell)
+forge completion zsh > "${fpath[1]}/_forge"
+
+# fish
+forge completion fish > ~/.config/fish/completions/forge.fish
+```
+
+Completion includes Forge command and flag names, the `table` and `json` output
+values, and profile names from the local CLI configuration. It does not make
+network requests.
+
+## Non-interactive use
+
+Forge has no interactive prompts. Every required value must be passed by flag,
+environment, or stdin where a command documents stdin input. Missing required
+flags fail with exit code `2`; the CLI does not wait for terminal input.
+
+Use `--no-input` to make this explicit. `FORGE_NO_INPUT=1`, a non-TTY stdin,
+or any set `CI` environment variable enable the same non-interactive policy:
+
+```bash
+forge --no-input project create --name acme --slug acme
+CI=1 forge project create                 # exits 2: --name is required
+FORGE_NO_INPUT=1 forge service create     # exits 2: --app is required
+```
 
 ## Output, errors, and timeouts
 

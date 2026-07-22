@@ -9,6 +9,7 @@ import (
 
 	"forge.local/tools/forge-cli/internal/config"
 	"forge.local/tools/forge-cli/internal/control"
+	"forge.local/tools/forge-cli/internal/interactive"
 	"forge.local/tools/forge-cli/internal/render"
 
 	"github.com/spf13/cobra"
@@ -21,8 +22,10 @@ type State struct {
 	Output   string
 	Timeout  string
 	Verbose  bool
+	NoInput  bool
 
-	Resolved config.Resolved
+	Resolved    config.Resolved
+	Interaction interactive.Guard
 }
 
 // NewRootCommand creates the forge command tree.
@@ -37,7 +40,11 @@ func NewRootCommand(version string) *cobra.Command {
 			if err := state.validateGlobals(cmd); err != nil {
 				return err
 			}
+			state.Interaction = interactive.Detect(state.NoInput, os.Stdin, os.Getenv)
 			if cmd.Parent() != nil && cmd.Parent().Name() == "config" {
+				return nil
+			}
+			if cmd.Name() == "completion" {
 				return nil
 			}
 			return state.resolve()
@@ -48,10 +55,14 @@ func NewRootCommand(version string) *cobra.Command {
 	root.PersistentFlags().StringVar(&state.Output, "output", "table", "output format: table or json")
 	root.PersistentFlags().StringVar(&state.Timeout, "timeout", "30s", "HTTP request timeout")
 	root.PersistentFlags().BoolVar(&state.Verbose, "verbose", false, "print diagnostics to stderr")
+	root.PersistentFlags().BoolVar(&state.NoInput, "no-input", false, "fail instead of prompting for input")
+	_ = root.RegisterFlagCompletionFunc("output", cobra.FixedCompletions([]string{"table", "json"}, cobra.ShellCompDirectiveDefault))
+	_ = root.RegisterFlagCompletionFunc("profile", completeProfiles)
 
 	root.AddCommand(
 		newVersionCommand(version),
 		newConfigCommand(state),
+		newCompletionCommand(),
 		newProjectCommand(state),
 		newEnvironmentCommand(state),
 		newApplicationCommand(state),

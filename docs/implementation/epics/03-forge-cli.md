@@ -58,7 +58,7 @@ make demo DEMO=03
 | [03.02](../steps/03-forge-cli/03.02-project-app-service-commands.md) | `project` / `app` / `service` commands | Complete | Typed Control client, resource commands, basic table/JSON output |
 | [03.03](../steps/03-forge-cli/03.03-deployment-commands.md) | `deployment create\|status` | Complete | Deployment create, status, list, and idempotent retries |
 | [03.04](../steps/03-forge-cli/03.04-output-exit-codes-timeouts.md) | Table/JSON output, exit codes, timeouts, request IDs | Complete | Stable output, exit codes, timeouts, and request IDs |
-| [03.05](../steps/03-forge-cli/03.05-completion-and-non-interactive.md) | Shell completion + non-interactive mode | Not started | Depends on 03.01+ |
+| [03.05](../steps/03-forge-cli/03.05-completion-and-non-interactive.md) | Shell completion + non-interactive mode | Complete | Bash/zsh/fish completion, local profile suggestions, and headless-safe non-interactive use |
 | [03.06](../steps/03-forge-cli/03.06-demo-cli-control-and-gate.md) | Demo `03-cli-control` + gate | Not started | Depends on all prior |
 
 ## Assumptions
@@ -80,4 +80,4 @@ make demo DEMO=03
 
 ## Next step to implement
 
-**[03.05](../steps/03-forge-cli/03.05-completion-and-non-interactive.md) — shell completion and non-interactive mode**.
+**[03.06](../steps/03-forge-cli/03.06-demo-cli-control-and-gate.md) — CLI Control demo and epic gate**.
