@@ -6,6 +6,7 @@ import forge.control.config.DatabaseConfig
 import forge.control.logging.JsonLog
 import org.flywaydb.core.Flyway
 import org.flywaydb.core.api.output.MigrateResult
+import java.io.File
 import java.sql.SQLException
 
 /** Hikari pool + Flyway migrations + readiness probe (`SELECT 1`). */
@@ -14,12 +15,15 @@ class Db(
     private val schema: String,
 ) : AutoCloseable {
     fun migrate(): MigrateResult {
+        // Fat jars built with zipTree often fail Flyway's classpath directory scan, so
+        // prefer an explicit filesystem location when the image ships migrations there.
+        val locations = migrationLocations()
         val flyway = Flyway.configure()
             .dataSource(dataSource)
             .schemas(schema)
             .defaultSchema(schema)
             .createSchemas(true)
-            .locations("classpath:db/migration")
+            .locations(*locations)
             .load()
         return flyway.migrate()
     }
@@ -61,6 +65,20 @@ class Db(
                 "jdbc_host" to jdbcHost(cfg.url),
             )
             return Db(ds, cfg.schema)
+        }
+
+        internal fun migrationLocations(
+            env: Map<String, String> = System.getenv(),
+            filesystemDir: File = File("/app/db/migration"),
+        ): Array<String> {
+            val override = env["FLYWAY_LOCATIONS"]?.trim().orEmpty()
+            if (override.isNotEmpty()) {
+                return override.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toTypedArray()
+            }
+            if (filesystemDir.isDirectory && !filesystemDir.list().isNullOrEmpty()) {
+                return arrayOf("filesystem:${filesystemDir.absolutePath}")
+            }
+            return arrayOf("classpath:db/migration")
         }
 
         private fun jdbcHost(url: String): String {

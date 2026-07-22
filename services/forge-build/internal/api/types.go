@@ -40,6 +40,10 @@ type BuildRequest struct {
 	Ref           string `json:"ref"`
 	ForgeYamlPath string `json:"forgeYamlPath,omitempty"`
 	Project       string `json:"project,omitempty"`
+	Service       string `json:"service,omitempty"`
+	ServiceID     string `json:"serviceId,omitempty"`
+	AutoDeploy    *bool  `json:"autoDeploy,omitempty"`
+	EnvironmentID string `json:"environmentId,omitempty"`
 }
 
 // BuildAccepted is the 202 response from POST /v1/builds.
@@ -56,15 +60,20 @@ type BuildError struct {
 
 // BuildRecord is the GET /v1/builds/{id} response.
 type BuildRecord struct {
-	BuildID    string      `json:"buildId"`
-	Status     BuildStatus `json:"status"`
-	Phase      BuildPhase  `json:"phase"`
-	Image      string      `json:"image,omitempty"`
-	Digest     string      `json:"digest,omitempty"`
-	Commit     string      `json:"commit,omitempty"`
-	StartedAt  time.Time   `json:"startedAt"`
-	FinishedAt *time.Time  `json:"finishedAt,omitempty"`
-	Error      *BuildError `json:"error,omitempty"`
+	BuildID            string      `json:"buildId"`
+	Status             BuildStatus `json:"status"`
+	Phase              BuildPhase  `json:"phase"`
+	Image              string      `json:"image,omitempty"`
+	Digest             string      `json:"digest,omitempty"`
+	Commit             string      `json:"commit,omitempty"`
+	ServiceID          string      `json:"serviceId,omitempty"`
+	RecordedImage      string      `json:"recordedImage,omitempty"`
+	ImageRecorded      *bool       `json:"imageRecorded,omitempty"`
+	LinkedDeploymentID string      `json:"linkedDeploymentId,omitempty"`
+	ControlError       string      `json:"controlError,omitempty"`
+	StartedAt          time.Time   `json:"startedAt"`
+	FinishedAt         *time.Time  `json:"finishedAt,omitempty"`
+	Error              *BuildError `json:"error,omitempty"`
 }
 
 // CancelAccepted is the 202 response from POST /v1/builds/{id}/cancel.
@@ -84,7 +93,22 @@ func (r BuildRequest) Validate(defaultForgeYAML string) error {
 	if err := manifest.ValidateRepoRelativePath("forgeYamlPath", path); err != nil {
 		return err
 	}
+	autoDeploy := r.AutoDeploy != nil && *r.AutoDeploy
+	if autoDeploy && strings.TrimSpace(r.ServiceID) == "" && strings.TrimSpace(r.Service) == "" {
+		return &manifest.ValidationError{Field: "serviceId", Message: "serviceId (or service) is required when autoDeploy is true"}
+	}
+	if autoDeploy && strings.TrimSpace(r.EnvironmentID) == "" {
+		return &manifest.ValidationError{Field: "environmentId", Message: "environmentId is required when autoDeploy is true"}
+	}
 	return nil
+}
+
+// EffectiveAutoDeploy resolves the optional autoDeploy flag against the service default.
+func (r BuildRequest) EffectiveAutoDeploy(defaultAutoDeploy bool) bool {
+	if r.AutoDeploy != nil {
+		return *r.AutoDeploy
+	}
+	return defaultAutoDeploy
 }
 
 // EffectiveForgeYAMLPath returns the forge.yaml path to use for this request.

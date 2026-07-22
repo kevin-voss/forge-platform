@@ -10,6 +10,14 @@ data class CreateServiceRequest(
 )
 
 @Serializable
+data class RecordServiceImageRequest(
+    val image: String? = null,
+    val digest: String? = null,
+    val commit: String? = null,
+    val buildId: String? = null,
+)
+
+@Serializable
 data class ServiceResponse(
     val id: String,
     val applicationId: String,
@@ -17,6 +25,10 @@ data class ServiceResponse(
     val port: Int,
     val createdAt: String,
     val updatedAt: String,
+    val image: String? = null,
+    val imageDigest: String? = null,
+    val imageCommit: String? = null,
+    val imageBuildId: String? = null,
 )
 
 fun Service.toResponse(): ServiceResponse =
@@ -27,4 +39,8 @@ fun Service.toResponse(): ServiceResponse =
         port = port,
         createdAt = createdAt.toString(),
         updatedAt = updatedAt.toString(),
+        image = image,
+        imageDigest = imageDigest,
+        imageCommit = imageCommit,
+        imageBuildId = imageBuildId,
     )

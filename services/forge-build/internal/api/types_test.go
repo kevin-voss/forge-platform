@@ -100,6 +100,7 @@ func TestBuildRequestValidation(t *testing.T) {
 		{name: "missing ref", raw: `{"repo":"file:///x"}`, field: "ref"},
 		{name: "traversal forgeYamlPath", raw: `{"repo":"file:///x","ref":"main","forgeYamlPath":"../forge.yaml"}`, field: "forgeYamlPath"},
 		{name: "absolute forgeYamlPath", raw: `{"repo":"file:///x","ref":"main","forgeYamlPath":"/tmp/forge.yaml"}`, field: "forgeYamlPath"},
+		{name: "autoDeploy missing environmentId", raw: `{"repo":"file:///x","ref":"main","serviceId":"11111111-1111-4111-8111-111111111111","autoDeploy":true}`, field: "environmentId"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

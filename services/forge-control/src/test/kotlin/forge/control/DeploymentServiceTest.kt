@@ -163,6 +163,13 @@ class DeploymentServiceTest {
         override fun findById(id: UUID): Service? = service.takeIf { it.id == id }
         override fun list(applicationId: UUID): List<Service> = listOf(service).filter { it.applicationId == applicationId }
         override fun update(id: UUID, name: String?, port: Int?): Service = error("not used")
+        override fun recordImage(
+            id: UUID,
+            image: String,
+            digest: String?,
+            commit: String?,
+            buildId: String?,
+        ): Service = error("not used")
         override fun delete(id: UUID) = error("not used")
     }
 

@@ -36,6 +36,12 @@ type Config struct {
 	Retention      time.Duration
 	CleanupOnStart bool
 
+	ControlURL              string
+	AutoDeployDefault       bool
+	ControlRetries          int
+	ControlRetryBackoff     time.Duration
+	ControlTimeout          time.Duration
+
 	DockerStartupRetries    int
 	DockerStartupRetryDelay time.Duration
 }
@@ -217,6 +223,44 @@ func Load() (Config, error) {
 		cleanupOnStart = v
 	}
 
+	controlURL := strings.TrimSpace(os.Getenv("FORGE_CONTROL_URL"))
+
+	autoDeployDefault := false
+	if raw := strings.TrimSpace(os.Getenv("FORGE_BUILD_AUTO_DEPLOY_DEFAULT")); raw != "" {
+		v, err := strconv.ParseBool(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("FORGE_BUILD_AUTO_DEPLOY_DEFAULT must be a boolean, got %q", raw)
+		}
+		autoDeployDefault = v
+	}
+
+	controlRetriesRaw := strings.TrimSpace(os.Getenv("FORGE_CONTROL_RETRIES"))
+	if controlRetriesRaw == "" {
+		controlRetriesRaw = "5"
+	}
+	controlRetries, err := strconv.Atoi(controlRetriesRaw)
+	if err != nil || controlRetries < 1 {
+		return Config{}, fmt.Errorf("FORGE_CONTROL_RETRIES must be a positive integer, got %q", controlRetriesRaw)
+	}
+
+	controlBackoffRaw := strings.TrimSpace(os.Getenv("FORGE_CONTROL_RETRY_BACKOFF_MS"))
+	if controlBackoffRaw == "" {
+		controlBackoffRaw = "200"
+	}
+	controlBackoffMs, err := strconv.Atoi(controlBackoffRaw)
+	if err != nil || controlBackoffMs < 0 {
+		return Config{}, fmt.Errorf("FORGE_CONTROL_RETRY_BACKOFF_MS must be a non-negative integer, got %q", controlBackoffRaw)
+	}
+
+	controlTimeoutRaw := strings.TrimSpace(os.Getenv("FORGE_CONTROL_TIMEOUT_SECONDS"))
+	if controlTimeoutRaw == "" {
+		controlTimeoutRaw = "10"
+	}
+	controlTimeoutSecs, err := strconv.Atoi(controlTimeoutRaw)
+	if err != nil || controlTimeoutSecs < 1 {
+		return Config{}, fmt.Errorf("FORGE_CONTROL_TIMEOUT_SECONDS must be a positive integer, got %q", controlTimeoutRaw)
+	}
+
 	return Config{
 		Port:                    port,
 		ServiceName:             name,
@@ -239,6 +283,11 @@ func Load() (Config, error) {
 		StoreDir:                storeDir,
 		Retention:               time.Duration(retentionHours) * time.Hour,
 		CleanupOnStart:          cleanupOnStart,
+		ControlURL:              controlURL,
+		AutoDeployDefault:       autoDeployDefault,
+		ControlRetries:          controlRetries,
+		ControlRetryBackoff:     time.Duration(controlBackoffMs) * time.Millisecond,
+		ControlTimeout:          time.Duration(controlTimeoutSecs) * time.Second,
 		DockerStartupRetries:    retries,
 		DockerStartupRetryDelay: time.Duration(delayMs) * time.Millisecond,
 	}, nil

@@ -6,8 +6,9 @@ Health-checked service on host port `4103` with Docker socket access and an
 isolated workspace volume. Accepts build jobs (`POST /v1/builds`), clones a
 local/`file://` Git ref into `workspace/<buildId>`, validates `forge.yaml`, runs
 `docker build` with a timeout, tags/pushes the image to the local OCI registry
-(`localhost:5000`), persists durable build status, and streams logs via
-`GET /v1/builds/{id}/logs`.
+(`localhost:5000`), records the resulting image on the target Control service
+(when `serviceId` is provided), persists durable build status, and streams logs
+via `GET /v1/builds/{id}/logs`.
 
 ## Quick start
 
@@ -73,6 +74,11 @@ docker pull "$IMG"
 | `FORGE_DEFAULT_PROJECT` | _(empty)_ | Used when the create request omits `project`. |
 | `FORGE_PUSH_LATEST` | `true` | Also tag/push a moving `:latest`. |
 | `FORGE_PUSH_RETRIES` | `3` | Additional push attempts after the first failure. |
+| `FORGE_CONTROL_URL` | _(empty)_ locally / `http://forge-control:8080` in Compose | When set, successful builds with `serviceId` record the image on Control. |
+| `FORGE_BUILD_AUTO_DEPLOY_DEFAULT` | `false` | Default for create-request `autoDeploy` when omitted. |
+| `FORGE_CONTROL_RETRIES` | `5` | Attempts for Control record/deploy calls (transient failures). |
+| `FORGE_CONTROL_RETRY_BACKOFF_MS` | `200` | Initial backoff between Control retries (doubles each attempt). |
+| `FORGE_CONTROL_TIMEOUT_SECONDS` | `10` | Per-attempt Control HTTP timeout. |
 | `FORGE_SHUTDOWN_GRACE_SECONDS` | `10` | Compose `stop_grace_period` should be ≥ this. |
 | `FORGE_DOCKER_STARTUP_RETRIES` | `5` | Bounded ping retries at boot. |
 | `FORGE_DOCKER_STARTUP_RETRY_DELAY_MS` | `500` | Delay between startup ping attempts. |
@@ -92,7 +98,7 @@ Invalid `PORT` or an unwritable workspace dir causes a non-zero exit at startup.
 |---|---|
 | `POST /v1/builds` | Validate body, enqueue job, `202` `{buildId,status:queued}`. |
 | `GET /v1/builds` | List builds; optional `?status=` and `?service=` filters. |
-| `GET /v1/builds/{buildId}` | Status/phase, timestamps, commit, image/digest (success only), structured error. |
+| `GET /v1/builds/{buildId}` | Status/phase, timestamps, commit, image/digest (success only), Control link fields (`serviceId`, `imageRecorded`, `recordedImage`, `linkedDeploymentId`), structured error. |
 | `POST /v1/builds/{buildId}/cancel` | `202` `{status:canceling}` for queued/running; `409` if already terminal. |
 | `GET /v1/builds/{buildId}/logs` | `text/plain` logs; `?follow=true` streams until the build finishes. |
 
@@ -105,9 +111,15 @@ Only local absolute paths and `file://` repos are accepted in this epic. Remote 
 On success the image is tagged as
 `localhost:5000/<project>-<service>:<shortSha>-<buildId>` (plus `:latest` when
 enabled), pushed to the local registry, and recorded on the build with its
-content digest. Each build uses an isolated workspace directory that is removed
-on every terminal path (success, failure, cancel). On restart, orphaned
-`queued`/`running` builds are marked `failed` (`interrupted`) and workspaces are swept.
+content digest. When the create request includes a Control `serviceId` and
+`FORGE_CONTROL_URL` is set, Build then calls
+`POST /v1/services/{serviceId}/image` (idempotency key `build-<buildId>`).
+Optional `autoDeploy: true` also creates a Control deployment
+(`deploy-<buildId>`). Control failures leave the build `succeeded` with
+`imageRecorded=false` and are retried (including on restart). Each build uses
+an isolated workspace directory that is removed on every terminal path
+(success, failure, cancel). On restart, orphaned `queued`/`running` builds are
+marked `failed` (`interrupted`) and workspaces are swept.
 
 ## Contracts
 

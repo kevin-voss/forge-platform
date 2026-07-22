@@ -19,21 +19,28 @@ type ErrorInfo struct {
 
 // Record is the durable build snapshot persisted across restarts.
 type Record struct {
-	ID            string     `json:"id"`
-	Repo          string     `json:"repo"`
-	Ref           string     `json:"ref"`
-	ForgeYAML     string     `json:"forgeYaml,omitempty"`
-	Project       string     `json:"project,omitempty"`
-	Service       string     `json:"service,omitempty"`
-	Commit        string     `json:"commit,omitempty"`
-	Status        string     `json:"status"`
-	Phase         string     `json:"phase"`
-	Image         string     `json:"image,omitempty"`
-	Digest        string     `json:"digest,omitempty"`
-	StartedAt     time.Time  `json:"startedAt"`
-	FinishedAt    *time.Time `json:"finishedAt,omitempty"`
-	Error         *ErrorInfo `json:"error,omitempty"`
-	WorkspacePath string     `json:"workspacePath,omitempty"`
+	ID                 string     `json:"id"`
+	Repo               string     `json:"repo"`
+	Ref                string     `json:"ref"`
+	ForgeYAML          string     `json:"forgeYaml,omitempty"`
+	Project            string     `json:"project,omitempty"`
+	Service            string     `json:"service,omitempty"`
+	ServiceID          string     `json:"serviceId,omitempty"`
+	EnvironmentID      string     `json:"environmentId,omitempty"`
+	AutoDeploy         bool       `json:"autoDeploy,omitempty"`
+	Commit             string     `json:"commit,omitempty"`
+	Status             string     `json:"status"`
+	Phase              string     `json:"phase"`
+	Image              string     `json:"image,omitempty"`
+	Digest             string     `json:"digest,omitempty"`
+	ImageRecorded      bool       `json:"imageRecorded,omitempty"`
+	RecordedImage      string     `json:"recordedImage,omitempty"`
+	LinkedDeploymentID string     `json:"linkedDeploymentId,omitempty"`
+	ControlError       string     `json:"controlError,omitempty"`
+	StartedAt          time.Time  `json:"startedAt"`
+	FinishedAt         *time.Time `json:"finishedAt,omitempty"`
+	Error              *ErrorInfo `json:"error,omitempty"`
+	WorkspacePath      string     `json:"workspacePath,omitempty"`
 }
 
 // Store is a directory of one JSON file per build id.

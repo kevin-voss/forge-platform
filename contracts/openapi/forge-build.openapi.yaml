@@ -180,6 +180,21 @@ components:
           type: string
           minLength: 1
           description: Optional project slug used in the image name pattern (with service from forge.yaml).
+        service:
+          type: string
+          minLength: 1
+          description: Optional Control service name hint (recording uses serviceId).
+        serviceId:
+          type: string
+          format: uuid
+          description: Control service id to record the built image against after success.
+        autoDeploy:
+          type: boolean
+          description: When true, create a Control deployment after recording the image.
+        environmentId:
+          type: string
+          format: uuid
+          description: Required when autoDeploy is true.
     BuildAccepted:
       type: object
       required: [buildId, status]
@@ -226,6 +241,23 @@ components:
         commit:
           type: string
           description: Resolved commit SHA for the checkout.
+        serviceId:
+          type: string
+          format: uuid
+          description: Target Control service id when provided on the create request.
+        recordedImage:
+          type: string
+          description: Image reference recorded on the Control service (when imageRecorded is true).
+        imageRecorded:
+          type: boolean
+          description: Whether Control successfully recorded the built image. Present when a serviceId was targeted.
+        linkedDeploymentId:
+          type: string
+          format: uuid
+          description: Deployment created when autoDeploy succeeded.
+        controlError:
+          type: string
+          description: Last Control recording/auto-deploy error (build itself may still be succeeded).
         startedAt:
           type: string
           format: date-time

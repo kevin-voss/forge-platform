@@ -28,4 +28,8 @@ data class ServiceTreeResponse(
     val createdAt: String,
     val updatedAt: String,
     val deployments: List<DeploymentResponse>,
+    val image: String? = null,
+    val imageDigest: String? = null,
+    val imageCommit: String? = null,
+    val imageBuildId: String? = null,
 )

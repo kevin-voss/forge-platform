@@ -94,9 +94,19 @@ func recordToAPI(rec *jobs.Record) BuildRecord {
 		Commit:    rec.Commit,
 		StartedAt: rec.StartedAt.UTC(),
 	}
+	if rec.ServiceID != "" {
+		out.ServiceID = rec.ServiceID
+	}
 	if rec.Status == jobs.StatusSucceeded {
 		out.Image = rec.Image
 		out.Digest = rec.Digest
+		if rec.ServiceID != "" {
+			recorded := rec.ImageRecorded
+			out.ImageRecorded = &recorded
+			out.RecordedImage = rec.RecordedImage
+			out.LinkedDeploymentID = rec.LinkedDeploymentID
+			out.ControlError = rec.ControlError
+		}
 	}
 	if rec.FinishedAt != nil {
 		t := rec.FinishedAt.UTC()

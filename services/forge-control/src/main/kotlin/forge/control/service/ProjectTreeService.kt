@@ -41,6 +41,10 @@ class ProjectTreeService(
                             createdAt = service.createdAt.toString(),
                             updatedAt = service.updatedAt.toString(),
                             deployments = deployments.listByService(service.id).map { it.toResponse() },
+                            image = service.image,
+                            imageDigest = service.imageDigest,
+                            imageCommit = service.imageCommit,
+                            imageBuildId = service.imageBuildId,
                         )
                     },
                 )

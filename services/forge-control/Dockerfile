@@ -19,6 +19,8 @@ RUN apt-get update \
 	&& useradd --create-home --uid 10001 --shell /usr/sbin/nologin appuser
 
 COPY --from=build /src/build/libs/forge-control-0.1.0.jar /app/forge-control.jar
+# Ship SQL migrations on the filesystem so Flyway can discover them from the fat jar image.
+COPY --from=build /src/src/main/resources/db/migration /app/db/migration
 RUN chown -R appuser:appuser /app
 
 USER appuser:appuser

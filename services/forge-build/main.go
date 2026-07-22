@@ -16,6 +16,7 @@ import (
 	"forge.local/services/forge-build/internal/api"
 	"forge.local/services/forge-build/internal/builder"
 	"forge.local/services/forge-build/internal/config"
+	"forge.local/services/forge-build/internal/control"
 	"forge.local/services/forge-build/internal/docker"
 	"forge.local/services/forge-build/internal/health"
 	"forge.local/services/forge-build/internal/jobs"
@@ -57,6 +58,9 @@ func run() error {
 		"default_project", cfg.DefaultProject,
 		"push_latest", cfg.PushLatest,
 		"push_retries", cfg.PushRetries,
+		"control_url", cfg.ControlURL,
+		"auto_deploy_default", cfg.AutoDeployDefault,
+		"control_retries", cfg.ControlRetries,
 		"shutdown_grace_seconds", int(cfg.ShutdownGrace.Seconds()),
 	)
 
@@ -92,18 +96,22 @@ func run() error {
 	}
 
 	publisher := registry.New(engine, cfg.PushRetries, log)
-	jobMgr := jobs.New(jobs.Config{
-		MaxConcurrency:   cfg.MaxConcurrency,
-		BuildTimeout:     cfg.BuildTimeout,
-		LogBufferLines:   cfg.LogBufferLines,
-		DefaultForgeYAML: cfg.DefaultForgeYAML,
-		Registry:         cfg.Registry,
-		ImageNamePattern: cfg.ImageNamePattern,
-		DefaultProject:   cfg.DefaultProject,
-		PushLatest:       cfg.PushLatest,
-		Retention:        cfg.Retention,
-		CleanupOnStart:   cfg.CleanupOnStart,
-	}, ws, builder.New(engine), publisher, st, log)
+	ctrlClient := control.New(cfg.ControlURL, &http.Client{Timeout: cfg.ControlTimeout})
+	jobMgr := jobs.NewWithControl(jobs.Config{
+		MaxConcurrency:      cfg.MaxConcurrency,
+		BuildTimeout:        cfg.BuildTimeout,
+		LogBufferLines:      cfg.LogBufferLines,
+		DefaultForgeYAML:    cfg.DefaultForgeYAML,
+		Registry:            cfg.Registry,
+		ImageNamePattern:    cfg.ImageNamePattern,
+		DefaultProject:      cfg.DefaultProject,
+		PushLatest:          cfg.PushLatest,
+		Retention:           cfg.Retention,
+		CleanupOnStart:      cfg.CleanupOnStart,
+		ControlRetries:      cfg.ControlRetries,
+		ControlRetryBackoff: cfg.ControlRetryBackoff,
+		ControlTimeout:      cfg.ControlTimeout,
+	}, ws, builder.New(engine), publisher, ctrlClient, st, log)
 	if err := jobMgr.Recover(); err != nil {
 		return fmt.Errorf("recover build store: %w", err)
 	}
@@ -112,7 +120,7 @@ func run() error {
 
 	mux := http.NewServeMux()
 	health.NewHandler(engine).Register(mux)
-	api.NewBuildHandler(jobMgr, cfg.DefaultForgeYAML).Register(mux)
+	api.NewBuildHandlerWithDefaults(jobMgr, cfg.DefaultForgeYAML, cfg.AutoDeployDefault).Register(mux)
 	api.NewStatusHandler(jobMgr).Register(mux)
 
 	httpServer := &http.Server{

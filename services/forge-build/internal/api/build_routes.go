@@ -19,16 +19,26 @@ type BuildService interface {
 
 // BuildHandler serves build create/logs endpoints.
 type BuildHandler struct {
-	svc              BuildService
-	defaultForgeYAML string
+	svc               BuildService
+	defaultForgeYAML  string
+	defaultAutoDeploy bool
 }
 
 // NewBuildHandler returns routes for the build create/logs API.
 func NewBuildHandler(svc BuildService, defaultForgeYAML string) *BuildHandler {
+	return NewBuildHandlerWithDefaults(svc, defaultForgeYAML, false)
+}
+
+// NewBuildHandlerWithDefaults returns routes with configured auto-deploy default.
+func NewBuildHandlerWithDefaults(svc BuildService, defaultForgeYAML string, defaultAutoDeploy bool) *BuildHandler {
 	if strings.TrimSpace(defaultForgeYAML) == "" {
 		defaultForgeYAML = "forge.yaml"
 	}
-	return &BuildHandler{svc: svc, defaultForgeYAML: defaultForgeYAML}
+	return &BuildHandler{
+		svc:               svc,
+		defaultForgeYAML:  defaultForgeYAML,
+		defaultAutoDeploy: defaultAutoDeploy,
+	}
 }
 
 // Register mounts build create/logs routes on mux.
@@ -49,10 +59,13 @@ func (h *BuildHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	accepted, err := h.svc.Enqueue(jobs.Request{
-		Repo:      req.Repo,
-		Ref:       req.Ref,
-		ForgeYAML: req.EffectiveForgeYAMLPath(h.defaultForgeYAML),
-		Project:   req.Project,
+		Repo:          req.Repo,
+		Ref:           req.Ref,
+		ForgeYAML:     req.EffectiveForgeYAMLPath(h.defaultForgeYAML),
+		Project:       req.Project,
+		ServiceID:     req.ServiceID,
+		EnvironmentID: req.EnvironmentID,
+		AutoDeploy:    req.EffectiveAutoDeploy(h.defaultAutoDeploy),
 	})
 	if err != nil {
 		WriteManifestValidation(w, err)

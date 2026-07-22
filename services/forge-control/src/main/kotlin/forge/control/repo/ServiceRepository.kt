@@ -10,6 +10,7 @@ interface ServiceRepository {
     fun findById(id: UUID): Service?
     fun list(applicationId: UUID): List<Service>
     fun update(id: UUID, name: String?, port: Int?): Service
+    fun recordImage(id: UUID, image: String, digest: String?, commit: String?, buildId: String?): Service
     fun delete(id: UUID)
 }
 
@@ -42,7 +43,8 @@ class JdbcServiceRepository(
         dataSource.withConnection { conn ->
             conn.prepareStatement(
                 """
-                SELECT id, application_id, name, port, created_at, updated_at
+                SELECT id, application_id, name, port, created_at, updated_at,
+                       image, image_digest, image_commit, image_build_id
                 FROM services WHERE id = ?
                 """.trimIndent(),
             ).use { ps ->
@@ -58,7 +60,8 @@ class JdbcServiceRepository(
         dataSource.withConnection { conn ->
             conn.prepareStatement(
                 """
-                SELECT id, application_id, name, port, created_at, updated_at
+                SELECT id, application_id, name, port, created_at, updated_at,
+                       image, image_digest, image_commit, image_build_id
                 FROM services WHERE application_id = ? ORDER BY created_at
                 """.trimIndent(),
             ).use { ps ->
@@ -96,6 +99,43 @@ class JdbcServiceRepository(
         existing.copy(name = newName, port = newPort, updatedAt = now)
     }
 
+    override fun recordImage(
+        id: UUID,
+        image: String,
+        digest: String?,
+        commit: String?,
+        buildId: String?,
+    ): Service = runSql {
+        val existing = findById(id) ?: throw RepositoryException.NotFound("service", id)
+        val now = Instant.now()
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                UPDATE services
+                SET image = ?, image_digest = ?, image_commit = ?, image_build_id = ?, updated_at = ?
+                WHERE id = ?
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setString(1, image)
+                ps.setString(2, digest)
+                ps.setString(3, commit)
+                ps.setString(4, buildId)
+                ps.setTimestamp(5, java.sql.Timestamp.from(now))
+                ps.setObject(6, id)
+                if (ps.executeUpdate() == 0) {
+                    throw RepositoryException.NotFound("service", id)
+                }
+            }
+        }
+        existing.copy(
+            image = image,
+            imageDigest = digest,
+            imageCommit = commit,
+            imageBuildId = buildId,
+            updatedAt = now,
+        )
+    }
+
     override fun delete(id: UUID) = runSql {
         dataSource.withConnection { conn ->
             conn.prepareStatement("DELETE FROM services WHERE id = ?").use { ps ->
@@ -115,5 +155,9 @@ class JdbcServiceRepository(
             port = rs.getInt("port"),
             createdAt = rs.instant("created_at"),
             updatedAt = rs.instant("updated_at"),
+            image = rs.getString("image"),
+            imageDigest = rs.getString("image_digest"),
+            imageCommit = rs.getString("image_commit"),
+            imageBuildId = rs.getString("image_build_id"),
         )
 }

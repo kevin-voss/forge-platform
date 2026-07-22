@@ -118,7 +118,8 @@ request handling.
 | `GET` | `/v1/applications/{applicationId}` | Get application |
 | `POST` | `/v1/applications/{applicationId}/services` | Body `{"name","port"}`; port is 1–65535 |
 | `GET` | `/v1/applications/{applicationId}/services` | List services for application |
-| `GET` | `/v1/services/{serviceId}` | Get service |
+| `GET` | `/v1/services/{serviceId}` | Get service (includes optional `image` / `imageDigest` / `imageCommit` / `imageBuildId` when recorded) |
+| `POST` | `/v1/services/{serviceId}/image` | Record built image on service; body `{"image","digest?","commit?","buildId?"}`; idempotent via `Idempotency-Key` |
 | `POST` | `/v1/services/{serviceId}/deployments` | Body `{"image","desiredReplicas?","environmentId"}`; replicas default to `1`, status starts `pending` |
 | `GET` | `/v1/services/{serviceId}/deployments` | List deployments for a service |
 | `GET` | `/v1/deployments/{deploymentId}` | Get deployment |

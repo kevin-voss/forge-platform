@@ -30,6 +30,11 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FORGE_BUILD_STORE_DIR", "")
 	t.Setenv("FORGE_BUILD_RETENTION_HOURS", "")
 	t.Setenv("FORGE_BUILD_CLEANUP_ON_START", "")
+	t.Setenv("FORGE_CONTROL_URL", "")
+	t.Setenv("FORGE_BUILD_AUTO_DEPLOY_DEFAULT", "")
+	t.Setenv("FORGE_CONTROL_RETRIES", "")
+	t.Setenv("FORGE_CONTROL_RETRY_BACKOFF_MS", "")
+	t.Setenv("FORGE_CONTROL_TIMEOUT_SECONDS", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -103,6 +108,21 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if !cfg.CleanupOnStart {
 		t.Fatal("CleanupOnStart want true")
+	}
+	if cfg.ControlURL != "" {
+		t.Fatalf("ControlURL = %q, want empty", cfg.ControlURL)
+	}
+	if cfg.AutoDeployDefault {
+		t.Fatal("AutoDeployDefault want false")
+	}
+	if cfg.ControlRetries != 5 {
+		t.Fatalf("ControlRetries = %d", cfg.ControlRetries)
+	}
+	if cfg.ControlRetryBackoff != 200*time.Millisecond {
+		t.Fatalf("ControlRetryBackoff = %v", cfg.ControlRetryBackoff)
+	}
+	if cfg.ControlTimeout != 10*time.Second {
+		t.Fatalf("ControlTimeout = %v", cfg.ControlTimeout)
 	}
 }
 

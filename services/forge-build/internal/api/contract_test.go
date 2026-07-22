@@ -65,8 +65,15 @@ func TestOpenAPIDeclaresBuildPaths(t *testing.T) {
 	}
 	buildReq := digMap(t, schemas, "BuildRequest")
 	reqProps := digMap(t, buildReq, "properties")
-	if _, ok := reqProps["project"]; !ok {
-		t.Fatal("BuildRequest missing property project")
+	for _, field := range []string{"project", "serviceId", "autoDeploy", "environmentId"} {
+		if _, ok := reqProps[field]; !ok {
+			t.Fatalf("BuildRequest missing property %s", field)
+		}
+	}
+	for _, field := range []string{"serviceId", "recordedImage", "imageRecorded", "linkedDeploymentId"} {
+		if _, ok := props[field]; !ok {
+			t.Fatalf("BuildRecord missing property %s", field)
+		}
 	}
 }
 

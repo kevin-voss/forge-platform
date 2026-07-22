@@ -21,23 +21,30 @@ import (
 
 // Record is the in-memory build job state (durable fields synced to store).
 type Record struct {
-	ID           string
-	Repo         string
-	Ref          string
-	ForgeYAML    string
-	Project      string
-	Service      string
-	Commit       string
-	Status       Status
-	Phase        Phase
-	LocalImage   string
-	Image        string
-	Digest       string
-	StartedAt    time.Time
-	FinishedAt   *time.Time
-	Error        *BuildError
-	Logs         *logbuf.Buffer
-	WorkspaceDir string
+	ID                 string
+	Repo               string
+	Ref                string
+	ForgeYAML          string
+	Project            string
+	Service            string
+	ServiceID          string
+	EnvironmentID      string
+	AutoDeploy         bool
+	Commit             string
+	Status             Status
+	Phase              Phase
+	LocalImage         string
+	Image              string
+	Digest             string
+	ImageRecorded      bool
+	RecordedImage      string
+	LinkedDeploymentID string
+	ControlError       string
+	StartedAt          time.Time
+	FinishedAt         *time.Time
+	Error              *BuildError
+	Logs               *logbuf.Buffer
+	WorkspaceDir       string
 
 	cancelRequested bool
 	runCancel       context.CancelFunc
@@ -45,10 +52,13 @@ type Record struct {
 
 // Request is an accepted build enqueue request (already validated).
 type Request struct {
-	Repo      string
-	Ref       string
-	ForgeYAML string
-	Project   string
+	Repo          string
+	Ref           string
+	ForgeYAML     string
+	Project       string
+	ServiceID     string
+	EnvironmentID string
+	AutoDeploy    bool
 }
 
 // Accepted is returned when a build is queued.
@@ -86,6 +96,10 @@ type Config struct {
 	PushLatest       bool
 	Retention        time.Duration
 	CleanupOnStart   bool
+
+	ControlRetries      int
+	ControlRetryBackoff time.Duration
+	ControlTimeout      time.Duration
 }
 
 // Manager owns the queue, workers, and build records.
@@ -94,6 +108,7 @@ type Manager struct {
 	ws        *workspace.Manager
 	builder   builder.ImageBuilder
 	publisher registry.Publisher
+	control   ControlClient
 	store     *store.Store
 	log       *slog.Logger
 
@@ -110,6 +125,11 @@ type Manager struct {
 
 // New creates a job manager. Call Recover then Start.
 func New(cfg Config, ws *workspace.Manager, b builder.ImageBuilder, pub registry.Publisher, st *store.Store, log *slog.Logger) *Manager {
+	return NewWithControl(cfg, ws, b, pub, nil, st, log)
+}
+
+// NewWithControl creates a job manager with an optional Control client.
+func NewWithControl(cfg Config, ws *workspace.Manager, b builder.ImageBuilder, pub registry.Publisher, ctrl ControlClient, st *store.Store, log *slog.Logger) *Manager {
 	if cfg.MaxConcurrency < 1 {
 		cfg.MaxConcurrency = 1
 	}
@@ -128,6 +148,15 @@ func New(cfg Config, ws *workspace.Manager, b builder.ImageBuilder, pub registry
 	if cfg.Retention <= 0 {
 		cfg.Retention = 72 * time.Hour
 	}
+	if cfg.ControlRetries < 1 {
+		cfg.ControlRetries = 5
+	}
+	if cfg.ControlRetryBackoff <= 0 {
+		cfg.ControlRetryBackoff = 200 * time.Millisecond
+	}
+	if cfg.ControlTimeout <= 0 {
+		cfg.ControlTimeout = 10 * time.Second
+	}
 	if log == nil {
 		log = slog.Default()
 	}
@@ -140,6 +169,7 @@ func New(cfg Config, ws *workspace.Manager, b builder.ImageBuilder, pub registry
 		ws:        ws,
 		builder:   b,
 		publisher: pub,
+		control:   ctrl,
 		store:     st,
 		log:       log,
 		records:   make(map[string]*Record),
@@ -194,6 +224,7 @@ func (m *Manager) Recover() error {
 		m.log.Warn("retention prune incomplete", "error", err.Error())
 	}
 	m.log.Info("build store recovered", "records", len(persisted))
+	m.retryPendingControlLinks()
 	return nil
 }
 
@@ -241,15 +272,18 @@ func (m *Manager) Enqueue(req Request) (Accepted, error) {
 
 	id := newBuildID()
 	rec := &Record{
-		ID:        id,
-		Repo:      strings.TrimSpace(req.Repo),
-		Ref:       strings.TrimSpace(req.Ref),
-		ForgeYAML: forgeYAML,
-		Project:   project,
-		Status:    StatusQueued,
-		Phase:     PhaseQueued,
-		StartedAt: time.Now().UTC(),
-		Logs:      logbuf.New(m.cfg.LogBufferLines),
+		ID:            id,
+		Repo:          strings.TrimSpace(req.Repo),
+		Ref:           strings.TrimSpace(req.Ref),
+		ForgeYAML:     forgeYAML,
+		Project:       project,
+		ServiceID:     strings.TrimSpace(req.ServiceID),
+		EnvironmentID: strings.TrimSpace(req.EnvironmentID),
+		AutoDeploy:    req.AutoDeploy,
+		Status:        StatusQueued,
+		Phase:         PhaseQueued,
+		StartedAt:     time.Now().UTC(),
+		Logs:          logbuf.New(m.cfg.LogBufferLines),
 	}
 
 	m.mu.Lock()
@@ -552,6 +586,10 @@ func (m *Manager) runBuild(workerID int, rec *Record) {
 		return
 	}
 	rec.Logs.Append("==> build succeeded")
+	// Control integration runs after success; failures never downgrade build status
+	// or remove the pushed image. Use manager context so a canceled runCtx cannot
+	// skip recording after the image is already pushed.
+	m.recordWithControl(m.ctx, rec)
 }
 
 func (m *Manager) logPhase(rec *Record, phase Phase, started time.Time) {
@@ -709,20 +747,27 @@ func (m *Manager) applyRetention(now time.Time) error {
 
 func toStoreRecord(rec *Record) store.Record {
 	out := store.Record{
-		ID:            rec.ID,
-		Repo:          rec.Repo,
-		Ref:           rec.Ref,
-		ForgeYAML:     rec.ForgeYAML,
-		Project:       rec.Project,
-		Service:       rec.Service,
-		Commit:        rec.Commit,
-		Status:        string(rec.Status),
-		Phase:         string(rec.Phase),
-		Image:         rec.Image,
-		Digest:        rec.Digest,
-		StartedAt:     rec.StartedAt,
-		FinishedAt:    rec.FinishedAt,
-		WorkspacePath: rec.WorkspaceDir,
+		ID:                 rec.ID,
+		Repo:               rec.Repo,
+		Ref:                rec.Ref,
+		ForgeYAML:          rec.ForgeYAML,
+		Project:            rec.Project,
+		Service:            rec.Service,
+		ServiceID:          rec.ServiceID,
+		EnvironmentID:      rec.EnvironmentID,
+		AutoDeploy:         rec.AutoDeploy,
+		Commit:             rec.Commit,
+		Status:             string(rec.Status),
+		Phase:              string(rec.Phase),
+		Image:              rec.Image,
+		Digest:             rec.Digest,
+		ImageRecorded:      rec.ImageRecorded,
+		RecordedImage:      rec.RecordedImage,
+		LinkedDeploymentID: rec.LinkedDeploymentID,
+		ControlError:       rec.ControlError,
+		StartedAt:          rec.StartedAt,
+		FinishedAt:         rec.FinishedAt,
+		WorkspacePath:      rec.WorkspaceDir,
 	}
 	if rec.Error != nil {
 		out.Error = &store.ErrorInfo{Code: rec.Error.Code, Message: rec.Error.Message}
@@ -730,6 +775,9 @@ func toStoreRecord(rec *Record) store.Record {
 	if out.Status != "succeeded" {
 		out.Image = ""
 		out.Digest = ""
+		out.ImageRecorded = false
+		out.RecordedImage = ""
+		out.LinkedDeploymentID = ""
 	}
 	return out
 }
@@ -738,21 +786,28 @@ func recordFromStore(p store.Record, logLines int) *Record {
 	logs := logbuf.New(logLines)
 	logs.Close()
 	rec := &Record{
-		ID:           p.ID,
-		Repo:         p.Repo,
-		Ref:          p.Ref,
-		ForgeYAML:    p.ForgeYAML,
-		Project:      p.Project,
-		Service:      p.Service,
-		Commit:       p.Commit,
-		Status:       Status(p.Status),
-		Phase:        Phase(p.Phase),
-		Image:        p.Image,
-		Digest:       p.Digest,
-		StartedAt:    p.StartedAt,
-		FinishedAt:   p.FinishedAt,
-		Logs:         logs,
-		WorkspaceDir: p.WorkspacePath,
+		ID:                 p.ID,
+		Repo:               p.Repo,
+		Ref:                p.Ref,
+		ForgeYAML:          p.ForgeYAML,
+		Project:            p.Project,
+		Service:            p.Service,
+		ServiceID:          p.ServiceID,
+		EnvironmentID:      p.EnvironmentID,
+		AutoDeploy:         p.AutoDeploy,
+		Commit:             p.Commit,
+		Status:             Status(p.Status),
+		Phase:              Phase(p.Phase),
+		Image:              p.Image,
+		Digest:             p.Digest,
+		ImageRecorded:      p.ImageRecorded,
+		RecordedImage:      p.RecordedImage,
+		LinkedDeploymentID: p.LinkedDeploymentID,
+		ControlError:       p.ControlError,
+		StartedAt:          p.StartedAt,
+		FinishedAt:         p.FinishedAt,
+		Logs:               logs,
+		WorkspaceDir:       p.WorkspacePath,
 	}
 	if p.Error != nil {
 		rec.Error = &BuildError{Code: p.Error.Code, Message: p.Error.Message}
@@ -760,6 +815,9 @@ func recordFromStore(p store.Record, logLines int) *Record {
 	if rec.Status != StatusSucceeded {
 		rec.Image = ""
 		rec.Digest = ""
+		rec.ImageRecorded = false
+		rec.RecordedImage = ""
+		rec.LinkedDeploymentID = ""
 	}
 	return rec
 }

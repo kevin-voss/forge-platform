@@ -16,9 +16,19 @@ suspend fun ApplicationCall.idempotentCreate(
     requestBody: String,
     create: () -> Pair<UUID, JsonElement>,
 ) {
+    idempotentAction(store, resourceType, requestBody, HttpStatusCode.Created, create)
+}
+
+suspend fun ApplicationCall.idempotentAction(
+    store: IdempotencyStore?,
+    resourceType: String,
+    requestBody: String,
+    successStatus: HttpStatusCode,
+    action: () -> Pair<UUID, JsonElement>,
+) {
     val key = request.headers["Idempotency-Key"] ?: run {
-        val (_, body) = create()
-        respond(HttpStatusCode.Created, body)
+        val (_, body) = action()
+        respond(successStatus, body)
         return
     }
     if (!key.matches(Regex("""[A-Za-z0-9._-]{1,128}"""))) {
@@ -33,9 +43,9 @@ suspend fun ApplicationCall.idempotentCreate(
         respond(HttpStatusCode.fromValue(existing.responseStatus), Json.parseToJsonElement(existing.responseBody))
         return
     }
-    val (id, body) = create()
-    store?.save(IdempotencyRecord(key, hash, resourceType, id, HttpStatusCode.Created.value, body.toString()))
-    respond(HttpStatusCode.Created, body)
+    val (id, body) = action()
+    store?.save(IdempotencyRecord(key, hash, resourceType, id, successStatus.value, body.toString()))
+    respond(successStatus, body)
 }
 
 private fun sha256(value: String): String =

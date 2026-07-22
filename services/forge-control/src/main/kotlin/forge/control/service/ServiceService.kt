@@ -49,6 +49,33 @@ class ServiceService(
         return services.list(applicationId)
     }
 
+    fun recordImage(
+        id: UUID,
+        imageRaw: String?,
+        digestRaw: String?,
+        commitRaw: String?,
+        buildIdRaw: String?,
+    ): Service {
+        get(id) // 404 if missing
+        val image = validateImage(imageRaw)
+        val digest = digestRaw?.trim()?.takeIf { it.isNotEmpty() }
+        val commit = commitRaw?.trim()?.takeIf { it.isNotEmpty() }
+        val buildId = buildIdRaw?.trim()?.takeIf { it.isNotEmpty() }
+        val updated = try {
+            services.recordImage(id, image, digest, commit, buildId)
+        } catch (e: RepositoryException) {
+            throw mapRepo(e)
+        }
+        audit.append(
+            entityType = "service",
+            entityId = updated.id,
+            action = "record_image",
+            actor = actor,
+            detailJson = """{"image":${jsonString(image)},"digest":${jsonNullable(digest)},"commit":${jsonNullable(commit)},"buildId":${jsonNullable(buildId)}}""",
+        )
+        return updated
+    }
+
     companion object {
         fun validatePort(portRaw: Int?): Int {
             val port = portRaw ?: throw ApiException.BadRequest("port is required", mapOf("field" to "port"))
@@ -56,6 +83,14 @@ class ServiceService(
                 throw ApiException.BadRequest("port must be between 1 and 65535", mapOf("field" to "port"))
             }
             return port
+        }
+
+        fun validateImage(imageRaw: String?): String {
+            val image = imageRaw?.trim()
+            if (image.isNullOrEmpty()) {
+                throw ApiException.BadRequest("image is required", mapOf("field" to "image"))
+            }
+            return image
         }
     }
 
@@ -81,4 +116,7 @@ class ServiceService(
             }
             append('"')
         }
+
+    private fun jsonNullable(value: String?): String =
+        if (value == null) "null" else jsonString(value)
 }

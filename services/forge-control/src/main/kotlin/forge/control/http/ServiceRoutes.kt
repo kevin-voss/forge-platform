@@ -1,6 +1,7 @@
 package forge.control.http
 
 import forge.control.http.dto.CreateServiceRequest
+import forge.control.http.dto.RecordServiceImageRequest
 import forge.control.http.dto.toResponse
 import forge.control.service.ServiceService
 import forge.control.repo.IdempotencyStore
@@ -31,5 +32,18 @@ fun Route.serviceRoutes(services: ServiceService, idempotency: IdempotencyStore?
     get("/v1/services/{serviceId}") {
         val serviceId = call.parameters.requireUuid("serviceId")
         call.respond(services.get(serviceId).toResponse())
+    }
+    post("/v1/services/{serviceId}/image") {
+        val serviceId = call.parameters.requireUuid("serviceId")
+        val body = call.receive<RecordServiceImageRequest>()
+        call.idempotentAction(
+            idempotency,
+            "service-image",
+            Json.encodeToString(RecordServiceImageRequest.serializer(), body),
+            HttpStatusCode.OK,
+        ) {
+            val updated = services.recordImage(serviceId, body.image, body.digest, body.commit, body.buildId)
+            updated.id to Json.encodeToJsonElement(forge.control.http.dto.ServiceResponse.serializer(), updated.toResponse())
+        }
     }
 }

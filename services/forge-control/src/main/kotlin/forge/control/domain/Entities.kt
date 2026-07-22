@@ -47,10 +47,17 @@ data class Service(
     val port: Int,
     val createdAt: Instant,
     val updatedAt: Instant,
+    val image: String? = null,
+    val imageDigest: String? = null,
+    val imageCommit: String? = null,
+    val imageBuildId: String? = null,
 ) {
     init {
         require(name.isNotBlank()) { "name must not be blank" }
         require(port in 1..65535) { "port must be 1–65535" }
+        if (image != null) {
+            require(image.isNotBlank()) { "image must not be blank when set" }
+        }
     }
 }
 

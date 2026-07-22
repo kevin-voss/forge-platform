@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 42`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 43`**.
 
 ## Epics
 
@@ -14,7 +14,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [03](epics/03-forge-cli.md) | Forge CLI | Complete | 6/6 steps complete; demo 03 CLI control-plane acceptance gate passed |
 | [04](epics/04-forge-runtime.md) | Forge Runtime | Complete | 8/8 steps complete; demo 04 runtime acceptance gate passed |
 | [05](epics/05-forge-gateway.md) | Forge Gateway | Complete | 7/7 steps complete; demo 05 routed-service acceptance gate passed |
-| [06](epics/06-forge-build.md) | Forge Build | In progress | 5/7 steps complete |
+| [06](epics/06-forge-build.md) | Forge Build | In progress | 6/7 steps complete |
 | [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | Planning | 6 steps |
 | [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | Planning | 6 steps |
 | [09](epics/09-forge-identity.md) | Forge Identity | Planning | 8 steps |
@@ -75,7 +75,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **39** | [Clone/checkout + docker build + streamed logs](steps/06-forge-build/06.03-clone-checkout-docker-build-logs.md) | Complete |  | Clone/checkout, docker build, streamed logs, worker pool |
 | **40** | [Tag + push local registry `:5000`](steps/06-forge-build/06.04-tag-and-push-registry.md) | Complete |  | Deterministic tag/push to `:5000`, digest on build record, retries |
 | **41** | [Build status + failure paths](steps/06-forge-build/06.05-build-status-and-failure-paths.md) | Complete |  | Durable status/phases, cancel, cleanup + restart recovery |
-| **42** | [Control integration (image ref on service)](steps/06-forge-build/06.06-control-integration-image-ref.md) | Not started |  |  |
+| **42** | [Control integration (image ref on service)](steps/06-forge-build/06.06-control-integration-image-ref.md) | Complete |  | Build→Control image record + optional auto-deploy |
 | **43** | [Demo `06-source-to-deployment` + gate](steps/06-forge-build/06.07-demo-source-to-deployment-and-gate.md) | Not started |  |  |
 | **44** | [Desired/actual replica model + controller skeleton](steps/07-deployment-reconciliation/07.01-desired-actual-model-and-controller-skeleton.md) | Not started |  |  |
 | **45** | [Single-replica reconcile loop](steps/07-deployment-reconciliation/07.02-single-replica-reconcile-loop.md) | Not started |  |  |
