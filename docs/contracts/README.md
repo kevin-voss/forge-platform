@@ -45,3 +45,11 @@ Build-job API and `forge.yaml` manifest:
 * `forge.yaml` schema: [`contracts/examples/forge.schema.json`](../../contracts/examples/forge.schema.json)
 * Example manifest: [`contracts/examples/forge.yaml.example`](../../contracts/examples/forge.yaml.example)
 * Build request/response fixtures under [`contracts/examples/`](../../contracts/examples/)
+
+## Forge Identity authz matrix (epic 09)
+
+Role model and `(action → roles)` permission matrix used by
+`POST /v1/authz/check` / `GET /v1/authz/matrix`:
+
+* Human doc + parity JSON: [authz-permission-matrix.md](authz-permission-matrix.md)
+* OpenAPI: [`contracts/openapi/forge-identity.openapi.yaml`](../../contracts/openapi/forge-identity.openapi.yaml)

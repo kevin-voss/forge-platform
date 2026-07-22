@@ -57,6 +57,18 @@ class ConfigTest {
         assertEquals(65_536, cfg.auth.argon2MemoryKb)
         assertEquals(3, cfg.auth.argon2Iterations)
         assertEquals(5, cfg.auth.loginMaxFails)
+        assertEquals("1", cfg.authzMatrixVersion)
+    }
+
+    @Test
+    fun authzMatrixVersionFromEnv() {
+        val cfg = loadConfig(
+            mapOf(
+                "FORGE_IDENTITY_DB_URL" to "jdbc:postgresql://127.0.0.1:5001/forge_identity",
+                "FORGE_AUTHZ_MATRIX_VERSION" to "2",
+            ),
+        )
+        assertEquals("2", cfg.authzMatrixVersion)
     }
 
     @Test

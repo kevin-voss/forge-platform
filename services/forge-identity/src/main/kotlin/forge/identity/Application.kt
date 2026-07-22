@@ -1,6 +1,9 @@
 package forge.identity
 
 import forge.identity.auth.authRoutes
+import forge.identity.authz.AuthzService
+import forge.identity.authz.PermissionMatrix
+import forge.identity.authz.authzRoutes
 import forge.identity.config.Config
 import forge.identity.config.loadConfig
 import forge.identity.db.Database
@@ -53,6 +56,7 @@ fun main() {
     val dbHolder = AtomicReference<Database?>(null)
     val tenancyHolder = AtomicReference<TenancyServices?>(null)
     val authHolder = AtomicReference<AuthServices?>(null)
+    val authzHolder = AtomicReference<AuthzService?>(null)
     val readiness = Readiness()
     val graceMillis = cfg.shutdownGraceSeconds.toLong().coerceAtLeast(1) * 1_000
 
@@ -62,7 +66,7 @@ fun main() {
     }
 
     val connector = thread(name = "identity-db-connect", isDaemon = true) {
-        connectAndMigrate(cfg, log, dbHolder, tenancyHolder, authHolder)
+        connectAndMigrate(cfg, log, dbHolder, tenancyHolder, authHolder, authzHolder)
     }
 
     val server = embeddedServer(Netty, port = cfg.port, host = "0.0.0.0") {
@@ -74,6 +78,7 @@ fun main() {
             startedAtMs = startedAtMs,
             tenancyRef = tenancyHolder,
             authRef = authHolder,
+            authzRef = authzHolder,
             onDbFailure = { cause ->
                 log.warn("readiness db check failed", "error" to cause)
             },
@@ -94,6 +99,7 @@ fun main() {
             log.info("shutdown signal received", "signal" to "SIGTERM")
             connector.interrupt()
             server.stop(gracePeriodMillis = 1_000, timeoutMillis = graceMillis)
+            authzHolder.set(null)
             authHolder.set(null)
             tenancyHolder.set(null)
             dbHolder.getAndSet(null)?.close()
@@ -117,6 +123,7 @@ fun main() {
         server.start(wait = true)
     } finally {
         connector.interrupt()
+        authzHolder.set(null)
         authHolder.set(null)
         tenancyHolder.set(null)
         dbHolder.getAndSet(null)?.close()
@@ -129,6 +136,7 @@ internal fun connectAndMigrate(
     dbHolder: AtomicReference<Database?>,
     tenancyHolder: AtomicReference<TenancyServices?>,
     authHolder: AtomicReference<AuthServices?>,
+    authzHolder: AtomicReference<AuthzService?>,
 ) {
     var delayMs = cfg.database.connectRetryInitialMs
     while (!Thread.currentThread().isInterrupted) {
@@ -158,11 +166,21 @@ internal fun connectAndMigrate(
             }
             val tenancy = TenancyServices.from(db, log)
             val auth = AuthServices.from(db, tenancy, cfg.auth, log)
+            val authz = AuthzService.create(
+                projects = tenancy.projects,
+                orgs = tenancy.orgs,
+                matrix = PermissionMatrix.default(cfg.authzMatrixVersion),
+                log = log,
+            )
             maybeSeedAdmin(cfg, tenancy, log)
             dbHolder.getAndSet(db)?.close()
             tenancyHolder.set(tenancy)
             authHolder.set(auth)
-            log.info("database ready")
+            authzHolder.set(authz)
+            log.info(
+                "database ready",
+                "authz_matrix_version" to cfg.authzMatrixVersion,
+            )
             return
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
@@ -213,6 +231,8 @@ fun Application.forgeIdentityModule(
     tenancyRef: AtomicReference<TenancyServices?>? = null,
     auth: AuthServices? = null,
     authRef: AtomicReference<AuthServices?>? = null,
+    authz: AuthzService? = null,
+    authzRef: AtomicReference<AuthzService?>? = null,
     onDbFailure: (String) -> Unit = {},
 ) {
     install(ContentNegotiation) {
@@ -297,11 +317,27 @@ fun Application.forgeIdentityModule(
             ?: authRef?.get()
             ?: throw ApiException.ServiceUnavailable("identity auth not ready")
 
+    fun resolveAuthz(): AuthzService =
+        authz
+            ?: authzRef?.get()
+            ?: run {
+                // Tests may wire tenancy without a prebuilt authz service.
+                val t = tenancy ?: tenancyRef?.get()
+                    ?: throw ApiException.ServiceUnavailable("identity authz not ready")
+                AuthzService.create(
+                    projects = t.projects,
+                    orgs = t.orgs,
+                    matrix = PermissionMatrix.default(cfg.authzMatrixVersion),
+                    log = log,
+                ).also { authzRef?.set(it) }
+            }
+
     routing {
         healthRoutes(cfg, readiness, dbProbe, startedAtMs, onDbFailure)
         userRoutes { resolveTenancy().users }
         orgRoutes { resolveTenancy().orgs }
         projectRoutes { resolveTenancy().projects }
         authRoutes { resolveAuth().auth }
+        authzRoutes { resolveAuthz() }
     }
 }

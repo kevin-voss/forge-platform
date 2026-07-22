@@ -35,6 +35,8 @@ data class Config(
     /** Optional bootstrap admin email (`FORGE_IDENTITY_SEED_ADMIN`). */
     val seedAdminEmail: String? = null,
     val auth: AuthConfig = AuthConfig(),
+    /** Informational matrix version (`FORGE_AUTHZ_MATRIX_VERSION`); matrix is code-defined. */
+    val authzMatrixVersion: String = "1",
 )
 
 fun loadConfig(env: Map<String, String> = System.getenv()): Config {
@@ -163,6 +165,8 @@ fun loadConfig(env: Map<String, String> = System.getenv()): Config {
         )
     }
 
+    val matrixVersion = env["FORGE_AUTHZ_MATRIX_VERSION"]?.trim().orEmpty().ifEmpty { "1" }
+
     return Config(
         port = port,
         serviceName = env["FORGE_SERVICE_NAME"]?.trim().orEmpty().ifEmpty { "forge-identity" },
@@ -186,5 +190,6 @@ fun loadConfig(env: Map<String, String> = System.getenv()): Config {
             argon2Iterations = argonIter,
             loginMaxFails = loginMaxFails,
         ),
+        authzMatrixVersion = matrixVersion,
     )
 }

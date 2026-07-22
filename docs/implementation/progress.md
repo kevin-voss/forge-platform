@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 59`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 60`**.
 
 ## Epics
 
@@ -17,7 +17,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [06](epics/06-forge-build.md) | Forge Build | Complete | 7/7 steps complete; demo 06 source-to-deployment acceptance gate passed |
 | [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | Complete | 6/6 steps complete; demo 07 rolling-deployment acceptance gate passed |
 | [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | Complete | 6/6 steps complete; demo 08 multi-node acceptance gate passed |
-| [09](epics/09-forge-identity.md) | Forge Identity | In progress | 3/8 steps complete |
+| [09](epics/09-forge-identity.md) | Forge Identity | In progress | 4/8 steps complete |
 | [10](epics/10-forge-secrets.md) | Forge Secrets | Planning | 7 steps |
 | [11](epics/11-forge-events.md) | Forge Events | Planning | 7 steps |
 | [12](epics/12-forge-observe.md) | Forge Observe | Planning | 7 steps |
@@ -92,7 +92,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **56** | [Skeleton + Compose + Postgres](steps/09-forge-identity/09.01-skeleton-compose-postgres.md) | Complete |  | Ktor skeleton on `4002`, Flyway baseline, `forge_identity` DB, Compose + OpenAPI |
 | **57** | [Users, orgs, memberships persistence](steps/09-forge-identity/09.02-users-orgs-memberships.md) | Complete |  | Users/orgs/projects + memberships; citext email uniqueness; OpenAPI + TenancyTest |
 | **58** | [Registration, login, sessions](steps/09-forge-identity/09.03-registration-login-sessions.md) | Complete |  | Argon2id credentials; opaque sessions; register/login/introspect/logout + lockout |
-| **59** | [Roles + project membership](steps/09-forge-identity/09.04-roles-and-project-membership.md) | Not started |  |  |
+| **59** | [Roles + project membership](steps/09-forge-identity/09.04-roles-and-project-membership.md) | Complete |  | Role enum + permission matrix; authz/check + matrix APIs; AuthzMatrixTest |
 | **60** | [API tokens + service accounts + revocation](steps/09-forge-identity/09.05-api-tokens-service-accounts-revocation.md) | Not started |  |  |
 | **61** | [Control authz middleware (end `FORGE_AUTH_MODE=dev` default)](steps/09-forge-identity/09.06-control-authz-middleware.md) | Not started |  |  |
 | **62** | [CLI `forge login` + token profile](steps/09-forge-identity/09.07-cli-login-and-token-profile.md) | Not started |  |  |

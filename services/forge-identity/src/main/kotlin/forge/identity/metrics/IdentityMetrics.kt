@@ -11,6 +11,9 @@ object IdentityMetrics {
     val activeSessions = AtomicLong(0)
     val sessionsCreatedTotal = AtomicLong(0)
     val sessionsRevokedTotal = AtomicLong(0)
+    val authzChecksTotal = AtomicLong(0)
+    val authzAllowsTotal = AtomicLong(0)
+    val authzDeniesTotal = AtomicLong(0)
 
     fun recordUserCreated() {
         usersTotal.incrementAndGet()
@@ -34,5 +37,17 @@ object IdentityMetrics {
 
     fun setActiveSessions(count: Long) {
         activeSessions.set(count)
+    }
+
+    fun recordAuthzCheck() {
+        authzChecksTotal.incrementAndGet()
+    }
+
+    fun recordAuthzAllow() {
+        authzAllowsTotal.incrementAndGet()
+    }
+
+    fun recordAuthzDeny(@Suppress("UNUSED_PARAMETER") action: String) {
+        authzDeniesTotal.incrementAndGet()
     }
 }

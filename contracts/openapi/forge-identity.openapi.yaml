@@ -1,11 +1,12 @@
 openapi: 3.0.3
 info:
   title: Forge Identity API
-  version: 0.3.0
+  version: 0.4.0
   description: |
     Platform identity service (epic 09). Health surfaces from 09.01;
     users, organizations, projects, and memberships from 09.02;
-    registration, login, sessions, and introspection from 09.03.
+    registration, login, sessions, and introspection from 09.03;
+    role model and authorization decisions from 09.04.
 servers:
   - url: http://127.0.0.1:4002
     description: Local Compose (host port 4002)
@@ -567,6 +568,76 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
+  /v1/authz/check:
+    post:
+      operationId: checkAuthorization
+      summary: Evaluate whether a principal may perform an action on a project
+      description: |
+        Resolves the principal's effective role (org-owner escalation, then project
+        membership) and evaluates the permission matrix. Deny-by-default for unknown
+        actions and principals with no membership.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthzCheckRequest"
+            example:
+              principal:
+                type: user
+                id: usr_1
+              project_id: prj_1
+              action: deployment.create
+      responses:
+        "200":
+          description: Authorization decision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthzCheckResponse"
+              example:
+                allow: true
+                role: developer
+                reason: developer may deployment.create
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/authz/matrix:
+    get:
+      operationId: getAuthzMatrix
+      summary: Publish the role/permission matrix
+      description: Read-only matrix for docs, Control caching, and contract tests.
+      responses:
+        "200":
+          description: Matrix version and action → roles map
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthzMatrixResponse"
+              example:
+                version: "1"
+                matrix:
+                  deployment.create:
+                    - developer
+                    - organization-owner
+                    - project-admin
+                    - service-account
+                  member.manage:
+                    - organization-owner
+                    - project-admin
+                  project.read:
+                    - developer
+                    - organization-owner
+                    - project-admin
+                    - service-account
+                    - viewer
+
 components:
   securitySchemes:
     bearerAuth:
@@ -789,3 +860,58 @@ components:
           description: Present when active
         memberships:
           $ref: "#/components/schemas/UserMemberships"
+
+    AuthzCheckRequest:
+      type: object
+      required: [principal, project_id, action]
+      properties:
+        principal:
+          type: object
+          required: [type, id]
+          properties:
+            type:
+              type: string
+              example: user
+            id:
+              type: string
+              example: usr_1
+        project_id:
+          type: string
+          example: prj_1
+        action:
+          type: string
+          example: deployment.create
+
+    AuthzCheckResponse:
+      type: object
+      required: [allow, role, reason]
+      properties:
+        allow:
+          type: boolean
+        role:
+          type: string
+          description: Effective role (or none)
+          enum:
+            - organization-owner
+            - project-admin
+            - developer
+            - viewer
+            - service-account
+            - none
+        reason:
+          type: string
+
+    AuthzMatrixResponse:
+      type: object
+      required: [version, matrix]
+      properties:
+        version:
+          type: string
+          example: "1"
+        matrix:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          description: action → allowed role wire names
