@@ -29,6 +29,7 @@
 
 | Service | Host port |
 |---|---:|
+| Forge Gateway | 4000 |
 | Forge Control | 4001 |
 
 ## Internal platform APIs

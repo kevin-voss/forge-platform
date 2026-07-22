@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning
+In progress
 
 ## Goal
 
@@ -60,7 +60,7 @@ python.demo.localhost  ┘
 
 | Step | Title | Status | Notes |
 |---|---|---|---|
-| [05.01](../steps/05-forge-gateway/05.01-skeleton-and-health.md) | Skeleton + health | Not started | Go service, port 4000 |
+| [05.01](../steps/05-forge-gateway/05.01-skeleton-and-health.md) | Skeleton + health | Complete | Go service, port 4000 |
 | [05.02](../steps/05-forge-gateway/05.02-route-table-and-proxy-core.md) | Route table + reverse proxy core | Not started | Depends on 05.01 |
 | [05.03](../steps/05-forge-gateway/05.03-sync-routes-from-control.md) | Sync routes from Control | Not started | Depends on 05.02 + Control/Runtime data |
 | [05.04](../steps/05-forge-gateway/05.04-health-aware-upstreams.md) | Health-aware upstreams | Not started | Depends on 05.02/05.03 + Runtime status |
@@ -86,4 +86,4 @@ python.demo.localhost  ┘
 
 ## Next step to implement
 
-**[05.01](../steps/05-forge-gateway/05.01-skeleton-and-health.md) — Skeleton + health** (bootable Go gateway on port `4000` with health before any routing logic).
+**[05.02](../steps/05-forge-gateway/05.02-route-table-and-proxy-core.md) — Route table + reverse proxy core** (host/path routing with no Control sync yet).
