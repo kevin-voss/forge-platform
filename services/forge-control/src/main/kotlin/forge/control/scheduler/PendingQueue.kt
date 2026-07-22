@@ -35,6 +35,7 @@ class PendingQueue(
         antiAffinity: AntiAffinity = AntiAffinity.Soft,
         serviceId: String? = null,
         strategy: String = STRATEGY_PENDING,
+        rescheduledFromNode: String? = null,
     ): Placement {
         store.find(deploymentId, replicaIndex)?.let { return it }
         if (store.countPending() >= maxLen) {
@@ -53,6 +54,7 @@ class PendingQueue(
                 antiAffinity = antiAffinity.wire(),
                 slots = slots.coerceAtLeast(1),
                 serviceId = serviceId,
+                rescheduledFromNode = rescheduledFromNode,
             ),
         )
     }
@@ -64,6 +66,7 @@ class PendingQueue(
         const val DEFAULT_MAX_LEN: Int = 1000
         const val STATUS_PENDING: String = "pending"
         const val STATUS_PLACED: String = "placed"
+        const val STATUS_LOST: String = "lost"
         const val STRATEGY_PENDING: String = "pending"
     }
 }

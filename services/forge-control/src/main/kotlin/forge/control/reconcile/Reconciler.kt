@@ -3,6 +3,7 @@ package forge.control.reconcile
 import forge.control.logging.JsonLog
 import forge.control.scheduler.PlaceResult
 import forge.control.scheduler.PlacementService
+import forge.control.scheduler.StaleReplicaFencer
 import forge.control.telemetry.Telemetry
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -48,8 +49,16 @@ class Reconciler(
     private val trafficShifter: TrafficShifter = TrafficShifter(NoOpGatewayClient()),
     private val readinessMaxWaitSeconds: Long = 60,
     private val placementService: PlacementService? = null,
+    private val staleReplicaFencer: StaleReplicaFencer? = null,
 ) {
     private val waitStartedAt = ConcurrentHashMap<String, Long>()
+
+    /**
+     * Fence surplus replicas (e.g. recovered node still hosting rescheduled
+     * workloads) before applying the plan. Returns fenced replica indices.
+     */
+    fun fenceStale(desired: DesiredState, actual: ActualState): List<Int> =
+        staleReplicaFencer?.fence(desired, actual).orEmpty()
 
     fun execute(desired: DesiredState, actual: ActualState, plan: ReconcilePlan): List<ExecutedAction> {
         val deploymentId = UUID.fromString(desired.deploymentId)

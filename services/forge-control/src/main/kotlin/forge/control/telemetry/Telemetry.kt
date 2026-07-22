@@ -54,6 +54,9 @@ class Telemetry private constructor(
     private val nodesTotal: LongCounter,
     private val nodeFreeSlots: LongCounter,
     private val nodeHeartbeatAge: DoubleHistogram,
+    private val rescheduleTotal: LongCounter,
+    private val nodeOfflineTotal: LongCounter,
+    private val staleReplicasFenced: LongCounter,
     private val sdk: OpenTelemetrySdk?,
 ) : AutoCloseable {
     val enabled: Boolean = sdk != null
@@ -121,6 +124,21 @@ class Telemetry private constructor(
             ageSeconds.toDouble(),
             Attributes.of(AttributeKey.stringKey("node"), nodeId),
         )
+    }
+
+    fun recordReschedule(result: String) {
+        rescheduleTotal.add(
+            1,
+            Attributes.of(AttributeKey.stringKey("result"), result),
+        )
+    }
+
+    fun recordNodeOffline() {
+        nodeOfflineTotal.add(1)
+    }
+
+    fun recordStaleReplicaFenced() {
+        staleReplicasFenced.add(1)
     }
 
     fun recordReconcileTick(planActions: Int, healthy: Boolean) {
@@ -266,6 +284,11 @@ class Telemetry private constructor(
                 nodeFreeSlots = meter.counterBuilder("forge_node_free_slots").build(),
                 nodeHeartbeatAge = meter.histogramBuilder("forge_node_heartbeat_age_seconds")
                     .setUnit("s")
+                    .build(),
+                rescheduleTotal = meter.counterBuilder("forge_reschedule_total").build(),
+                nodeOfflineTotal = meter.counterBuilder("forge_node_offline_total").build(),
+                staleReplicasFenced = meter
+                    .counterBuilder("forge_stale_replicas_fenced_total")
                     .build(),
                 sdk = sdk,
             )

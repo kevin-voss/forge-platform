@@ -34,6 +34,8 @@ class PlacementOpenApiContractTest {
         assertTrue(yaml.contains("single-node"))
         assertTrue(yaml.contains("'202'") || yaml.contains("202:"))
         assertTrue(yaml.contains("status: pending") || yaml.contains("pending"))
+        assertTrue(yaml.contains("lost"))
+        assertTrue(yaml.contains("rescheduled_from_node") || yaml.contains("rescheduledFromNode"))
         assertTrue(yaml.contains("anti_affinity") || yaml.contains("anti-affinity"))
     }
 
@@ -78,5 +80,37 @@ class PlacementOpenApiContractTest {
         assertTrue(decoded.status == "pending")
         assertTrue(decoded.nodeId == null)
         assertTrue(decoded.reason!!.contains("no node"))
+    }
+
+    @Test
+    fun lostAndReplacementResponseMatchDtoShape() {
+        val lost = """
+            {
+              "placement_id": "plc_old",
+              "deployment_id": "11111111-1111-1111-1111-111111111111",
+              "replica_index": 1,
+              "node_id": "node-b",
+              "status": "lost",
+              "strategy": "least-allocated",
+              "anti_affinity": "soft"
+            }
+        """.trimIndent()
+        val replacement = """
+            {
+              "placement_id": "plc_new",
+              "deployment_id": "11111111-1111-1111-1111-111111111111",
+              "replica_index": 1,
+              "node_id": "node-a",
+              "status": "placed",
+              "strategy": "least-allocated",
+              "anti_affinity": "soft",
+              "rescheduled_from_node": "node-b"
+            }
+        """.trimIndent()
+        val json = Json { ignoreUnknownKeys = true }
+        assertTrue(json.decodeFromString(PlacementResponse.serializer(), lost).status == "lost")
+        val decoded = json.decodeFromString(PlacementResponse.serializer(), replacement)
+        assertTrue(decoded.status == "placed")
+        assertTrue(decoded.rescheduledFromNode == "node-b")
     }
 }

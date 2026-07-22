@@ -20,6 +20,15 @@ across online nodes with capacity checks. `CapacityReservation` atomically bumps
 `allocation_json.slots` so concurrent placements cannot over-commit; release is
 available via `PlacementService.releasePlacement` for stop/reschedule (08.05).
 
+**Pending queue + anti-affinity (08.04):** soft/hard spread; unplaceable requests
+persist as `pending` and drain via `QueueProcessor` when capacity frees.
+
+**Reschedule on offline (08.05):** `NodeOfflineHandler` (grace-gated) marks an
+offline node's placements `lost`, frees capacity, and requests replacements
+(`rescheduled_from_node`). No-capacity cases reuse the pending queue.
+`StaleReplicaFencer` stops surplus replicas when a recovered node would exceed
+desired count. Flow is idempotent via `recoverLostReplicas()` on Control start.
+
 **Extract path:** this module can move to a standalone service on port `4108`
 without changing the place/persist contract — wire HTTP or RPC over
 `Scheduler` + `PlacementStore` and leave Control as a client.

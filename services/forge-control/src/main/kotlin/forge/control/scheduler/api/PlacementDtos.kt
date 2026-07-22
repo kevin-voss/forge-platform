@@ -28,6 +28,7 @@ data class PlacementResponse(
     val reason: String? = null,
     val status: String = "placed",
     @SerialName("anti_affinity") val antiAffinity: String = "soft",
+    @SerialName("rescheduled_from_node") val rescheduledFromNode: String? = null,
 )
 
 fun Placement.toResponse(): PlacementResponse =
@@ -40,4 +41,5 @@ fun Placement.toResponse(): PlacementResponse =
         reason = reason,
         status = status,
         antiAffinity = antiAffinity,
+        rescheduledFromNode = rescheduledFromNode,
     )

@@ -120,6 +120,8 @@ make dev
 | `FORGE_SCHEDULER_ENABLED` | `true` | Reconciler delegates placement before starting replicas |
 | `FORGE_SCHEDULER_STRATEGY` | `least-allocated` | `first-fit` \| `least-allocated` \| `single-node` |
 | `FORGE_SCHEDULER_LOCAL_NODE_ID` | `node-local` | Fallback sole node for `single-node` when the fleet is empty |
+| `FORGE_RESCHEDULE_ENABLED` | `true` | On node offline, mark placements lost and request replacements (`08.05`) |
+| `FORGE_RESCHEDULE_GRACE_S` | `5` | Wait after offline before rescheduling (suppresses fast flaps) |
 
 See `.env.example`.
 
@@ -141,8 +143,11 @@ the foundation Collector. Reconcile ticks emit `forge_reconcile_ticks_total` /
 `reconcile.shift_traffic` / `reconcile.drain_replica` /
 `reconcile.stop_replica`, plus `forge_placements_total{strategy=…}`,
 `forge_placement_decisions_total{strategy,node}`,
-`forge_placement_rejected_no_capacity_total`, and span `scheduler.place`
-(attributes `strategy`, `candidates`, `node`).
+`forge_placement_rejected_no_capacity_total`,
+`forge_reschedule_total{result=placed|pending}`,
+`forge_node_offline_total`,
+`forge_stale_replicas_fenced_total`, and spans `scheduler.place` /
+`scheduler.reschedule` (attributes `strategy`, `candidates`, `node`).
 From 07.02 the controller executes start/stop/recreate against Runtime using
 deterministic per-replica workload ids
 (`forge-<service_slug>-<deployment_short>-<index>`). From 07.03 image changes
@@ -182,7 +187,7 @@ request handling.
 | `GET` | `/v1/deployments/{deploymentId}/reconcile` | Desired/actual snapshot, plan, `phase`, `updatedReplicas`, `currentImage`/`targetImage`, `status` (`deploying`/`deployed`/`rolling_back`/`rolled_back`/…), `lastHealthyImage`, controller health (`07.01`–`07.04`) |
 | `GET` | `/v1/deployments/{deploymentId}/history` | Chronological append-only transition trail (`07.05`) |
 | `POST` | `/v1/placements` | Compute+persist placement; body `{"deployment_id","replica_index","requirements?","anti_affinity?","service_id?"}`; soft/hard anti-affinity; `201` placed, `202` pending when no capacity (`08.04`); `409 queue_full` at cap |
-| `GET` | `/v1/placements?deployment=&status=` | List placements for a deployment; optional `status=placed|pending` (`08.04`) |
+| `GET` | `/v1/placements?deployment=&status=` | List placements for a deployment; optional `status=placed|pending|lost` (`08.04`/`08.05`) |
 | `GET` | `/v1/projects/{projectId}?expand=tree` | Project, environments, applications, services, and deployments |
 
 The machine-readable API contract is
@@ -200,7 +205,7 @@ Tables in schema `control`:
 * `projects`, `environments`, `applications`, `services`, `deployments`
 * `reconcile_status` (per-deployment desired/actual/plan snapshot, lifecycle status, rollout timer, controller health)
 * `deployment_events` (append-only status transitions with image, replica counts, reason)
-* `placements` (replica → node assignments or `pending` queue rows; unique on `(deployment_id, replica_index)`; `status`/`anti_affinity`/`slots`/`service_id`)
+* `placements` (replica → node assignments, `pending` queue, or `lost` audit rows; active unique on `(deployment_id, replica_index)` where `status in (placed,pending)`; `rescheduled_from_node` on replacements)
 * `audit_log` (append-only; create actions for projects/environments/applications/services/deployments)
 * `idempotency_keys` (key, request hash, resource ID, stored response; 24-hour retention target)
 * `flyway_schema_history`

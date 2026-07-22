@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 54`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 55`**.
 
 ## Epics
 
@@ -16,7 +16,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [05](epics/05-forge-gateway.md) | Forge Gateway | Complete | 7/7 steps complete; demo 05 routed-service acceptance gate passed |
 | [06](epics/06-forge-build.md) | Forge Build | Complete | 7/7 steps complete; demo 06 source-to-deployment acceptance gate passed |
 | [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | Complete | 6/6 steps complete; demo 07 rolling-deployment acceptance gate passed |
-| [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | In progress | 3/6 steps complete |
+| [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | In progress | 5/6 steps complete |
 | [09](epics/09-forge-identity.md) | Forge Identity | Planning | 8 steps |
 | [10](epics/10-forge-secrets.md) | Forge Secrets | Planning | 7 steps |
 | [11](epics/11-forge-events.md) | Forge Events | Planning | 7 steps |
@@ -87,7 +87,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **51** | [Multi-node registration, heartbeat, resource reporting](steps/08-multi-node-scheduler/08.02-node-registration-heartbeat-resources.md) | Complete |  | Nodes table, register/heartbeat/list APIs, liveness monitor, Runtime capacity reporting |
 | **52** | [First-fit and least-allocated placement strategies](steps/08-multi-node-scheduler/08.03-first-fit-and-least-allocated-strategies.md) | Complete |  | FirstFit + LeastAllocated strategies, CapacityReservation, FORGE_SCHEDULER_STRATEGY |
 | **53** | [Anti-affinity + pending queue](steps/08-multi-node-scheduler/08.04-anti-affinity-and-pending-queue.md) | Complete |  | Soft/hard anti-affinity spread; pending queue + FIFO drain; POST 202 |
-| **54** | [Reschedule on node offline](steps/08-multi-node-scheduler/08.05-reschedule-on-node-offline.md) | Not started |  |  |
+| **54** | [Reschedule on node offline](steps/08-multi-node-scheduler/08.05-reschedule-on-node-offline.md) | Complete |  | Lost→reschedule/pending; grace flap suppression; stale replica fencer |
 | **55** | [Demo `08-multi-node` + epic gate](steps/08-multi-node-scheduler/08.06-demo-08-multi-node.md) | Not started |  |  |
 | **56** | [Skeleton + Compose + Postgres](steps/09-forge-identity/09.01-skeleton-compose-postgres.md) | Not started |  |  |
 | **57** | [Users, orgs, memberships persistence](steps/09-forge-identity/09.02-users-orgs-memberships.md) | Not started |  |  |

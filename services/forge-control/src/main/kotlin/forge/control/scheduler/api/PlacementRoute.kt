@@ -93,9 +93,9 @@ fun Route.placementRoutes(placements: PlacementService) {
                 )
             val deploymentId = parseDeploymentId(deploymentRaw)
             val status = call.request.queryParameters["status"]?.trim()?.lowercase()
-            if (status != null && status !in setOf("placed", "pending")) {
+            if (status != null && status !in setOf("placed", "pending", "lost")) {
                 throw ApiException.BadRequest(
-                    "status must be placed|pending",
+                    "status must be placed|pending|lost",
                     mapOf("field" to "status"),
                 )
             }

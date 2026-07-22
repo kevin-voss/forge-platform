@@ -61,6 +61,9 @@ interface NodeStore {
     /** Mark nodes with last_heartbeat older than cutoff as offline; returns transitioned ids. */
     fun markStaleOffline(cutoff: Instant): List<String>
 
+    /** Force a node offline (idempotent). Used before reschedule so it cannot receive replacements. */
+    fun markOffline(id: String): Boolean
+
     /** Recompute online/offline for every row from last_heartbeat vs cutoff. */
     fun recomputeLiveness(cutoff: Instant): List<Pair<String, String>>
 
@@ -183,6 +186,21 @@ class JdbcNodeStore(
                         while (rs.next()) add(rs.getString("id"))
                     }
                 }
+            }
+        }
+    }
+
+    override fun markOffline(id: String): Boolean = runSql {
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                UPDATE nodes
+                SET status = 'offline'
+                WHERE id = ?
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setString(1, id)
+                ps.executeUpdate() > 0
             }
         }
     }
@@ -383,6 +401,12 @@ class InMemoryNodeStore : NodeStore {
             }
         }
         return transitioned
+    }
+
+    override fun markOffline(id: String): Boolean {
+        val existing = rows[id] ?: return false
+        rows[id] = existing.copy(status = "offline")
+        return true
     }
 
     override fun recomputeLiveness(cutoff: Instant): List<Pair<String, String>> {

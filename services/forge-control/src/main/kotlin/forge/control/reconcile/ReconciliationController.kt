@@ -2,6 +2,7 @@ package forge.control.reconcile
 
 import forge.control.logging.JsonLog
 import forge.control.scheduler.PlacementService
+import forge.control.scheduler.StaleReplicaFencer
 import forge.control.telemetry.Telemetry
 import java.time.Clock
 import java.time.Instant
@@ -37,6 +38,7 @@ class ReconciliationController(
     private val rollbackEnabled: Boolean = true,
     private val transitionRecorder: TransitionRecorder = StatusOnlyTransitionRecorder(deploymentStore),
     private val placementService: PlacementService? = null,
+    private val staleReplicaFencer: StaleReplicaFencer? = null,
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "forge-reconcile").apply { isDaemon = true }
     },
@@ -49,6 +51,7 @@ class ReconciliationController(
         trafficShifter = trafficShifter,
         readinessMaxWaitSeconds = readinessMaxWaitSeconds,
         placementService = placementService,
+        staleReplicaFencer = staleReplicaFencer,
     ),
 ) : AutoCloseable {
     private val running = AtomicBoolean(false)
@@ -131,15 +134,35 @@ class ReconciliationController(
         val previous = statusStore.findByDeploymentId(deploymentId)
         restoreTimer(desired.deploymentId, previous)
 
-        val (actualBefore, healthy) = try {
-            runtimeClient.observe(deploymentId) to true
+        var healthy: Boolean
+        var actualBefore: ActualState
+        try {
+            actualBefore = runtimeClient.observe(deploymentId)
+            healthy = true
         } catch (e: RuntimeUnreachableException) {
             log.warn(
                 "reconcile runtime unreachable",
                 "deployment_id" to desired.deploymentId,
                 "error" to (e.message ?: e.javaClass.simpleName),
             )
-            (previous?.actual ?: ActualState()) to false
+            actualBefore = previous?.actual ?: ActualState()
+            healthy = false
+        }
+
+        if (healthy) {
+            val fenced = reconciler.fenceStale(desired, actualBefore)
+            if (fenced.isNotEmpty()) {
+                try {
+                    actualBefore = runtimeClient.observe(deploymentId)
+                } catch (e: RuntimeUnreachableException) {
+                    log.warn(
+                        "reconcile runtime unreachable after fence",
+                        "deployment_id" to desired.deploymentId,
+                        "error" to (e.message ?: e.javaClass.simpleName),
+                    )
+                    healthy = false
+                }
+            }
         }
 
         val serviceKey = serviceKey(desired)

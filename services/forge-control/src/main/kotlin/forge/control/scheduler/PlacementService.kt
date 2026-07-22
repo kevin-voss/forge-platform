@@ -34,6 +34,7 @@ class PlacementService(
         serviceId: String? = null,
         slots: Int = 1,
         antiAffinity: AntiAffinity? = null,
+        rescheduledFromNode: String? = null,
     ): PlaceResult {
         store.find(deploymentId, replicaIndex)?.let { existing ->
             return when (existing.status) {
@@ -88,6 +89,7 @@ class PlacementService(
                         slots = slots,
                         antiAffinity = affinity,
                         serviceId = serviceId,
+                        rescheduledFromNode = rescheduledFromNode,
                     )
                     telemetry.setPlacementsPending(queue.count())
                     log.info(
@@ -124,6 +126,7 @@ class PlacementService(
                         antiAffinity = affinity.wire(),
                         slots = slots,
                         serviceId = serviceId,
+                        rescheduledFromNode = rescheduledFromNode,
                     ),
                 )
                 log.info(

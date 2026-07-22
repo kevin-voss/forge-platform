@@ -21,18 +21,20 @@ data class Placement(
     val antiAffinity: String = "soft",
     val slots: Int = 1,
     val serviceId: String? = null,
+    val rescheduledFromNode: String? = null,
 )
 
 interface PlacementStore {
-    /** Idempotent upsert on (deployment_id, replica_index); returns existing row on conflict. */
+    /** Idempotent upsert of an active (placed|pending) row; returns existing active on conflict. */
     fun upsert(placement: Placement): Placement
 
+    /** Active (placed|pending) placement for (deployment, replica), or null. */
     fun find(deploymentId: UUID, replicaIndex: Int): Placement?
 
     fun listByDeployment(deploymentId: UUID, status: String? = null): List<Placement>
 
     /**
-     * Delete a placement row (capacity release is caller's responsibility via
+     * Delete the active placement row (capacity release is caller's responsibility via
      * [CapacityReservation]). Returns the deleted row, or null if absent.
      */
     fun delete(deploymentId: UUID, replicaIndex: Int): Placement?
@@ -52,6 +54,15 @@ interface PlacementStore {
         strategy: String,
         reason: String?,
     ): Placement?
+
+    /** Placed (or filtered) placements currently assigned to [nodeId]. */
+    fun listByNode(nodeId: String, status: String? = PendingQueue.STATUS_PLACED): List<Placement>
+
+    /** Mark an active placed row as lost (keeps node_id for audit). */
+    fun markLost(deploymentId: UUID, replicaIndex: Int): Placement?
+
+    /** Lost placements that have no active replacement row. */
+    fun listLostWithoutActive(): List<Placement>
 }
 
 class JdbcPlacementStore(
@@ -63,9 +74,11 @@ class JdbcPlacementStore(
                 """
                 INSERT INTO placements (
                     id, deployment_id, replica_index, node_id, strategy, reason, created_at,
-                    status, anti_affinity, slots, service_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (deployment_id, replica_index) DO NOTHING
+                    status, anti_affinity, slots, service_id, rescheduled_from_node
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (deployment_id, replica_index)
+                    WHERE status IN ('placed', 'pending')
+                DO NOTHING
                 """.trimIndent(),
             ).use { ps ->
                 ps.setString(1, placement.id)
@@ -79,6 +92,7 @@ class JdbcPlacementStore(
                 ps.setString(9, placement.antiAffinity)
                 ps.setInt(10, placement.slots)
                 ps.setString(11, placement.serviceId)
+                ps.setString(12, placement.rescheduledFromNode)
                 ps.executeUpdate()
             }
             find(conn, placement.deploymentId, placement.replicaIndex)
@@ -96,13 +110,13 @@ class JdbcPlacementStore(
                 append(
                     """
                     SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
-                           status, anti_affinity, slots, service_id
+                           status, anti_affinity, slots, service_id, rescheduled_from_node
                     FROM placements
                     WHERE deployment_id = ?
                     """.trimIndent(),
                 )
                 if (status != null) append(" AND status = ?")
-                append(" ORDER BY replica_index")
+                append(" ORDER BY replica_index, created_at")
             }
             conn.prepareStatement(sql).use { ps ->
                 ps.setObject(1, deploymentId)
@@ -122,11 +136,10 @@ class JdbcPlacementStore(
             conn.prepareStatement(
                 """
                 DELETE FROM placements
-                WHERE deployment_id = ? AND replica_index = ?
+                WHERE id = ?
                 """.trimIndent(),
             ).use { ps ->
-                ps.setObject(1, deploymentId)
-                ps.setInt(2, replicaIndex)
+                ps.setString(1, existing.id)
                 ps.executeUpdate()
             }
             existing
@@ -161,7 +174,7 @@ class JdbcPlacementStore(
             conn.prepareStatement(
                 """
                 SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
-                       status, anti_affinity, slots, service_id
+                       status, anti_affinity, slots, service_id, rescheduled_from_node
                 FROM placements
                 WHERE status = 'pending'
                 ORDER BY created_at ASC, replica_index ASC
@@ -216,21 +229,109 @@ class JdbcPlacementStore(
         }
     }
 
+    override fun listByNode(nodeId: String, status: String?): List<Placement> = runSql {
+        dataSource.withConnection { conn ->
+            val sql = buildString {
+                append(
+                    """
+                    SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
+                           status, anti_affinity, slots, service_id, rescheduled_from_node
+                    FROM placements
+                    WHERE node_id = ?
+                    """.trimIndent(),
+                )
+                if (status != null) append(" AND status = ?")
+                append(" ORDER BY deployment_id, replica_index")
+            }
+            conn.prepareStatement(sql).use { ps ->
+                ps.setString(1, nodeId)
+                if (status != null) ps.setString(2, status)
+                ps.executeQuery().use { rs ->
+                    buildList {
+                        while (rs.next()) add(readPlacement(rs))
+                    }
+                }
+            }
+        }
+    }
+
+    override fun markLost(deploymentId: UUID, replicaIndex: Int): Placement? = runSql {
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                UPDATE placements
+                SET status = 'lost'
+                WHERE deployment_id = ? AND replica_index = ? AND status = 'placed'
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, deploymentId)
+                ps.setInt(2, replicaIndex)
+                if (ps.executeUpdate() == 0) return@withConnection null
+            }
+            findAny(conn, deploymentId, replicaIndex, PendingQueue.STATUS_LOST)
+        }
+    }
+
+    override fun listLostWithoutActive(): List<Placement> = runSql {
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                SELECT l.id, l.deployment_id, l.replica_index, l.node_id, l.strategy, l.reason,
+                       l.created_at, l.status, l.anti_affinity, l.slots, l.service_id,
+                       l.rescheduled_from_node
+                FROM placements l
+                WHERE l.status = 'lost'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM placements a
+                      WHERE a.deployment_id = l.deployment_id
+                        AND a.replica_index = l.replica_index
+                        AND a.status IN ('placed', 'pending')
+                  )
+                ORDER BY l.created_at ASC, l.replica_index ASC
+                """.trimIndent(),
+            ).use { ps ->
+                ps.executeQuery().use { rs ->
+                    buildList {
+                        while (rs.next()) add(readPlacement(rs))
+                    }
+                }
+            }
+        }
+    }
+
     private fun find(
         conn: java.sql.Connection,
         deploymentId: UUID,
         replicaIndex: Int,
+    ): Placement? =
+        findAny(conn, deploymentId, replicaIndex, status = null, activeOnly = true)
+
+    private fun findAny(
+        conn: java.sql.Connection,
+        deploymentId: UUID,
+        replicaIndex: Int,
+        status: String? = null,
+        activeOnly: Boolean = false,
     ): Placement? {
-        conn.prepareStatement(
-            """
-            SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
-                   status, anti_affinity, slots, service_id
-            FROM placements
-            WHERE deployment_id = ? AND replica_index = ?
-            """.trimIndent(),
-        ).use { ps ->
+        val sql = buildString {
+            append(
+                """
+                SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
+                       status, anti_affinity, slots, service_id, rescheduled_from_node
+                FROM placements
+                WHERE deployment_id = ? AND replica_index = ?
+                """.trimIndent(),
+            )
+            when {
+                status != null -> append(" AND status = ?")
+                activeOnly -> append(" AND status IN ('placed', 'pending')")
+            }
+            append(" ORDER BY created_at DESC LIMIT 1")
+        }
+        conn.prepareStatement(sql).use { ps ->
             ps.setObject(1, deploymentId)
             ps.setInt(2, replicaIndex)
+            if (status != null) ps.setString(3, status)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
                 return readPlacement(rs)
@@ -251,6 +352,7 @@ class JdbcPlacementStore(
             antiAffinity = rs.getString("anti_affinity") ?: "soft",
             slots = rs.getInt("slots").takeIf { !rs.wasNull() } ?: 1,
             serviceId = rs.getString("service_id"),
+            rescheduledFromNode = rs.getString("rescheduled_from_node"),
         )
 }
 
@@ -258,25 +360,30 @@ class JdbcPlacementStore(
 class InMemoryPlacementStore : PlacementStore {
     private val rows = ConcurrentHashMap<String, Placement>()
 
-    private fun key(deploymentId: UUID, replicaIndex: Int): String =
-        "$deploymentId:$replicaIndex"
-
     override fun upsert(placement: Placement): Placement {
-        val k = key(placement.deploymentId, placement.replicaIndex)
-        return rows.compute(k) { _, existing -> existing ?: placement }!!
+        find(placement.deploymentId, placement.replicaIndex)?.let { return it }
+        rows[placement.id] = placement
+        return placement
     }
 
     override fun find(deploymentId: UUID, replicaIndex: Int): Placement? =
-        rows[key(deploymentId, replicaIndex)]
+        rows.values.firstOrNull {
+            it.deploymentId == deploymentId &&
+                it.replicaIndex == replicaIndex &&
+                it.status != PendingQueue.STATUS_LOST
+        }
 
     override fun listByDeployment(deploymentId: UUID, status: String?): List<Placement> =
         rows.values
             .filter { it.deploymentId == deploymentId }
             .filter { status == null || it.status == status }
-            .sortedBy { it.replicaIndex }
+            .sortedWith(compareBy({ it.replicaIndex }, { it.createdAt }))
 
-    override fun delete(deploymentId: UUID, replicaIndex: Int): Placement? =
-        rows.remove(key(deploymentId, replicaIndex))
+    override fun delete(deploymentId: UUID, replicaIndex: Int): Placement? {
+        val existing = find(deploymentId, replicaIndex) ?: return null
+        rows.remove(existing.id)
+        return existing
+    }
 
     override fun nodeIdsWithPlacedService(serviceId: String): Set<String> =
         rows.values
@@ -303,8 +410,7 @@ class InMemoryPlacementStore : PlacementStore {
         strategy: String,
         reason: String?,
     ): Placement? {
-        val k = key(deploymentId, replicaIndex)
-        val existing = rows[k] ?: return null
+        val existing = find(deploymentId, replicaIndex) ?: return null
         if (existing.status != PendingQueue.STATUS_PENDING) return null
         val updated = existing.copy(
             nodeId = nodeId,
@@ -312,7 +418,27 @@ class InMemoryPlacementStore : PlacementStore {
             reason = reason,
             status = PendingQueue.STATUS_PLACED,
         )
-        rows[k] = updated
+        rows[existing.id] = updated
         return updated
     }
+
+    override fun listByNode(nodeId: String, status: String?): List<Placement> =
+        rows.values
+            .filter { it.nodeId == nodeId }
+            .filter { status == null || it.status == status }
+            .sortedWith(compareBy({ it.deploymentId }, { it.replicaIndex }))
+
+    override fun markLost(deploymentId: UUID, replicaIndex: Int): Placement? {
+        val existing = find(deploymentId, replicaIndex) ?: return null
+        if (existing.status != PendingQueue.STATUS_PLACED) return null
+        val lost = existing.copy(status = PendingQueue.STATUS_LOST)
+        rows[existing.id] = lost
+        return lost
+    }
+
+    override fun listLostWithoutActive(): List<Placement> =
+        rows.values
+            .filter { it.status == PendingQueue.STATUS_LOST }
+            .filter { find(it.deploymentId, it.replicaIndex) == null }
+            .sortedWith(compareBy({ it.createdAt }, { it.replicaIndex }))
 }

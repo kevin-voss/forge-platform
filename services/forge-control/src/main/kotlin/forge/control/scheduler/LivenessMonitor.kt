@@ -21,6 +21,7 @@ class LivenessMonitor(
     private val log: JsonLog,
     private val clock: Clock = Clock.systemUTC(),
     private val telemetry: Telemetry = Telemetry.current(),
+    private val onStatusTransition: (nodeId: String, status: String) -> Unit = { _, _ -> },
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "forge-node-liveness").apply { isDaemon = true }
     },
@@ -69,6 +70,16 @@ class LivenessMonitor(
                 "reason" to if (status == "offline") "heartbeat_timeout" else "heartbeat_fresh",
             )
             telemetry.recordNodeStatus(status)
+            try {
+                onStatusTransition(nodeId, status)
+            } catch (e: Exception) {
+                log.error(
+                    "node status transition handler failed",
+                    "node_id" to nodeId,
+                    "status" to status,
+                    "error" to (e.message ?: e.javaClass.simpleName),
+                )
+            }
         }
         for (node in store.list()) {
             telemetry.recordNodeFreeSlots(node.id, freeSlots(node))

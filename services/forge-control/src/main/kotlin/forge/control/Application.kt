@@ -34,10 +34,12 @@ import forge.control.scheduler.CapacityReservation
 import forge.control.scheduler.JdbcNodeStore
 import forge.control.scheduler.JdbcPlacementStore
 import forge.control.scheduler.LivenessMonitor
+import forge.control.scheduler.NodeOfflineHandler
 import forge.control.scheduler.PendingQueue
 import forge.control.scheduler.PlacementService
 import forge.control.scheduler.QueueProcessor
 import forge.control.scheduler.SchedulerFactory
+import forge.control.scheduler.StaleReplicaFencer
 import forge.control.scheduler.model.AntiAffinity
 import forge.control.scheduler.api.nodeFleetRoutes
 import forge.control.scheduler.api.nodeRegistrationRoutes
@@ -190,12 +192,41 @@ fun main() {
         queueProcessor = queueProcessor,
         defaultAntiAffinity = AntiAffinity.parse(cfg.antiAffinityDefault),
     )
+    val nodeOfflineHandler = if (cfg.schedulerEnabled) {
+        NodeOfflineHandler(
+            store = placementStore,
+            placementService = placementService,
+            reservation = capacityReservation,
+            deploymentStore = deploymentStore,
+            log = log,
+            enabled = cfg.rescheduleEnabled,
+            grace = Duration.ofSeconds(cfg.rescheduleGraceSeconds),
+            history = deploymentHistory,
+            telemetry = telemetry,
+            nodeStore = nodeStore,
+        )
+    } else {
+        null
+    }
+    val staleReplicaFencer = if (cfg.schedulerEnabled && cfg.rescheduleEnabled) {
+        StaleReplicaFencer(
+            store = placementStore,
+            runtimeClient = runtimeClient,
+            log = log,
+            telemetry = telemetry,
+        )
+    } else {
+        null
+    }
     val livenessMonitor = LivenessMonitor(
         store = nodeStore,
         timeout = Duration.ofSeconds(cfg.nodeHeartbeatTimeoutSeconds),
         intervalMs = cfg.livenessIntervalMs,
         log = log,
         telemetry = telemetry,
+        onStatusTransition = { nodeId, status ->
+            nodeOfflineHandler?.onStatusTransition(nodeId, status)
+        },
     )
     val reconcileController = ReconciliationController(
         deploymentStore = deploymentStore,
@@ -213,6 +244,7 @@ fun main() {
         rollbackEnabled = cfg.rollbackEnabled,
         transitionRecorder = transitionRecorder,
         placementService = if (cfg.schedulerEnabled) placementService else null,
+        staleReplicaFencer = staleReplicaFencer,
     )
     val startupRecovery = StartupRecovery(
         deploymentStore = deploymentStore,
@@ -272,6 +304,7 @@ fun main() {
                 )
             }
             livenessMonitor.start()
+            nodeOfflineHandler?.start()
             queueProcessor?.start()
             reconcileController.start()
             log.info(
@@ -292,6 +325,8 @@ fun main() {
                 "anti_affinity_default" to cfg.antiAffinityDefault,
                 "queue_retry_ms" to cfg.queueRetryMs,
                 "queue_max_len" to cfg.queueMaxLen,
+                "reschedule_enabled" to cfg.rescheduleEnabled,
+                "reschedule_grace_s" to cfg.rescheduleGraceSeconds,
             )
         }
     }
@@ -301,6 +336,7 @@ fun main() {
             log.info("shutdown signal received", "signal" to "SIGTERM")
             reconcileController.stop()
             queueProcessor?.stop()
+            nodeOfflineHandler?.stop()
             livenessMonitor.stop()
             server.stop(gracePeriodMillis = 1_000, timeoutMillis = graceMillis)
             db.close()
@@ -333,6 +369,7 @@ fun main() {
     } finally {
         reconcileController.stop()
         queueProcessor?.stop()
+        nodeOfflineHandler?.stop()
         livenessMonitor.stop()
         db.close()
         telemetry.close()

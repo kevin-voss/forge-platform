@@ -41,6 +41,8 @@ data class AppConfig(
     val antiAffinityDefault: String = "soft",
     val queueRetryMs: Long = 2_000,
     val queueMaxLen: Int = 1000,
+    val rescheduleEnabled: Boolean = true,
+    val rescheduleGraceSeconds: Long = 5,
 )
 
 fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
@@ -326,6 +328,27 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         )
     }
 
+    val rescheduleEnabledRaw = env["FORGE_RESCHEDULE_ENABLED"]?.trim()?.lowercase().orEmpty()
+        .ifEmpty { "true" }
+    val rescheduleEnabled = when (rescheduleEnabledRaw) {
+        "true", "1", "yes" -> true
+        "false", "0", "no" -> false
+        else -> throw IllegalArgumentException(
+            "FORGE_RESCHEDULE_ENABLED must be true|false, got '$rescheduleEnabledRaw'",
+        )
+    }
+
+    val rescheduleGraceRaw = env["FORGE_RESCHEDULE_GRACE_S"]?.trim().orEmpty().ifEmpty { "5" }
+    val rescheduleGraceSeconds = rescheduleGraceRaw.toLongOrNull()
+        ?: throw IllegalArgumentException(
+            "FORGE_RESCHEDULE_GRACE_S must be a non-negative integer, got '$rescheduleGraceRaw'",
+        )
+    if (rescheduleGraceSeconds < 0) {
+        throw IllegalArgumentException(
+            "FORGE_RESCHEDULE_GRACE_S must be a non-negative integer, got '$rescheduleGraceRaw'",
+        )
+    }
+
     return AppConfig(
         port = port,
         serviceName = env["FORGE_SERVICE_NAME"]?.trim().orEmpty().ifEmpty { "forge-control" },
@@ -367,5 +390,7 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         antiAffinityDefault = antiAffinityDefault,
         queueRetryMs = queueRetryMs,
         queueMaxLen = queueMaxLen,
+        rescheduleEnabled = rescheduleEnabled,
+        rescheduleGraceSeconds = rescheduleGraceSeconds,
     )
 }
