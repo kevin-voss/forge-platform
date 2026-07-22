@@ -47,6 +47,11 @@ func run() error {
 		"route_sync_interval_seconds", int(cfg.RouteSyncInterval.Seconds()),
 		"host_pattern", cfg.HostPattern,
 		"sync_enabled", cfg.SyncEnabled,
+		"upstream_probe_interval_seconds", int(cfg.UpstreamProbeInterval.Seconds()),
+		"upstream_probe_path", cfg.UpstreamProbePath,
+		"upstream_failure_threshold", cfg.UpstreamFailureThreshold,
+		"upstream_success_threshold", cfg.UpstreamSuccessThreshold,
+		"upstream_trust_runtime_status", cfg.UpstreamTrustRuntime,
 	)
 
 	table := routes.NewTable()
@@ -58,7 +63,24 @@ func run() error {
 	}
 
 	ready := health.NewReadiness()
-	proxyHandler := proxy.NewHandler(table, log)
+	tracker := health.NewUpstreamTracker(health.UpstreamConfig{
+		ProbeInterval:      cfg.UpstreamProbeInterval,
+		ProbePath:          cfg.UpstreamProbePath,
+		FailureThreshold:   cfg.UpstreamFailureThreshold,
+		SuccessThreshold:   cfg.UpstreamSuccessThreshold,
+		TrustRuntimeStatus: cfg.UpstreamTrustRuntime,
+	}, log)
+	if table.Len() > 0 {
+		urls := make([]string, 0)
+		for _, r := range table.Snapshot() {
+			for _, u := range r.Upstreams {
+				urls = append(urls, u.URL)
+			}
+		}
+		tracker.Reconcile(urls)
+	}
+
+	proxyHandler := proxy.NewHandler(table, log, tracker)
 
 	var syncer *gwync.Syncer
 	if cfg.SyncEnabled {
@@ -69,6 +91,7 @@ func run() error {
 		syncer = gwync.New(gwync.Config{
 			Table:    table,
 			Proxy:    proxyHandler,
+			Tracker:  tracker,
 			Source:   source,
 			Pattern:  cfg.HostPattern,
 			Interval: cfg.RouteSyncInterval,
@@ -80,6 +103,7 @@ func run() error {
 		syncer = gwync.New(gwync.Config{
 			Table:    table,
 			Proxy:    proxyHandler,
+			Tracker:  tracker,
 			Source:   nil,
 			Pattern:  cfg.HostPattern,
 			Interval: 0,
@@ -105,11 +129,12 @@ func run() error {
 	}
 	ready.MarkReady()
 
-	syncCtx, syncCancel := context.WithCancel(context.Background())
-	defer syncCancel()
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	defer bgCancel()
 	if cfg.SyncEnabled {
-		go syncer.Run(syncCtx)
+		go syncer.Run(bgCtx)
 	}
+	go tracker.RunProber(bgCtx, table)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -126,13 +151,13 @@ func run() error {
 
 	select {
 	case err := <-errCh:
-		syncCancel()
+		bgCancel()
 		return err
 	case sig := <-sigCh:
 		log.Info("shutdown signal received", "signal", sig.String())
 	}
 
-	syncCancel()
+	bgCancel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownGrace)
 	defer cancel()

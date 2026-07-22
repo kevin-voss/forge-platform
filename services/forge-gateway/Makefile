@@ -22,6 +22,11 @@ dev:
 	FORGE_ROUTE_SYNC_INTERVAL_SECONDS=$${FORGE_ROUTE_SYNC_INTERVAL_SECONDS:-10} \
 	FORGE_HOST_PATTERN=$${FORGE_HOST_PATTERN:-'{service}.{project}.demo.localhost'} \
 	FORGE_UPSTREAM_HOST=$${FORGE_UPSTREAM_HOST:-127.0.0.1} \
+	FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS=$${FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS:-5} \
+	FORGE_UPSTREAM_PROBE_PATH=$${FORGE_UPSTREAM_PROBE_PATH:-/health/ready} \
+	FORGE_UPSTREAM_FAILURE_THRESHOLD=$${FORGE_UPSTREAM_FAILURE_THRESHOLD:-3} \
+	FORGE_UPSTREAM_SUCCESS_THRESHOLD=$${FORGE_UPSTREAM_SUCCESS_THRESHOLD:-2} \
+	FORGE_UPSTREAM_TRUST_RUNTIME_STATUS=$${FORGE_UPSTREAM_TRUST_RUNTIME_STATUS:-true} \
 	go run .
 
 build:
@@ -62,12 +67,20 @@ test-integration: run
 	@code="$$(curl -s -o /tmp/forge-gateway-badup.json -w '%{http_code}' -H 'Host: go.demo.localhost' "http://127.0.0.1:$(HOST_PORT)/")"; \
 		test "$$code" = "502"; \
 		grep -q '"code":"bad_gateway"' /tmp/forge-gateway-badup.json
+	@# Passive failures trip threshold → 503 no_healthy_upstream (default failure threshold=3).
+	@curl -s -o /dev/null -H 'Host: go.demo.localhost' "http://127.0.0.1:$(HOST_PORT)/" >/dev/null; \
+		curl -s -o /dev/null -H 'Host: go.demo.localhost' "http://127.0.0.1:$(HOST_PORT)/" >/dev/null; \
+		code="$$(curl -s -o /tmp/forge-gateway-nohealthy.json -w '%{http_code}' -H 'Host: go.demo.localhost' "http://127.0.0.1:$(HOST_PORT)/")"; \
+		test "$$code" = "503"; \
+		grep -q '"code":"no_healthy_upstream"' /tmp/forge-gateway-nohealthy.json
 	@# Force sync refresh (Control /v1/endpoints missing → Runtime interim fallback).
 	@curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/admin/routes/refresh" \
 		| tee /tmp/forge-gateway-refresh.json | grep -q '"routesLoaded"'
 	@python3 -c 'import json; d=json.load(open("/tmp/forge-gateway-refresh.json")); assert "routesLoaded" in d'
 	@# Sync logs mention route sync (loop started or complete/failed).
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -E -q 'route sync'
+	@# Upstream probe loop started.
+	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -E -q 'upstream probe loop started'
 	@# SIGTERM / docker stop exits 0 within grace.
 	@cid="$$($(COMPOSE) ps -q $(SERVICE))"; \
 		test -n "$$cid"; \
@@ -76,7 +89,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (health + admin routes + refresh sync + no_route/502 + structured logs + invalid PORT + graceful SIGTERM)."
+	@echo "Integration checks passed (health + admin routes + refresh sync + no_route/502/503 + probe loop + structured logs + invalid PORT + graceful SIGTERM)."
 
 lint:
 	@go vet ./...
@@ -94,4 +107,4 @@ clean:
 	rm -rf bin
 	@rm -f /tmp/forge-gateway-bad-port.out /tmp/forge-gateway-gofmt.out \
 		/tmp/forge-gateway-nomatch.json /tmp/forge-gateway-badup.json \
-		/tmp/forge-gateway-refresh.json
+		/tmp/forge-gateway-nohealthy.json /tmp/forge-gateway-refresh.json

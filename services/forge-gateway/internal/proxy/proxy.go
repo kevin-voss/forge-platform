@@ -10,25 +10,31 @@ import (
 	"sync/atomic"
 	"time"
 
+	"forge.local/services/forge-gateway/internal/health"
 	"forge.local/services/forge-gateway/internal/httperr"
 	"forge.local/services/forge-gateway/internal/routes"
 )
 
-var errNoUpstream = errors.New("no upstream")
+var (
+	errNoUpstream        = errors.New("no upstream")
+	errNoHealthyUpstream = errors.New("no healthy upstream")
+)
 
 // Handler dispatches matched requests to upstreams via httputil.ReverseProxy.
 type Handler struct {
 	table   *routes.Table
+	tracker *health.UpstreamTracker
 	log     *slog.Logger
 	pickers sync.Map // routeKey -> *roundRobin
 }
 
 // NewHandler returns a data-plane proxy handler bound to table.
-func NewHandler(table *routes.Table, log *slog.Logger) *Handler {
+// tracker may be nil (all upstreams treated as ready).
+func NewHandler(table *routes.Table, log *slog.Logger, tracker *health.UpstreamTracker) *Handler {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Handler{table: table, log: log}
+	return &Handler{table: table, tracker: tracker, log: log}
 }
 
 // ServeHTTP matches a route and reverse-proxies to a chosen upstream.
@@ -41,12 +47,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	upstream, err := h.pick(route)
 	if err != nil {
+		if errors.Is(err, errNoHealthyUpstream) {
+			httperr.Write(w, http.StatusServiceUnavailable, "no_healthy_upstream", "no ready upstream available")
+			return
+		}
 		httperr.Write(w, http.StatusBadGateway, "bad_gateway", "no usable upstream")
 		return
 	}
 
 	start := time.Now()
 	rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	upstreamURL := upstream.String()
 	proxy := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
 			req.URL.Scheme = upstream.Scheme
@@ -54,11 +65,25 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			req.Host = upstream.Host
 			// Preserve original path/query; only configured upstreams are targeted.
 		},
+		ModifyResponse: func(resp *http.Response) error {
+			if h.tracker == nil {
+				return nil
+			}
+			if resp.StatusCode >= 500 {
+				h.tracker.RecordPassiveFailure(upstreamURL)
+			} else {
+				h.tracker.RecordPassiveSuccess(upstreamURL)
+			}
+			return nil
+		},
 		ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
+			if h.tracker != nil {
+				h.tracker.RecordPassiveFailure(upstreamURL)
+			}
 			h.log.Warn("upstream error",
 				"host", req.Host,
 				"path", req.URL.Path,
-				"upstream", upstream.String(),
+				"upstream", upstreamURL,
 				"error", err.Error(),
 			)
 			httperr.Write(rw, http.StatusBadGateway, "bad_gateway", "upstream connection error")
@@ -69,7 +94,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.log.Info("proxied request",
 		"route_host", route.Host,
 		"route_path_prefix", route.PathPrefix,
-		"upstream", upstream.String(),
+		"upstream", upstreamURL,
 		"status", rw.status,
 		"duration_ms", time.Since(start).Milliseconds(),
 		"method", r.Method,
@@ -79,13 +104,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) pick(route routes.Route) (*url.URL, error) {
+	candidates := route.Upstreams
+	if h.tracker != nil {
+		candidates = h.tracker.FilterReady(route.Upstreams)
+	}
+	if len(candidates) == 0 {
+		if len(route.Upstreams) == 0 {
+			return nil, errNoUpstream
+		}
+		return nil, errNoHealthyUpstream
+	}
+
 	key := routeKey(route)
-	v, _ := h.pickers.LoadOrStore(key, newRoundRobin(route.Upstreams))
+	v, _ := h.pickers.LoadOrStore(key, newRoundRobin(candidates))
 	rr := v.(*roundRobin)
-	// If the route table was replaced with a different upstream set for the same
-	// key shape, rebuild the picker when lengths diverge.
-	if rr.len() != len(route.Upstreams) {
-		rr = newRoundRobin(route.Upstreams)
+	// Rebuild when the ready set size diverges (health transitions or route replace).
+	if rr.len() != len(candidates) {
+		rr = newRoundRobin(candidates)
 		h.pickers.Store(key, rr)
 	}
 	return rr.next()
@@ -97,6 +132,11 @@ func (h *Handler) InvalidatePickers() {
 		h.pickers.Delete(key)
 		return true
 	})
+}
+
+// Tracker exposes the upstream health tracker (may be nil).
+func (h *Handler) Tracker() *health.UpstreamTracker {
+	return h.tracker
 }
 
 type roundRobin struct {

@@ -17,7 +17,7 @@ type Endpoint struct {
 	Service   string        `json:"service"`
 	Project   string        `json:"project"`
 	Upstreams []UpstreamRef `json:"upstreams"`
-	Ready     bool          `json:"ready"`
+	Ready     *bool         `json:"ready,omitempty"`
 }
 
 // UpstreamRef is a single upstream target URL.
@@ -101,6 +101,7 @@ func (s *RuntimeInterimSource) Fetch(ctx context.Context) ([]Endpoint, error) {
 			continue
 		}
 		ready := strings.EqualFold(w.Status, "ready") || strings.EqualFold(w.Status, "running")
+		readyCopy := ready
 		out = append(out, Endpoint{
 			Host:    "", // filled by host pattern during DeriveRoutes
 			Service: m.Service,
@@ -108,7 +109,7 @@ func (s *RuntimeInterimSource) Fetch(ctx context.Context) ([]Endpoint, error) {
 			Upstreams: []UpstreamRef{
 				{URL: fmt.Sprintf("http://%s:%d", host, w.HostPort)},
 			},
-			Ready: ready,
+			Ready: &readyCopy,
 		})
 	}
 	return out, nil
@@ -303,7 +304,7 @@ func sanitizeEndpoints(in []Endpoint) []Endpoint {
 			Service:   strings.TrimSpace(ep.Service),
 			Project:   strings.TrimSpace(ep.Project),
 			Upstreams: ups,
-			Ready:     ep.Ready,
+			Ready:     ep.Ready, // nil when omitted — no authoritative readiness signal
 		})
 	}
 	return out

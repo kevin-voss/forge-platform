@@ -188,6 +188,12 @@ services:
       FORGE_HOST_PATTERN: ${FORGE_HOST_PATTERN-}
       # Published workload ports bind on the Docker host; reach them from the gateway container.
       FORGE_UPSTREAM_HOST: ${FORGE_UPSTREAM_HOST:-host.docker.internal}
+      # Health-aware upstreams (05.04)
+      FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS: ${FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS:-5}
+      FORGE_UPSTREAM_PROBE_PATH: ${FORGE_UPSTREAM_PROBE_PATH:-/health/ready}
+      FORGE_UPSTREAM_FAILURE_THRESHOLD: ${FORGE_UPSTREAM_FAILURE_THRESHOLD:-3}
+      FORGE_UPSTREAM_SUCCESS_THRESHOLD: ${FORGE_UPSTREAM_SUCCESS_THRESHOLD:-2}
+      FORGE_UPSTREAM_TRUST_RUNTIME_STATUS: ${FORGE_UPSTREAM_TRUST_RUNTIME_STATUS:-true}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

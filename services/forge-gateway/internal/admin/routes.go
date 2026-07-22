@@ -69,6 +69,15 @@ func (h *RoutesHandler) handlePut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.proxy != nil {
+		if tracker := h.proxy.Tracker(); tracker != nil {
+			urls := make([]string, 0)
+			for _, r := range h.table.Snapshot() {
+				for _, u := range r.Upstreams {
+					urls = append(urls, u.URL)
+				}
+			}
+			tracker.Reconcile(urls)
+		}
 		h.proxy.InvalidatePickers()
 	}
 	h.log.Info("route table replaced", "route_count", h.table.Len())

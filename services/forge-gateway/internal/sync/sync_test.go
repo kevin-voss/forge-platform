@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"forge.local/services/forge-gateway/internal/health"
 	"forge.local/services/forge-gateway/internal/proxy"
 	"forge.local/services/forge-gateway/internal/routes"
 )
@@ -31,7 +32,7 @@ func TestDeriveRoutesFromEndpoints(t *testing.T) {
 			Service:   "api",
 			Project:   "acme",
 			Upstreams: []UpstreamRef{{URL: "http://127.0.0.1:49152"}},
-			Ready:     true,
+			Ready:     BoolPtr(true),
 		},
 		{
 			Host:      "custom.localhost",
@@ -114,7 +115,7 @@ func TestSyncOnceLastGoodRetention(t *testing.T) {
 	src := &staticSource{n: "test", err: errors.New("source down")}
 	syncer := New(Config{
 		Table:  table,
-		Proxy:  proxy.NewHandler(table, slog.Default()),
+		Proxy:  proxy.NewHandler(table, slog.Default(), nil),
 		Source: src,
 		Log:    slog.Default(),
 	})
@@ -200,7 +201,7 @@ func TestControlEndpointsSourceContract(t *testing.T) {
 			Service:   "api",
 			Project:   "acme",
 			Upstreams: []UpstreamRef{{URL: "http://127.0.0.1:49152"}},
-			Ready:     true,
+			Ready:     BoolPtr(true),
 		}})
 	})
 	srv := httptest.NewServer(mux)
@@ -276,10 +277,51 @@ func TestRuntimeInterimSourceJoinsControlMetadata(t *testing.T) {
 	if eps[0].Upstreams[0].URL != "http://host.docker.internal:49173" {
 		t.Fatalf("upstream=%q", eps[0].Upstreams[0].URL)
 	}
+	if eps[0].Ready == nil || !*eps[0].Ready {
+		t.Fatalf("Ready=%v, want true", eps[0].Ready)
+	}
 
 	routes := DeriveRoutes(eps, DefaultHostPattern)
 	if len(routes) != 1 || routes[0].Host != "api.acme.demo.localhost" {
 		t.Fatalf("routes=%+v", routes)
+	}
+}
+
+func TestSyncOnceAppliesUpstreamReadiness(t *testing.T) {
+	table := routes.NewTable()
+	tracker := health.NewUpstreamTracker(health.UpstreamConfig{
+		FailureThreshold:   3,
+		SuccessThreshold:   2,
+		TrustRuntimeStatus: true,
+	}, slog.Default())
+	src := &staticSource{
+		n: "test",
+		eps: []Endpoint{{
+			Service:   "api",
+			Project:   "acme",
+			Upstreams: []UpstreamRef{{URL: "http://127.0.0.1:49152"}},
+			Ready:     BoolPtr(false),
+		}},
+	}
+	syncer := New(Config{
+		Table:   table,
+		Tracker: tracker,
+		Source:  src,
+		Log:     slog.Default(),
+	})
+	if r := syncer.SyncOnce(context.Background()); !r.OK {
+		t.Fatalf("sync: %s", r.Error)
+	}
+	if tracker.IsReady("http://127.0.0.1:49152") {
+		t.Fatal("expected sync Ready=false to mark upstream unready")
+	}
+
+	src.eps[0].Ready = BoolPtr(true)
+	if r := syncer.SyncOnce(context.Background()); !r.OK {
+		t.Fatalf("sync: %s", r.Error)
+	}
+	if !tracker.IsReady("http://127.0.0.1:49152") {
+		t.Fatal("expected sync Ready=true to re-add upstream")
 	}
 }
 
@@ -348,7 +390,7 @@ func TestProxyReachableAfterSync(t *testing.T) {
 			Upstreams: []UpstreamRef{{URL: upstream.URL}},
 		}},
 	}
-	ph := proxy.NewHandler(table, slog.Default())
+	ph := proxy.NewHandler(table, slog.Default(), nil)
 	syncer := New(Config{Table: table, Proxy: ph, Source: src, Log: slog.Default()})
 	if r := syncer.SyncOnce(context.Background()); !r.OK {
 		t.Fatalf("sync: %s", r.Error)

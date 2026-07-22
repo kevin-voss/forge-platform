@@ -26,6 +26,12 @@ type Config struct {
 	HostPattern       string
 	UpstreamHost      string
 	SyncEnabled       bool
+
+	UpstreamProbeInterval    time.Duration
+	UpstreamProbePath        string
+	UpstreamFailureThreshold int
+	UpstreamSuccessThreshold int
+	UpstreamTrustRuntime     bool
 }
 
 // Load reads configuration from the process environment.
@@ -117,21 +123,75 @@ func Load() (Config, error) {
 		syncEnabled = controlURL != "" && runtimeURL != ""
 	}
 
+	probeIntervalRaw := strings.TrimSpace(os.Getenv("FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS"))
+	if probeIntervalRaw == "" {
+		probeIntervalRaw = "5"
+	}
+	probeIntervalSecs, err := strconv.Atoi(probeIntervalRaw)
+	if err != nil || probeIntervalSecs < 0 {
+		return Config{}, fmt.Errorf("FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS must be a non-negative integer, got %q", probeIntervalRaw)
+	}
+
+	probePath := strings.TrimSpace(os.Getenv("FORGE_UPSTREAM_PROBE_PATH"))
+	if probePath == "" {
+		probePath = "/health/ready"
+	}
+	if !strings.HasPrefix(probePath, "/") {
+		return Config{}, fmt.Errorf("FORGE_UPSTREAM_PROBE_PATH must start with /, got %q", probePath)
+	}
+
+	failRaw := strings.TrimSpace(os.Getenv("FORGE_UPSTREAM_FAILURE_THRESHOLD"))
+	if failRaw == "" {
+		failRaw = "3"
+	}
+	failThreshold, err := strconv.Atoi(failRaw)
+	if err != nil || failThreshold < 1 {
+		return Config{}, fmt.Errorf("FORGE_UPSTREAM_FAILURE_THRESHOLD must be a positive integer, got %q", failRaw)
+	}
+
+	successRaw := strings.TrimSpace(os.Getenv("FORGE_UPSTREAM_SUCCESS_THRESHOLD"))
+	if successRaw == "" {
+		successRaw = "2"
+	}
+	successThreshold, err := strconv.Atoi(successRaw)
+	if err != nil || successThreshold < 1 {
+		return Config{}, fmt.Errorf("FORGE_UPSTREAM_SUCCESS_THRESHOLD must be a positive integer, got %q", successRaw)
+	}
+
+	trustRaw := strings.ToLower(strings.TrimSpace(os.Getenv("FORGE_UPSTREAM_TRUST_RUNTIME_STATUS")))
+	if trustRaw == "" {
+		trustRaw = "true"
+	}
+	var trustRuntime bool
+	switch trustRaw {
+	case "true", "1", "yes":
+		trustRuntime = true
+	case "false", "0", "no":
+		trustRuntime = false
+	default:
+		return Config{}, fmt.Errorf("FORGE_UPSTREAM_TRUST_RUNTIME_STATUS must be true|false, got %q", trustRaw)
+	}
+
 	return Config{
-		Port:              port,
-		ServiceName:       name,
-		ServiceVersion:    version,
-		LogLevel:          level,
-		Env:               env,
-		AuthMode:          authMode,
-		ShutdownGrace:     time.Duration(graceSecs) * time.Second,
-		StaticRoutesPath:  strings.TrimSpace(os.Getenv("FORGE_GATEWAY_STATIC_ROUTES")),
-		ControlURL:        controlURL,
-		RuntimeURL:        runtimeURL,
-		RouteSource:       routeSource,
-		RouteSyncInterval: time.Duration(syncSecs) * time.Second,
-		HostPattern:       hostPattern,
-		UpstreamHost:      upstreamHost,
-		SyncEnabled:       syncEnabled,
+		Port:                     port,
+		ServiceName:              name,
+		ServiceVersion:           version,
+		LogLevel:                 level,
+		Env:                      env,
+		AuthMode:                 authMode,
+		ShutdownGrace:            time.Duration(graceSecs) * time.Second,
+		StaticRoutesPath:         strings.TrimSpace(os.Getenv("FORGE_GATEWAY_STATIC_ROUTES")),
+		ControlURL:               controlURL,
+		RuntimeURL:               runtimeURL,
+		RouteSource:              routeSource,
+		RouteSyncInterval:        time.Duration(syncSecs) * time.Second,
+		HostPattern:              hostPattern,
+		UpstreamHost:             upstreamHost,
+		SyncEnabled:              syncEnabled,
+		UpstreamProbeInterval:    time.Duration(probeIntervalSecs) * time.Second,
+		UpstreamProbePath:        probePath,
+		UpstreamFailureThreshold: failThreshold,
+		UpstreamSuccessThreshold: successThreshold,
+		UpstreamTrustRuntime:     trustRuntime,
 	}, nil
 }

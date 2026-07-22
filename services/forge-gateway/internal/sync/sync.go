@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"forge.local/services/forge-gateway/internal/health"
 	"forge.local/services/forge-gateway/internal/proxy"
 	"forge.local/services/forge-gateway/internal/routes"
 )
@@ -31,6 +32,7 @@ type Result struct {
 type Syncer struct {
 	table    *routes.Table
 	proxy    *proxy.Handler
+	tracker  *health.UpstreamTracker
 	source   Source
 	pattern  string
 	interval time.Duration
@@ -41,6 +43,7 @@ type Syncer struct {
 type Config struct {
 	Table    *routes.Table
 	Proxy    *proxy.Handler
+	Tracker  *health.UpstreamTracker
 	Source   Source
 	Pattern  string
 	Interval time.Duration
@@ -57,9 +60,14 @@ func New(cfg Config) *Syncer {
 	if log == nil {
 		log = slog.Default()
 	}
+	tracker := cfg.Tracker
+	if tracker == nil && cfg.Proxy != nil {
+		tracker = cfg.Proxy.Tracker()
+	}
 	return &Syncer{
 		table:    cfg.Table,
 		proxy:    cfg.Proxy,
+		tracker:  tracker,
 		source:   cfg.Source,
 		pattern:  pattern,
 		interval: cfg.Interval,
@@ -128,6 +136,9 @@ func (s *Syncer) SyncOnce(ctx context.Context) Result {
 			Source:       s.source.Name(),
 			Error:        err.Error(),
 		}
+	}
+	if s.tracker != nil {
+		s.tracker.ApplySync(SyncUpstreams(endpoints))
 	}
 	if s.proxy != nil {
 		s.proxy.InvalidatePickers()
@@ -248,6 +259,24 @@ func ApplyHostPattern(pattern, service, project string) string {
 	host = strings.ReplaceAll(host, "{project}", project)
 	return strings.ToLower(strings.TrimSpace(host))
 }
+
+// SyncUpstreams flattens endpoint readiness into per-upstream sync signals.
+func SyncUpstreams(endpoints []Endpoint) []health.SyncUpstream {
+	out := make([]health.SyncUpstream, 0, len(endpoints))
+	for _, ep := range endpoints {
+		for _, u := range ep.Upstreams {
+			url := strings.TrimSpace(u.URL)
+			if url == "" {
+				continue
+			}
+			out = append(out, health.SyncUpstream{URL: url, Ready: ep.Ready})
+		}
+	}
+	return out
+}
+
+// BoolPtr is a small helper for tests and callers building Endpoint.Ready.
+func BoolPtr(v bool) *bool { return &v }
 
 // DiffHosts returns sorted hostnames added and removed between snapshots.
 func DiffHosts(before, after []routes.Route) (added, removed []string) {

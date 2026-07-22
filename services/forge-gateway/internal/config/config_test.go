@@ -20,6 +20,11 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FORGE_ROUTE_SYNC_INTERVAL_SECONDS", "")
 	t.Setenv("FORGE_HOST_PATTERN", "")
 	t.Setenv("FORGE_UPSTREAM_HOST", "")
+	t.Setenv("FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS", "")
+	t.Setenv("FORGE_UPSTREAM_PROBE_PATH", "")
+	t.Setenv("FORGE_UPSTREAM_FAILURE_THRESHOLD", "")
+	t.Setenv("FORGE_UPSTREAM_SUCCESS_THRESHOLD", "")
+	t.Setenv("FORGE_UPSTREAM_TRUST_RUNTIME_STATUS", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -64,6 +69,18 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.SyncEnabled {
 		t.Fatal("SyncEnabled should be false without platform URLs")
 	}
+	if cfg.UpstreamProbeInterval != 5*time.Second {
+		t.Fatalf("UpstreamProbeInterval = %v, want 5s", cfg.UpstreamProbeInterval)
+	}
+	if cfg.UpstreamProbePath != "/health/ready" {
+		t.Fatalf("UpstreamProbePath = %q", cfg.UpstreamProbePath)
+	}
+	if cfg.UpstreamFailureThreshold != 3 || cfg.UpstreamSuccessThreshold != 2 {
+		t.Fatalf("thresholds fail=%d success=%d", cfg.UpstreamFailureThreshold, cfg.UpstreamSuccessThreshold)
+	}
+	if !cfg.UpstreamTrustRuntime {
+		t.Fatal("UpstreamTrustRuntime should default true")
+	}
 }
 
 func TestLoadInvalidPort(t *testing.T) {
@@ -93,6 +110,11 @@ func TestLoadCustomValues(t *testing.T) {
 	t.Setenv("FORGE_ROUTE_SYNC_INTERVAL_SECONDS", "3")
 	t.Setenv("FORGE_HOST_PATTERN", "{service}.{project}.local")
 	t.Setenv("FORGE_UPSTREAM_HOST", "host.docker.internal")
+	t.Setenv("FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS", "2")
+	t.Setenv("FORGE_UPSTREAM_PROBE_PATH", "/readyz")
+	t.Setenv("FORGE_UPSTREAM_FAILURE_THRESHOLD", "5")
+	t.Setenv("FORGE_UPSTREAM_SUCCESS_THRESHOLD", "4")
+	t.Setenv("FORGE_UPSTREAM_TRUST_RUNTIME_STATUS", "false")
 
 	cfg, err := Load()
 	if err != nil {
@@ -118,6 +140,15 @@ func TestLoadCustomValues(t *testing.T) {
 	}
 	if cfg.UpstreamHost != "host.docker.internal" {
 		t.Fatalf("UpstreamHost = %q", cfg.UpstreamHost)
+	}
+	if cfg.UpstreamProbeInterval != 2*time.Second || cfg.UpstreamProbePath != "/readyz" {
+		t.Fatalf("probe cfg: %+v", cfg)
+	}
+	if cfg.UpstreamFailureThreshold != 5 || cfg.UpstreamSuccessThreshold != 4 {
+		t.Fatalf("thresholds: %+v", cfg)
+	}
+	if cfg.UpstreamTrustRuntime {
+		t.Fatal("UpstreamTrustRuntime should be false")
 	}
 }
 
