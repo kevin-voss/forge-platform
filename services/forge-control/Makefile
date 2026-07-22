@@ -55,12 +55,15 @@ test-integration: run
 	./gradlew --quiet integrationTest
 	@curl -sf "http://127.0.0.1:$(HOST_PORT)/health/live" | grep -q '"status":"live"'
 	@curl -sf "http://127.0.0.1:$(HOST_PORT)/health/ready" | grep -q '"status":"ready"'
+	@curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/projects" \
+		-H 'content-type: application/json' \
+		-d "{\"name\":\"it-$(shell date +%s)\"}" | grep -q '"id"'
 	@cid="$$($(COMPOSE) ps -q $(SERVICE))"; \
 		test -n "$$cid"; \
 		docker stop -t 15 "$$cid" >/dev/null; \
 		code="$$(docker inspect -f '{{.State.ExitCode}}' "$$cid")"; \
 		test "$$code" = "0"
-	@echo "Integration checks passed (migrations, repos, health + graceful SIGTERM)."
+	@echo "Integration checks passed (migrations, repos, projects API, health + graceful SIGTERM)."
 
 lint:
 	@echo "No Kotlin linter configured yet."

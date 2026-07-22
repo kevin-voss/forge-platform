@@ -5,7 +5,9 @@ Central control-plane API for Forge Platform (Kotlin + Ktor).
 Persistence (`02.02`) provides the Control domain model — projects, environments,
 applications, services, deployments, and an append-only audit log — in PostgreSQL
 schema `control`, with Flyway migrations, HikariCP, and JDBC repositories.
-HTTP domain APIs arrive in later steps (`02.03+`).
+
+HTTP APIs for projects and environments (`02.03`) are available under `/v1`.
+Applications, services, and deployments arrive in later steps (`02.04+`).
 
 ## Quick start
 
@@ -15,6 +17,18 @@ From the repository root:
 make service-run SERVICE=forge-control
 curl -sf http://127.0.0.1:4001/health/live
 curl -sf http://127.0.0.1:4001/health/ready
+```
+
+Create a project and environment:
+
+```bash
+PID=$(curl -sf -X POST http://127.0.0.1:4001/v1/projects \
+  -H 'content-type: application/json' -d '{"name":"acme"}' | \
+  python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+curl -sf http://127.0.0.1:4001/v1/projects/$PID
+curl -sf -X POST http://127.0.0.1:4001/v1/projects/$PID/environments \
+  -H 'content-type: application/json' -d '{"name":"development"}'
+curl -sf http://127.0.0.1:4001/v1/projects/$PID/environments
 ```
 
 Or from this directory:
@@ -41,7 +55,7 @@ make dev
 | `FORGE_SERVICE_VERSION` | `0.1.0` | |
 | `FORGE_LOG_LEVEL` | `info` | `debug\|info\|warn\|error` |
 | `FORGE_ENV` | `development` | |
-| `FORGE_AUTH_MODE` | `dev` | Auth bypass until Identity `09.06` |
+| `FORGE_AUTH_MODE` | `dev` | Auth bypass until Identity `09.06`; creates attributed to actor `dev` |
 | `FORGE_SHUTDOWN_GRACE_SECONDS` | `10` | SIGTERM drain window |
 | `DATABASE_URL` | `jdbc:postgresql://127.0.0.1:5001/forge` (local) / `…://postgres:5432/forge` (Compose) | JDBC URL |
 | `DATABASE_USER` | `forge` | |
@@ -52,12 +66,26 @@ make dev
 
 See `.env.example`.
 
+## HTTP API (02.03)
+
+| Method | Path | Notes |
+|---|---|---|
+| `POST` | `/v1/projects` | Body `{"name","slug?"}`; slug derived from name when omitted |
+| `GET` | `/v1/projects` | List projects |
+| `GET` | `/v1/projects/{projectId}` | Get project |
+| `POST` | `/v1/projects/{projectId}/environments` | Body `{"name"}` |
+| `GET` | `/v1/projects/{projectId}/environments` | List environments for project |
+| `GET` | `/v1/environments/{environmentId}` | Get environment |
+
+Errors use the provisional envelope `{"error":{"code","message","details?"}}`
+(`400` validation, `404` missing, `409` conflict). Formalized in `02.06`.
+
 ## Schema
 
 Tables in schema `control`:
 
 * `projects`, `environments`, `applications`, `services`, `deployments`
-* `audit_log` (append-only)
+* `audit_log` (append-only; create actions for projects/environments)
 * `flyway_schema_history`
 
 Foreign keys use `ON DELETE RESTRICT`. Unique constraints enforce slug/name uniqueness

@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 10`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 11`**.
 
 ## Epics
 
@@ -10,7 +10,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 |---|---|---|---|
 | [00](epics/00-repository-foundation.md) | Repository foundation | Complete | Local Compose foundation + docs system |
 | [01](epics/01-runtime-contract.md) | Runtime contract | Complete | 7 steps; five-language demo 01 + shared validator |
-| [02](epics/02-forge-control.md) | Forge Control | In progress | 2/8 steps complete |
+| [02](epics/02-forge-control.md) | Forge Control | In progress | 3/8 steps complete |
 | [03](epics/03-forge-cli.md) | Forge CLI | Planning | 6 steps |
 | [04](epics/04-forge-runtime.md) | Forge Runtime | Planning | 8 steps |
 | [05](epics/05-forge-gateway.md) | Forge Gateway | Planning | 7 steps |
@@ -43,7 +43,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **7** | [Elixir demo and full five-language suite](steps/01-runtime-contract/01.07-elixir-demo-and-full-suite.md) | Complete |  | `demo-elixir-api` on `4205` + full five-language suite |
 | **8** | [Service skeleton, health, Compose](steps/02-forge-control/02.01-service-skeleton.md) | Complete |  | Ktor skeleton, health, Compose on `4001` |
 | **9** | [Domain model + Postgres migrations](steps/02-forge-control/02.02-domain-model-and-migrations.md) | Complete |  | Schema `control`, Flyway, Hikari, JDBC repos |
-| **10** | [Projects & environments API](steps/02-forge-control/02.03-projects-environments-api.md) | Not started |  |  |
+| **10** | [Projects & environments API](steps/02-forge-control/02.03-projects-environments-api.md) | Complete |  | Projects/environments HTTP API + provisional errors |
 | **11** | [Applications & services API + relationship validation](steps/02-forge-control/02.04-applications-services-api.md) | Not started |  |  |
 | **12** | [Deployments desired-state API + basic audit](steps/02-forge-control/02.05-deployments-desired-state-api.md) | Not started |  |  |
 | **13** | [Shared errors, OpenAPI, contract tests, idempotency](steps/02-forge-control/02.06-errors-openapi-contract-idempotency.md) | Not started |  |  |

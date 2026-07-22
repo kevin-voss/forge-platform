@@ -4,24 +4,37 @@ import forge.control.config.AppConfig
 import forge.control.config.loadAppConfig
 import forge.control.db.Db
 import forge.control.http.AlwaysHealthyDb
+import forge.control.http.ApiException
 import forge.control.http.DbProbe
-import forge.control.http.HealthResponse
 import forge.control.http.Readiness
+import forge.control.http.apiError
+import forge.control.http.environmentRoutes
 import forge.control.http.healthRoutes
+import forge.control.http.projectRoutes
+import forge.control.http.toEnvelope
 import forge.control.logging.JsonLog
+import forge.control.repo.JdbcAuditRepository
+import forge.control.repo.JdbcEnvironmentRepository
+import forge.control.repo.JdbcProjectRepository
+import forge.control.service.EnvironmentService
+import forge.control.service.ProjectService
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationCallPipeline
 import io.ktor.server.application.ApplicationStarted
+import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
+import io.ktor.server.request.httpMethod
 import io.ktor.server.request.path
 import io.ktor.server.response.respond
 import io.ktor.server.routing.routing
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import org.slf4j.event.Level
 import kotlin.system.exitProcess
@@ -58,12 +71,22 @@ fun main() {
         }
     }
 
+    // FORGE_AUTH_MODE=dev: attribute creates to synthetic actor until Identity 09.06.
+    val actor = "dev"
+    val projectRepo = JdbcProjectRepository(db.dataSource)
+    val environmentRepo = JdbcEnvironmentRepository(db.dataSource)
+    val auditRepo = JdbcAuditRepository(db.dataSource)
+    val services = ControlServices(
+        projects = ProjectService(projectRepo, auditRepo, actor = actor),
+        environments = EnvironmentService(projectRepo, environmentRepo, auditRepo, actor = actor),
+    )
+
     val readiness = Readiness()
     val graceMillis = cfg.shutdownGraceSeconds.toLong().coerceAtLeast(1) * 1_000
     val dbProbe = DbProbe { db.check() }
 
     val server = embeddedServer(Netty, port = cfg.port, host = "0.0.0.0") {
-        forgeControlModule(cfg, readiness, dbProbe) { cause ->
+        forgeControlModule(cfg, readiness, dbProbe, services, log) { cause ->
             log.error("readiness db check failed", "error" to cause)
         }
         monitor.subscribe(ApplicationStarted) {
@@ -113,6 +136,8 @@ fun Application.forgeControlModule(
     cfg: AppConfig,
     readiness: Readiness,
     dbProbe: DbProbe = AlwaysHealthyDb,
+    services: ControlServices? = null,
+    log: JsonLog? = null,
     onDbFailure: (String) -> Unit = {},
 ) {
     install(ContentNegotiation) {
@@ -120,6 +145,7 @@ fun Application.forgeControlModule(
             Json {
                 encodeDefaults = true
                 explicitNulls = false
+                ignoreUnknownKeys = true
             },
         )
     }
@@ -130,15 +156,60 @@ fun Application.forgeControlModule(
     }
 
     install(StatusPages) {
+        exception<ApiException> { call, cause ->
+            call.respond(cause.status, cause.toEnvelope())
+        }
+        exception<SerializationException> { call, _ ->
+            call.respond(
+                HttpStatusCode.BadRequest,
+                apiError("invalid_request", "invalid JSON body"),
+            )
+        }
+        exception<IllegalArgumentException> { call, cause ->
+            // kotlinx.serialization / receive can surface as IllegalArgumentException
+            call.respond(
+                HttpStatusCode.BadRequest,
+                apiError("invalid_request", cause.message ?: "invalid request"),
+            )
+        }
         exception<Throwable> { call, cause ->
             call.respond(
                 HttpStatusCode.InternalServerError,
-                HealthResponse(status = "error"),
+                apiError("internal_error", "internal server error"),
             )
             call.application.environment.log.error("unhandled error: ${cause.message}", cause)
         }
         status(HttpStatusCode.NotFound) { call, _ ->
-            call.respond(HttpStatusCode.NotFound, HealthResponse(status = "not_found"))
+            if (call.response.isCommitted) return@status
+            call.respond(
+                HttpStatusCode.NotFound,
+                apiError("not_found", "resource not found"),
+            )
+        }
+    }
+
+    if (log != null) {
+        intercept(ApplicationCallPipeline.Monitoring) {
+            val started = System.currentTimeMillis()
+            val method = call.request.httpMethod.value
+            val path = call.request.path()
+            val requestId = call.request.headers["X-Request-Id"] ?: "-"
+            try {
+                proceed()
+            } finally {
+                if (!path.startsWith("/health")) {
+                    val status = call.response.status()?.value ?: 0
+                    val durationMs = System.currentTimeMillis() - started
+                    log.info(
+                        "request",
+                        "method" to method,
+                        "path" to path,
+                        "status" to status,
+                        "duration_ms" to durationMs,
+                        "request_id" to requestId,
+                    )
+                }
+            }
         }
     }
 
@@ -148,5 +219,9 @@ fun Application.forgeControlModule(
 
     routing {
         healthRoutes(readiness, dbProbe, onDbFailure)
+        if (services != null) {
+            projectRoutes(services.projects)
+            environmentRoutes(services.environments)
+        }
     }
 }
