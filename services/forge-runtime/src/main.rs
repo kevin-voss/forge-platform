@@ -4,6 +4,7 @@ mod health;
 mod heartbeat;
 mod node;
 mod routes;
+mod workload;
 
 use config::Config;
 use docker::{startup_ping, BollardDocker};
@@ -40,6 +41,8 @@ async fn run() -> Result<(), String> {
         docker_host = %cfg.docker_host,
         data_dir = %cfg.data_dir.display(),
         heartbeat_interval_seconds = cfg.heartbeat_interval.as_secs(),
+        pull_timeout_seconds = cfg.pull_timeout.as_secs(),
+        default_registry = %cfg.default_registry,
         control_url = cfg.control_url.as_deref().unwrap_or(""),
         shutdown_grace_seconds = cfg.shutdown_grace.as_secs(),
         "starting forge-runtime"
@@ -89,11 +92,13 @@ async fn run() -> Result<(), String> {
         docker: Arc::new(docker),
         node: Arc::new(node),
         heartbeat,
+        pull_timeout: cfg.pull_timeout,
     };
 
     let app = axum::Router::new()
         .merge(health_router())
         .merge(routes::node::router())
+        .merge(routes::workloads::router())
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], cfg.port));

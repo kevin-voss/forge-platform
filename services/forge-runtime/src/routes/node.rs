@@ -69,6 +69,7 @@ mod tests {
             docker: Arc::new(docker),
             node: Arc::clone(&node),
             heartbeat: Arc::clone(&heartbeat),
+            pull_timeout: std::time::Duration::from_secs(30),
         };
         (router().with_state(state), node, heartbeat)
     }

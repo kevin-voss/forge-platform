@@ -1,4 +1,4 @@
-use crate::docker::DockerProbe;
+use crate::docker::DockerEngine;
 use crate::heartbeat::Heartbeat;
 use crate::node::Node;
 use axum::extract::State;
@@ -8,12 +8,14 @@ use axum::routing::get;
 use axum::{Json, Router};
 use serde::Serialize;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub docker: Arc<dyn DockerProbe>,
+    pub docker: Arc<dyn DockerEngine>,
     pub node: Arc<Node>,
     pub heartbeat: Arc<Heartbeat>,
+    pub pull_timeout: Duration,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -57,13 +59,14 @@ async fn handle_ready(State(state): State<AppState>) -> impl IntoResponse {
 mod tests {
     use super::*;
     use crate::docker::test_support::StubDocker;
+    use crate::docker::DockerProbe;
     use crate::heartbeat::Heartbeat;
     use crate::node::Node;
     use http_body_util::BodyExt;
     use tempfile::tempdir;
     use tower::ServiceExt;
 
-    async fn test_state(docker: Arc<dyn DockerProbe>) -> AppState {
+    async fn test_state(docker: Arc<dyn DockerEngine>) -> AppState {
         let dir = tempdir().unwrap();
         let node = Node::bootstrap(dir.path(), docker.as_ref())
             .await
@@ -73,6 +76,7 @@ mod tests {
             docker,
             node: Arc::new(node),
             heartbeat: Arc::new(Heartbeat::new()),
+            pull_timeout: Duration::from_secs(30),
         }
     }
 

@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 24`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 25`**.
 
 ## Epics
 
@@ -12,7 +12,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [01](epics/01-runtime-contract.md) | Runtime contract | Complete | 7 steps; five-language demo 01 + shared validator |
 | [02](epics/02-forge-control.md) | Forge Control | Complete | 8/8 steps complete; demo 02 acceptance gate passed |
 | [03](epics/03-forge-cli.md) | Forge CLI | Complete | 6/6 steps complete; demo 03 CLI control-plane acceptance gate passed |
-| [04](epics/04-forge-runtime.md) | Forge Runtime | In progress | 2/8 steps complete |
+| [04](epics/04-forge-runtime.md) | Forge Runtime | In progress | 3/8 steps complete |
 | [05](epics/05-forge-gateway.md) | Forge Gateway | Planning | 7 steps |
 | [06](epics/06-forge-build.md) | Forge Build | Planning | 7 steps |
 | [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | Planning | 6 steps |
@@ -57,7 +57,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **21** | [Demo `03-cli-control` + gate](steps/03-forge-cli/03.06-demo-cli-control-and-gate.md) | Complete |  | CLI-only hierarchy recreate, JSON stability, exit code 3 gate |
 | **22** | [Skeleton + Docker socket + health](steps/04-forge-runtime/04.01-skeleton-docker-socket-health.md) | Complete |  | Rust/Axum skeleton on `4102`, Docker socket ping readiness |
 | **23** | [Node identity + registration/heartbeat](steps/04-forge-runtime/04.02-node-identity-registration-heartbeat.md) | Complete |  | Stable node id, `/v1/node` + heartbeat, `forge.node_id` labels |
-| **24** | [Workload create/start (pull, env, ports, labels)](steps/04-forge-runtime/04.03-workload-create-start.md) | Not started |  |  |
+| **24** | [Workload create/start (pull, env, ports, labels)](steps/04-forge-runtime/04.03-workload-create-start.md) | Complete |  | `POST/GET /v1/workloads`, pull/create/start, deterministic name/labels, host port |
 | **25** | [Health probing + status model](steps/04-forge-runtime/04.04-health-probing-status-model.md) | Not started |  |  |
 | **26** | [Log streaming](steps/04-forge-runtime/04.05-log-streaming.md) | Not started |  |  |
 | **27** | [Stop/delete; no duplicate containers](steps/04-forge-runtime/04.06-stop-delete-no-duplicates.md) | Not started |  |  |

@@ -1,5 +1,13 @@
 use async_trait::async_trait;
+use bollard::container::{
+    Config, CreateContainerOptions, InspectContainerOptions, RemoveContainerOptions,
+    StartContainerOptions,
+};
+use bollard::image::CreateImageOptions;
+use bollard::models::{HostConfig, PortBinding};
 use bollard::Docker;
+use futures_util::TryStreamExt;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};
@@ -9,6 +17,37 @@ use tracing::{info, warn};
 pub trait DockerProbe: Send + Sync {
     async fn ping(&self) -> Result<(), String>;
     async fn engine_version(&self) -> Result<String, String>;
+}
+
+/// Parameters for creating a managed workload container.
+#[derive(Debug, Clone)]
+pub struct CreateWorkloadParams {
+    pub name: String,
+    pub image: String,
+    pub container_port: u16,
+    pub env: HashMap<String, String>,
+    pub labels: HashMap<String, String>,
+}
+
+/// Subset of inspect facts Runtime needs for workload APIs.
+#[derive(Debug, Clone)]
+pub struct ContainerInspectInfo {
+    pub id: String,
+    pub image: Option<String>,
+    pub state: String,
+    /// Map of `"8080/tcp"` → published host ports.
+    pub port_bindings: HashMap<String, Vec<u16>>,
+    pub labels: Option<HashMap<String, String>>,
+}
+
+/// Docker Engine operations for readiness + workload lifecycle.
+#[async_trait]
+pub trait DockerEngine: DockerProbe {
+    async fn pull_image(&self, image: &str, timeout: Duration) -> Result<(), String>;
+    async fn create_container(&self, params: &CreateWorkloadParams) -> Result<String, String>;
+    async fn start_container(&self, id_or_name: &str) -> Result<(), String>;
+    async fn remove_container(&self, id_or_name: &str, force: bool) -> Result<(), String>;
+    async fn inspect_container(&self, id_or_name: &str) -> Result<ContainerInspectInfo, String>;
 }
 
 /// Docker Engine client. Connection failures are deferred to `ping` so the HTTP
@@ -30,12 +69,16 @@ impl BollardDocker {
             }
         }
     }
+
+    fn client(&self) -> Result<Arc<Docker>, String> {
+        self.inner.as_ref().map(Arc::clone).map_err(|e| e.clone())
+    }
 }
 
 #[async_trait]
 impl DockerProbe for BollardDocker {
     async fn ping(&self) -> Result<(), String> {
-        let docker = self.inner.as_ref().map_err(|e| e.clone())?;
+        let docker = self.client()?;
         docker
             .ping()
             .await
@@ -44,12 +87,163 @@ impl DockerProbe for BollardDocker {
     }
 
     async fn engine_version(&self) -> Result<String, String> {
-        let docker = self.inner.as_ref().map_err(|e| e.clone())?;
+        let docker = self.client()?;
         let version = docker
             .version()
             .await
             .map_err(|e| format!("docker version failed: {e}"))?;
         Ok(version.version.unwrap_or_else(|| "unknown".into()))
+    }
+}
+
+#[async_trait]
+impl DockerEngine for BollardDocker {
+    async fn pull_image(&self, image: &str, timeout: Duration) -> Result<(), String> {
+        let docker = self.client()?;
+        let options = CreateImageOptions {
+            from_image: image,
+            ..Default::default()
+        };
+
+        let pull = async {
+            let mut stream = docker.create_image(Some(options), None, None);
+            while let Some(item) = stream
+                .try_next()
+                .await
+                .map_err(|e| format!("image pull failed: {e}"))?
+            {
+                if let Some(err) = item.error {
+                    return Err(format!("image pull failed: {err}"));
+                }
+            }
+            Ok(())
+        };
+
+        match tokio::time::timeout(timeout, pull).await {
+            Ok(result) => result,
+            Err(_) => Err(format!(
+                "image pull timed out after {}s for {image}",
+                timeout.as_secs()
+            )),
+        }
+    }
+
+    async fn create_container(&self, params: &CreateWorkloadParams) -> Result<String, String> {
+        let docker = self.client()?;
+        let port_key = format!("{}/tcp", params.container_port);
+
+        let mut exposed: HashMap<String, HashMap<(), ()>> = HashMap::new();
+        exposed.insert(port_key.clone(), HashMap::new());
+
+        let mut port_bindings: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
+        // Empty host_port → Docker assigns an ephemeral host port.
+        port_bindings.insert(
+            port_key,
+            Some(vec![PortBinding {
+                host_ip: Some("0.0.0.0".into()),
+                host_port: None,
+            }]),
+        );
+
+        let env: Vec<String> = params.env.iter().map(|(k, v)| format!("{k}={v}")).collect();
+
+        let config = Config {
+            image: Some(params.image.clone()),
+            env: Some(env),
+            labels: Some(params.labels.clone()),
+            exposed_ports: Some(exposed),
+            host_config: Some(HostConfig {
+                port_bindings: Some(port_bindings),
+                // Publish all exposed ports (bindings already set explicitly).
+                publish_all_ports: Some(false),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let response = docker
+            .create_container(
+                Some(CreateContainerOptions {
+                    name: params.name.as_str(),
+                    platform: None,
+                }),
+                config,
+            )
+            .await
+            .map_err(|e| format!("container create failed: {e}"))?;
+
+        Ok(response.id)
+    }
+
+    async fn start_container(&self, id_or_name: &str) -> Result<(), String> {
+        let docker = self.client()?;
+        docker
+            .start_container(id_or_name, None::<StartContainerOptions<String>>)
+            .await
+            .map_err(|e| format!("container start failed: {e}"))
+    }
+
+    async fn remove_container(&self, id_or_name: &str, force: bool) -> Result<(), String> {
+        let docker = self.client()?;
+        docker
+            .remove_container(
+                id_or_name,
+                Some(RemoveContainerOptions {
+                    force,
+                    v: true,
+                    link: false,
+                }),
+            )
+            .await
+            .map_err(|e| format!("container remove failed: {e}"))
+    }
+
+    async fn inspect_container(&self, id_or_name: &str) -> Result<ContainerInspectInfo, String> {
+        let docker = self.client()?;
+        let inspect = docker
+            .inspect_container(id_or_name, None::<InspectContainerOptions>)
+            .await
+            .map_err(|e| format!("container inspect failed: {e}"))?;
+
+        let id = inspect.id.unwrap_or_else(|| id_or_name.to_string());
+        let image = inspect.config.as_ref().and_then(|c| c.image.clone());
+        let state = inspect
+            .state
+            .as_ref()
+            .and_then(|s| s.status.map(|st| st.to_string()))
+            .unwrap_or_default();
+        let labels = inspect.config.as_ref().and_then(|c| c.labels.clone());
+
+        let mut port_bindings: HashMap<String, Vec<u16>> = HashMap::new();
+        if let Some(ports) = inspect
+            .network_settings
+            .as_ref()
+            .and_then(|n| n.ports.as_ref())
+        {
+            for (key, bindings) in ports {
+                let mut hosts = Vec::new();
+                if let Some(list) = bindings {
+                    for b in list {
+                        if let Some(hp) = &b.host_port {
+                            if let Ok(p) = hp.parse::<u16>() {
+                                hosts.push(p);
+                            }
+                        }
+                    }
+                }
+                if !hosts.is_empty() {
+                    port_bindings.insert(key.clone(), hosts);
+                }
+            }
+        }
+
+        Ok(ContainerInspectInfo {
+            id,
+            image,
+            state,
+            port_bindings,
+            labels,
+        })
     }
 }
 
@@ -124,6 +318,7 @@ pub async fn startup_ping(
 pub mod test_support {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
 
     pub struct StubDocker {
         pub ping_ok: bool,
@@ -166,6 +361,173 @@ pub mod test_support {
             } else {
                 Err("stub: docker unreachable".into())
             }
+        }
+    }
+
+    #[async_trait]
+    impl DockerEngine for StubDocker {
+        async fn pull_image(&self, _image: &str, _timeout: Duration) -> Result<(), String> {
+            Err("stub: pull not implemented".into())
+        }
+
+        async fn create_container(&self, _params: &CreateWorkloadParams) -> Result<String, String> {
+            Err("stub: create not implemented".into())
+        }
+
+        async fn start_container(&self, _id_or_name: &str) -> Result<(), String> {
+            Err("stub: start not implemented".into())
+        }
+
+        async fn remove_container(&self, _id_or_name: &str, _force: bool) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn inspect_container(
+            &self,
+            _id_or_name: &str,
+        ) -> Result<ContainerInspectInfo, String> {
+            Err("stub: inspect not implemented".into())
+        }
+    }
+
+    /// Records Docker call order for workload orchestration unit tests.
+    pub struct RecordingDocker {
+        pub fail_op: Option<&'static str>,
+        pub host_port: u16,
+        pub calls: Mutex<Vec<&'static str>>,
+        pub created_name: Mutex<Option<String>>,
+        pub created_labels: Mutex<HashMap<String, String>>,
+        pub created_image: Mutex<Option<String>>,
+        pub created_port: Mutex<Option<u16>>,
+        pub container_id: String,
+        pub remove_calls: AtomicUsize,
+        pub missing: bool,
+        pub started: Mutex<bool>,
+    }
+
+    impl RecordingDocker {
+        pub fn ok(host_port: u16) -> Self {
+            Self {
+                fail_op: None,
+                host_port,
+                calls: Mutex::new(Vec::new()),
+                created_name: Mutex::new(None),
+                created_labels: Mutex::new(HashMap::new()),
+                created_image: Mutex::new(None),
+                created_port: Mutex::new(None),
+                container_id: "container-deadbeef".into(),
+                remove_calls: AtomicUsize::new(0),
+                missing: false,
+                started: Mutex::new(false),
+            }
+        }
+
+        pub fn fail_on(op: &'static str) -> Self {
+            let mut d = Self::ok(40000);
+            d.fail_op = Some(op);
+            d
+        }
+
+        pub fn missing() -> Self {
+            let mut d = Self::ok(0);
+            d.missing = true;
+            d
+        }
+
+        fn record(&self, op: &'static str) {
+            self.calls.lock().expect("calls").push(op);
+        }
+
+        fn maybe_fail(&self, op: &'static str) -> Result<(), String> {
+            self.record(op);
+            if self.fail_op == Some(op) {
+                Err(format!("stub: {op} failed"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[async_trait]
+    impl DockerProbe for RecordingDocker {
+        async fn ping(&self) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn engine_version(&self) -> Result<String, String> {
+            Ok("test".into())
+        }
+    }
+
+    #[async_trait]
+    impl DockerEngine for RecordingDocker {
+        async fn pull_image(&self, _image: &str, _timeout: Duration) -> Result<(), String> {
+            self.maybe_fail("pull")
+        }
+
+        async fn create_container(&self, params: &CreateWorkloadParams) -> Result<String, String> {
+            self.maybe_fail("create")?;
+            *self.created_name.lock().unwrap() = Some(params.name.clone());
+            *self.created_labels.lock().unwrap() = params.labels.clone();
+            *self.created_image.lock().unwrap() = Some(params.image.clone());
+            *self.created_port.lock().unwrap() = Some(params.container_port);
+            Ok(self.container_id.clone())
+        }
+
+        async fn start_container(&self, _id_or_name: &str) -> Result<(), String> {
+            self.maybe_fail("start")?;
+            *self.started.lock().unwrap() = true;
+            Ok(())
+        }
+
+        async fn remove_container(&self, _id_or_name: &str, _force: bool) -> Result<(), String> {
+            self.record("remove");
+            self.remove_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        async fn inspect_container(
+            &self,
+            id_or_name: &str,
+        ) -> Result<ContainerInspectInfo, String> {
+            self.record("inspect");
+            if self.missing {
+                return Err(format!("No such container: {id_or_name}"));
+            }
+            if self.fail_op == Some("inspect") {
+                return Err("stub: inspect failed".into());
+            }
+
+            let name = self.created_name.lock().unwrap().clone();
+            let expected = name.as_deref().unwrap_or("");
+            if id_or_name != self.container_id.as_str()
+                && id_or_name != expected
+                && !expected.is_empty()
+            {
+                // Allow inspect by name after create.
+                if name.as_deref() != Some(id_or_name) {
+                    return Err(format!("No such container: {id_or_name}"));
+                }
+            }
+            if name.is_none() && id_or_name != self.container_id {
+                return Err(format!("No such container: {id_or_name}"));
+            }
+
+            let port = self.created_port.lock().unwrap().unwrap_or(8080);
+            let mut port_bindings = HashMap::new();
+            port_bindings.insert(format!("{port}/tcp"), vec![self.host_port]);
+
+            Ok(ContainerInspectInfo {
+                id: self.container_id.clone(),
+                image: self.created_image.lock().unwrap().clone(),
+                state: if *self.started.lock().unwrap() {
+                    "running".into()
+                } else {
+                    "created".into()
+                },
+                port_bindings,
+                labels: Some(self.created_labels.lock().unwrap().clone()),
+            })
         }
     }
 }

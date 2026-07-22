@@ -21,6 +21,10 @@ pub struct Config {
     pub heartbeat_interval: Duration,
     /// Optional Control base URL for the outbound registration stub (04.07).
     pub control_url: Option<String>,
+    /// Max time to wait for an image pull.
+    pub pull_timeout: Duration,
+    /// Informational default registry host (images are fully qualified).
+    pub default_registry: String,
 }
 
 impl Config {
@@ -110,6 +114,18 @@ impl Config {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
 
+        let pull_raw = env::var("FORGE_PULL_TIMEOUT_SECONDS").unwrap_or_else(|_| "120".into());
+        let pull_secs: u64 = pull_raw.trim().parse().map_err(|_| {
+            format!("FORGE_PULL_TIMEOUT_SECONDS must be a positive integer, got {pull_raw:?}")
+        })?;
+        if pull_secs == 0 {
+            return Err(format!(
+                "FORGE_PULL_TIMEOUT_SECONDS must be a positive integer, got {pull_raw:?}"
+            ));
+        }
+
+        let default_registry = non_empty_env("FORGE_DEFAULT_REGISTRY", "localhost:5000");
+
         Ok(Self {
             port,
             service_name,
@@ -124,6 +140,8 @@ impl Config {
             data_dir,
             heartbeat_interval: Duration::from_secs(hb_secs),
             control_url,
+            pull_timeout: Duration::from_secs(pull_secs),
+            default_registry,
         })
     }
 }
@@ -164,6 +182,8 @@ mod tests {
             "FORGE_RUNTIME_DATA_DIR",
             "FORGE_HEARTBEAT_INTERVAL_SECONDS",
             "FORGE_CONTROL_URL",
+            "FORGE_PULL_TIMEOUT_SECONDS",
+            "FORGE_DEFAULT_REGISTRY",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()
@@ -248,6 +268,8 @@ mod tests {
                 ("FORGE_RUNTIME_DATA_DIR", None),
                 ("FORGE_HEARTBEAT_INTERVAL_SECONDS", None),
                 ("FORGE_CONTROL_URL", None),
+                ("FORGE_PULL_TIMEOUT_SECONDS", None),
+                ("FORGE_DEFAULT_REGISTRY", None),
             ],
             || {
                 let cfg = Config::from_env().expect("config");
@@ -262,6 +284,8 @@ mod tests {
                 assert_eq!(cfg.data_dir, PathBuf::from("/var/lib/forge-runtime"));
                 assert_eq!(cfg.heartbeat_interval, Duration::from_secs(10));
                 assert!(cfg.control_url.is_none());
+                assert_eq!(cfg.pull_timeout, Duration::from_secs(120));
+                assert_eq!(cfg.default_registry, "localhost:5000");
             },
         );
     }
