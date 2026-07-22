@@ -147,6 +147,11 @@ impl HeartbeatReporter {
                         continue;
                     }
                     let labels = c.labels.unwrap_or_default();
+                    // Shared Docker socket: only count workloads labeled for this node.
+                    match labels.get(crate::node::NODE_ID_LABEL).map(String::as_str) {
+                        Some(id) if id == self.node_id => {}
+                        _ => continue,
+                    }
                     let replica = replica_key(&labels, &c.id);
                     out.push(replica);
                 }

@@ -29,6 +29,10 @@ offline node's placements `lost`, frees capacity, and requests replacements
 `StaleReplicaFencer` stops surplus replicas when a recovered node would exceed
 desired count. Flow is idempotent via `recoverLostReplicas()` on Control start.
 
+**Demo gate (08.06):** `make demo DEMO=08` (`demos/08-multi-node`) runs two
+Runtime agents, asserts 2+2 placement distribution, then stops `node-b` and
+checks reschedule onto `node-a` via `/v1/nodes` + `/v1/placements`.
+
 **Extract path:** this module can move to a standalone service on port `4108`
 without changing the place/persist contract — wire HTTP or RPC over
 `Scheduler` + `PlacementStore` and leave Control as a client.

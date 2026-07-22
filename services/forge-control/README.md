@@ -108,7 +108,7 @@ make dev
 | `FORGE_RECONCILE_ENABLED` | `true` | Master switch for the reconcile controller loop |
 | `FORGE_RECONCILE_INTERVAL_MS` | `2000` | Controller tick interval |
 | `FORGE_RECONCILE_MAX_ACTIONS_PER_TICK` | `5` | Max start/stop/rollout actions applied per deployment per tick |
-| `FORGE_RUNTIME_URL` | `http://forge-runtime:4102` | Base URL for Runtime observe/create/stop |
+| `FORGE_RUNTIME_URL` | `http://forge-runtime:4102` | Fallback Runtime URL for observe/stop; creates route via placement node address (`PlacementAwareRuntimeClient`) |
 | `FORGE_GATEWAY_URL` | `http://forge-gateway:4000` | Base URL for Gateway admin refresh during rolling traffic shift |
 | `FORGE_ROLLOUT_BATCH_SIZE` | _(unset)_ | When set, overrides per-deployment `rollout_batch_size` |
 | `FORGE_ROLLOUT_TIMEOUT_S` | _(unset)_ | When set, overrides per-deployment `rollout_timeout_s` (default 120) |

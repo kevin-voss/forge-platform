@@ -25,9 +25,11 @@ import forge.control.reconcile.JdbcDeploymentHistory
 import forge.control.reconcile.JdbcLastHealthyStore
 import forge.control.reconcile.JdbcReconcileStatusStore
 import forge.control.reconcile.JdbcTransitionRecorder
+import forge.control.reconcile.PlacementAwareRuntimeClient
 import forge.control.reconcile.ReadinessGate
 import forge.control.reconcile.ReconciliationController
 import forge.control.reconcile.RepositoryDeploymentStore
+import forge.control.reconcile.RuntimeClient
 import forge.control.reconcile.StartupRecovery
 import forge.control.reconcile.TrafficShifter
 import forge.control.scheduler.CapacityReservation
@@ -136,7 +138,13 @@ fun main() {
         rolloutBatchSizeOverride = cfg.rolloutBatchSizeOverride,
         rolloutTimeoutOverride = cfg.rolloutTimeoutOverride,
     )
-    val runtimeClient = HttpRuntimeClient(cfg.runtimeUrl)
+    val placementStore = JdbcPlacementStore(db.dataSource)
+    val nodeStore = JdbcNodeStore(db.dataSource)
+    val runtimeClient: RuntimeClient = PlacementAwareRuntimeClient(
+        fallback = HttpRuntimeClient(cfg.runtimeUrl),
+        nodeStore = nodeStore,
+        placementStore = placementStore,
+    )
     val readinessGate = ReadinessGate(
         runtimeClient = runtimeClient,
         pollMs = cfg.readinessPollMs,
@@ -153,8 +161,6 @@ fun main() {
         enabled = cfg.historyEnabled,
         telemetry = telemetry,
     )
-    val placementStore = JdbcPlacementStore(db.dataSource)
-    val nodeStore = JdbcNodeStore(db.dataSource)
     val capacityReservation = CapacityReservation(nodeStore)
     val placementScheduler = SchedulerFactory.create(
         strategy = cfg.schedulerStrategy,

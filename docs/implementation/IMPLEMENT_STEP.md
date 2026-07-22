@@ -7,7 +7,7 @@ You are implementing **exactly one atomic step**.
 Change **only** this number:
 
 ```text
-N = 54
+N = 55
 ```
 
 Lookup: open [`STEPS.md`](STEPS.md) and find the row for that `N`.  

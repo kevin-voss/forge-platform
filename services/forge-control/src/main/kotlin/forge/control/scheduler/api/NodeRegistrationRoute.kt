@@ -116,7 +116,14 @@ fun Route.nodeRegistrationRoutes(
                     )
                 }
 
-                val allocation = body.toAllocation(node.capacity.slots)
+                // Slot accounting is driven by CapacityReservation; heartbeats must not
+                // shrink reserved slots before containers appear (or on shared-socket noise).
+                // They may raise slots toward the observed running count and always refresh
+                // running_replicas + liveness timestamp.
+                val incoming = body.toAllocation(node.capacity.slots)
+                val allocation = incoming.copy(
+                    slots = maxOf(node.allocation.slots, incoming.slots),
+                )
                 val updated = store.heartbeat(id, allocation, at)
                     ?: throw ApiException.NotFound(
                         "node not registered",

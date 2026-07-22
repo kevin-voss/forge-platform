@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Goal
 
@@ -68,7 +68,7 @@ Stop node-b (heartbeat stops)
 | [08.03](../steps/08-multi-node-scheduler/08.03-first-fit-and-least-allocated-strategies.md) | First-fit and least-allocated strategies | Complete | Deterministic placement; capacity checks |
 | [08.04](../steps/08-multi-node-scheduler/08.04-anti-affinity-and-pending-queue.md) | Anti-affinity + pending queue | Complete | Spread replicas; queue when overloaded |
 | [08.05](../steps/08-multi-node-scheduler/08.05-reschedule-on-node-offline.md) | Reschedule on node offline | Complete | Lost→reschedule/pending; grace; stale fencer |
-| [08.06](../steps/08-multi-node-scheduler/08.06-demo-08-multi-node.md) | Demo `08-multi-node` + gate | Not started | Distribution + reschedule; epic gate |
+| [08.06](../steps/08-multi-node-scheduler/08.06-demo-08-multi-node.md) | Demo `08-multi-node` + gate | Complete | Distribution + reschedule; epic gate |
 
 ## Assumptions
 
@@ -88,4 +88,4 @@ Stop node-b (heartbeat stops)
 
 ## Next step to implement
 
-**[08.06](../steps/08-multi-node-scheduler/08.06-demo-08-multi-node.md) — Demo `08-multi-node` + gate**
+Epic complete. Next roadmap epic: [`09-forge-identity`](09-forge-identity.md).
