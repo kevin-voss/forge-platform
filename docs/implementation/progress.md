@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 51`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 52`**.
 
 ## Epics
 
@@ -16,7 +16,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [05](epics/05-forge-gateway.md) | Forge Gateway | Complete | 7/7 steps complete; demo 05 routed-service acceptance gate passed |
 | [06](epics/06-forge-build.md) | Forge Build | Complete | 7/7 steps complete; demo 06 source-to-deployment acceptance gate passed |
 | [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | Complete | 6/6 steps complete; demo 07 rolling-deployment acceptance gate passed |
-| [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | In progress | 1/6 steps complete |
+| [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | In progress | 2/6 steps complete |
 | [09](epics/09-forge-identity.md) | Forge Identity | Planning | 8 steps |
 | [10](epics/10-forge-secrets.md) | Forge Secrets | Planning | 7 steps |
 | [11](epics/11-forge-events.md) | Forge Events | Planning | 7 steps |
@@ -84,7 +84,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **48** | [Deployment history + controller restart safety](steps/07-deployment-reconciliation/07.05-deployment-history-and-restart-safety.md) | Complete |  | Append-only `deployment_events` + `GET …/history`; StartupRecovery adopts/GCs |
 | **49** | [Demo `07-rolling-deployment` + epic gate](steps/07-deployment-reconciliation/07.06-demo-07-rolling-deployment.md) | Complete |  | Demo 07: v1→v2 zero-downtime roll + v3 auto-rollback; `PATCH` desired image; history assertions |
 | **50** | [Scheduler module/service skeleton + placement APIs](steps/08-multi-node-scheduler/08.01-scheduler-skeleton-and-placement-apis.md) | Complete |  | Scheduler seam, SingleNodeScheduler, placements table + POST/GET APIs; reconciler records node |
-| **51** | [Multi-node registration, heartbeat, resource reporting](steps/08-multi-node-scheduler/08.02-node-registration-heartbeat-resources.md) | Not started |  |  |
+| **51** | [Multi-node registration, heartbeat, resource reporting](steps/08-multi-node-scheduler/08.02-node-registration-heartbeat-resources.md) | Complete |  | Nodes table, register/heartbeat/list APIs, liveness monitor, Runtime capacity reporting |
 | **52** | [First-fit and least-allocated placement strategies](steps/08-multi-node-scheduler/08.03-first-fit-and-least-allocated-strategies.md) | Not started |  |  |
 | **53** | [Anti-affinity + pending queue](steps/08-multi-node-scheduler/08.04-anti-affinity-and-pending-queue.md) | Not started |  |  |
 | **54** | [Reschedule on node offline](steps/08-multi-node-scheduler/08.05-reschedule-on-node-offline.md) | Not started |  |  |

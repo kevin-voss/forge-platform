@@ -30,9 +30,13 @@ import forge.control.reconcile.ReconciliationController
 import forge.control.reconcile.RepositoryDeploymentStore
 import forge.control.reconcile.StartupRecovery
 import forge.control.reconcile.TrafficShifter
+import forge.control.scheduler.JdbcNodeStore
 import forge.control.scheduler.JdbcPlacementStore
+import forge.control.scheduler.LivenessMonitor
 import forge.control.scheduler.PlacementService
 import forge.control.scheduler.SingleNodeScheduler
+import forge.control.scheduler.api.nodeFleetRoutes
+import forge.control.scheduler.api.nodeRegistrationRoutes
 import forge.control.scheduler.api.placementRoutes
 import forge.control.repo.JdbcApplicationRepository
 import forge.control.repo.JdbcAuditRepository
@@ -69,6 +73,7 @@ import io.ktor.server.routing.routing
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import org.slf4j.event.Level
+import java.time.Duration
 import kotlin.system.exitProcess
 
 fun main() {
@@ -143,12 +148,31 @@ fun main() {
         telemetry = telemetry,
     )
     val placementStore = JdbcPlacementStore(db.dataSource)
+    val nodeStore = JdbcNodeStore(db.dataSource)
     val placementScheduler = SingleNodeScheduler(
-        if (cfg.schedulerEnabled) cfg.schedulerLocalNodeId else null,
+        availableNodes = {
+            if (!cfg.schedulerEnabled) {
+                emptyList()
+            } else {
+                val online = nodeStore.listOnlineIds()
+                if (online.isNotEmpty()) {
+                    online
+                } else {
+                    listOfNotNull(cfg.schedulerLocalNodeId.trim().takeIf { it.isNotEmpty() })
+                }
+            }
+        },
     )
     val placementService = PlacementService(
         scheduler = placementScheduler,
         store = placementStore,
+        log = log,
+        telemetry = telemetry,
+    )
+    val livenessMonitor = LivenessMonitor(
+        store = nodeStore,
+        timeout = Duration.ofSeconds(cfg.nodeHeartbeatTimeoutSeconds),
+        intervalMs = cfg.livenessIntervalMs,
         log = log,
         telemetry = telemetry,
     )
@@ -203,6 +227,8 @@ fun main() {
         reconcileStatusStore = reconcileStatusStore,
         deploymentHistory = deploymentHistory,
         placementService = placementService,
+        nodeStore = nodeStore,
+        nodeStrictRegister = cfg.nodeStrictRegister,
     )
 
     val readiness = Readiness()
@@ -223,6 +249,7 @@ fun main() {
                     "error" to (e.message ?: e.javaClass.simpleName),
                 )
             }
+            livenessMonitor.start()
             reconcileController.start()
             log.info(
                 "listening",
@@ -237,6 +264,8 @@ fun main() {
                 "scheduler_enabled" to cfg.schedulerEnabled,
                 "scheduler_strategy" to cfg.schedulerStrategy,
                 "scheduler_local_node_id" to cfg.schedulerLocalNodeId,
+                "node_heartbeat_timeout_s" to cfg.nodeHeartbeatTimeoutSeconds,
+                "liveness_interval_ms" to cfg.livenessIntervalMs,
             )
         }
     }
@@ -245,6 +274,7 @@ fun main() {
         Thread {
             log.info("shutdown signal received", "signal" to "SIGTERM")
             reconcileController.stop()
+            livenessMonitor.stop()
             server.stop(gracePeriodMillis = 1_000, timeoutMillis = graceMillis)
             db.close()
             telemetry.close()
@@ -275,6 +305,7 @@ fun main() {
         server.start(wait = true)
     } finally {
         reconcileController.stop()
+        livenessMonitor.stop()
         db.close()
         telemetry.close()
     }
@@ -399,6 +430,16 @@ fun Application.forgeControlModule(
             val placementService = services.placementService
             if (placementService != null) {
                 placementRoutes(placementService)
+            }
+            val nodeStore = services.nodeStore
+            if (nodeStore != null) {
+                nodeFleetRoutes(nodeStore)
+                nodeRegistrationRoutes(
+                    store = nodeStore,
+                    log = log ?: JsonLog(cfg.serviceName, cfg.logLevel),
+                    strictRegister = services.nodeStrictRegister,
+                    telemetry = telemetry,
+                )
             }
         }
     }

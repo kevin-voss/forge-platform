@@ -4,6 +4,7 @@ mod converge;
 mod docker;
 mod health;
 mod heartbeat;
+mod heartbeat_reporter;
 mod lifecycle;
 mod logs;
 mod node;
@@ -18,8 +19,9 @@ use converge::{spawn_reconciler, ReconcilerConfig};
 use docker::{startup_ping, BollardDocker};
 use health::{router as health_router, AppState};
 use heartbeat::Heartbeat;
+use heartbeat_reporter::{CapacityReport, HeartbeatReporter};
 use lifecycle::DeploymentLocks;
-use node::{maybe_register, Node};
+use node::{advertise_address, Node};
 use prober::{ProbeConfig, Prober, StatusCache};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -92,10 +94,16 @@ async fn run() -> Result<(), String> {
         }
     }
 
-    let node = Node::bootstrap(&cfg.data_dir, &docker).await?;
+    let node = Node::bootstrap_with_id(
+        &cfg.data_dir,
+        &docker,
+        cfg.node_id.as_deref(),
+    )
+    .await?;
     let workload_labels = node.labels();
     info!(
         node_id = %node.info.id,
+        node_slots = cfg.node_slots,
         label = %node::NODE_ID_LABEL,
         label_value = %workload_labels
             .get(node::NODE_ID_LABEL)
@@ -103,7 +111,6 @@ async fn run() -> Result<(), String> {
             .unwrap_or(""),
         "node identity ready for workload labeling"
     );
-    maybe_register(cfg.control_url.as_deref(), &node.info).await;
 
     let heartbeat = Arc::new(Heartbeat::new());
     let _heartbeat_task = heartbeat.spawn(cfg.heartbeat_interval);
@@ -126,6 +133,45 @@ async fn run() -> Result<(), String> {
 
     let node = Arc::new(node);
     let deployment_locks = Arc::new(DeploymentLocks::new());
+
+    let _control_heartbeat_task = if let Some(control_url) = cfg.control_url.as_deref() {
+        let address = advertise_address(cfg.node_address.as_deref(), cfg.port);
+        let cpu_millis = node.info.cpu.saturating_mul(1000);
+        let mem_mb = if node.info.memory_bytes > 0 {
+            Some((node.info.memory_bytes / (1024 * 1024)) as u32)
+        } else {
+            None
+        };
+        match HeartbeatReporter::new(
+            control_url,
+            node.info.id.clone(),
+            address,
+            CapacityReport {
+                slots: cfg.node_slots,
+                cpu_millis: Some(cpu_millis),
+                mem_mb,
+            },
+            Arc::clone(&docker) as Arc<dyn docker::DockerEngine>,
+        ) {
+            Ok(reporter) => {
+                info!(
+                    control_url = %control_url,
+                    node_id = %node.info.id,
+                    slots = cfg.node_slots,
+                    interval_ms = cfg.control_heartbeat_interval.as_millis() as u64,
+                    "starting control node register/heartbeat reporter"
+                );
+                Some(Arc::new(reporter).spawn(cfg.control_heartbeat_interval))
+            }
+            Err(err) => {
+                error!(error = %err, "invalid control heartbeat reporter config");
+                None
+            }
+        }
+    } else {
+        info!("control node register/heartbeat disabled (FORGE_CONTROL_URL unset)");
+        None
+    };
 
     let _reconcile_task = if let Some(control_url) = cfg.control_url.as_deref() {
         match ControlClient::new(control_url, node.info.id.clone()) {

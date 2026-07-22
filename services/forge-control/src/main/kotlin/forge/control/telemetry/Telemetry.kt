@@ -43,6 +43,9 @@ class Telemetry private constructor(
     private val rollbackDuration: DoubleHistogram,
     private val deploymentTransitions: LongCounter,
     private val placements: LongCounter,
+    private val nodesTotal: LongCounter,
+    private val nodeFreeSlots: LongCounter,
+    private val nodeHeartbeatAge: DoubleHistogram,
     private val sdk: OpenTelemetrySdk?,
 ) : AutoCloseable {
     val enabled: Boolean = sdk != null
@@ -60,6 +63,27 @@ class Telemetry private constructor(
         placements.add(
             1,
             Attributes.of(AttributeKey.stringKey("strategy"), strategy),
+        )
+    }
+
+    fun recordNodeStatus(status: String) {
+        nodesTotal.add(
+            1,
+            Attributes.of(AttributeKey.stringKey("status"), status),
+        )
+    }
+
+    fun recordNodeFreeSlots(nodeId: String, freeSlots: Int) {
+        nodeFreeSlots.add(
+            freeSlots.toLong(),
+            Attributes.of(AttributeKey.stringKey("node"), nodeId),
+        )
+    }
+
+    fun recordNodeHeartbeatAge(nodeId: String, ageSeconds: Long) {
+        nodeHeartbeatAge.record(
+            ageSeconds.toDouble(),
+            Attributes.of(AttributeKey.stringKey("node"), nodeId),
         )
     }
 
@@ -186,6 +210,11 @@ class Telemetry private constructor(
                 rollbackDuration = meter.histogramBuilder("forge_rollback_duration_ms").setUnit("ms").build(),
                 deploymentTransitions = meter.counterBuilder("forge_deployment_transitions_total").build(),
                 placements = meter.counterBuilder("forge_placements_total").build(),
+                nodesTotal = meter.counterBuilder("forge_nodes_total").build(),
+                nodeFreeSlots = meter.counterBuilder("forge_node_free_slots").build(),
+                nodeHeartbeatAge = meter.histogramBuilder("forge_node_heartbeat_age_seconds")
+                    .setUnit("s")
+                    .build(),
                 sdk = sdk,
             )
         }

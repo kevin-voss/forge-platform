@@ -31,19 +31,43 @@ pub struct Node {
 
 impl Node {
     /// Load or create a stable node id under `data_dir`, then gather host info.
+    ///
+    /// When `node_id_override` is set (`FORGE_NODE_ID`), that value is used as the
+    /// stable id (enables multi-node demos with human-readable ids like `node-a`).
     pub async fn bootstrap(
         data_dir: impl AsRef<Path>,
         docker: &dyn DockerProbe,
     ) -> Result<Self, String> {
+        Self::bootstrap_with_id(data_dir, docker, None).await
+    }
+
+    pub async fn bootstrap_with_id(
+        data_dir: impl AsRef<Path>,
+        docker: &dyn DockerProbe,
+        node_id_override: Option<&str>,
+    ) -> Result<Self, String> {
         let data_dir = data_dir.as_ref();
         ensure_writable_data_dir(data_dir)?;
 
-        let (id, generated) = load_or_create_node_id(data_dir)?;
-        if generated {
-            info!(node_id = %id, data_dir = %data_dir.display(), "generated new node id");
+        let id = if let Some(override_id) = node_id_override
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            info!(
+                node_id = %override_id,
+                data_dir = %data_dir.display(),
+                "using FORGE_NODE_ID override"
+            );
+            override_id.to_string()
         } else {
-            info!(node_id = %id, data_dir = %data_dir.display(), "loaded persisted node id");
-        }
+            let (id, generated) = load_or_create_node_id(data_dir)?;
+            if generated {
+                info!(node_id = %id, data_dir = %data_dir.display(), "generated new node id");
+            } else {
+                info!(node_id = %id, data_dir = %data_dir.display(), "loaded persisted node id");
+            }
+            id
+        };
 
         let docker_version = match docker.engine_version().await {
             Ok(v) if !v.trim().is_empty() => v,
@@ -77,24 +101,12 @@ impl Node {
     }
 }
 
-/// Optional outbound registration hook. No-op when `control_url` is unset.
-/// Full multi-node registration lands in epic 08; 04.07 uses Control for desired/actual sync.
-pub async fn maybe_register(control_url: Option<&str>, node: &NodeInfo) {
-    let Some(base) = control_url.map(str::trim).filter(|s| !s.is_empty()) else {
-        info!(
-            node_id = %node.id,
-            "registration stub skipped (FORGE_CONTROL_URL unset)"
-        );
-        return;
-    };
-
-    let endpoint = format!("{}/v1/nodes", base.trim_end_matches('/'));
-    info!(
-        node_id = %node.id,
-        control_url = %base,
-        endpoint = %endpoint,
-        "registration stub: node identity available; Control node registry deferred to epic 08"
-    );
+/// Resolve the address advertised to Control for this Runtime agent.
+pub fn advertise_address(override_addr: Option<&str>, port: u16) -> String {
+    if let Some(addr) = override_addr.map(str::trim).filter(|s| !s.is_empty()) {
+        return addr.to_string();
+    }
+    format!("http://{}:{}", hostname(), port)
 }
 
 pub fn load_or_create_node_id(data_dir: &Path) -> Result<(String, bool), String> {
@@ -269,17 +281,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn registration_stub_noop_without_control_url() {
-        let info = NodeInfo {
-            id: "00000000-0000-4000-8000-000000000001".into(),
-            hostname: "test".into(),
-            docker_version: "1".into(),
-            cpu: 1,
-            memory_bytes: 0,
-            started_at: Utc::now(),
-        };
-        maybe_register(None, &info).await;
-        maybe_register(Some(""), &info).await;
-        maybe_register(Some("http://forge-control:8080"), &info).await;
+    async fn bootstrap_respects_node_id_override() {
+        let dir = tempdir().unwrap();
+        let docker = StubDocker::ok("1");
+        let node = Node::bootstrap_with_id(dir.path(), &docker, Some("node-a"))
+            .await
+            .unwrap();
+        assert_eq!(node.info.id, "node-a");
+    }
+
+    #[test]
+    fn advertise_address_prefers_override() {
+        assert_eq!(
+            advertise_address(Some("http://runtime-a:4102"), 8080),
+            "http://runtime-a:4102"
+        );
+        let fallback = advertise_address(None, 4102);
+        assert!(fallback.starts_with("http://"));
+        assert!(fallback.ends_with(":4102"));
     }
 }

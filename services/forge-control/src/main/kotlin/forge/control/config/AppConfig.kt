@@ -35,6 +35,9 @@ data class AppConfig(
     val schedulerEnabled: Boolean = true,
     val schedulerStrategy: String = "single-node",
     val schedulerLocalNodeId: String = "node-local",
+    val nodeHeartbeatTimeoutSeconds: Long = 15,
+    val livenessIntervalMs: Long = 5_000,
+    val nodeStrictRegister: Boolean = false,
 )
 
 fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
@@ -255,6 +258,40 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         throw IllegalArgumentException("FORGE_SCHEDULER_LOCAL_NODE_ID must not be blank")
     }
 
+    val heartbeatTimeoutRaw = env["FORGE_NODE_HEARTBEAT_TIMEOUT_S"]?.trim().orEmpty()
+        .ifEmpty { "15" }
+    val nodeHeartbeatTimeoutSeconds = heartbeatTimeoutRaw.toLongOrNull()
+        ?: throw IllegalArgumentException(
+            "FORGE_NODE_HEARTBEAT_TIMEOUT_S must be a positive integer, got '$heartbeatTimeoutRaw'",
+        )
+    if (nodeHeartbeatTimeoutSeconds < 1) {
+        throw IllegalArgumentException(
+            "FORGE_NODE_HEARTBEAT_TIMEOUT_S must be a positive integer, got '$heartbeatTimeoutRaw'",
+        )
+    }
+
+    val livenessIntervalRaw = env["FORGE_LIVENESS_INTERVAL_MS"]?.trim().orEmpty()
+        .ifEmpty { "5000" }
+    val livenessIntervalMs = livenessIntervalRaw.toLongOrNull()
+        ?: throw IllegalArgumentException(
+            "FORGE_LIVENESS_INTERVAL_MS must be a positive integer, got '$livenessIntervalRaw'",
+        )
+    if (livenessIntervalMs < 1) {
+        throw IllegalArgumentException(
+            "FORGE_LIVENESS_INTERVAL_MS must be a positive integer, got '$livenessIntervalRaw'",
+        )
+    }
+
+    val strictRegisterRaw = env["FORGE_NODE_STRICT_REGISTER"]?.trim()?.lowercase().orEmpty()
+        .ifEmpty { "false" }
+    val nodeStrictRegister = when (strictRegisterRaw) {
+        "true", "1", "yes" -> true
+        "false", "0", "no" -> false
+        else -> throw IllegalArgumentException(
+            "FORGE_NODE_STRICT_REGISTER must be true|false, got '$strictRegisterRaw'",
+        )
+    }
+
     return AppConfig(
         port = port,
         serviceName = env["FORGE_SERVICE_NAME"]?.trim().orEmpty().ifEmpty { "forge-control" },
@@ -290,5 +327,8 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         schedulerEnabled = schedulerEnabled,
         schedulerStrategy = schedulerStrategy,
         schedulerLocalNodeId = schedulerLocalNodeId,
+        nodeHeartbeatTimeoutSeconds = nodeHeartbeatTimeoutSeconds,
+        livenessIntervalMs = livenessIntervalMs,
+        nodeStrictRegister = nodeStrictRegister,
     )
 }

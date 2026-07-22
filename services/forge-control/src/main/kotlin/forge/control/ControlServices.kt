@@ -4,6 +4,7 @@ import forge.control.reconcile.DeploymentHistory
 import forge.control.reconcile.DeploymentStore
 import forge.control.reconcile.ReconcileStatusStore
 import forge.control.reconcile.RuntimeClient
+import forge.control.scheduler.NodeStore
 import forge.control.scheduler.PlacementService
 import forge.control.service.ApplicationService
 import forge.control.service.DeploymentService
@@ -27,4 +28,6 @@ data class ControlServices(
     val reconcileStatusStore: ReconcileStatusStore? = null,
     val deploymentHistory: DeploymentHistory? = null,
     val placementService: PlacementService? = null,
+    val nodeStore: NodeStore? = null,
+    val nodeStrictRegister: Boolean = false,
 )

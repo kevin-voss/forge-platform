@@ -47,6 +47,14 @@ pub struct Config {
     pub stop_grace: Duration,
     /// How to handle create requests that conflict with an existing container's image.
     pub on_config_conflict: crate::lifecycle::OnConfigConflict,
+    /// Optional stable node id override for multi-node demos (`node-a`).
+    pub node_id: Option<String>,
+    /// Advertised slot capacity when registering with Control.
+    pub node_slots: u32,
+    /// Optional advertised address for Control registration.
+    pub node_address: Option<String>,
+    /// Interval for Control register/heartbeat reporting.
+    pub control_heartbeat_interval: Duration,
 }
 
 impl Config {
@@ -238,6 +246,39 @@ impl Config {
             env::var("FORGE_ON_CONFIG_CONFLICT").unwrap_or_else(|_| "recreate".into());
         let on_config_conflict = crate::lifecycle::OnConfigConflict::parse(&conflict_raw)?;
 
+        let node_id = env::var("FORGE_NODE_ID")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
+        let slots_raw = env::var("FORGE_NODE_SLOTS").unwrap_or_else(|_| "4".into());
+        let node_slots: u32 = slots_raw.trim().parse().map_err(|_| {
+            format!("FORGE_NODE_SLOTS must be a positive integer, got {slots_raw:?}")
+        })?;
+        if node_slots == 0 {
+            return Err(format!(
+                "FORGE_NODE_SLOTS must be a positive integer, got {slots_raw:?}"
+            ));
+        }
+
+        let node_address = env::var("FORGE_NODE_ADDRESS")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
+        let control_hb_ms_raw =
+            env::var("FORGE_HEARTBEAT_INTERVAL_MS").unwrap_or_else(|_| "5000".into());
+        let control_hb_ms: u64 = control_hb_ms_raw.trim().parse().map_err(|_| {
+            format!(
+                "FORGE_HEARTBEAT_INTERVAL_MS must be a positive integer, got {control_hb_ms_raw:?}"
+            )
+        })?;
+        if control_hb_ms == 0 {
+            return Err(format!(
+                "FORGE_HEARTBEAT_INTERVAL_MS must be a positive integer, got {control_hb_ms_raw:?}"
+            ));
+        }
+
         Ok(Self {
             port,
             service_name,
@@ -267,6 +308,10 @@ impl Config {
             log_stream_buffer,
             stop_grace: Duration::from_secs(stop_grace_secs),
             on_config_conflict,
+            node_id,
+            node_slots,
+            node_address,
+            control_heartbeat_interval: Duration::from_millis(control_hb_ms),
         })
     }
 }
@@ -322,6 +367,10 @@ mod tests {
             "FORGE_LOG_STREAM_BUFFER",
             "FORGE_STOP_GRACE_SECONDS",
             "FORGE_ON_CONFIG_CONFLICT",
+            "FORGE_NODE_ID",
+            "FORGE_NODE_SLOTS",
+            "FORGE_NODE_ADDRESS",
+            "FORGE_HEARTBEAT_INTERVAL_MS",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()
@@ -420,6 +469,10 @@ mod tests {
                 ("FORGE_LOG_STREAM_BUFFER", None),
                 ("FORGE_STOP_GRACE_SECONDS", None),
                 ("FORGE_ON_CONFIG_CONFLICT", None),
+                ("FORGE_NODE_ID", None),
+                ("FORGE_NODE_SLOTS", None),
+                ("FORGE_NODE_ADDRESS", None),
+                ("FORGE_HEARTBEAT_INTERVAL_MS", None),
             ],
             || {
                 let cfg = Config::from_env().expect("config");
@@ -451,6 +504,30 @@ mod tests {
                     cfg.on_config_conflict,
                     crate::lifecycle::OnConfigConflict::Recreate
                 );
+                assert!(cfg.node_id.is_none());
+                assert_eq!(cfg.node_slots, 4);
+                assert!(cfg.node_address.is_none());
+                assert_eq!(cfg.control_heartbeat_interval, Duration::from_millis(5000));
+            },
+        );
+    }
+
+    #[test]
+    fn loads_node_fleet_overrides() {
+        with_env(
+            &[
+                ("PORT", Some("8080")),
+                ("FORGE_NODE_ID", Some("node-a")),
+                ("FORGE_NODE_SLOTS", Some("8")),
+                ("FORGE_NODE_ADDRESS", Some("http://runtime-a:4102")),
+                ("FORGE_HEARTBEAT_INTERVAL_MS", Some("2500")),
+            ],
+            || {
+                let cfg = Config::from_env().expect("config");
+                assert_eq!(cfg.node_id.as_deref(), Some("node-a"));
+                assert_eq!(cfg.node_slots, 8);
+                assert_eq!(cfg.node_address.as_deref(), Some("http://runtime-a:4102"));
+                assert_eq!(cfg.control_heartbeat_interval, Duration::from_millis(2500));
             },
         );
     }
