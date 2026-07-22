@@ -6,8 +6,17 @@ COMPOSE := docker compose
 DEMO ?= 00
 SERVICE ?=
 
+BASE_URL ?=
+EXPECT_SERVICE ?=
+EXPECT_LANGUAGE ?=
+LOG_FILE ?=
+SHUTDOWN_PID ?=
+SHUTDOWN_CONTAINER ?=
+SHUTDOWN_TIMEOUT ?= 10s
+
 .PHONY: help setup env-check infra-up infra-down dev stop restart status logs \
 	build test test-unit test-integration test-e2e test-infrastructure \
+	contract-validate \
 	lint format clean reset demo service-test service-run wait
 
 help:
@@ -22,7 +31,9 @@ help:
 	@echo "  make logs                  Tail Compose logs"
 	@echo "  make build                 Build workspace artifacts (noop in step 00)"
 	@echo "  make test                  Run all available test suites"
+	@echo "  make test-unit             Run unit/contract-validator tests"
 	@echo "  make test-infrastructure   Verify local infrastructure health"
+	@echo "  make contract-validate     Validate a running workload (BASE_URL=...)"
 	@echo "  make lint                  Run repository lint checks"
 	@echo "  make format                Format repository files where applicable"
 	@echo "  make clean                 Remove local build artifacts"
@@ -32,9 +43,13 @@ help:
 	@echo "  make service-run SERVICE=  Run one service locally"
 
 setup: env-check
-	@chmod +x scripts/*.sh scripts/lib/*.sh demos/00-foundation/run.sh tests/infrastructure/test_infrastructure.sh
+	@chmod +x scripts/*.sh scripts/lib/*.sh demos/00-foundation/run.sh \
+		tests/infrastructure/test_infrastructure.sh \
+		tests/contracts/test_runtime_contract_validator.sh \
+		tools/contract-validator/*.sh tools/contract-validator/*.py
 	@command -v docker >/dev/null || (echo "docker is required" >&2; exit 1)
 	@command -v curl >/dev/null || (echo "curl is required" >&2; exit 1)
+	@command -v python3 >/dev/null || (echo "python3 is required" >&2; exit 1)
 	@docker compose version >/dev/null
 	@echo "Setup complete."
 
@@ -87,11 +102,11 @@ wait:
 build:
 	@echo "No service builds in Step 00."
 
-test: test-infrastructure
+test: test-unit test-infrastructure
 	@echo "All available tests passed."
 
 test-unit:
-	@echo "No unit tests in Step 00."
+	@./tools/contract-validator/test_validator.sh
 
 test-integration: test-infrastructure
 
@@ -101,9 +116,23 @@ test-e2e:
 test-infrastructure: env-check
 	@./tests/infrastructure/test_infrastructure.sh
 
+contract-validate:
+	@if [[ -z "$(BASE_URL)" ]]; then \
+		echo "BASE_URL is required, e.g. BASE_URL=http://127.0.0.1:4201" >&2; \
+		exit 1; \
+	fi
+	@args=(--base-url "$(BASE_URL)" --shutdown-timeout "$(SHUTDOWN_TIMEOUT)"); \
+	if [[ -n "$(EXPECT_SERVICE)" ]]; then args+=(--expect-service "$(EXPECT_SERVICE)"); fi; \
+	if [[ -n "$(EXPECT_LANGUAGE)" ]]; then args+=(--expect-language "$(EXPECT_LANGUAGE)"); fi; \
+	if [[ -n "$(LOG_FILE)" ]]; then args+=(--log-file "$(LOG_FILE)"); fi; \
+	if [[ -n "$(SHUTDOWN_PID)" ]]; then args+=(--shutdown-pid "$(SHUTDOWN_PID)"); fi; \
+	if [[ -n "$(SHUTDOWN_CONTAINER)" ]]; then args+=(--shutdown-container "$(SHUTDOWN_CONTAINER)"); fi; \
+	./tools/contract-validator/run.sh "$${args[@]}"
+
 lint:
 	@echo "Checking shell scripts with bash -n..."
-	@find scripts demos tests -name '*.sh' -print0 | xargs -0 -n1 bash -n
+	@find scripts demos tests tools -name '*.sh' -print0 | xargs -0 -n1 bash -n
+	@python3 -m py_compile tools/contract-validator/validate.py tools/contract-validator/fixture_server.py
 	@echo "Lint complete."
 
 format:

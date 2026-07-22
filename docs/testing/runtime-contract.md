@@ -2,25 +2,47 @@
 
 The formal contract is documented in [`docs/contracts/runtime-contract.md`](../contracts/runtime-contract.md).
 
-## Current status (step 01.01)
+## Shared validator (step 01.02)
 
-Documentation and schemas only. Manual checks:
+Entrypoint: [`tools/contract-validator`](../../tools/contract-validator/README.md).
 
 ```bash
-test -f docs/contracts/runtime-contract.md
-test -f contracts/openapi/runtime-contract.openapi.yaml
-python3 -c "import json; json.load(open('contracts/examples/runtime-info-response.json'))"
-python3 -c "import json; json.load(open('contracts/examples/runtime-log-line.json'))"
-python3 -c "import json; json.load(open('contracts/examples/runtime-log.schema.json'))"
+./tools/contract-validator/run.sh --help
+
+./tools/contract-validator/run.sh \
+  --base-url http://127.0.0.1:8099 \
+  --expect-service fixture \
+  --expect-language go
+
+make contract-validate \
+  BASE_URL=http://127.0.0.1:4201 \
+  EXPECT_SERVICE=demo-go-api \
+  EXPECT_LANGUAGE=go
 ```
 
-## Upcoming (step 01.02)
+### What it checks
 
-`tools/contract-validator` will automate:
+* Process listens on the provided base URL
+* `GET /health/live` → `200`
+* `GET /health/ready` → `200`
+* `GET /` → `200` JSON with `service`, `language`, `status`
+* Optional log file: each line matches the epic 01 required fields in `runtime-log.schema.json`
+* Optional graceful shutdown via `--shutdown-pid` or `--shutdown-container` within the grace window (default 10s)
 
-* `GET /health/live` and `GET /health/ready` return success
-* `GET /` returns the required identity fields
-* stdout log lines validate against `runtime-log.schema.json`
-* graceful shutdown exits within the documented grace period
+Exit `0` on pass; non-zero on failure with actionable stderr.
 
-Demo apps (`01.03`–`01.07`) will be checked with that runner via `make demo DEMO=01`.
+### Tests
+
+```bash
+./tools/contract-validator/test_validator.sh
+# or
+make test-unit
+# discoverable wrapper:
+./tests/contracts/test_runtime_contract_validator.sh
+```
+
+Tests use an in-tree fixture HTTP server (`fixture_server.py`) so they do not depend on unfinished demo apps.
+
+### Language demos (upcoming)
+
+Steps `01.03`–`01.07` will start each demo on ports `4201`–`4205` and invoke the same runner. `make demo DEMO=01` will exercise all five languages once those apps exist.

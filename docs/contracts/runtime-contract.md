@@ -151,7 +151,21 @@ For epic 01 positive demos, ready may equal live. Negative “not ready” fixtu
 
 ## Validation strategy
 
-Step `01.01` delivers documentation and schemas only. Automated compliance lands in step `01.02` (`tools/contract-validator`) and is exercised by demos `01.03`–`01.07`. Until then, verify schemas parse and the OpenAPI declares the three required paths (see Manual verification in step `01.01`).
+Automated compliance is provided by [`tools/contract-validator`](../../tools/contract-validator/README.md) (step `01.02`). It checks listen/health/identity over HTTP, optional JSONL log schema conformance, and optional graceful shutdown (`SIGTERM` or `docker stop`) within the **10s** grace window.
+
+```bash
+./tools/contract-validator/run.sh \
+  --base-url http://127.0.0.1:4201 \
+  --expect-service demo-go-api \
+  --expect-language go \
+  --log-file /tmp/demo-go.jsonl
+
+# or
+make contract-validate BASE_URL=http://127.0.0.1:4201 \
+  EXPECT_SERVICE=demo-go-api EXPECT_LANGUAGE=go
+```
+
+Language demos (`01.03`–`01.07`) and `make demo DEMO=01` will invoke this runner so every language is checked the same way. See the tool README for flags, exit codes, and the fixture server used in unit tests.
 
 Host ports for the five demo languages are reserved in [`docs/operations/ports.md`](../operations/ports.md) (`4201`–`4205`).
 
