@@ -6,8 +6,8 @@ Persistence (`02.02`) provides the Control domain model — projects, environmen
 applications, services, deployments, and an append-only audit log — in PostgreSQL
 schema `control`, with Flyway migrations, HikariCP, and JDBC repositories.
 
-HTTP APIs for projects and environments (`02.03`) are available under `/v1`.
-Applications, services, and deployments arrive in later steps (`02.04+`).
+HTTP APIs for projects, environments, applications, and services (`02.04`) are
+available under `/v1`. Deployments arrive in a later step.
 
 ## Quick start
 
@@ -29,6 +29,17 @@ curl -sf http://127.0.0.1:4001/v1/projects/$PID
 curl -sf -X POST http://127.0.0.1:4001/v1/projects/$PID/environments \
   -H 'content-type: application/json' -d '{"name":"development"}'
 curl -sf http://127.0.0.1:4001/v1/projects/$PID/environments
+```
+
+Create an application and service:
+
+```bash
+AID=$(curl -sf -X POST http://127.0.0.1:4001/v1/projects/$PID/applications \
+  -H 'content-type: application/json' -d '{"name":"web"}' | \
+  python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+curl -sf -X POST http://127.0.0.1:4001/v1/applications/$AID/services \
+  -H 'content-type: application/json' -d '{"name":"api","port":8080}'
+curl -sf http://127.0.0.1:4001/v1/applications/$AID/services
 ```
 
 Or from this directory:
@@ -66,7 +77,7 @@ make dev
 
 See `.env.example`.
 
-## HTTP API (02.03)
+## HTTP API (02.04)
 
 | Method | Path | Notes |
 |---|---|---|
@@ -76,6 +87,12 @@ See `.env.example`.
 | `POST` | `/v1/projects/{projectId}/environments` | Body `{"name"}` |
 | `GET` | `/v1/projects/{projectId}/environments` | List environments for project |
 | `GET` | `/v1/environments/{environmentId}` | Get environment |
+| `POST` | `/v1/projects/{projectId}/applications` | Body `{"name"}` |
+| `GET` | `/v1/projects/{projectId}/applications` | List applications for project |
+| `GET` | `/v1/applications/{applicationId}` | Get application |
+| `POST` | `/v1/applications/{applicationId}/services` | Body `{"name","port"}`; port is 1–65535 |
+| `GET` | `/v1/applications/{applicationId}/services` | List services for application |
+| `GET` | `/v1/services/{serviceId}` | Get service |
 
 Errors use the provisional envelope `{"error":{"code","message","details?"}}`
 (`400` validation, `404` missing, `409` conflict). Formalized in `02.06`.
@@ -85,7 +102,7 @@ Errors use the provisional envelope `{"error":{"code","message","details?"}}`
 Tables in schema `control`:
 
 * `projects`, `environments`, `applications`, `services`, `deployments`
-* `audit_log` (append-only; create actions for projects/environments)
+* `audit_log` (append-only; create actions for projects/environments/applications/services)
 * `flyway_schema_history`
 
 Foreign keys use `ON DELETE RESTRICT`. Unique constraints enforce slug/name uniqueness

@@ -7,17 +7,24 @@ import forge.control.http.AlwaysHealthyDb
 import forge.control.http.ApiException
 import forge.control.http.DbProbe
 import forge.control.http.Readiness
+import forge.control.http.applicationRoutes
 import forge.control.http.apiError
 import forge.control.http.environmentRoutes
 import forge.control.http.healthRoutes
 import forge.control.http.projectRoutes
+import forge.control.http.serviceRoutes
 import forge.control.http.toEnvelope
 import forge.control.logging.JsonLog
+import forge.control.repo.JdbcApplicationRepository
 import forge.control.repo.JdbcAuditRepository
 import forge.control.repo.JdbcEnvironmentRepository
 import forge.control.repo.JdbcProjectRepository
+import forge.control.repo.JdbcServiceRepository
+import forge.control.service.ApplicationService
 import forge.control.service.EnvironmentService
 import forge.control.service.ProjectService
+import forge.control.service.RelationshipValidator
+import forge.control.service.ServiceService
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -75,10 +82,15 @@ fun main() {
     val actor = "dev"
     val projectRepo = JdbcProjectRepository(db.dataSource)
     val environmentRepo = JdbcEnvironmentRepository(db.dataSource)
+    val applicationRepo = JdbcApplicationRepository(db.dataSource)
+    val serviceRepo = JdbcServiceRepository(db.dataSource)
     val auditRepo = JdbcAuditRepository(db.dataSource)
+    val relationships = RelationshipValidator(projectRepo, applicationRepo)
     val services = ControlServices(
         projects = ProjectService(projectRepo, auditRepo, actor = actor),
         environments = EnvironmentService(projectRepo, environmentRepo, auditRepo, actor = actor),
+        applications = ApplicationService(applicationRepo, relationships, auditRepo, actor = actor),
+        services = ServiceService(serviceRepo, relationships, auditRepo, actor = actor),
     )
 
     val readiness = Readiness()
@@ -222,6 +234,8 @@ fun Application.forgeControlModule(
         if (services != null) {
             projectRoutes(services.projects)
             environmentRoutes(services.environments)
+            applicationRoutes(services.applications)
+            serviceRoutes(services.services)
         }
     }
 }

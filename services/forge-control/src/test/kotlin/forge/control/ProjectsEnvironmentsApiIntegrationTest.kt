@@ -5,13 +5,20 @@ import forge.control.config.DatabaseConfig
 import forge.control.db.Db
 import forge.control.http.ErrorEnvelope
 import forge.control.http.Readiness
+import forge.control.http.dto.ApplicationResponse
 import forge.control.http.dto.EnvironmentResponse
 import forge.control.http.dto.ProjectResponse
+import forge.control.http.dto.ServiceResponse
+import forge.control.repo.JdbcApplicationRepository
 import forge.control.repo.JdbcAuditRepository
 import forge.control.repo.JdbcEnvironmentRepository
 import forge.control.repo.JdbcProjectRepository
+import forge.control.repo.JdbcServiceRepository
+import forge.control.service.ApplicationService
 import forge.control.service.EnvironmentService
 import forge.control.service.ProjectService
+import forge.control.service.RelationshipValidator
+import forge.control.service.ServiceService
 import io.ktor.client.call.body
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
@@ -71,6 +78,8 @@ class ProjectsEnvironmentsApiIntegrationTest {
 
     private var createdProjectId: String? = null
     private var createdEnvironmentId: String? = null
+    private var createdApplicationId: String? = null
+    private var createdServiceId: String? = null
 
     @BeforeAll
     fun setup() {
@@ -88,10 +97,15 @@ class ProjectsEnvironmentsApiIntegrationTest {
     private fun bindServices() {
         val projectRepo = JdbcProjectRepository(db.dataSource)
         val envRepo = JdbcEnvironmentRepository(db.dataSource)
+        val applicationRepo = JdbcApplicationRepository(db.dataSource)
+        val serviceRepo = JdbcServiceRepository(db.dataSource)
         val auditRepo = JdbcAuditRepository(db.dataSource)
+        val relationships = RelationshipValidator(projectRepo, applicationRepo)
         services = ControlServices(
             projects = ProjectService(projectRepo, auditRepo, actor = "dev"),
             environments = EnvironmentService(projectRepo, envRepo, auditRepo, actor = "dev"),
+            applications = ApplicationService(applicationRepo, relationships, auditRepo, actor = "dev"),
+            services = ServiceService(serviceRepo, relationships, auditRepo, actor = "dev"),
         )
     }
 
@@ -206,9 +220,60 @@ class ProjectsEnvironmentsApiIntegrationTest {
 
     @Test
     @Order(4)
+    fun createApplicationAndServiceWithRelationshipValidation() = withApi {
+        val client = jsonClient()
+        val projectId = requireNotNull(createdProjectId)
+        val application = client.post("/v1/projects/$projectId/applications") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"web"}""")
+        }
+        assertEquals(HttpStatusCode.Created, application.status)
+        val app = application.body<ApplicationResponse>()
+        assertEquals(projectId, app.projectId)
+        createdApplicationId = app.id
+
+        val service = client.post("/v1/applications/${app.id}/services") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"api","port":8080}""")
+        }
+        assertEquals(HttpStatusCode.Created, service.status)
+        val createdService = service.body<ServiceResponse>()
+        assertEquals(app.id, createdService.applicationId)
+        assertEquals(8080, createdService.port)
+        createdServiceId = createdService.id
+
+        val apps = client.get("/v1/projects/$projectId/applications")
+        assertTrue(apps.body<List<ApplicationResponse>>().any { it.id == app.id })
+        val services = client.get("/v1/applications/${app.id}/services")
+        assertTrue(services.body<List<ServiceResponse>>().any { it.id == createdService.id })
+        assertEquals(app.id, client.get("/v1/applications/${app.id}").body<ApplicationResponse>().id)
+        assertEquals(createdService.id, client.get("/v1/services/${createdService.id}").body<ServiceResponse>().id)
+
+        val duplicate = client.post("/v1/projects/$projectId/applications") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"web"}""")
+        }
+        assertEquals(HttpStatusCode.Conflict, duplicate.status)
+        val invalidPort = client.post("/v1/applications/${app.id}/services") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"bad","port":0}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, invalidPort.status)
+        val unknownParent = client.post("/v1/applications/${UUID.randomUUID()}/services") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"missing","port":80}""")
+        }
+        assertEquals(HttpStatusCode.NotFound, unknownParent.status)
+        assertEquals("not_found", unknownParent.body<ErrorEnvelope>().error.code)
+    }
+
+    @Test
+    @Order(5)
     fun survivesReconnect() {
         val projectId = requireNotNull(createdProjectId)
         val envId = requireNotNull(createdEnvironmentId)
+        val applicationId = requireNotNull(createdApplicationId)
+        val serviceId = requireNotNull(createdServiceId)
 
         db.close()
         db = Db.open(cfg.database)
@@ -216,6 +281,8 @@ class ProjectsEnvironmentsApiIntegrationTest {
 
         assertEquals(projectId, services.projects.get(UUID.fromString(projectId)).id.toString())
         assertEquals(envId, services.environments.get(UUID.fromString(envId)).id.toString())
+        assertEquals(applicationId, services.applications.get(UUID.fromString(applicationId)).id.toString())
+        assertEquals(serviceId, services.services.get(UUID.fromString(serviceId)).id.toString())
 
         testApplication {
             application {
@@ -233,6 +300,13 @@ class ProjectsEnvironmentsApiIntegrationTest {
             val envs = client.get("/v1/projects/$projectId/environments")
             assertEquals(HttpStatusCode.OK, envs.status)
             assertTrue(envs.body<List<EnvironmentResponse>>().any { it.id == envId })
+
+            val apps = client.get("/v1/projects/$projectId/applications")
+            assertEquals(HttpStatusCode.OK, apps.status)
+            assertTrue(apps.body<List<ApplicationResponse>>().any { it.id == applicationId })
+            val service = client.get("/v1/services/$serviceId")
+            assertEquals(HttpStatusCode.OK, service.status)
+            assertEquals(serviceId, service.body<ServiceResponse>().id)
         }
     }
 }
