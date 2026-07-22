@@ -70,7 +70,7 @@ Docker Compose
 | [01.03](../steps/01-runtime-contract/01.03-go-demo-app.md) | Go demo application | Complete | First vertical slice + demo 01 scaffold |
 | [01.04](../steps/01-runtime-contract/01.04-python-demo-app.md) | Python demo application | Complete | Depends on 01.03; port 4204 |
 | [01.05](../steps/01-runtime-contract/01.05-kotlin-demo-app.md) | Kotlin demo application | Complete | Depends on 01.03; port 4202 |
-| [01.06](../steps/01-runtime-contract/01.06-rust-demo-app.md) | Rust demo application | Not started | Depends on 01.03; port 4203; matches spec example |
+| [01.06](../steps/01-runtime-contract/01.06-rust-demo-app.md) | Rust demo application | Complete | Depends on 01.03; port 4203; matches spec example |
 | [01.07](../steps/01-runtime-contract/01.07-elixir-demo-and-full-suite.md) | Elixir demo and full suite | Not started | Fifth language + epic acceptance gate |
 
 ## Assumptions
@@ -93,4 +93,4 @@ Docker Compose
 
 ## Next step to implement
 
-**[01.06](../steps/01-runtime-contract/01.06-rust-demo-app.md) — Rust demo application** (depends on completed 01.03).
+**[01.07](../steps/01-runtime-contract/01.07-elixir-demo-and-full-suite.md) — Elixir demo and full five-language suite** (depends on completed 01.03–01.06).
