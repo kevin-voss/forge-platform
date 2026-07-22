@@ -3,7 +3,9 @@ mod docker;
 mod health;
 mod heartbeat;
 mod node;
+mod prober;
 mod routes;
+mod status;
 mod workload;
 
 use config::Config;
@@ -11,6 +13,7 @@ use docker::{startup_ping, BollardDocker};
 use health::{router as health_router, AppState};
 use heartbeat::Heartbeat;
 use node::{maybe_register, Node};
+use prober::{ProbeConfig, Prober, StatusCache};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::signal;
@@ -43,6 +46,10 @@ async fn run() -> Result<(), String> {
         heartbeat_interval_seconds = cfg.heartbeat_interval.as_secs(),
         pull_timeout_seconds = cfg.pull_timeout.as_secs(),
         default_registry = %cfg.default_registry,
+        probe_interval_seconds = cfg.probe_interval.as_secs(),
+        probe_timeout_seconds = cfg.probe_timeout.as_secs(),
+        probe_failure_threshold = cfg.probe_failure_threshold,
+        probe_host = %cfg.probe_host,
         control_url = cfg.control_url.as_deref().unwrap_or(""),
         shutdown_grace_seconds = cfg.shutdown_grace.as_secs(),
         "starting forge-runtime"
@@ -88,17 +95,35 @@ async fn run() -> Result<(), String> {
     let heartbeat = Arc::new(Heartbeat::new());
     let _heartbeat_task = heartbeat.spawn(cfg.heartbeat_interval);
 
+    let docker = Arc::new(docker);
+    let probe_cfg = ProbeConfig {
+        interval: cfg.probe_interval,
+        timeout: cfg.probe_timeout,
+        failure_threshold: cfg.probe_failure_threshold,
+        ready_path: cfg.probe_ready_path.clone(),
+        live_path: cfg.probe_live_path.clone(),
+        probe_host: cfg.probe_host.clone(),
+    };
+    let prober = Arc::new(Prober::new(
+        Arc::clone(&docker) as Arc<dyn docker::DockerEngine>,
+        Arc::new(StatusCache::new()),
+        probe_cfg,
+    )?);
+    let _prober_task = prober.spawn();
+
     let state = AppState {
-        docker: Arc::new(docker),
+        docker,
         node: Arc::new(node),
         heartbeat,
         pull_timeout: cfg.pull_timeout,
+        prober,
     };
 
     let app = axum::Router::new()
         .merge(health_router())
         .merge(routes::node::router())
         .merge(routes::workloads::router())
+        .merge(routes::status::router())
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], cfg.port));

@@ -1,4 +1,5 @@
 use crate::health::AppState;
+use crate::prober::note_workload_created;
 use crate::workload::{self, WorkloadSpec};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -28,6 +29,7 @@ async fn handle_create(
     State(state): State<AppState>,
     Json(spec): Json<WorkloadSpec>,
 ) -> impl IntoResponse {
+    let container_port = spec.port;
     match workload::create_and_start(
         state.docker.as_ref(),
         state.node.as_ref(),
@@ -36,7 +38,16 @@ async fn handle_create(
     )
     .await
     {
-        Ok(view) => (StatusCode::CREATED, Json(view)).into_response(),
+        Ok(view) => {
+            note_workload_created(
+                state.prober.cache().as_ref(),
+                &view.deployment_id,
+                view.host_port,
+                container_port,
+                &view.container_id,
+            );
+            (StatusCode::CREATED, Json(view)).into_response()
+        }
         Err(err) => error_response(err).into_response(),
     }
 }
@@ -77,13 +88,24 @@ mod tests {
     use tower::ServiceExt;
 
     async fn test_app(docker: Arc<dyn DockerEngine>) -> Router {
+        use crate::prober::{ProbeConfig, Prober, StatusCache};
+
         let dir = tempdir().unwrap();
         let node = Node::bootstrap(dir.path(), docker.as_ref()).await.unwrap();
+        let prober = Arc::new(
+            Prober::new(
+                Arc::clone(&docker),
+                Arc::new(StatusCache::new()),
+                ProbeConfig::default(),
+            )
+            .unwrap(),
+        );
         let state = AppState {
             docker,
             node: Arc::new(node),
             heartbeat: Arc::new(Heartbeat::new()),
             pull_timeout: Duration::from_secs(30),
+            prober,
         };
         Router::new().merge(router()).with_state(state)
     }

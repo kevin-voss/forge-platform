@@ -341,7 +341,7 @@ fn infer_container_port(inspect: &ContainerInspectInfo) -> Option<u16> {
         .find_map(|k| k.strip_suffix("/tcp").and_then(|p| p.parse::<u16>().ok()))
 }
 
-/// Until 04.04 probes health, running containers report `starting`.
+/// Coarse Docker→workload state for GET /v1/workloads (detailed status is /status).
 fn map_docker_state(docker_state: &str) -> String {
     match docker_state.to_ascii_lowercase().as_str() {
         "running" | "created" | "restarting" => "starting".into(),

@@ -221,8 +221,17 @@ services:
       FORGE_HEARTBEAT_INTERVAL_SECONDS: ${FORGE_HEARTBEAT_INTERVAL_SECONDS:-10}
       FORGE_PULL_TIMEOUT_SECONDS: ${FORGE_PULL_TIMEOUT_SECONDS:-120}
       FORGE_DEFAULT_REGISTRY: ${FORGE_DEFAULT_REGISTRY:-localhost:5000}
+      FORGE_PROBE_INTERVAL_SECONDS: ${FORGE_PROBE_INTERVAL_SECONDS:-5}
+      FORGE_PROBE_TIMEOUT_SECONDS: ${FORGE_PROBE_TIMEOUT_SECONDS:-2}
+      FORGE_PROBE_FAILURE_THRESHOLD: ${FORGE_PROBE_FAILURE_THRESHOLD:-3}
+      FORGE_PROBE_READY_PATH: ${FORGE_PROBE_READY_PATH:-/health/ready}
+      FORGE_PROBE_LIVE_PATH: ${FORGE_PROBE_LIVE_PATH:-/health/live}
+      # Reach published host ports on the Docker host from inside this container.
+      FORGE_PROBE_HOST: ${FORGE_PROBE_HOST:-host.docker.internal}
       # Reserved for 04.07 Control registration (stub no-op when unset).
       FORGE_CONTROL_URL: ${FORGE_CONTROL_URL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # Privileged local-dev mount — grants broad host control; harden later.
       - /var/run/docker.sock:/var/run/docker.sock

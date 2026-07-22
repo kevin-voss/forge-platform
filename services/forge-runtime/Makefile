@@ -21,6 +21,10 @@ dev:
 	FORGE_HEARTBEAT_INTERVAL_SECONDS=$${FORGE_HEARTBEAT_INTERVAL_SECONDS:-10} \
 	FORGE_PULL_TIMEOUT_SECONDS=$${FORGE_PULL_TIMEOUT_SECONDS:-120} \
 	FORGE_DEFAULT_REGISTRY=$${FORGE_DEFAULT_REGISTRY:-localhost:5000} \
+	FORGE_PROBE_INTERVAL_SECONDS=$${FORGE_PROBE_INTERVAL_SECONDS:-5} \
+	FORGE_PROBE_TIMEOUT_SECONDS=$${FORGE_PROBE_TIMEOUT_SECONDS:-2} \
+	FORGE_PROBE_FAILURE_THRESHOLD=$${FORGE_PROBE_FAILURE_THRESHOLD:-3} \
+	FORGE_PROBE_HOST=$${FORGE_PROBE_HOST:-127.0.0.1} \
 	cargo run
 
 build:
@@ -70,6 +74,31 @@ test-integration: run
 	@NODE_ID=$$(curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/node" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])'); \
 		NODE_ID="$$NODE_ID" docker inspect forge-deployment-123 --format '{{json .Config.Labels}}' | \
 		NODE_ID="$$NODE_ID" python3 -c 'import sys,json,os; d=json.load(sys.stdin); assert d.get("forge.deployment_id")=="deployment-123"; assert d.get("forge.managed")=="true"; assert d.get("forge.node_id")==os.environ["NODE_ID"]'
+	@# Health probing: wait until status reaches ready (Go demo implements /health/ready).
+	@for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do \
+		st=$$(curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/workloads/deployment-123/status" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])'); \
+		if [ "$$st" = "ready" ]; then break; fi; \
+		sleep 2; \
+	done; \
+	curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/workloads/deployment-123/status" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["deploymentId"]=="deployment-123"; assert d["status"]=="ready"; assert d["lastProbe"]["live"] is True; assert d["lastProbe"]["ready"] is True; assert "since" in d; assert "restarts" in d'
+	@# Kill container out-of-band → status becomes failed (not ready).
+	@docker stop forge-deployment-123 >/dev/null
+	@sleep 6
+	@curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/workloads/deployment-123/status" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"] in ("failed","unhealthy","stopped"); assert d["status"]!="ready"'
+	@docker rm -f forge-deployment-123 >/dev/null 2>&1 || true
+	@# Recreate workload, restart Runtime, confirm rediscovery + probing resumes.
+	@curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/workloads" \
+		-H 'content-type: application/json' \
+		-d '{"deployment_id":"deployment-123","image":"localhost:5000/demo-go:latest","port":8080,"environment":{"FORGE_ENV":"development","PORT":"8080"}}' \
+		| python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["hostPort"]>0'
+	@docker restart $(SERVICE) >/dev/null
+	@$(MAKE) wait
+	@for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do \
+		st=$$(curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/workloads/deployment-123/status" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])'); \
+		if [ "$$st" = "ready" ]; then break; fi; \
+		sleep 2; \
+	done; \
+	curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/workloads/deployment-123/status" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="ready", d'
 	@# Pull failure leaves no dangling container.
 	@-docker rm -f forge-deployment-bogus >/dev/null 2>&1 || true
 	@code=$$(curl -s -o /tmp/forge-runtime-pull-err.json -w '%{http_code}' -X POST "http://127.0.0.1:$(HOST_PORT)/v1/workloads" \
@@ -86,7 +115,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (health + node + workloads create/start + graceful SIGTERM)."
+	@echo "Integration checks passed (health + node + workloads + status probing + graceful SIGTERM)."
 
 lint:
 	@cargo fmt --check

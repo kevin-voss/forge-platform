@@ -25,6 +25,13 @@ pub struct Config {
     pub pull_timeout: Duration,
     /// Informational default registry host (images are fully qualified).
     pub default_registry: String,
+    pub probe_interval: Duration,
+    pub probe_timeout: Duration,
+    pub probe_failure_threshold: u32,
+    pub probe_ready_path: String,
+    pub probe_live_path: String,
+    /// Host paired with published host ports for health probes.
+    pub probe_host: String,
 }
 
 impl Config {
@@ -126,6 +133,49 @@ impl Config {
 
         let default_registry = non_empty_env("FORGE_DEFAULT_REGISTRY", "localhost:5000");
 
+        let probe_interval_raw =
+            env::var("FORGE_PROBE_INTERVAL_SECONDS").unwrap_or_else(|_| "5".into());
+        let probe_interval_secs: u64 = probe_interval_raw.trim().parse().map_err(|_| {
+            format!(
+                "FORGE_PROBE_INTERVAL_SECONDS must be a positive integer, got {probe_interval_raw:?}"
+            )
+        })?;
+        if probe_interval_secs == 0 {
+            return Err(format!(
+                "FORGE_PROBE_INTERVAL_SECONDS must be a positive integer, got {probe_interval_raw:?}"
+            ));
+        }
+
+        let probe_timeout_raw =
+            env::var("FORGE_PROBE_TIMEOUT_SECONDS").unwrap_or_else(|_| "2".into());
+        let probe_timeout_secs: u64 = probe_timeout_raw.trim().parse().map_err(|_| {
+            format!(
+                "FORGE_PROBE_TIMEOUT_SECONDS must be a positive integer, got {probe_timeout_raw:?}"
+            )
+        })?;
+        if probe_timeout_secs == 0 {
+            return Err(format!(
+                "FORGE_PROBE_TIMEOUT_SECONDS must be a positive integer, got {probe_timeout_raw:?}"
+            ));
+        }
+
+        let threshold_raw =
+            env::var("FORGE_PROBE_FAILURE_THRESHOLD").unwrap_or_else(|_| "3".into());
+        let probe_failure_threshold: u32 = threshold_raw.trim().parse().map_err(|_| {
+            format!(
+                "FORGE_PROBE_FAILURE_THRESHOLD must be a positive integer, got {threshold_raw:?}"
+            )
+        })?;
+        if probe_failure_threshold == 0 {
+            return Err(format!(
+                "FORGE_PROBE_FAILURE_THRESHOLD must be a positive integer, got {threshold_raw:?}"
+            ));
+        }
+
+        let probe_ready_path = non_empty_env("FORGE_PROBE_READY_PATH", "/health/ready");
+        let probe_live_path = non_empty_env("FORGE_PROBE_LIVE_PATH", "/health/live");
+        let probe_host = non_empty_env("FORGE_PROBE_HOST", "127.0.0.1");
+
         Ok(Self {
             port,
             service_name,
@@ -142,6 +192,12 @@ impl Config {
             control_url,
             pull_timeout: Duration::from_secs(pull_secs),
             default_registry,
+            probe_interval: Duration::from_secs(probe_interval_secs),
+            probe_timeout: Duration::from_secs(probe_timeout_secs),
+            probe_failure_threshold,
+            probe_ready_path,
+            probe_live_path,
+            probe_host,
         })
     }
 }
@@ -184,6 +240,12 @@ mod tests {
             "FORGE_CONTROL_URL",
             "FORGE_PULL_TIMEOUT_SECONDS",
             "FORGE_DEFAULT_REGISTRY",
+            "FORGE_PROBE_INTERVAL_SECONDS",
+            "FORGE_PROBE_TIMEOUT_SECONDS",
+            "FORGE_PROBE_FAILURE_THRESHOLD",
+            "FORGE_PROBE_READY_PATH",
+            "FORGE_PROBE_LIVE_PATH",
+            "FORGE_PROBE_HOST",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()
@@ -270,6 +332,12 @@ mod tests {
                 ("FORGE_CONTROL_URL", None),
                 ("FORGE_PULL_TIMEOUT_SECONDS", None),
                 ("FORGE_DEFAULT_REGISTRY", None),
+                ("FORGE_PROBE_INTERVAL_SECONDS", None),
+                ("FORGE_PROBE_TIMEOUT_SECONDS", None),
+                ("FORGE_PROBE_FAILURE_THRESHOLD", None),
+                ("FORGE_PROBE_READY_PATH", None),
+                ("FORGE_PROBE_LIVE_PATH", None),
+                ("FORGE_PROBE_HOST", None),
             ],
             || {
                 let cfg = Config::from_env().expect("config");
@@ -286,6 +354,25 @@ mod tests {
                 assert!(cfg.control_url.is_none());
                 assert_eq!(cfg.pull_timeout, Duration::from_secs(120));
                 assert_eq!(cfg.default_registry, "localhost:5000");
+                assert_eq!(cfg.probe_interval, Duration::from_secs(5));
+                assert_eq!(cfg.probe_timeout, Duration::from_secs(2));
+                assert_eq!(cfg.probe_failure_threshold, 3);
+                assert_eq!(cfg.probe_ready_path, "/health/ready");
+                assert_eq!(cfg.probe_live_path, "/health/live");
+                assert_eq!(cfg.probe_host, "127.0.0.1");
+            },
+        );
+    }
+
+    #[test]
+    fn rejects_zero_probe_threshold() {
+        with_env(
+            &[
+                ("PORT", Some("8080")),
+                ("FORGE_PROBE_FAILURE_THRESHOLD", Some("0")),
+            ],
+            || {
+                assert!(Config::from_env().is_err());
             },
         );
     }

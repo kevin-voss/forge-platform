@@ -1,11 +1,15 @@
 use async_trait::async_trait;
 use bollard::container::{
-    Config, CreateContainerOptions, InspectContainerOptions, RemoveContainerOptions,
-    StartContainerOptions,
+    Config, CreateContainerOptions, InspectContainerOptions, ListContainersOptions,
+    RemoveContainerOptions, StartContainerOptions,
 };
 use bollard::image::CreateImageOptions;
 use bollard::models::{HostConfig, PortBinding};
 use bollard::Docker;
+
+/// Label filter for managed workloads (kept here to avoid a docker↔workload cycle).
+const MANAGED_LABEL_FILTER: &str = "forge.managed=true";
+const DEPLOYMENT_ID_LABEL: &str = "forge.deployment_id";
 use futures_util::TryStreamExt;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -38,6 +42,9 @@ pub struct ContainerInspectInfo {
     /// Map of `"8080/tcp"` → published host ports.
     pub port_bindings: HashMap<String, Vec<u16>>,
     pub labels: Option<HashMap<String, String>>,
+    /// First non-empty container IP (bridge / network), when available.
+    pub ip_address: Option<String>,
+    pub restart_count: u32,
 }
 
 /// Docker Engine operations for readiness + workload lifecycle.
@@ -48,6 +55,8 @@ pub trait DockerEngine: DockerProbe {
     async fn start_container(&self, id_or_name: &str) -> Result<(), String>;
     async fn remove_container(&self, id_or_name: &str, force: bool) -> Result<(), String>;
     async fn inspect_container(&self, id_or_name: &str) -> Result<ContainerInspectInfo, String>;
+    /// List containers labeled `forge.managed=true` (all states).
+    async fn list_managed_containers(&self) -> Result<Vec<ContainerInspectInfo>, String>;
 }
 
 /// Docker Engine client. Connection failures are deferred to `ping` so the HTTP
@@ -204,46 +213,127 @@ impl DockerEngine for BollardDocker {
             .inspect_container(id_or_name, None::<InspectContainerOptions>)
             .await
             .map_err(|e| format!("container inspect failed: {e}"))?;
+        Ok(inspect_to_info(inspect, id_or_name))
+    }
 
-        let id = inspect.id.unwrap_or_else(|| id_or_name.to_string());
-        let image = inspect.config.as_ref().and_then(|c| c.image.clone());
-        let state = inspect
-            .state
-            .as_ref()
-            .and_then(|s| s.status.map(|st| st.to_string()))
-            .unwrap_or_default();
-        let labels = inspect.config.as_ref().and_then(|c| c.labels.clone());
+    async fn list_managed_containers(&self) -> Result<Vec<ContainerInspectInfo>, String> {
+        let docker = self.client()?;
+        let mut filters = HashMap::new();
+        filters.insert("label".to_string(), vec![MANAGED_LABEL_FILTER.to_string()]);
+        let options = ListContainersOptions {
+            all: true,
+            filters,
+            ..Default::default()
+        };
+        let listed = docker
+            .list_containers(Some(options))
+            .await
+            .map_err(|e| format!("list containers failed: {e}"))?;
 
-        let mut port_bindings: HashMap<String, Vec<u16>> = HashMap::new();
-        if let Some(ports) = inspect
-            .network_settings
-            .as_ref()
-            .and_then(|n| n.ports.as_ref())
-        {
-            for (key, bindings) in ports {
-                let mut hosts = Vec::new();
-                if let Some(list) = bindings {
-                    for b in list {
-                        if let Some(hp) = &b.host_port {
-                            if let Ok(p) = hp.parse::<u16>() {
-                                hosts.push(p);
-                            }
-                        }
+        let mut out = Vec::with_capacity(listed.len());
+        for summary in listed {
+            let id = summary.id.unwrap_or_default();
+            if id.is_empty() {
+                continue;
+            }
+            // Prefer full inspect so port bindings / IP are accurate.
+            match self.inspect_container(&id).await {
+                Ok(info) => {
+                    // Require deployment id label for probing targets.
+                    if info
+                        .labels
+                        .as_ref()
+                        .and_then(|l| l.get(DEPLOYMENT_ID_LABEL))
+                        .map(|s| !s.is_empty())
+                        .unwrap_or(false)
+                    {
+                        out.push(info);
                     }
                 }
-                if !hosts.is_empty() {
-                    port_bindings.insert(key.clone(), hosts);
+                Err(err) => {
+                    warn!(container_id = %id, error = %err, "skip managed container inspect");
                 }
             }
         }
+        Ok(out)
+    }
+}
 
-        Ok(ContainerInspectInfo {
-            id,
-            image,
-            state,
-            port_bindings,
-            labels,
-        })
+fn inspect_to_info(
+    inspect: bollard::models::ContainerInspectResponse,
+    fallback_id: &str,
+) -> ContainerInspectInfo {
+    let id = inspect
+        .id
+        .clone()
+        .unwrap_or_else(|| fallback_id.to_string());
+    let image = inspect.config.as_ref().and_then(|c| c.image.clone());
+    let state = inspect
+        .state
+        .as_ref()
+        .and_then(|s| s.status.map(|st| st.to_string()))
+        .unwrap_or_default();
+    let labels = inspect.config.as_ref().and_then(|c| c.labels.clone());
+    let restart_count = inspect.restart_count.unwrap_or(0).clamp(0, u32::MAX as i64) as u32;
+
+    let mut port_bindings: HashMap<String, Vec<u16>> = HashMap::new();
+    if let Some(ports) = inspect
+        .network_settings
+        .as_ref()
+        .and_then(|n| n.ports.as_ref())
+    {
+        for (key, bindings) in ports {
+            let mut hosts = Vec::new();
+            if let Some(list) = bindings {
+                for b in list {
+                    if let Some(hp) = &b.host_port {
+                        if let Ok(p) = hp.parse::<u16>() {
+                            hosts.push(p);
+                        }
+                    }
+                }
+            }
+            if !hosts.is_empty() {
+                port_bindings.insert(key.clone(), hosts);
+            }
+        }
+    }
+
+    let mut ip_address = None;
+    if let Some(networks) = inspect
+        .network_settings
+        .as_ref()
+        .and_then(|n| n.networks.as_ref())
+    {
+        for net in networks.values() {
+            if let Some(ip) = net.ip_address.as_ref() {
+                if !ip.is_empty() {
+                    ip_address = Some(ip.clone());
+                    break;
+                }
+            }
+        }
+    }
+    if ip_address.is_none() {
+        if let Some(ip) = inspect
+            .network_settings
+            .as_ref()
+            .and_then(|n| n.ip_address.clone())
+        {
+            if !ip.is_empty() {
+                ip_address = Some(ip);
+            }
+        }
+    }
+
+    ContainerInspectInfo {
+        id,
+        image,
+        state,
+        port_bindings,
+        labels,
+        ip_address,
+        restart_count,
     }
 }
 
@@ -388,6 +478,10 @@ pub mod test_support {
         ) -> Result<ContainerInspectInfo, String> {
             Err("stub: inspect not implemented".into())
         }
+
+        async fn list_managed_containers(&self) -> Result<Vec<ContainerInspectInfo>, String> {
+            Ok(Vec::new())
+        }
     }
 
     /// Records Docker call order for workload orchestration unit tests.
@@ -527,7 +621,23 @@ pub mod test_support {
                 },
                 port_bindings,
                 labels: Some(self.created_labels.lock().unwrap().clone()),
+                ip_address: Some("172.17.0.2".into()),
+                restart_count: 0,
             })
+        }
+
+        async fn list_managed_containers(&self) -> Result<Vec<ContainerInspectInfo>, String> {
+            if self.missing {
+                return Ok(Vec::new());
+            }
+            let name = self.created_name.lock().unwrap().clone();
+            if name.is_none() {
+                return Ok(Vec::new());
+            }
+            match self.inspect_container(&self.container_id).await {
+                Ok(info) => Ok(vec![info]),
+                Err(_) => Ok(Vec::new()),
+            }
         }
     }
 }

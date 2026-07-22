@@ -65,7 +65,7 @@ Forge CLI → Forge Control → Forge Runtime → Docker Engine → demo-go cont
 | [04.01](../steps/04-forge-runtime/04.01-skeleton-docker-socket-health.md) | Skeleton + Docker socket + health | Complete | Rust/Axum, port 4102, Docker ping |
 | [04.02](../steps/04-forge-runtime/04.02-node-identity-registration-heartbeat.md) | Node identity + registration/heartbeat | Complete | Stable node id, `/v1/node`, heartbeat, label helper |
 | [04.03](../steps/04-forge-runtime/04.03-workload-create-start.md) | Workload create/start (pull, env, ports, labels) | Complete | Pull/create/start + host port + labels |
-| [04.04](../steps/04-forge-runtime/04.04-health-probing-status-model.md) | Health probing + status model | Not started | Depends on 04.03 |
+| [04.04](../steps/04-forge-runtime/04.04-health-probing-status-model.md) | Health probing + status model | Complete | Prober + normalized status + `/status` API |
 | [04.05](../steps/04-forge-runtime/04.05-log-streaming.md) | Log streaming | Not started | Depends on 04.03 |
 | [04.06](../steps/04-forge-runtime/04.06-stop-delete-no-duplicates.md) | Stop/delete; no duplicate containers | Not started | Depends on 04.03 |
 | [04.07](../steps/04-forge-runtime/04.07-control-integration.md) | Control integration (desired→actual) | Not started | Depends on 04.03–04.06 + Control 02.05 |
@@ -91,4 +91,4 @@ Forge CLI → Forge Control → Forge Runtime → Docker Engine → demo-go cont
 
 ## Next step to implement
 
-**[04.04](../steps/04-forge-runtime/04.04-health-probing-status-model.md) — Health probing + status model**.
+**[04.05](../steps/04-forge-runtime/04.05-log-streaming.md) — Log streaming**.

@@ -1,6 +1,7 @@
 use crate::docker::DockerEngine;
 use crate::heartbeat::Heartbeat;
 use crate::node::Node;
+use crate::prober::Prober;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -16,6 +17,7 @@ pub struct AppState {
     pub node: Arc<Node>,
     pub heartbeat: Arc<Heartbeat>,
     pub pull_timeout: Duration,
+    pub prober: Arc<Prober>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -67,16 +69,27 @@ mod tests {
     use tower::ServiceExt;
 
     async fn test_state(docker: Arc<dyn DockerEngine>) -> AppState {
+        use crate::prober::{ProbeConfig, Prober, StatusCache};
+
         let dir = tempdir().unwrap();
         let node = Node::bootstrap(dir.path(), docker.as_ref())
             .await
             .expect("node");
+        let prober = Arc::new(
+            Prober::new(
+                Arc::clone(&docker),
+                Arc::new(StatusCache::new()),
+                ProbeConfig::default(),
+            )
+            .expect("prober"),
+        );
         // Node id is in-memory; tempdir may drop.
         AppState {
             docker,
             node: Arc::new(node),
             heartbeat: Arc::new(Heartbeat::new()),
             pull_timeout: Duration::from_secs(30),
+            prober,
         }
     }
 

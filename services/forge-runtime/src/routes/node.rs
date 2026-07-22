@@ -65,11 +65,21 @@ mod tests {
 
         let heartbeat = Arc::new(Heartbeat::new());
         heartbeat.tick(Utc::now(), true);
+        let docker = Arc::new(docker);
+        let prober = Arc::new(
+            crate::prober::Prober::new(
+                Arc::clone(&docker) as Arc<dyn crate::docker::DockerEngine>,
+                Arc::new(crate::prober::StatusCache::new()),
+                crate::prober::ProbeConfig::default(),
+            )
+            .unwrap(),
+        );
         let state = AppState {
-            docker: Arc::new(docker),
+            docker,
             node: Arc::clone(&node),
             heartbeat: Arc::clone(&heartbeat),
             pull_timeout: std::time::Duration::from_secs(30),
+            prober,
         };
         (router().with_state(state), node, heartbeat)
     }
