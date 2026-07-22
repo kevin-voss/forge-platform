@@ -53,7 +53,7 @@ Full step catalog + global queue: [`MASTER_PLAN.md`](MASTER_PLAN.md).
 | [00](epics/00-repository-foundation.md) | Repository foundation | root, `infrastructure/`, `docs/` | — | Planned + complete (`00.01`) |
 | [01](epics/01-runtime-contract.md) | Runtime contract | `demos/`, contracts | polyglot | Planned (7 steps) |
 | [02](epics/02-forge-control.md) | Forge Control | `services/forge-control` | Kotlin | Complete (8/8 steps; demo 02 gate passed) |
-| [03](epics/03-forge-cli.md) | Forge CLI | `tools/forge-cli` | Go | Planned (6 steps) |
+| [03](epics/03-forge-cli.md) | Forge CLI | `tools/forge-cli` | Go | Complete (6/6 steps; demo 03 gate passed) |
 | [04](epics/04-forge-runtime.md) | Forge Runtime | `services/forge-runtime` | Rust | Planned (8 steps) |
 | [05](epics/05-forge-gateway.md) | Forge Gateway | `services/forge-gateway` | Go | Planned (7 steps) |
 | [06](epics/06-forge-build.md) | Forge Build | `services/forge-build` | Go | Planned (7 steps) |
