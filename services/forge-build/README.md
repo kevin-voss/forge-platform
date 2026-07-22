@@ -140,6 +140,16 @@ Structured JSON logs on stdout with `timestamp`, `level`, `service`, and
 `message`. Build lifecycle logs include phase transitions with `build_id` and
 phase duration, plus startup orphan sweeps and workspace cleanup.
 
+## Demo
+
+Epic acceptance gate:
+
+```bash
+make demo DEMO=06
+```
+
+See [`demos/06-source-to-deployment/`](../../demos/06-source-to-deployment/).
+
 ## Development
 
 ```bash

@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress — 6/7 steps complete
+Complete — 7/7 steps complete
 
 ## Goal
 
@@ -66,7 +66,7 @@ Git repo → Forge Build → docker build → localhost:5000 → Control (image 
 | [06.04](../steps/06-forge-build/06.04-tag-and-push-registry.md) | Tag + push local registry `:5000` | Complete | Tag/push + digest on build record |
 | [06.05](../steps/06-forge-build/06.05-build-status-and-failure-paths.md) | Build status + failure paths | Complete | Durable status/phases, cancel, cleanup + restart recovery |
 | [06.06](../steps/06-forge-build/06.06-control-integration-image-ref.md) | Control integration (image ref on service) | Complete | Control `POST .../image` + Build post-success hook |
-| [06.07](../steps/06-forge-build/06.07-demo-source-to-deployment-and-gate.md) | Demo `06-source-to-deployment` + gate | Not started | Depends on all prior + Runtime 04 + Gateway 05 |
+| [06.07](../steps/06-forge-build/06.07-demo-source-to-deployment-and-gate.md) | Demo `06-source-to-deployment` + gate | Complete | Demo 06 acceptance gate passed |
 
 ## Assumptions
 
@@ -88,4 +88,4 @@ Git repo → Forge Build → docker build → localhost:5000 → Control (image 
 
 ## Next step to implement
 
-**[06.07](../steps/06-forge-build/06.07-demo-source-to-deployment-and-gate.md) — Demo `06-source-to-deployment` + gate**.
+Epic complete. Next epic: [`07-deployment-reconciliation`](07-deployment-reconciliation.md).

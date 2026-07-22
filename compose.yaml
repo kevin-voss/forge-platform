@@ -359,8 +359,10 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - forge-build-workspace:/workspace
       - forge-build-store:/var/lib/forge-build
-      # Local fixture Git repo for build smoke tests / demos (init via forge-build Makefile).
+      # Local fixture Git repos for build smoke tests / demos (init via Makefile / demo run.sh).
       - ./services/forge-build/testdata/app:/fixtures/app
+      - ./demos/06-source-to-deployment/fixture:/fixtures/demo
+      - ./demos/06-source-to-deployment/fixture-broken:/fixtures/demo-broken
     # Socket is typically root:root mode 660 inside the container on Docker Desktop.
     # Run as root for this privileged local-dev mount (documented; harden later).
     user: "0:0"
