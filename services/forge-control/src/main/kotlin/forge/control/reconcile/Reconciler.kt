@@ -31,6 +31,11 @@ data class ExecutedAction(
  * Bounds work per tick with [maxActionsPerTick].
  * Rolling steps stop the chain when WaitReady is not yet satisfied or traffic
  * shift/drain fails (fail-closed — do not stop old replicas).
+ *
+ * Lifecycle status transitions (deploying/deployed/…) are recorded by
+ * [TransitionRecorder] in [ReconciliationController] — not here — so create/
+ * ready/shift/stop actions stay idempotent under controller restart
+ * (`EnsureOutcome.Adopted` when a labeled workload already exists).
  */
 class Reconciler(
     private val runtimeClient: RuntimeClient,

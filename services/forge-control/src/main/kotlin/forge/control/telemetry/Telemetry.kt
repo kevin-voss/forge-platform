@@ -41,6 +41,7 @@ class Telemetry private constructor(
     private val rolloutSteps: LongCounter,
     private val rolloutResults: LongCounter,
     private val rollbackDuration: DoubleHistogram,
+    private val deploymentTransitions: LongCounter,
     private val sdk: OpenTelemetrySdk?,
 ) : AutoCloseable {
     val enabled: Boolean = sdk != null
@@ -90,6 +91,13 @@ class Telemetry private constructor(
 
     fun recordRollbackDuration(durationMs: Long) {
         rollbackDuration.record(durationMs.toDouble())
+    }
+
+    fun recordDeploymentTransition(toStatus: String) {
+        deploymentTransitions.add(
+            1,
+            Attributes.of(AttributeKey.stringKey("to_status"), toStatus),
+        )
     }
 
     fun <T> inSpan(name: String, block: () -> T): T {
@@ -168,6 +176,7 @@ class Telemetry private constructor(
                 rolloutSteps = meter.counterBuilder("forge_rollout_step_total").build(),
                 rolloutResults = meter.counterBuilder("forge_rollout_result_total").build(),
                 rollbackDuration = meter.histogramBuilder("forge_rollback_duration_ms").setUnit("ms").build(),
+                deploymentTransitions = meter.counterBuilder("forge_deployment_transitions_total").build(),
                 sdk = sdk,
             )
         }

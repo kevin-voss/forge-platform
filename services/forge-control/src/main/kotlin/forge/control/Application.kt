@@ -13,6 +13,7 @@ import forge.control.http.deploymentRoutes
 import forge.control.http.environmentRoutes
 import forge.control.http.healthRoutes
 import forge.control.http.projectRoutes
+import forge.control.http.historyRoutes
 import forge.control.http.reconcileStatusRoutes
 import forge.control.http.serviceRoutes
 import forge.control.http.toEnvelope
@@ -20,11 +21,14 @@ import forge.control.http.installRequestId
 import forge.control.logging.JsonLog
 import forge.control.reconcile.HttpGatewayClient
 import forge.control.reconcile.HttpRuntimeClient
+import forge.control.reconcile.JdbcDeploymentHistory
 import forge.control.reconcile.JdbcLastHealthyStore
 import forge.control.reconcile.JdbcReconcileStatusStore
+import forge.control.reconcile.JdbcTransitionRecorder
 import forge.control.reconcile.ReadinessGate
 import forge.control.reconcile.ReconciliationController
 import forge.control.reconcile.RepositoryDeploymentStore
+import forge.control.reconcile.StartupRecovery
 import forge.control.reconcile.TrafficShifter
 import forge.control.repo.JdbcApplicationRepository
 import forge.control.repo.JdbcAuditRepository
@@ -126,6 +130,14 @@ fun main() {
     val trafficShifter = TrafficShifter(HttpGatewayClient(cfg.gatewayUrl))
     val reconcileStatusStore = JdbcReconcileStatusStore(db.dataSource)
     val lastHealthyStore = JdbcLastHealthyStore(db.dataSource)
+    val deploymentHistory = JdbcDeploymentHistory(db.dataSource)
+    val transitionRecorder = JdbcTransitionRecorder(
+        dataSource = db.dataSource,
+        history = deploymentHistory,
+        log = log,
+        enabled = cfg.historyEnabled,
+        telemetry = telemetry,
+    )
     val reconcileController = ReconciliationController(
         deploymentStore = deploymentStore,
         runtimeClient = runtimeClient,
@@ -140,6 +152,15 @@ fun main() {
         readinessMaxWaitSeconds = cfg.readinessMaxWaitSeconds,
         lastHealthyStore = lastHealthyStore,
         rollbackEnabled = cfg.rollbackEnabled,
+        transitionRecorder = transitionRecorder,
+    )
+    val startupRecovery = StartupRecovery(
+        deploymentStore = deploymentStore,
+        runtimeClient = runtimeClient,
+        transitionRecorder = transitionRecorder,
+        lastHealthyStore = lastHealthyStore,
+        log = log,
+        adoptLabels = cfg.startupAdoptLabels,
     )
     val services = ControlServices(
         projects = ProjectService(projectRepo, auditRepo, actor = actor),
@@ -165,6 +186,7 @@ fun main() {
         deploymentStore = deploymentStore,
         runtimeClient = runtimeClient,
         reconcileStatusStore = reconcileStatusStore,
+        deploymentHistory = deploymentHistory,
     )
 
     val readiness = Readiness()
@@ -177,6 +199,14 @@ fun main() {
         }
         monitor.subscribe(ApplicationStarted) {
             readiness.markReady()
+            try {
+                startupRecovery.recover()
+            } catch (e: Exception) {
+                log.error(
+                    "startup recovery failed",
+                    "error" to (e.message ?: e.javaClass.simpleName),
+                )
+            }
             reconcileController.start()
             log.info(
                 "listening",
@@ -186,6 +216,8 @@ fun main() {
                 "auth_mode" to cfg.authMode,
                 "reconcile_enabled" to cfg.reconcileEnabled,
                 "reconcile_interval_ms" to cfg.reconcileIntervalMs,
+                "history_enabled" to cfg.historyEnabled,
+                "startup_adopt_labels" to cfg.startupAdoptLabels,
             )
         }
     }
@@ -340,6 +372,10 @@ fun Application.forgeControlModule(
             val reconcileStatusStore = services.reconcileStatusStore
             if (deploymentStore != null && runtimeClient != null && reconcileStatusStore != null) {
                 reconcileStatusRoutes(deploymentStore, runtimeClient, reconcileStatusStore)
+            }
+            val history = services.deploymentHistory
+            if (deploymentStore != null && history != null) {
+                historyRoutes(deploymentStore, history)
             }
         }
     }

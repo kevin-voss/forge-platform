@@ -77,4 +77,14 @@ class ReconcileOpenApiContractTest {
         assertTrue(yaml.contains("rolling_back"))
         assertTrue(yaml.contains("rolled_back"))
     }
+
+    @Test
+    fun openApiDeclaresDeploymentHistory() {
+        val yaml = Files.readString(openApiPath)
+        assertTrue(yaml.contains("/v1/deployments/{deploymentId}/history"))
+        assertTrue(yaml.contains("x-get-deployment-history"))
+        assertTrue(yaml.contains("DeploymentHistory:"))
+        assertTrue(yaml.contains("DeploymentEvent:"))
+        assertTrue(yaml.contains("operationId: getDeploymentHistory") || yaml.contains("getDeploymentHistory"))
+    }
 }

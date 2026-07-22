@@ -30,6 +30,8 @@ data class AppConfig(
     val rollbackEnabled: Boolean = true,
     val readinessPollMs: Long = 1_000,
     val readinessMaxWaitSeconds: Long = 60,
+    val historyEnabled: Boolean = true,
+    val startupAdoptLabels: Boolean = true,
 )
 
 fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
@@ -206,6 +208,26 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         )
     }
 
+    val historyEnabledRaw = env["FORGE_HISTORY_ENABLED"]?.trim()?.lowercase().orEmpty()
+        .ifEmpty { "true" }
+    val historyEnabled = when (historyEnabledRaw) {
+        "true", "1", "yes" -> true
+        "false", "0", "no" -> false
+        else -> throw IllegalArgumentException(
+            "FORGE_HISTORY_ENABLED must be true|false, got '$historyEnabledRaw'",
+        )
+    }
+
+    val startupAdoptRaw = env["FORGE_STARTUP_ADOPT_LABELS"]?.trim()?.lowercase().orEmpty()
+        .ifEmpty { "true" }
+    val startupAdoptLabels = when (startupAdoptRaw) {
+        "true", "1", "yes" -> true
+        "false", "0", "no" -> false
+        else -> throw IllegalArgumentException(
+            "FORGE_STARTUP_ADOPT_LABELS must be true|false, got '$startupAdoptRaw'",
+        )
+    }
+
     return AppConfig(
         port = port,
         serviceName = env["FORGE_SERVICE_NAME"]?.trim().orEmpty().ifEmpty { "forge-control" },
@@ -236,5 +258,7 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         rollbackEnabled = rollbackEnabled,
         readinessPollMs = readinessPollMs,
         readinessMaxWaitSeconds = readinessMaxWaitSeconds,
+        historyEnabled = historyEnabled,
+        startupAdoptLabels = startupAdoptLabels,
     )
 }

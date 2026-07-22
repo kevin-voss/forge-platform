@@ -1,5 +1,6 @@
 package forge.control
 
+import forge.control.reconcile.DeploymentHistory
 import forge.control.reconcile.DeploymentStore
 import forge.control.reconcile.ReconcileStatusStore
 import forge.control.reconcile.RuntimeClient
@@ -23,4 +24,5 @@ data class ControlServices(
     val deploymentStore: DeploymentStore? = null,
     val runtimeClient: RuntimeClient? = null,
     val reconcileStatusStore: ReconcileStatusStore? = null,
+    val deploymentHistory: DeploymentHistory? = null,
 )

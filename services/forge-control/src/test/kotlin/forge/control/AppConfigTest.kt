@@ -53,6 +53,8 @@ class AppConfigTest {
         assertEquals(true, cfg.reconcileEnabled)
         assertEquals(2_000L, cfg.reconcileIntervalMs)
         assertEquals("http://forge-runtime:4102", cfg.runtimeUrl)
+        assertEquals(true, cfg.historyEnabled)
+        assertEquals(true, cfg.startupAdoptLabels)
     }
 
     @Test
@@ -70,6 +72,8 @@ class AppConfigTest {
                 "FORGE_ROLLBACK_ENABLED" to "false",
                 "FORGE_READINESS_POLL_MS" to "250",
                 "FORGE_READINESS_MAX_WAIT_S" to "30",
+                "FORGE_HISTORY_ENABLED" to "false",
+                "FORGE_STARTUP_ADOPT_LABELS" to "false",
             ),
         )
         assertEquals(false, cfg.reconcileEnabled)
@@ -82,6 +86,8 @@ class AppConfigTest {
         assertEquals(false, cfg.rollbackEnabled)
         assertEquals(250L, cfg.readinessPollMs)
         assertEquals(30L, cfg.readinessMaxWaitSeconds)
+        assertEquals(false, cfg.historyEnabled)
+        assertEquals(false, cfg.startupAdoptLabels)
     }
 
     @Test

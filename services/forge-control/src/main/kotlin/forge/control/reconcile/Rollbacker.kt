@@ -5,6 +5,8 @@ package forge.control.reconcile
  *
  * Produces stop-target + restore-old actions. Idempotent when partially applied:
  * already-stopped target replicas and already-present healthy replicas are skipped.
+ * Status transitions into `rolling_back` / `rolled_back` go through
+ * [TransitionRecorder] so history survives controller restarts mid-rollback.
  */
 class Rollbacker {
     fun planRollback(

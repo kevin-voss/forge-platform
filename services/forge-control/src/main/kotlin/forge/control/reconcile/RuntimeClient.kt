@@ -43,6 +43,9 @@ interface RuntimeClient {
     fun ensureWorkload(request: WorkloadEnsureRequest): EnsureOutcome
 
     fun stopWorkload(runtimeDeploymentId: String)
+
+    /** All workloads on the node (for startup orphan GC). */
+    fun listWorkloads(): List<WorkloadHandle> = emptyList()
 }
 
 class RuntimeUnreachableException(
@@ -168,6 +171,18 @@ class HttpRuntimeClient(
             )
         }
         restartCounts.remove(runtimeDeploymentId)
+    }
+
+    override fun listWorkloads(): List<WorkloadHandle> {
+        val body = getNodeState()
+        return body.workloads.map { workload ->
+            WorkloadHandle(
+                runtimeDeploymentId = workload.deploymentId,
+                status = workload.status,
+                hostPort = workload.hostPort,
+                image = workload.image,
+            )
+        }
     }
 
     private fun createWorkload(runtimeId: String, request: WorkloadEnsureRequest) {

@@ -34,6 +34,7 @@ class ReconciliationController(
     private val healthEvaluator: HealthEvaluator = HealthEvaluator(),
     private val rollbacker: Rollbacker = Rollbacker(),
     private val rollbackEnabled: Boolean = true,
+    private val transitionRecorder: TransitionRecorder = StatusOnlyTransitionRecorder(deploymentStore),
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "forge-reconcile").apply { isDaemon = true }
     },
@@ -150,8 +151,15 @@ class ReconciliationController(
 
         if (healthy && rolling && lifecycle != DeploymentLifecycle.RollingBack) {
             if (lifecycle != DeploymentLifecycle.Deploying) {
-                lifecycle = DeploymentLifecycle.Deploying
-                persistLifecycle(deploymentId, lifecycle)
+                lifecycle = recordTransition(
+                    deploymentId = deploymentId,
+                    from = lifecycle,
+                    to = DeploymentLifecycle.Deploying,
+                    image = workingDesired.image,
+                    desiredReplicas = workingDesired.replicas,
+                    actualReplicas = actualBefore.replicas.size,
+                    reason = "rollout started",
+                )
             }
             rolloutTimer.start(workingDesired.deploymentId)
         }
@@ -179,13 +187,28 @@ class ReconciliationController(
                 if (workingDesired.image != lastHealthy.image) {
                     failedTargetImages.putIfAbsent(workingDesired.deploymentId, workingDesired.image)
                 }
-                lifecycle = DeploymentLifecycle.RollingBack
-                persistLifecycle(deploymentId, lifecycle)
+                val reason = if (timedOut) "rollout timeout" else "unhealthy target replica"
+                lifecycle = recordTransition(
+                    deploymentId = deploymentId,
+                    from = lifecycle,
+                    to = DeploymentLifecycle.RollingBack,
+                    image = workingDesired.image,
+                    desiredReplicas = workingDesired.replicas,
+                    actualReplicas = actualBefore.replicas.size,
+                    reason = reason,
+                )
             }
             workingDesired = beginOrContinueRollback(workingDesired, deploymentId, lastHealthy)
         } else if (health == RolloutHealth.Failed && lastHealthy == null) {
-            lifecycle = DeploymentLifecycle.Failed
-            persistLifecycle(deploymentId, lifecycle)
+            lifecycle = recordTransition(
+                deploymentId = deploymentId,
+                from = lifecycle,
+                to = DeploymentLifecycle.Failed,
+                image = workingDesired.image,
+                desiredReplicas = workingDesired.replicas,
+                actualReplicas = actualBefore.replicas.size,
+                reason = "rollout failed without last healthy",
+            )
             rolloutTimer.clear(workingDesired.deploymentId)
         }
 
@@ -259,8 +282,15 @@ class ReconciliationController(
                 val elapsedMs = rolloutTimer.elapsed(workingDesired.deploymentId).toMillis()
                     .takeIf { it > 0 } ?: (System.currentTimeMillis() - started)
                 val failedImage = failedTargetImages[workingDesired.deploymentId] ?: ""
-                lifecycle = DeploymentLifecycle.RolledBack
-                persistLifecycle(deploymentId, lifecycle)
+                lifecycle = recordTransition(
+                    deploymentId = deploymentId,
+                    from = DeploymentLifecycle.RollingBack,
+                    to = DeploymentLifecycle.RolledBack,
+                    image = lastHealthy.image,
+                    desiredReplicas = maxOf(lastHealthy.replicas, workingDesired.replicas),
+                    actualReplicas = actualAfter.replicas.size,
+                    reason = "restored last healthy image=$failedImage→${lastHealthy.image}",
+                )
                 log.info(
                     "rollout outcome",
                     "deployment_id" to workingDesired.deploymentId,
@@ -384,7 +414,16 @@ class ReconciliationController(
         serviceKey: UUID?,
         previousHealthy: LastHealthyDeployment?,
     ): DeploymentLifecycle {
-        persistLifecycle(deploymentId, DeploymentLifecycle.Deployed)
+        val from = resolveLifecycle(deploymentId, null)
+        recordTransition(
+            deploymentId = deploymentId,
+            from = from,
+            to = DeploymentLifecycle.Deployed,
+            image = desired.image,
+            desiredReplicas = desired.replicas,
+            actualReplicas = null,
+            reason = "all replicas ready",
+        )
         if (serviceKey != null) {
             lastHealthyStore.put(
                 LastHealthyDeployment(
@@ -419,17 +458,40 @@ class ReconciliationController(
         return DeploymentLifecycle.parse(previous?.deploymentStatus)
     }
 
-    private fun persistLifecycle(deploymentId: UUID, lifecycle: DeploymentLifecycle) {
+    private fun recordTransition(
+        deploymentId: UUID,
+        from: DeploymentLifecycle,
+        to: DeploymentLifecycle,
+        image: String?,
+        desiredReplicas: Int?,
+        actualReplicas: Int?,
+        reason: String,
+    ): DeploymentLifecycle {
         try {
-            deploymentStore.setStatus(deploymentId, lifecycle.wire())
+            transitionRecorder.transition(
+                deploymentId = deploymentId,
+                to = to,
+                from = from,
+                image = image,
+                desiredReplicas = desiredReplicas,
+                actualReplicas = actualReplicas,
+                reason = reason,
+            )
         } catch (e: Exception) {
             log.warn(
                 "reconcile persist status failed",
                 "deployment_id" to deploymentId.toString(),
-                "status" to lifecycle.wire(),
+                "status" to to.wire(),
                 "error" to (e.message ?: e.javaClass.simpleName),
             )
+            // Best-effort fallback so reconcile can continue if history write fails transiently.
+            try {
+                deploymentStore.setStatus(deploymentId, to.wire())
+            } catch (_: Exception) {
+                // already logged above
+            }
         }
+        return to
     }
 
     private fun lastHealthyFor(desired: DesiredState): LastHealthyDeployment? {

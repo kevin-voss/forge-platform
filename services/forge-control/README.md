@@ -10,10 +10,12 @@ HTTP APIs for projects, environments, applications, services, and desired-state
 deployments (`02.05`) are available under `/v1`. Control records deployment
 intent only; it does not pull images or start containers.
 
-A reconciliation controller (`07.01`–`07.04`) periodically diffs desired vs
+A reconciliation controller (`07.01`–`07.05`) periodically diffs desired vs
 actual replica state, converges via Runtime, performs rolling updates, and on
 rollout timeout/failure automatically rolls back to the last healthy version.
-Status is exposed at `GET /v1/deployments/{id}/reconcile`.
+Status is exposed at `GET /v1/deployments/{id}/reconcile`; transition history at
+`GET /v1/deployments/{id}/history`. On restart the controller adopts existing
+workloads and resumes in-flight rollouts/rollbacks without duplicating containers.
 
 ## Quick start
 
@@ -106,6 +108,8 @@ make dev
 | `FORGE_ROLLBACK_ENABLED` | `true` | Automatic rollback to last healthy on rollout timeout/failure |
 | `FORGE_READINESS_POLL_MS` | `1000` | Readiness poll interval for rolling updates |
 | `FORGE_READINESS_MAX_WAIT_S` | `60` | Max wait for a new replica to become ready before holding the rollout |
+| `FORGE_HISTORY_ENABLED` | `true` | Append status transitions to `deployment_events` |
+| `FORGE_STARTUP_ADOPT_LABELS` | `true` | On boot, adopt existing workloads and GC orphans before reconcile |
 
 See `.env.example`.
 
@@ -120,7 +124,8 @@ the foundation Collector. Reconcile ticks emit `forge_reconcile_ticks_total` /
 `forge_reconcile_actions_total{action=start|stop|recreate|…}`,
 `forge_rollout_step_total{step=…}`,
 `forge_rollout_result_total{result=deployed|rolled_back}`,
-`forge_rollback_duration_ms`, and spans
+`forge_rollback_duration_ms`,
+`forge_deployment_transitions_total{to_status=…}`, and spans
 `reconcile.tick` / `reconcile.rolling_update` / `reconcile.rollback` /
 `reconcile.start_replica` / `reconcile.wait_ready` /
 `reconcile.shift_traffic` / `reconcile.drain_replica` /
@@ -131,8 +136,12 @@ deterministic per-replica workload ids
 roll one batch at a time (start → ready → Gateway shift → drain → stop old)
 while keeping at least `desired - batch_size` ready replicas. From 07.04 a
 rollout that does not reach readiness within `rollout_timeout_s` rolls back to
-the last healthy image/replica count and sets status `rolled_back`. Exporter
-failures are asynchronous and do not stop request handling.
+the last healthy image/replica count and sets status `rolled_back`. From 07.05
+every lifecycle transition is appended to `deployment_events` atomically with
+the status update (`GET /v1/deployments/{id}/history`), and on Control restart
+`StartupRecovery` adopts existing labeled workloads and GCs orphans before the
+reconcile loop resumes. Exporter failures are asynchronous and do not stop
+request handling.
 
 ## HTTP API (02.05)
 
@@ -157,6 +166,7 @@ failures are asynchronous and do not stop request handling.
 | `POST` | `/v1/deployments/{deploymentId}/status` | Runtime actual-state report: `{"status","nodeId","endpoint":{"hostPort"?}}` → `pending`/`active`/`failed`/`stopped` |
 | `DELETE` | `/v1/deployments/{deploymentId}` | Remove desired deployment (`204`); Runtime orphan cleanup removes the container |
 | `GET` | `/v1/deployments/{deploymentId}/reconcile` | Desired/actual snapshot, plan, `phase`, `updatedReplicas`, `currentImage`/`targetImage`, `status` (`deploying`/`deployed`/`rolling_back`/`rolled_back`/…), `lastHealthyImage`, controller health (`07.01`–`07.04`) |
+| `GET` | `/v1/deployments/{deploymentId}/history` | Chronological append-only transition trail (`07.05`) |
 | `GET` | `/v1/projects/{projectId}?expand=tree` | Project, environments, applications, services, and deployments |
 
 The machine-readable API contract is
@@ -173,6 +183,7 @@ Tables in schema `control`:
 
 * `projects`, `environments`, `applications`, `services`, `deployments`
 * `reconcile_status` (per-deployment desired/actual/plan snapshot, lifecycle status, rollout timer, controller health)
+* `deployment_events` (append-only status transitions with image, replica counts, reason)
 * `audit_log` (append-only; create actions for projects/environments/applications/services/deployments)
 * `idempotency_keys` (key, request hash, resource ID, stored response; 24-hour retention target)
 * `flyway_schema_history`

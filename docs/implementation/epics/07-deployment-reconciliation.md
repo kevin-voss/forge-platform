@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress (4/6)
+In progress (5/6)
 
 ## Goal
 
@@ -74,7 +74,7 @@ Scenario B — unhealthy rollout + rollback
 | [07.02](../steps/07-deployment-reconciliation/07.02-single-replica-reconcile-loop.md) | Single-replica reconcile loop | Complete | Converge create/stop; restart crashed replica |
 | [07.03](../steps/07-deployment-reconciliation/07.03-rolling-update.md) | Rolling update (start new → ready → shift → stop old) | Complete | No total downtime; Gateway traffic shift |
 | [07.04](../steps/07-deployment-reconciliation/07.04-unhealthy-rollout-automatic-rollback.md) | Unhealthy rollout → automatic rollback | Complete | Deployment timeout + rollback to last-good |
-| [07.05](../steps/07-deployment-reconciliation/07.05-deployment-history-and-restart-safety.md) | Deployment history + controller restart safety | Not started | Durable history; idempotent recovery |
+| [07.05](../steps/07-deployment-reconciliation/07.05-deployment-history-and-restart-safety.md) | Deployment history + controller restart safety | Complete | Durable history; idempotent recovery |
 | [07.06](../steps/07-deployment-reconciliation/07.06-demo-07-rolling-deployment.md) | Demo `07-rolling-deployment` + gate | Not started | Both scenarios; epic acceptance gate |
 
 ## Assumptions
@@ -95,4 +95,4 @@ Scenario B — unhealthy rollout + rollback
 
 ## Next step to implement
 
-**[07.05](../steps/07-deployment-reconciliation/07.05-deployment-history-and-restart-safety.md) — Deployment history + controller restart safety**.
+**[07.06](../steps/07-deployment-reconciliation/07.06-demo-07-rolling-deployment.md) — Demo `07-rolling-deployment` + epic gate**.
