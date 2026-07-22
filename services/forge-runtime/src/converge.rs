@@ -13,6 +13,29 @@ use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
+/// Who owns create/stop convergence for desired deployments.
+///
+/// Epic 07 moves lifecycle ownership to Control's reconcile controller.
+/// When `Control`, Runtime still polls/reports but does not create/delete.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LifecycleOwner {
+    #[default]
+    Runtime,
+    Control,
+}
+
+impl LifecycleOwner {
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "runtime" => Ok(Self::Runtime),
+            "control" => Ok(Self::Control),
+            other => Err(format!(
+                "FORGE_LIFECYCLE_OWNER must be runtime|control, got {other:?}"
+            )),
+        }
+    }
+}
+
 /// How Runtime reports actual state to Control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ReportMode {
@@ -77,6 +100,7 @@ pub struct ConvergeCtx<'a> {
     pub on_conflict: OnConfigConflict,
     pub report_mode: ReportMode,
     pub failure_backoff: &'a FailureBackoff,
+    pub lifecycle_owner: LifecycleOwner,
 }
 
 /// Single-shot desired↔actual convergence using idempotent create + delete.
@@ -95,6 +119,25 @@ pub async fn converge_once(ctx: &ConvergeCtx<'_>, desired: &[DesiredDeployment])
 
     let plan = plan_converge(&desired_ids, &actual_ids);
     let mut counts = ConvergeCounts::default();
+
+    // Epic 07: Control owns create/stop; Runtime only observes/reports.
+    if ctx.lifecycle_owner == LifecycleOwner::Control {
+        if ctx.report_mode == ReportMode::Push {
+            counts.reported += report_actuals(ctx, &desired_ids).await;
+        }
+        info!(
+            created = 0u32,
+            deleted = 0u32,
+            ensured = 0u32,
+            failed = counts.failed,
+            reported = counts.reported,
+            desired = desired_ids.len(),
+            actual = actual_ids.len(),
+            lifecycle_owner = "control",
+            "converge cycle complete (lifecycle delegated to Control)"
+        );
+        return counts;
+    }
 
     let by_id: HashMap<&str, &DesiredDeployment> =
         desired_active.iter().map(|d| (d.id.as_str(), *d)).collect();
@@ -307,6 +350,7 @@ pub struct ReconcilerConfig {
     pub stop_grace: Duration,
     pub on_conflict: OnConfigConflict,
     pub report_mode: ReportMode,
+    pub lifecycle_owner: LifecycleOwner,
 }
 
 /// Periodic reconcile task: fetch desired → converge → report.
@@ -330,6 +374,7 @@ pub fn spawn_reconciler(cfg: ReconcilerConfig) -> JoinHandle<()> {
                         on_conflict: cfg.on_conflict,
                         report_mode: cfg.report_mode,
                         failure_backoff: backoff.as_ref(),
+                        lifecycle_owner: cfg.lifecycle_owner,
                     };
                     converge_once(&ctx, &desired).await;
                 }
@@ -397,6 +442,7 @@ mod tests {
             on_conflict: OnConfigConflict::Recreate,
             report_mode: ReportMode::Pull,
             failure_backoff: backoff,
+            lifecycle_owner: LifecycleOwner::Runtime,
         }
     }
 

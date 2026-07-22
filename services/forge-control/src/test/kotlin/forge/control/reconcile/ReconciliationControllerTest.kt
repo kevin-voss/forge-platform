@@ -5,6 +5,7 @@ import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -18,17 +19,13 @@ class ReconciliationControllerTest {
     private val log = JsonLog("forge-control-test", "error")
 
     @Test
-    fun tickWritesStartPlanWithoutExecutingMutations() {
-        val store = FakeDeploymentStore(
+    fun tickExecutesStartPlanAndConverges() {
+        val store = ControllerFakeDeploymentStore(
             listOf(
-                DesiredState.of(deploymentId, "registry.local/demo:v1", replicas = 2),
+                DesiredState.of(deploymentId, "registry.local/demo:v1", replicas = 2, serviceSlug = "demo"),
             ),
         )
-        val runtime = FakeRuntimeClient(
-            mapOf(
-                deploymentId to ActualState(listOf(ReplicaObservation("r1", "running"))),
-            ),
-        )
+        val runtime = ControllerFakeRuntimeClient()
         val status = InMemoryReconcileStatusStore()
         val controller = ReconciliationController(
             deploymentStore = store,
@@ -43,24 +40,19 @@ class ReconciliationControllerTest {
         controller.tickAll()
 
         val snapshot = status.findByDeploymentId(deploymentId)!!
-        assertEquals(1, snapshot.plan.size)
-        assertEquals(ReconcileAction.StartReplica.name, snapshot.plan.actions[0].action)
+        assertTrue(snapshot.plan.actions.isEmpty())
         assertTrue(snapshot.controllerHealthy)
-        assertEquals(0, runtime.startCalls.get())
+        assertEquals(2, snapshot.actual.replicas.size)
+        assertEquals(2, runtime.createCalls.get())
         assertEquals(0, runtime.stopCalls.get())
-        assertEquals(1, runtime.loadCalls.get())
     }
 
     @Test
     fun runtimeUnreachableSetsUnhealthyAndKeepsLastPlan() {
-        val store = FakeDeploymentStore(
-            listOf(DesiredState.of(deploymentId, "registry.local/demo:v1", replicas = 2)),
+        val store = ControllerFakeDeploymentStore(
+            listOf(DesiredState.of(deploymentId, "registry.local/demo:v1", replicas = 2, serviceSlug = "demo")),
         )
-        val runtime = FakeRuntimeClient(
-            initial = mapOf(
-                deploymentId to ActualState(listOf(ReplicaObservation("r1", "running"))),
-            ),
-        )
+        val runtime = ControllerFakeRuntimeClient()
         val status = InMemoryReconcileStatusStore()
         val controller = ReconciliationController(
             deploymentStore = store,
@@ -74,7 +66,7 @@ class ReconciliationControllerTest {
 
         controller.tickAll()
         val firstPlan = status.findByDeploymentId(deploymentId)!!.plan
-        assertEquals(1, firstPlan.size)
+        assertTrue(firstPlan.actions.isEmpty())
 
         runtime.unreachable = true
         controller.tickAll()
@@ -82,16 +74,14 @@ class ReconciliationControllerTest {
         val snapshot = status.findByDeploymentId(deploymentId)!!
         assertFalse(snapshot.controllerHealthy)
         assertEquals(firstPlan, snapshot.plan)
-        assertEquals(0, runtime.startCalls.get())
-        assertEquals(0, runtime.stopCalls.get())
     }
 
     @Test
     fun perDeploymentExceptionDoesNotBlockOthers() {
-        val store = FakeDeploymentStore(
+        val store = ControllerFakeDeploymentStore(
             listOf(
-                DesiredState.of(deploymentId, "registry.local/demo:v1", replicas = 1),
-                DesiredState.of(otherId, "registry.local/demo:v2", replicas = 1),
+                DesiredState.of(deploymentId, "registry.local/demo:v1", replicas = 1, serviceSlug = "demo"),
+                DesiredState.of(otherId, "registry.local/demo:v2", replicas = 1, serviceSlug = "other"),
             ),
         )
         val runtime = object : RuntimeClient {
@@ -99,6 +89,15 @@ class ReconciliationControllerTest {
                 if (id == deploymentId) throw IllegalStateException("boom")
                 return ActualState()
             }
+
+            override fun findWorkload(runtimeDeploymentId: String): WorkloadHandle? = null
+
+            override fun ensureWorkload(request: WorkloadEnsureRequest): EnsureOutcome {
+                if (request.deploymentId == deploymentId) throw IllegalStateException("boom")
+                return EnsureOutcome.Created
+            }
+
+            override fun stopWorkload(runtimeDeploymentId: String) = Unit
         }
         val status = InMemoryReconcileStatusStore()
         val controller = ReconciliationController(
@@ -116,12 +115,35 @@ class ReconciliationControllerTest {
         assertEquals(null, status.findByDeploymentId(deploymentId))
         val other = status.findByDeploymentId(otherId)!!
         assertTrue(other.controllerHealthy)
-        assertEquals(1, other.plan.size)
-        assertEquals(ReconcileAction.StartReplica.name, other.plan.actions[0].action)
+    }
+
+    @Test
+    fun runtimeCreateFailureDoesNotCrashController() {
+        val store = ControllerFakeDeploymentStore(
+            listOf(DesiredState.of(deploymentId, "registry.local/demo:v1", replicas = 1, serviceSlug = "demo")),
+        )
+        val runtime = ControllerFakeRuntimeClient(failCreates = true)
+        val status = InMemoryReconcileStatusStore()
+        val controller = ReconciliationController(
+            deploymentStore = store,
+            runtimeClient = runtime,
+            statusStore = status,
+            log = log,
+            intervalMs = 2_000,
+            enabled = true,
+            clock = clock,
+        )
+
+        controller.tickAll()
+
+        val snapshot = status.findByDeploymentId(deploymentId)!!
+        assertTrue(snapshot.controllerHealthy)
+        assertEquals(1, snapshot.plan.size)
+        assertEquals(ReconcileAction.StartReplica.name, snapshot.plan.actions[0].action)
     }
 }
 
-private class FakeDeploymentStore(
+private class ControllerFakeDeploymentStore(
     private val desired: List<DesiredState>,
 ) : DeploymentStore {
     override fun listDesired(): List<DesiredState> = desired
@@ -129,22 +151,54 @@ private class FakeDeploymentStore(
         desired.find { it.deploymentId == deploymentId.toString() }
 }
 
-/**
- * Fake RuntimeClient. Intentionally has no start/stop execution API in 07.01;
- * counters prove the controller never "executes" by calling mutation hooks.
- */
-private class FakeRuntimeClient(
-    initial: Map<UUID, ActualState> = emptyMap(),
+private class ControllerFakeRuntimeClient(
+    private val failCreates: Boolean = false,
 ) : RuntimeClient {
-    private val state = initial.toMutableMap()
+    private val workloads = ConcurrentHashMap<String, String>()
     var unreachable: Boolean = false
-    val loadCalls = AtomicInteger(0)
-    val startCalls = AtomicInteger(0)
+    val createCalls = AtomicInteger(0)
     val stopCalls = AtomicInteger(0)
 
-    override fun loadActual(deploymentId: UUID): ActualState {
-        loadCalls.incrementAndGet()
+    override fun loadActual(deploymentId: UUID): ActualState = observe(deploymentId)
+
+    override fun observe(deploymentId: UUID): ActualState {
         if (unreachable) throw RuntimeUnreachableException("runtime down")
-        return state[deploymentId] ?: ActualState()
+        val replicas = workloads.entries
+            .filter { WorkloadNamer.matchesDeployment(it.key, deploymentId) }
+            .map { (id, status) ->
+                val index = WorkloadNamer.parseReplicaIndex(id)
+                ReplicaObservation(
+                    replicaId = index?.toString() ?: id,
+                    status = status,
+                    replicaIndex = index,
+                )
+            }
+        return ActualState(replicas)
+    }
+
+    override fun findWorkload(runtimeDeploymentId: String): WorkloadHandle? {
+        if (unreachable) throw RuntimeUnreachableException("runtime down")
+        val status = workloads[runtimeDeploymentId] ?: return null
+        return WorkloadHandle(runtimeDeploymentId, status)
+    }
+
+    override fun ensureWorkload(request: WorkloadEnsureRequest): EnsureOutcome {
+        if (unreachable) throw RuntimeUnreachableException("runtime down")
+        if (failCreates) throw RuntimeApiException("create failed")
+        val runtimeId = WorkloadNamer.runtimeDeploymentId(
+            request.serviceSlug,
+            request.deploymentId,
+            request.replicaIndex,
+        )
+        if (workloads.containsKey(runtimeId)) return EnsureOutcome.Adopted
+        workloads[runtimeId] = "running"
+        createCalls.incrementAndGet()
+        return EnsureOutcome.Created
+    }
+
+    override fun stopWorkload(runtimeDeploymentId: String) {
+        if (unreachable) throw RuntimeUnreachableException("runtime down")
+        workloads.remove(runtimeDeploymentId)
+        stopCalls.incrementAndGet()
     }
 }

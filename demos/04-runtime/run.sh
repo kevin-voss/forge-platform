@@ -22,6 +22,8 @@ export FORGE_PROFILE="${FORGE_PROFILE:-demo}"
 export FORGE_ENDPOINT="${FORGE_ENDPOINT:-${CONTROL_URL}}"
 # Faster converge for the acceptance gate (Compose interpolates this).
 export FORGE_RECONCILE_INTERVAL_SECONDS="${FORGE_RECONCILE_INTERVAL_SECONDS:-3}"
+# Demo 04 proves Runtime-owned converge (pre-epic-07 ownership).
+export FORGE_LIFECYCLE_OWNER="${FORGE_LIFECYCLE_OWNER:-runtime}"
 mkdir -p "${CONFIG_HOME}"
 
 TRACKED_DEPLOYMENTS=()

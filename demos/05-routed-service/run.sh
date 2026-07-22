@@ -29,6 +29,7 @@ export FORGE_PROFILE="${FORGE_PROFILE:-demo}"
 export FORGE_ENDPOINT="${FORGE_ENDPOINT:-${CONTROL_URL}}"
 # Faster converge / sync / unready detection for the acceptance gate.
 export FORGE_RECONCILE_INTERVAL_SECONDS="${FORGE_RECONCILE_INTERVAL_SECONDS:-3}"
+export FORGE_LIFECYCLE_OWNER="${FORGE_LIFECYCLE_OWNER:-runtime}"
 # Avoid nested `${var:-{braces}}` — bash truncates the default at the inner `}`.
 if [[ -z "${FORGE_HOST_PATTERN:-}" ]]; then
   FORGE_HOST_PATTERN='{service}.demo.localhost'

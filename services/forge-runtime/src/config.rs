@@ -1,4 +1,4 @@
-use crate::converge::ReportMode;
+use crate::converge::{LifecycleOwner, ReportMode};
 use std::env;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -26,6 +26,8 @@ pub struct Config {
     pub reconcile_interval: Duration,
     /// `push` reports status to Control; `pull` relies on `GET /v1/node/state`.
     pub control_report_mode: ReportMode,
+    /// Who owns create/stop for desired deployments (`runtime` or `control`).
+    pub lifecycle_owner: LifecycleOwner,
     /// Max time to wait for an image pull.
     pub pull_timeout: Duration,
     /// Informational default registry host (images are fully qualified).
@@ -151,6 +153,10 @@ impl Config {
             env::var("FORGE_CONTROL_REPORT_MODE").unwrap_or_else(|_| "push".into());
         let control_report_mode = ReportMode::parse(&report_mode_raw)?;
 
+        let lifecycle_owner_raw =
+            env::var("FORGE_LIFECYCLE_OWNER").unwrap_or_else(|_| "runtime".into());
+        let lifecycle_owner = LifecycleOwner::parse(&lifecycle_owner_raw)?;
+
         let pull_raw = env::var("FORGE_PULL_TIMEOUT_SECONDS").unwrap_or_else(|_| "120".into());
         let pull_secs: u64 = pull_raw.trim().parse().map_err(|_| {
             format!("FORGE_PULL_TIMEOUT_SECONDS must be a positive integer, got {pull_raw:?}")
@@ -248,6 +254,7 @@ impl Config {
             control_url,
             reconcile_interval: Duration::from_secs(reconcile_secs),
             control_report_mode,
+            lifecycle_owner,
             pull_timeout: Duration::from_secs(pull_secs),
             default_registry,
             probe_interval: Duration::from_secs(probe_interval_secs),
@@ -302,6 +309,7 @@ mod tests {
             "FORGE_CONTROL_URL",
             "FORGE_RECONCILE_INTERVAL_SECONDS",
             "FORGE_CONTROL_REPORT_MODE",
+            "FORGE_LIFECYCLE_OWNER",
             "FORGE_PULL_TIMEOUT_SECONDS",
             "FORGE_DEFAULT_REGISTRY",
             "FORGE_PROBE_INTERVAL_SECONDS",

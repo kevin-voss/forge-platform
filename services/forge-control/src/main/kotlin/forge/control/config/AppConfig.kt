@@ -22,6 +22,7 @@ data class AppConfig(
     val database: DatabaseConfig,
     val reconcileEnabled: Boolean = true,
     val reconcileIntervalMs: Long = 2_000,
+    val reconcileMaxActionsPerTick: Int = 5,
     val runtimeUrl: String = "http://forge-runtime:4102",
 )
 
@@ -107,6 +108,18 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         )
     }
 
+    val maxActionsRaw = env["FORGE_RECONCILE_MAX_ACTIONS_PER_TICK"]?.trim().orEmpty()
+        .ifEmpty { "5" }
+    val reconcileMaxActionsPerTick = maxActionsRaw.toIntOrNull()
+        ?: throw IllegalArgumentException(
+            "FORGE_RECONCILE_MAX_ACTIONS_PER_TICK must be a non-negative integer, got '$maxActionsRaw'",
+        )
+    if (reconcileMaxActionsPerTick < 0) {
+        throw IllegalArgumentException(
+            "FORGE_RECONCILE_MAX_ACTIONS_PER_TICK must be a non-negative integer, got '$maxActionsRaw'",
+        )
+    }
+
     val runtimeUrl = env["FORGE_RUNTIME_URL"]?.trim().orEmpty()
         .ifEmpty { "http://forge-runtime:4102" }
     if (!runtimeUrl.startsWith("http://") && !runtimeUrl.startsWith("https://")) {
@@ -137,6 +150,7 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         ),
         reconcileEnabled = reconcileEnabled,
         reconcileIntervalMs = reconcileIntervalMs,
+        reconcileMaxActionsPerTick = reconcileMaxActionsPerTick,
         runtimeUrl = runtimeUrl,
     )
 }

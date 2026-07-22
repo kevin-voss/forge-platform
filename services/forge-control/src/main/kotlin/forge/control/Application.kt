@@ -107,7 +107,7 @@ fun main() {
     val deploymentRepo = JdbcDeploymentRepository(db.dataSource)
     val auditRepo = JdbcAuditRepository(db.dataSource)
     val relationships = RelationshipValidator(projectRepo, applicationRepo)
-    val deploymentStore = RepositoryDeploymentStore(deploymentRepo)
+    val deploymentStore = RepositoryDeploymentStore(deploymentRepo, serviceRepo)
     val runtimeClient = HttpRuntimeClient(cfg.runtimeUrl)
     val reconcileStatusStore = JdbcReconcileStatusStore(db.dataSource)
     val reconcileController = ReconciliationController(
@@ -117,6 +117,7 @@ fun main() {
         log = log,
         intervalMs = cfg.reconcileIntervalMs,
         enabled = cfg.reconcileEnabled,
+        maxActionsPerTick = cfg.reconcileMaxActionsPerTick,
         telemetry = telemetry,
     )
     val services = ControlServices(

@@ -25,11 +25,12 @@ class PlannerTest {
 
     @Test
     fun underReplicasYieldsStartActions() {
-        val actual = ActualState(listOf(ReplicaObservation("r1", "running")))
+        val actual = ActualState(listOf(ReplicaObservation("0", "running", replicaIndex = 0)))
         val plan = computePlan(desired2, actual)
         assertEquals(1, plan.size)
         assertEquals(ReconcileAction.StartReplica.name, plan.actions[0].action)
         assertEquals("desired=2 actual=1", plan.actions[0].reason)
+        assertEquals("1", plan.actions[0].replicaId)
     }
 
     @Test
@@ -37,23 +38,24 @@ class PlannerTest {
         val desired1 = desired2.copy(replicas = 1)
         val actual = ActualState(
             listOf(
-                ReplicaObservation("r1", "running"),
-                ReplicaObservation("r2", "ready"),
+                ReplicaObservation("0", "running", replicaIndex = 0),
+                ReplicaObservation("1", "ready", replicaIndex = 1),
             ),
         )
         val plan = computePlan(desired1, actual)
         assertEquals(1, plan.size)
         assertEquals(ReconcileAction.StopReplica.name, plan.actions[0].action)
-        assertEquals("r2", plan.actions[0].replicaId)
+        assertEquals("1", plan.actions[0].replicaId)
     }
 
     @Test
     fun failedReplicasDoNotSatisfyDesired() {
         val desired1 = desired2.copy(replicas = 1)
-        val actual = ActualState(listOf(ReplicaObservation("r1", "failed")))
+        val actual = ActualState(listOf(ReplicaObservation("0", "failed", replicaIndex = 0)))
         val plan = computePlan(desired1, actual)
         assertEquals(1, plan.size)
         assertEquals(ReconcileAction.StartReplica.name, plan.actions[0].action)
+        assertEquals("0", plan.actions[0].replicaId)
     }
 
     @Test

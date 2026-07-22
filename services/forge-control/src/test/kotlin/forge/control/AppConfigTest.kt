@@ -62,11 +62,13 @@ class AppConfigTest {
                 "PORT" to "8080",
                 "FORGE_RECONCILE_ENABLED" to "false",
                 "FORGE_RECONCILE_INTERVAL_MS" to "500",
+                "FORGE_RECONCILE_MAX_ACTIONS_PER_TICK" to "3",
                 "FORGE_RUNTIME_URL" to "http://127.0.0.1:4102",
             ),
         )
         assertEquals(false, cfg.reconcileEnabled)
         assertEquals(500L, cfg.reconcileIntervalMs)
+        assertEquals(3, cfg.reconcileMaxActionsPerTick)
         assertEquals("http://127.0.0.1:4102", cfg.runtimeUrl)
     }
 

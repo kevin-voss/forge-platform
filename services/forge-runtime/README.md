@@ -84,6 +84,7 @@ make dev
 | `FORGE_STOP_GRACE_SECONDS` | `10` | SIGTERM→SIGKILL grace when stopping a workload container. |
 | `FORGE_ON_CONFIG_CONFLICT` | `recreate` | `recreate` replaces a conflicting image; `reject` returns `409`. |
 | `FORGE_CONTROL_URL` | _(unset)_ locally / `http://forge-control:8080` in Compose | When set, starts the desired→actual reconcile loop. |
+| `FORGE_LIFECYCLE_OWNER` | `runtime` locally / `control` in Compose | `runtime` create/stops locally; `control` delegates lifecycle to Control (epic 07). |
 | `FORGE_RECONCILE_INTERVAL_SECONDS` | `10` | Poll/converge interval. |
 | `FORGE_CONTROL_REPORT_MODE` | `push` | `push` POSTs status to Control (404 tolerated); `pull` relies on `GET /v1/node/state`. |
 

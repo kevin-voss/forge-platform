@@ -98,7 +98,8 @@ make dev
 | `FORGE_IDEMPOTENCY_TTL_HOURS` | `24` | Retention target for idempotency records; cleanup is deferred |
 | `FORGE_RECONCILE_ENABLED` | `true` | Master switch for the reconcile controller loop |
 | `FORGE_RECONCILE_INTERVAL_MS` | `2000` | Controller tick interval |
-| `FORGE_RUNTIME_URL` | `http://forge-runtime:4102` | Base URL used to read actual node state |
+| `FORGE_RECONCILE_MAX_ACTIONS_PER_TICK` | `5` | Max start/stop actions applied per deployment per tick |
+| `FORGE_RUNTIME_URL` | `http://forge-runtime:4102` | Base URL for Runtime observe/create/stop |
 
 See `.env.example`.
 
@@ -109,7 +110,12 @@ Control writes JSON lines to stdout with `timestamp`, `level`, `service`,
 include matching `traceId` and `spanId`. With OTEL enabled, HTTP request and JDBC
 repository spans plus request count, duration, and error metrics are exported to
 the foundation Collector. Reconcile ticks emit `forge_reconcile_ticks_total` /
-`forge_reconcile_plan_actions` and a `reconcile.tick` span. Exporter failures are
+`forge_reconcile_plan_actions`, executed-action counter
+`forge_reconcile_actions_total{action=start|stop|recreate}`, and spans
+`reconcile.tick` / `reconcile.start_replica` / `reconcile.stop_replica`.
+From 07.02 the controller executes start/stop/recreate against Runtime using
+deterministic per-replica workload ids
+(`forge-<service_slug>-<deployment_short>-<index>`). Exporter failures are
 asynchronous and do not stop request handling.
 
 ## HTTP API (02.05)

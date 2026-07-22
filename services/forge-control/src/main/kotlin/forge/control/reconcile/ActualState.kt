@@ -30,13 +30,23 @@ enum class ReplicaStatus {
 data class ReplicaObservation(
     val replicaId: String,
     val status: String,
+    val replicaIndex: Int? = null,
+    val restartCount: Int = 0,
+    val workloadName: String? = null,
 ) {
     init {
         require(replicaId.isNotBlank()) { "replicaId must not be blank" }
         ReplicaStatus.parse(status)
+        require(restartCount >= 0) { "restartCount must be >= 0" }
+        if (replicaIndex != null) {
+            require(replicaIndex >= 0) { "replicaIndex must be >= 0" }
+        }
     }
 
     fun statusEnum(): ReplicaStatus = ReplicaStatus.parse(status)
+
+    fun resolvedIndex(): Int? =
+        replicaIndex ?: WorkloadNamer.parseReplicaIndex(replicaId)
 }
 
 /** Observed replicas for a deployment (from Runtime). */

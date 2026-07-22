@@ -148,6 +148,7 @@ async fn run() -> Result<(), String> {
                     stop_grace: cfg.stop_grace,
                     on_conflict: cfg.on_config_conflict,
                     report_mode: cfg.control_report_mode,
+                    lifecycle_owner: cfg.lifecycle_owner,
                 }))
             }
             Err(err) => {

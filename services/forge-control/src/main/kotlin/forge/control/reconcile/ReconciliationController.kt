@@ -11,8 +11,8 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Interval reconciliation loop. Loads desired + actual, computes a plan, logs it,
- * and persists a status snapshot. Does **not** execute start/stop actions (07.01).
+ * Interval reconciliation loop. Loads desired + actual, computes a plan,
+ * executes start/stop/recreate actions, re-observes, and persists a status snapshot.
  */
 class ReconciliationController(
     private val deploymentStore: DeploymentStore,
@@ -21,11 +21,18 @@ class ReconciliationController(
     private val log: JsonLog,
     private val intervalMs: Long,
     private val enabled: Boolean,
+    private val maxActionsPerTick: Int = 5,
     private val clock: Clock = Clock.systemUTC(),
     private val telemetry: Telemetry = Telemetry.current(),
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "forge-reconcile").apply { isDaemon = true }
     },
+    private val reconciler: Reconciler = Reconciler(
+        runtimeClient = runtimeClient,
+        log = log,
+        maxActionsPerTick = maxActionsPerTick,
+        telemetry = telemetry,
+    ),
 ) : AutoCloseable {
     private val running = AtomicBoolean(false)
 
@@ -38,6 +45,7 @@ class ReconciliationController(
         log.info(
             "reconcile controller starting",
             "interval_ms" to intervalMs,
+            "max_actions_per_tick" to maxActionsPerTick,
             "enabled" to true,
         )
         scheduler.scheduleWithFixedDelay(
@@ -103,8 +111,8 @@ class ReconciliationController(
         val deploymentId = UUID.fromString(desired.deploymentId)
         val previous = statusStore.findByDeploymentId(deploymentId)
 
-        val (actual, plan, healthy) = try {
-            val loaded = runtimeClient.loadActual(deploymentId)
+        val (actualBefore, plan, healthy) = try {
+            val loaded = runtimeClient.observe(deploymentId)
             val computed = computePlan(desired, loaded)
             Triple(loaded, computed, true)
         } catch (e: RuntimeUnreachableException) {
@@ -118,13 +126,47 @@ class ReconciliationController(
             Triple(keptActual, keptPlan, false)
         }
 
+        if (healthy && plan.actions.isNotEmpty()) {
+            try {
+                reconciler.execute(desired, actualBefore, plan)
+            } catch (e: Exception) {
+                log.error(
+                    "reconcile execute failed",
+                    "deployment_id" to desired.deploymentId,
+                    "error" to (e.message ?: e.javaClass.simpleName),
+                )
+            }
+        }
+
+        val (actualAfter, planAfter, healthyAfter) = if (!healthy) {
+            Triple(actualBefore, plan, false)
+        } else {
+            try {
+                val reloaded = runtimeClient.observe(deploymentId)
+                val recomputed = computePlan(desired, reloaded)
+                Triple(reloaded, recomputed, true)
+            } catch (e: RuntimeUnreachableException) {
+                log.warn(
+                    "reconcile runtime unreachable after execute",
+                    "deployment_id" to desired.deploymentId,
+                    "error" to (e.message ?: e.javaClass.simpleName),
+                )
+                Triple(actualBefore, plan, false)
+            }
+        }
+
+        val readyCount = actualAfter.replicas.count {
+            it.statusEnum() == ReplicaStatus.Ready || it.statusEnum() == ReplicaStatus.Running
+        }
+        telemetry.recordReplicasReady(readyCount)
+
         val snapshot = ReconcileSnapshot(
             deploymentId = deploymentId,
             lastRunAt = Instant.now(clock),
             desired = desired,
-            actual = actual,
-            plan = plan,
-            controllerHealthy = healthy,
+            actual = actualAfter,
+            plan = planAfter,
+            controllerHealthy = healthyAfter,
         )
         statusStore.upsert(snapshot)
 
@@ -133,11 +175,11 @@ class ReconciliationController(
             "reconcile tick",
             "deployment_id" to desired.deploymentId,
             "desired_replicas" to desired.replicas,
-            "actual_replicas" to actual.replicas.size,
-            "plan_size" to plan.size,
+            "actual_replicas" to actualAfter.replicas.size,
+            "plan_size" to planAfter.size,
             "tick_duration_ms" to durationMs,
-            "controller_healthy" to healthy,
+            "controller_healthy" to healthyAfter,
         )
-        telemetry.recordReconcileTick(plan.size, healthy)
+        telemetry.recordReconcileTick(planAfter.size, healthyAfter)
     }
 }

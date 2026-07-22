@@ -36,6 +36,8 @@ class Telemetry private constructor(
     private val errorCount: LongCounter,
     private val reconcileTicks: LongCounter,
     private val reconcilePlanActions: LongCounter,
+    private val reconcileActions: LongCounter,
+    private val replicasReady: LongCounter,
     private val sdk: OpenTelemetrySdk?,
 ) : AutoCloseable {
     val enabled: Boolean = sdk != null
@@ -56,6 +58,17 @@ class Telemetry private constructor(
         )
         reconcileTicks.add(1, attributes)
         reconcilePlanActions.add(planActions.toLong(), attributes)
+    }
+
+    fun recordReconcileAction(action: String) {
+        reconcileActions.add(
+            1,
+            Attributes.of(AttributeKey.stringKey("action"), action),
+        )
+    }
+
+    fun recordReplicasReady(count: Int) {
+        replicasReady.add(count.toLong())
     }
 
     fun <T> inSpan(name: String, block: () -> T): T {
@@ -129,6 +142,8 @@ class Telemetry private constructor(
                 errorCount = meter.counterBuilder("http.server.errors").build(),
                 reconcileTicks = meter.counterBuilder("forge_reconcile_ticks_total").build(),
                 reconcilePlanActions = meter.counterBuilder("forge_reconcile_plan_actions").build(),
+                reconcileActions = meter.counterBuilder("forge_reconcile_actions_total").build(),
+                replicasReady = meter.counterBuilder("forge_replicas_ready").build(),
                 sdk = sdk,
             )
         }
