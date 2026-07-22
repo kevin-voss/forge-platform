@@ -1,0 +1,55 @@
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets/
+**/credentials.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Language build artifacts
+**/target/
+**/bin/
+**/dist/
+**/build/
+**/node_modules/
+**/__pycache__/
+**/*.pyc
+**/.venv/
+**/venv/
+**/vendor/
+**/.gradle/
+**/*.egg-info/
+**/Cargo.lock
+!**/services/**/Cargo.lock
+
+# Test and coverage
+coverage/
+*.cover
+*.out
+*.test
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local runtime data
+.tmp/
+.tmpdata/
+data/
+*.log
+docker-data/
+
+# Generated
+**/generated/
+!contracts/**/examples/

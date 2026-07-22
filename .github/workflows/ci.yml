@@ -1,0 +1,30 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  lint-and-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax check
+        run: make lint
+      - name: Ensure setup scripts are executable intent
+        run: |
+          test -f Makefile
+          test -f compose.yaml
+          test -f .env.example
+          test -f docs/implementation/progress.md
+
+  infrastructure:
+    runs-on: ubuntu-latest
+    needs: lint-and-scripts
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup local env
+        run: make setup
+      - name: Infrastructure tests
+        run: make test-infrastructure
