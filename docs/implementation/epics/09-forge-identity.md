@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning
+In progress
 
 ## Goal
 
@@ -65,7 +65,7 @@ make demo DEMO=09
 
 | Step | Title | Status | Notes |
 |---|---|---|---|
-| [09.01](../steps/09-forge-identity/09.01-skeleton-compose-postgres.md) | Skeleton + Compose + Postgres | Not started | Ktor service on 4002, health, schema home |
+| [09.01](../steps/09-forge-identity/09.01-skeleton-compose-postgres.md) | Skeleton + Compose + Postgres | Complete | Ktor service on 4002, health, schema home |
 | [09.02](../steps/09-forge-identity/09.02-users-orgs-memberships.md) | Users, orgs, memberships persistence | Not started | Core tenancy model |
 | [09.03](../steps/09-forge-identity/09.03-registration-login-sessions.md) | Registration, login, sessions | Not started | Password hashing + session lifecycle |
 | [09.04](../steps/09-forge-identity/09.04-roles-and-project-membership.md) | Roles + project membership | Not started | RBAC model + permission evaluation |
@@ -92,4 +92,4 @@ make demo DEMO=09
 
 ## Next step to implement
 
-**[09.01](../steps/09-forge-identity/09.01-skeleton-compose-postgres.md) — Skeleton + Compose + Postgres** (Ktor service on 4002 with health + schema home; unblocks all identity persistence and APIs).
+**[09.02](../steps/09-forge-identity/09.02-users-orgs-memberships.md) — Users, orgs, memberships persistence** (core tenancy model on the 09.01 skeleton).

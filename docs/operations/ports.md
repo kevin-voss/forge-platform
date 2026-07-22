@@ -31,6 +31,7 @@
 |---|---:|
 | Forge Gateway | 4000 |
 | Forge Control | 4001 |
+| Forge Identity | 4002 |
 
 ## Internal platform APIs
 

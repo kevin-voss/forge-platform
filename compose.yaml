@@ -271,6 +271,37 @@ services:
       retries: 10
       start_period: 20s
 
+  forge-identity:
+    build:
+      context: ./services/forge-identity
+    image: forge/forge-identity:local
+    container_name: forge-identity
+    restart: unless-stopped
+    ports:
+      - "4002:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: forge-identity
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-info}
+      FORGE_ENV: ${FORGE_ENV:-development}
+      FORGE_SHUTDOWN_GRACE_SECONDS: ${FORGE_SHUTDOWN_GRACE_SECONDS:-10}
+      FORGE_IDENTITY_DB_URL: jdbc:postgresql://postgres:5432/forge_identity
+      FORGE_IDENTITY_DB_USER: ${POSTGRES_USER:-forge}
+      FORGE_IDENTITY_DB_PASSWORD: ${POSTGRES_PASSWORD:-forge}
+      FORGE_IDENTITY_DB_POOL_MAX: ${FORGE_IDENTITY_DB_POOL_MAX:-10}
+      FORGE_IDENTITY_DB_MIGRATE_ON_START: ${FORGE_IDENTITY_DB_MIGRATE_ON_START:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health/live | grep -q live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
   forge-runtime:
     build:
       context: ./services/forge-runtime
