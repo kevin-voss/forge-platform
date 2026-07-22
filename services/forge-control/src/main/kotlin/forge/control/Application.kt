@@ -34,8 +34,11 @@ import forge.control.scheduler.CapacityReservation
 import forge.control.scheduler.JdbcNodeStore
 import forge.control.scheduler.JdbcPlacementStore
 import forge.control.scheduler.LivenessMonitor
+import forge.control.scheduler.PendingQueue
 import forge.control.scheduler.PlacementService
+import forge.control.scheduler.QueueProcessor
 import forge.control.scheduler.SchedulerFactory
+import forge.control.scheduler.model.AntiAffinity
 import forge.control.scheduler.api.nodeFleetRoutes
 import forge.control.scheduler.api.nodeRegistrationRoutes
 import forge.control.scheduler.api.placementRoutes
@@ -157,13 +160,35 @@ fun main() {
         reservation = capacityReservation,
         localNodeId = cfg.schedulerLocalNodeId,
         schedulerEnabled = cfg.schedulerEnabled,
+        placementStore = placementStore,
+        telemetry = telemetry,
     )
+    val pendingQueue = if (cfg.schedulerEnabled) {
+        PendingQueue(store = placementStore, maxLen = cfg.queueMaxLen)
+    } else {
+        null
+    }
+    val queueProcessor = if (pendingQueue != null) {
+        QueueProcessor(
+            queue = pendingQueue,
+            scheduler = placementScheduler,
+            store = placementStore,
+            log = log,
+            intervalMs = cfg.queueRetryMs,
+            telemetry = telemetry,
+        )
+    } else {
+        null
+    }
     val placementService = PlacementService(
         scheduler = placementScheduler,
         store = placementStore,
         log = log,
         telemetry = telemetry,
         reservation = capacityReservation,
+        pendingQueue = pendingQueue,
+        queueProcessor = queueProcessor,
+        defaultAntiAffinity = AntiAffinity.parse(cfg.antiAffinityDefault),
     )
     val livenessMonitor = LivenessMonitor(
         store = nodeStore,
@@ -225,6 +250,7 @@ fun main() {
         placementService = placementService,
         nodeStore = nodeStore,
         nodeStrictRegister = cfg.nodeStrictRegister,
+        onNodeRegistered = { placementService.drainQueue() },
     )
 
     val readiness = Readiness()
@@ -246,6 +272,7 @@ fun main() {
                 )
             }
             livenessMonitor.start()
+            queueProcessor?.start()
             reconcileController.start()
             log.info(
                 "listening",
@@ -262,6 +289,9 @@ fun main() {
                 "scheduler_local_node_id" to cfg.schedulerLocalNodeId,
                 "node_heartbeat_timeout_s" to cfg.nodeHeartbeatTimeoutSeconds,
                 "liveness_interval_ms" to cfg.livenessIntervalMs,
+                "anti_affinity_default" to cfg.antiAffinityDefault,
+                "queue_retry_ms" to cfg.queueRetryMs,
+                "queue_max_len" to cfg.queueMaxLen,
             )
         }
     }
@@ -270,6 +300,7 @@ fun main() {
         Thread {
             log.info("shutdown signal received", "signal" to "SIGTERM")
             reconcileController.stop()
+            queueProcessor?.stop()
             livenessMonitor.stop()
             server.stop(gracePeriodMillis = 1_000, timeoutMillis = graceMillis)
             db.close()
@@ -301,6 +332,7 @@ fun main() {
         server.start(wait = true)
     } finally {
         reconcileController.stop()
+        queueProcessor?.stop()
         livenessMonitor.stop()
         db.close()
         telemetry.close()
@@ -435,6 +467,7 @@ fun Application.forgeControlModule(
                     log = log ?: JsonLog(cfg.serviceName, cfg.logLevel),
                     strictRegister = services.nodeStrictRegister,
                     telemetry = telemetry,
+                    onRegistered = services.onNodeRegistered,
                 )
             }
         }

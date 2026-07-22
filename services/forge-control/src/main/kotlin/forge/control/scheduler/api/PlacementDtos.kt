@@ -10,6 +10,7 @@ data class CreatePlacementRequest(
     @SerialName("replica_index") val replicaIndex: Int? = null,
     val requirements: PlacementRequirementsDto? = null,
     @SerialName("anti_affinity") val antiAffinity: String? = null,
+    @SerialName("service_id") val serviceId: String? = null,
 )
 
 @Serializable
@@ -22,9 +23,11 @@ data class PlacementResponse(
     @SerialName("placement_id") val placementId: String,
     @SerialName("deployment_id") val deploymentId: String,
     @SerialName("replica_index") val replicaIndex: Int,
-    @SerialName("node_id") val nodeId: String,
-    val strategy: String,
+    @SerialName("node_id") val nodeId: String? = null,
+    val strategy: String? = null,
     val reason: String? = null,
+    val status: String = "placed",
+    @SerialName("anti_affinity") val antiAffinity: String = "soft",
 )
 
 fun Placement.toResponse(): PlacementResponse =
@@ -35,4 +38,6 @@ fun Placement.toResponse(): PlacementResponse =
         nodeId = nodeId,
         strategy = strategy,
         reason = reason,
+        status = status,
+        antiAffinity = antiAffinity,
     )

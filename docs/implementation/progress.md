@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 53`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 54`**.
 
 ## Epics
 
@@ -86,7 +86,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **50** | [Scheduler module/service skeleton + placement APIs](steps/08-multi-node-scheduler/08.01-scheduler-skeleton-and-placement-apis.md) | Complete |  | Scheduler seam, SingleNodeScheduler, placements table + POST/GET APIs; reconciler records node |
 | **51** | [Multi-node registration, heartbeat, resource reporting](steps/08-multi-node-scheduler/08.02-node-registration-heartbeat-resources.md) | Complete |  | Nodes table, register/heartbeat/list APIs, liveness monitor, Runtime capacity reporting |
 | **52** | [First-fit and least-allocated placement strategies](steps/08-multi-node-scheduler/08.03-first-fit-and-least-allocated-strategies.md) | Complete |  | FirstFit + LeastAllocated strategies, CapacityReservation, FORGE_SCHEDULER_STRATEGY |
-| **53** | [Anti-affinity + pending queue](steps/08-multi-node-scheduler/08.04-anti-affinity-and-pending-queue.md) | Not started |  |  |
+| **53** | [Anti-affinity + pending queue](steps/08-multi-node-scheduler/08.04-anti-affinity-and-pending-queue.md) | Complete |  | Soft/hard anti-affinity spread; pending queue + FIFO drain; POST 202 |
 | **54** | [Reschedule on node offline](steps/08-multi-node-scheduler/08.05-reschedule-on-node-offline.md) | Not started |  |  |
 | **55** | [Demo `08-multi-node` + epic gate](steps/08-multi-node-scheduler/08.06-demo-08-multi-node.md) | Not started |  |  |
 | **56** | [Skeleton + Compose + Postgres](steps/09-forge-identity/09.01-skeleton-compose-postgres.md) | Not started |  |  |

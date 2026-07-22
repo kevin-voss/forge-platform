@@ -1,7 +1,10 @@
 package forge.control.scheduler
 
+import forge.control.telemetry.Telemetry
+
 /**
- * Select a [Scheduler] implementation from `FORGE_SCHEDULER_STRATEGY`.
+ * Select a [Scheduler] implementation from `FORGE_SCHEDULER_STRATEGY`,
+ * composing anti-affinity filtering when a [PlacementStore] is provided.
  */
 object SchedulerFactory {
     const val STRATEGY_FIRST_FIT: String = "first-fit"
@@ -20,13 +23,28 @@ object SchedulerFactory {
         reservation: CapacityReservation,
         localNodeId: String,
         schedulerEnabled: Boolean,
+        placementStore: PlacementStore? = null,
+        telemetry: Telemetry = Telemetry.current(),
     ): Scheduler {
         if (!schedulerEnabled) {
             return SingleNodeScheduler(nodeId = null)
         }
+        val antiAffinity = placementStore?.let { AntiAffinityFilter(it) }
+            ?: AntiAffinityFilter.noop()
+        val onSoftFallback: () -> Unit = { telemetry.recordAntiAffinityFallback() }
         return when (strategy) {
-            STRATEGY_FIRST_FIT -> FirstFitScheduler(nodeStore, reservation)
-            STRATEGY_LEAST_ALLOCATED -> LeastAllocatedScheduler(nodeStore, reservation)
+            STRATEGY_FIRST_FIT -> FirstFitScheduler(
+                nodeStore,
+                reservation,
+                antiAffinity,
+                onSoftFallback,
+            )
+            STRATEGY_LEAST_ALLOCATED -> LeastAllocatedScheduler(
+                nodeStore,
+                reservation,
+                antiAffinity,
+                onSoftFallback,
+            )
             STRATEGY_SINGLE_NODE -> SingleNodeScheduler(
                 availableNodes = {
                     val online = nodeStore.listOnlineIds()

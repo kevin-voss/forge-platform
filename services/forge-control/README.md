@@ -181,8 +181,8 @@ request handling.
 | `PATCH` | `/v1/deployments/{deploymentId}` | Update desired `image` and/or `desiredReplicas` (triggers rolling update / rollback paths) |
 | `GET` | `/v1/deployments/{deploymentId}/reconcile` | Desired/actual snapshot, plan, `phase`, `updatedReplicas`, `currentImage`/`targetImage`, `status` (`deploying`/`deployed`/`rolling_back`/`rolled_back`/…), `lastHealthyImage`, controller health (`07.01`–`07.04`) |
 | `GET` | `/v1/deployments/{deploymentId}/history` | Chronological append-only transition trail (`07.05`) |
-| `POST` | `/v1/placements` | Compute+persist placement; body `{"deployment_id","replica_index","requirements?","anti_affinity?"}`; idempotent per replica; `409 no_node_available` when empty (`08.01`) |
-| `GET` | `/v1/placements?deployment=` | List placements for a deployment (`08.01`) |
+| `POST` | `/v1/placements` | Compute+persist placement; body `{"deployment_id","replica_index","requirements?","anti_affinity?","service_id?"}`; soft/hard anti-affinity; `201` placed, `202` pending when no capacity (`08.04`); `409 queue_full` at cap |
+| `GET` | `/v1/placements?deployment=&status=` | List placements for a deployment; optional `status=placed|pending` (`08.04`) |
 | `GET` | `/v1/projects/{projectId}?expand=tree` | Project, environments, applications, services, and deployments |
 
 The machine-readable API contract is
@@ -200,7 +200,7 @@ Tables in schema `control`:
 * `projects`, `environments`, `applications`, `services`, `deployments`
 * `reconcile_status` (per-deployment desired/actual/plan snapshot, lifecycle status, rollout timer, controller health)
 * `deployment_events` (append-only status transitions with image, replica counts, reason)
-* `placements` (replica → node assignments; unique on `(deployment_id, replica_index)`)
+* `placements` (replica → node assignments or `pending` queue rows; unique on `(deployment_id, replica_index)`; `status`/`anti_affinity`/`slots`/`service_id`)
 * `audit_log` (append-only; create actions for projects/environments/applications/services/deployments)
 * `idempotency_keys` (key, request hash, resource ID, stored response; 24-hour retention target)
 * `flyway_schema_history`

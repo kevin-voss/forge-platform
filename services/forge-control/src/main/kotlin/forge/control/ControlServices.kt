@@ -30,4 +30,6 @@ data class ControlServices(
     val placementService: PlacementService? = null,
     val nodeStore: NodeStore? = null,
     val nodeStrictRegister: Boolean = false,
+    /** Invoked after a successful node registration (capacity may have increased). */
+    val onNodeRegistered: (() -> Unit)? = null,
 )

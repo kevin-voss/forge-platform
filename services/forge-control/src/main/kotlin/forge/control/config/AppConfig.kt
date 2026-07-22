@@ -38,6 +38,9 @@ data class AppConfig(
     val nodeHeartbeatTimeoutSeconds: Long = 15,
     val livenessIntervalMs: Long = 5_000,
     val nodeStrictRegister: Boolean = false,
+    val antiAffinityDefault: String = "soft",
+    val queueRetryMs: Long = 2_000,
+    val queueMaxLen: Int = 1000,
 )
 
 fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
@@ -292,6 +295,37 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         )
     }
 
+    val antiAffinityDefault = env["FORGE_ANTI_AFFINITY_DEFAULT"]?.trim()?.lowercase().orEmpty()
+        .ifEmpty { "soft" }
+    if (antiAffinityDefault !in setOf("soft", "hard")) {
+        throw IllegalArgumentException(
+            "FORGE_ANTI_AFFINITY_DEFAULT must be soft|hard, got '$antiAffinityDefault'",
+        )
+    }
+
+    val queueRetryRaw = env["FORGE_QUEUE_RETRY_MS"]?.trim().orEmpty()
+        .ifEmpty { env["FORGE_RECONCILE_INTERVAL_MS"]?.trim().orEmpty().ifEmpty { "2000" } }
+    val queueRetryMs = queueRetryRaw.toLongOrNull()
+        ?: throw IllegalArgumentException(
+            "FORGE_QUEUE_RETRY_MS must be a positive integer, got '$queueRetryRaw'",
+        )
+    if (queueRetryMs < 1) {
+        throw IllegalArgumentException(
+            "FORGE_QUEUE_RETRY_MS must be a positive integer, got '$queueRetryRaw'",
+        )
+    }
+
+    val queueMaxRaw = env["FORGE_QUEUE_MAX_LEN"]?.trim().orEmpty().ifEmpty { "1000" }
+    val queueMaxLen = queueMaxRaw.toIntOrNull()
+        ?: throw IllegalArgumentException(
+            "FORGE_QUEUE_MAX_LEN must be a positive integer, got '$queueMaxRaw'",
+        )
+    if (queueMaxLen < 1) {
+        throw IllegalArgumentException(
+            "FORGE_QUEUE_MAX_LEN must be a positive integer, got '$queueMaxRaw'",
+        )
+    }
+
     return AppConfig(
         port = port,
         serviceName = env["FORGE_SERVICE_NAME"]?.trim().orEmpty().ifEmpty { "forge-control" },
@@ -330,5 +364,8 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         nodeHeartbeatTimeoutSeconds = nodeHeartbeatTimeoutSeconds,
         livenessIntervalMs = livenessIntervalMs,
         nodeStrictRegister = nodeStrictRegister,
+        antiAffinityDefault = antiAffinityDefault,
+        queueRetryMs = queueRetryMs,
+        queueMaxLen = queueMaxLen,
     )
 }

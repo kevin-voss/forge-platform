@@ -38,7 +38,7 @@ fun Route.placementRoutes(placements: PlacementService) {
                 )
             }
             val antiAffinity = try {
-                AntiAffinity.parse(body.antiAffinity)
+                body.antiAffinity?.let { AntiAffinity.parse(it) }
             } catch (e: IllegalArgumentException) {
                 throw ApiException.BadRequest(
                     e.message ?: "invalid anti_affinity",
@@ -50,6 +50,7 @@ fun Route.placementRoutes(placements: PlacementService) {
                 placements.placeAndPersist(
                     deploymentId = deploymentId,
                     replicaIndex = replicaIndex,
+                    serviceId = body.serviceId?.trim()?.takeIf { it.isNotEmpty() },
                     slots = slots,
                     antiAffinity = antiAffinity,
                 )
@@ -66,6 +67,17 @@ fun Route.placementRoutes(placements: PlacementService) {
                         mapOf("code" to "no_node_available"),
                         code = "no_node_available",
                     )
+                is PlaceResult.QueueFull ->
+                    throw ApiException.Conflict(
+                        "placement queue full (max=${result.maxLen})",
+                        mapOf("code" to "queue_full", "max_len" to result.maxLen.toString()),
+                        code = "queue_full",
+                    )
+                is PlaceResult.Pending ->
+                    call.respond(
+                        if (result.created) HttpStatusCode.Accepted else HttpStatusCode.OK,
+                        result.placement.toResponse(),
+                    )
                 is PlaceResult.Ok ->
                     call.respond(
                         if (result.created) HttpStatusCode.Created else HttpStatusCode.OK,
@@ -80,7 +92,14 @@ fun Route.placementRoutes(placements: PlacementService) {
                     mapOf("field" to "deployment"),
                 )
             val deploymentId = parseDeploymentId(deploymentRaw)
-            call.respond(placements.list(deploymentId).map { it.toResponse() })
+            val status = call.request.queryParameters["status"]?.trim()?.lowercase()
+            if (status != null && status !in setOf("placed", "pending")) {
+                throw ApiException.BadRequest(
+                    "status must be placed|pending",
+                    mapOf("field" to "status"),
+                )
+            }
+            call.respond(placements.list(deploymentId, status).map { it.toResponse() })
         }
     }
 }

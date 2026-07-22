@@ -144,6 +144,22 @@ class Reconciler(
                         durationMs = 0,
                         detail = "no_node_available",
                     )
+                is PlaceResult.QueueFull ->
+                    return@inSpan ExecutedAction(
+                        action = ReconcileAction.StartReplica.name,
+                        replicaIndex = index,
+                        result = ActionResult.Failed,
+                        durationMs = 0,
+                        detail = "queue_full",
+                    )
+                is PlaceResult.Pending ->
+                    return@inSpan ExecutedAction(
+                        action = ReconcileAction.StartReplica.name,
+                        replicaIndex = index,
+                        result = ActionResult.Held,
+                        durationMs = 0,
+                        detail = "pending_placement",
+                    )
                 is PlaceResult.Ok, null -> Unit
             }
             val outcome = runtimeClient.ensureWorkload(
@@ -199,6 +215,7 @@ class Reconciler(
                 index,
             )
             runtimeClient.stopWorkload(runtimeId)
+            placementService?.releasePlacement(deploymentId, index)
             clearWait(desired.deploymentId, index)
             ExecutedAction(
                 action = ReconcileAction.StopReplica.name,

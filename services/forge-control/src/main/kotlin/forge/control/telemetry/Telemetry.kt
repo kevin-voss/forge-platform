@@ -5,6 +5,7 @@ import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.common.Attributes
 import io.opentelemetry.api.metrics.LongCounter
 import io.opentelemetry.api.metrics.DoubleHistogram
+import io.opentelemetry.api.metrics.ObservableLongGauge
 import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.StatusCode
 import io.opentelemetry.api.trace.Tracer
@@ -18,6 +19,7 @@ import io.opentelemetry.sdk.resources.Resource
 import io.opentelemetry.sdk.trace.SdkTracerProvider
 import io.opentelemetry.sdk.trace.export.BatchSpanProcessor
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 data class TelemetryConfig(
     val enabled: Boolean,
@@ -45,6 +47,10 @@ class Telemetry private constructor(
     private val placements: LongCounter,
     private val placementDecisions: LongCounter,
     private val placementRejectedNoCapacity: LongCounter,
+    private val antiAffinityFallback: LongCounter,
+    private val queueDrain: LongCounter,
+    private val placementsPendingValue: AtomicLong,
+    @Suppress("unused") private val placementsPendingGauge: ObservableLongGauge,
     private val nodesTotal: LongCounter,
     private val nodeFreeSlots: LongCounter,
     private val nodeHeartbeatAge: DoubleHistogram,
@@ -82,6 +88,18 @@ class Telemetry private constructor(
 
     fun recordPlacementRejectedNoCapacity() {
         placementRejectedNoCapacity.add(1)
+    }
+
+    fun recordAntiAffinityFallback() {
+        antiAffinityFallback.add(1)
+    }
+
+    fun recordQueueDrain() {
+        queueDrain.add(1)
+    }
+
+    fun setPlacementsPending(count: Int) {
+        placementsPendingValue.set(count.toLong().coerceAtLeast(0))
     }
 
     fun recordNodeStatus(status: String) {
@@ -214,6 +232,12 @@ class Telemetry private constructor(
 
         private fun fromOpenTelemetry(openTelemetry: OpenTelemetry, sdk: OpenTelemetrySdk?): Telemetry {
             val meter = openTelemetry.getMeter("forge.control")
+            val pendingValue = AtomicLong(0)
+            val pendingGauge = meter.gaugeBuilder("forge_placements_pending")
+                .ofLongs()
+                .buildWithCallback { measurement ->
+                    measurement.record(pendingValue.get())
+                }
             return Telemetry(
                 tracer = openTelemetry.getTracer("forge.control"),
                 requestCount = meter.counterBuilder("http.server.requests").build(),
@@ -232,6 +256,12 @@ class Telemetry private constructor(
                 placementRejectedNoCapacity = meter
                     .counterBuilder("forge_placement_rejected_no_capacity_total")
                     .build(),
+                antiAffinityFallback = meter
+                    .counterBuilder("forge_anti_affinity_fallback_total")
+                    .build(),
+                queueDrain = meter.counterBuilder("forge_queue_drain_total").build(),
+                placementsPendingValue = pendingValue,
+                placementsPendingGauge = pendingGauge,
                 nodesTotal = meter.counterBuilder("forge_nodes_total").build(),
                 nodeFreeSlots = meter.counterBuilder("forge_node_free_slots").build(),
                 nodeHeartbeatAge = meter.histogramBuilder("forge_node_heartbeat_age_seconds")

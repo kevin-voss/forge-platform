@@ -32,6 +32,9 @@ class PlacementOpenApiContractTest {
         assertTrue(yaml.contains("first-fit"))
         assertTrue(yaml.contains("least-allocated"))
         assertTrue(yaml.contains("single-node"))
+        assertTrue(yaml.contains("'202'") || yaml.contains("202:"))
+        assertTrue(yaml.contains("status: pending") || yaml.contains("pending"))
+        assertTrue(yaml.contains("anti_affinity") || yaml.contains("anti-affinity"))
     }
 
     @Test
@@ -43,7 +46,9 @@ class PlacementOpenApiContractTest {
               "replica_index": 0,
               "node_id": "node-b",
               "strategy": "least-allocated",
-              "reason": "least-allocated: node-b free=4"
+              "reason": "least-allocated: node-b free=4",
+              "status": "placed",
+              "anti_affinity": "soft"
             }
         """.trimIndent()
         val decoded = Json { ignoreUnknownKeys = true }
@@ -52,5 +57,26 @@ class PlacementOpenApiContractTest {
         assertTrue(decoded.nodeId == "node-b")
         assertTrue(decoded.strategy == "least-allocated")
         assertTrue(decoded.replicaIndex == 0)
+        assertTrue(decoded.status == "placed")
+    }
+
+    @Test
+    fun pendingResponseMatchesDtoShape() {
+        val example = """
+            {
+              "placement_id": "plc_2",
+              "deployment_id": "11111111-1111-1111-1111-111111111111",
+              "replica_index": 4,
+              "status": "pending",
+              "reason": "no node with 1 free slot",
+              "anti_affinity": "soft",
+              "strategy": "pending"
+            }
+        """.trimIndent()
+        val decoded = Json { ignoreUnknownKeys = true }
+            .decodeFromString(PlacementResponse.serializer(), example)
+        assertTrue(decoded.status == "pending")
+        assertTrue(decoded.nodeId == null)
+        assertTrue(decoded.reason!!.contains("no node"))
     }
 }

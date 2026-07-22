@@ -20,6 +20,7 @@ fun Route.nodeRegistrationRoutes(
     strictRegister: Boolean = false,
     telemetry: Telemetry = Telemetry.current(),
     clock: () -> Instant = { Instant.now() },
+    onRegistered: (() -> Unit)? = null,
 ) {
     route("/v1/nodes") {
         post("/register") {
@@ -66,6 +67,13 @@ fun Route.nodeRegistrationRoutes(
                 "status" to node.status,
             )
             telemetry.recordNodeStatus(node.status)
+            if (created) {
+                try {
+                    onRegistered?.invoke()
+                } catch (_: Exception) {
+                    // Queue drain failures must not fail registration.
+                }
+            }
             call.respond(
                 if (created) HttpStatusCode.Created else HttpStatusCode.OK,
                 node.toResponse(),
