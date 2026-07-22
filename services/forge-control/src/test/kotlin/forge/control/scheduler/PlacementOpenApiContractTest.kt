@@ -29,6 +29,8 @@ class PlacementOpenApiContractTest {
         assertTrue(yaml.contains("x-list-placements") || yaml.contains("listPlacements"))
         assertTrue(yaml.contains("Placement:"))
         assertTrue(yaml.contains("placement_id") || yaml.contains("placementId"))
+        assertTrue(yaml.contains("first-fit"))
+        assertTrue(yaml.contains("least-allocated"))
         assertTrue(yaml.contains("single-node"))
     }
 
@@ -39,16 +41,16 @@ class PlacementOpenApiContractTest {
               "placement_id": "plc_1",
               "deployment_id": "11111111-1111-1111-1111-111111111111",
               "replica_index": 0,
-              "node_id": "node-local",
-              "strategy": "single-node",
-              "reason": "only node available"
+              "node_id": "node-b",
+              "strategy": "least-allocated",
+              "reason": "least-allocated: node-b free=4"
             }
         """.trimIndent()
         val decoded = Json { ignoreUnknownKeys = true }
             .decodeFromString(PlacementResponse.serializer(), example)
         assertTrue(decoded.placementId == "plc_1")
-        assertTrue(decoded.nodeId == "node-local")
-        assertTrue(decoded.strategy == "single-node")
+        assertTrue(decoded.nodeId == "node-b")
+        assertTrue(decoded.strategy == "least-allocated")
         assertTrue(decoded.replicaIndex == 0)
     }
 }

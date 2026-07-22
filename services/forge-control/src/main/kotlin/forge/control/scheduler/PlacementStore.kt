@@ -26,6 +26,13 @@ interface PlacementStore {
     fun find(deploymentId: UUID, replicaIndex: Int): Placement?
 
     fun listByDeployment(deploymentId: UUID): List<Placement>
+
+    /**
+     * Delete a placement row (capacity release is caller's responsibility via
+     * [CapacityReservation]). Returns the deleted row, or null if absent.
+     * Hook for stop/reschedule (08.05).
+     */
+    fun delete(deploymentId: UUID, replicaIndex: Int): Placement?
 }
 
 class JdbcPlacementStore(
@@ -91,6 +98,23 @@ class JdbcPlacementStore(
         }
     }
 
+    override fun delete(deploymentId: UUID, replicaIndex: Int): Placement? = runSql {
+        dataSource.withConnection { conn ->
+            val existing = find(conn, deploymentId, replicaIndex) ?: return@withConnection null
+            conn.prepareStatement(
+                """
+                DELETE FROM placements
+                WHERE deployment_id = ? AND replica_index = ?
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, deploymentId)
+                ps.setInt(2, replicaIndex)
+                ps.executeUpdate()
+            }
+            existing
+        }
+    }
+
     private fun find(
         conn: java.sql.Connection,
         deploymentId: UUID,
@@ -140,4 +164,7 @@ class InMemoryPlacementStore : PlacementStore {
         rows.values
             .filter { it.deploymentId == deploymentId }
             .sortedBy { it.replicaIndex }
+
+    override fun delete(deploymentId: UUID, replicaIndex: Int): Placement? =
+        rows.remove(key(deploymentId, replicaIndex))
 }

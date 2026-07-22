@@ -56,7 +56,7 @@ class AppConfigTest {
         assertEquals(true, cfg.historyEnabled)
         assertEquals(true, cfg.startupAdoptLabels)
         assertEquals(true, cfg.schedulerEnabled)
-        assertEquals("single-node", cfg.schedulerStrategy)
+        assertEquals("least-allocated", cfg.schedulerStrategy)
         assertEquals("node-local", cfg.schedulerLocalNodeId)
     }
 
@@ -78,7 +78,7 @@ class AppConfigTest {
                 "FORGE_HISTORY_ENABLED" to "false",
                 "FORGE_STARTUP_ADOPT_LABELS" to "false",
                 "FORGE_SCHEDULER_ENABLED" to "false",
-                "FORGE_SCHEDULER_STRATEGY" to "single-node",
+                "FORGE_SCHEDULER_STRATEGY" to "first-fit",
                 "FORGE_SCHEDULER_LOCAL_NODE_ID" to "node-a",
             ),
         )
@@ -95,7 +95,7 @@ class AppConfigTest {
         assertEquals(false, cfg.historyEnabled)
         assertEquals(false, cfg.startupAdoptLabels)
         assertEquals(false, cfg.schedulerEnabled)
-        assertEquals("single-node", cfg.schedulerStrategy)
+        assertEquals("first-fit", cfg.schedulerStrategy)
         assertEquals("node-a", cfg.schedulerLocalNodeId)
     }
 

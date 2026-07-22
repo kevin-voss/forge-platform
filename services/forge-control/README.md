@@ -118,8 +118,8 @@ make dev
 | `FORGE_HISTORY_ENABLED` | `true` | Append status transitions to `deployment_events` |
 | `FORGE_STARTUP_ADOPT_LABELS` | `true` | On boot, adopt existing workloads and GC orphans before reconcile |
 | `FORGE_SCHEDULER_ENABLED` | `true` | Reconciler delegates placement before starting replicas |
-| `FORGE_SCHEDULER_STRATEGY` | `single-node` | Only `single-node` in 08.01 |
-| `FORGE_SCHEDULER_LOCAL_NODE_ID` | `node-local` | Sole node returned by `SingleNodeScheduler` until fleet registration (08.02) |
+| `FORGE_SCHEDULER_STRATEGY` | `least-allocated` | `first-fit` \| `least-allocated` \| `single-node` |
+| `FORGE_SCHEDULER_LOCAL_NODE_ID` | `node-local` | Fallback sole node for `single-node` when the fleet is empty |
 
 See `.env.example`.
 
@@ -139,8 +139,10 @@ the foundation Collector. Reconcile ticks emit `forge_reconcile_ticks_total` /
 `reconcile.tick` / `reconcile.rolling_update` / `reconcile.rollback` /
 `reconcile.start_replica` / `reconcile.wait_ready` /
 `reconcile.shift_traffic` / `reconcile.drain_replica` /
-`reconcile.stop_replica`, plus `forge_placements_total{strategy=…}` and span
-`scheduler.place`.
+`reconcile.stop_replica`, plus `forge_placements_total{strategy=…}`,
+`forge_placement_decisions_total{strategy,node}`,
+`forge_placement_rejected_no_capacity_total`, and span `scheduler.place`
+(attributes `strategy`, `candidates`, `node`).
 From 07.02 the controller executes start/stop/recreate against Runtime using
 deterministic per-replica workload ids
 (`forge-<service_slug>-<deployment_short>-<index>`). From 07.03 image changes

@@ -43,6 +43,8 @@ class Telemetry private constructor(
     private val rollbackDuration: DoubleHistogram,
     private val deploymentTransitions: LongCounter,
     private val placements: LongCounter,
+    private val placementDecisions: LongCounter,
+    private val placementRejectedNoCapacity: LongCounter,
     private val nodesTotal: LongCounter,
     private val nodeFreeSlots: LongCounter,
     private val nodeHeartbeatAge: DoubleHistogram,
@@ -64,6 +66,22 @@ class Telemetry private constructor(
             1,
             Attributes.of(AttributeKey.stringKey("strategy"), strategy),
         )
+    }
+
+    fun recordPlacementDecision(strategy: String, node: String) {
+        placementDecisions.add(
+            1,
+            Attributes.of(
+                AttributeKey.stringKey("strategy"),
+                strategy,
+                AttributeKey.stringKey("node"),
+                node,
+            ),
+        )
+    }
+
+    fun recordPlacementRejectedNoCapacity() {
+        placementRejectedNoCapacity.add(1)
     }
 
     fun recordNodeStatus(status: String) {
@@ -210,6 +228,10 @@ class Telemetry private constructor(
                 rollbackDuration = meter.histogramBuilder("forge_rollback_duration_ms").setUnit("ms").build(),
                 deploymentTransitions = meter.counterBuilder("forge_deployment_transitions_total").build(),
                 placements = meter.counterBuilder("forge_placements_total").build(),
+                placementDecisions = meter.counterBuilder("forge_placement_decisions_total").build(),
+                placementRejectedNoCapacity = meter
+                    .counterBuilder("forge_placement_rejected_no_capacity_total")
+                    .build(),
                 nodesTotal = meter.counterBuilder("forge_nodes_total").build(),
                 nodeFreeSlots = meter.counterBuilder("forge_node_free_slots").build(),
                 nodeHeartbeatAge = meter.histogramBuilder("forge_node_heartbeat_age_seconds")

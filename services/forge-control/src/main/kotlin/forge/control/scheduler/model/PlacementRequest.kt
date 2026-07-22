@@ -20,6 +20,8 @@ data class PlacementRequest(
 
 data class ResourceRequirements(
     val slots: Int = 1,
+    val cpuMillis: Int? = null,
+    val memMb: Int? = null,
 )
 
 enum class AntiAffinity {

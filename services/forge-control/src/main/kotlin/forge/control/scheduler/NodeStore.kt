@@ -3,6 +3,7 @@ package forge.control.scheduler
 import forge.control.repo.instant
 import forge.control.repo.runSql
 import forge.control.repo.withConnection
+import forge.control.scheduler.model.ResourceRequirements
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -62,6 +63,15 @@ interface NodeStore {
 
     /** Recompute online/offline for every row from last_heartbeat vs cutoff. */
     fun recomputeLiveness(cutoff: Instant): List<Pair<String, String>>
+
+    /**
+     * Atomically bump allocation when the node is online and has enough free
+     * capacity. Returns false if the node is missing, offline, or over-committed.
+     */
+    fun tryReserve(id: String, requirements: ResourceRequirements): Boolean
+
+    /** Decrement reserved allocation (floors at zero). Hook for stop/reschedule. */
+    fun release(id: String, requirements: ResourceRequirements): Boolean
 }
 
 private val json = Json {
@@ -212,6 +222,74 @@ class JdbcNodeStore(
         }
     }
 
+    override fun tryReserve(id: String, requirements: ResourceRequirements): Boolean = runSql {
+        dataSource.withConnection { conn ->
+            conn.autoCommit = false
+            try {
+                val node = find(conn, id) ?: return@withConnection false
+                if (!PlacementCapacity.fits(node, requirements)) {
+                    conn.rollback()
+                    return@withConnection false
+                }
+                val next = bumpAllocation(node.allocation, requirements, release = false)
+                val updated = conn.prepareStatement(
+                    """
+                    UPDATE nodes
+                    SET allocation_json = ?::jsonb
+                    WHERE id = ?
+                      AND status = 'online'
+                      AND COALESCE((allocation_json->>'slots')::int, 0) = ?
+                    """.trimIndent(),
+                ).use { ps ->
+                    ps.setString(1, json.encodeToString(next))
+                    ps.setString(2, id)
+                    ps.setInt(3, node.allocation.slots)
+                    ps.executeUpdate()
+                }
+                if (updated == 1) {
+                    conn.commit()
+                    true
+                } else {
+                    conn.rollback()
+                    false
+                }
+            } catch (e: Exception) {
+                conn.rollback()
+                throw e
+            } finally {
+                conn.autoCommit = true
+            }
+        }
+    }
+
+    override fun release(id: String, requirements: ResourceRequirements): Boolean = runSql {
+        dataSource.withConnection { conn ->
+            conn.autoCommit = false
+            try {
+                val node = find(conn, id) ?: return@withConnection false
+                val next = bumpAllocation(node.allocation, requirements, release = true)
+                conn.prepareStatement(
+                    """
+                    UPDATE nodes
+                    SET allocation_json = ?::jsonb
+                    WHERE id = ?
+                    """.trimIndent(),
+                ).use { ps ->
+                    ps.setString(1, json.encodeToString(next))
+                    ps.setString(2, id)
+                    ps.executeUpdate()
+                }
+                conn.commit()
+                true
+            } catch (e: Exception) {
+                conn.rollback()
+                throw e
+            } finally {
+                conn.autoCommit = true
+            }
+        }
+    }
+
     private fun find(conn: java.sql.Connection, id: String): FleetNode? {
         conn.prepareStatement(
             """
@@ -325,4 +403,46 @@ class InMemoryNodeStore : NodeStore {
         }
         return transitions
     }
+
+    override fun tryReserve(id: String, requirements: ResourceRequirements): Boolean {
+        synchronized(rows) {
+            val node = rows[id] ?: return false
+            if (!PlacementCapacity.fits(node, requirements)) return false
+            rows[id] = node.copy(
+                allocation = bumpAllocation(node.allocation, requirements, release = false),
+            )
+            return true
+        }
+    }
+
+    override fun release(id: String, requirements: ResourceRequirements): Boolean {
+        synchronized(rows) {
+            val node = rows[id] ?: return false
+            rows[id] = node.copy(
+                allocation = bumpAllocation(node.allocation, requirements, release = true),
+            )
+            return true
+        }
+    }
+}
+
+private fun bumpAllocation(
+    current: NodeAllocation,
+    requirements: ResourceRequirements,
+    release: Boolean,
+): NodeAllocation {
+    val deltaSlots = if (release) -requirements.slots else requirements.slots
+    val nextSlots = (current.slots + deltaSlots).coerceAtLeast(0)
+    val nextCpu = when {
+        requirements.cpuMillis == null -> current.cpuMillis
+        release -> current.cpuMillis?.let { (it - requirements.cpuMillis).coerceAtLeast(0) }
+            ?: 0
+        else -> (current.cpuMillis ?: 0) + requirements.cpuMillis
+    }
+    val nextMem = when {
+        requirements.memMb == null -> current.memMb
+        release -> current.memMb?.let { (it - requirements.memMb).coerceAtLeast(0) } ?: 0
+        else -> (current.memMb ?: 0) + requirements.memMb
+    }
+    return current.copy(slots = nextSlots, cpuMillis = nextCpu, memMb = nextMem)
 }

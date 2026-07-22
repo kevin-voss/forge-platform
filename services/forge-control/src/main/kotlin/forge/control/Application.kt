@@ -30,11 +30,12 @@ import forge.control.reconcile.ReconciliationController
 import forge.control.reconcile.RepositoryDeploymentStore
 import forge.control.reconcile.StartupRecovery
 import forge.control.reconcile.TrafficShifter
+import forge.control.scheduler.CapacityReservation
 import forge.control.scheduler.JdbcNodeStore
 import forge.control.scheduler.JdbcPlacementStore
 import forge.control.scheduler.LivenessMonitor
 import forge.control.scheduler.PlacementService
-import forge.control.scheduler.SingleNodeScheduler
+import forge.control.scheduler.SchedulerFactory
 import forge.control.scheduler.api.nodeFleetRoutes
 import forge.control.scheduler.api.nodeRegistrationRoutes
 import forge.control.scheduler.api.placementRoutes
@@ -149,25 +150,20 @@ fun main() {
     )
     val placementStore = JdbcPlacementStore(db.dataSource)
     val nodeStore = JdbcNodeStore(db.dataSource)
-    val placementScheduler = SingleNodeScheduler(
-        availableNodes = {
-            if (!cfg.schedulerEnabled) {
-                emptyList()
-            } else {
-                val online = nodeStore.listOnlineIds()
-                if (online.isNotEmpty()) {
-                    online
-                } else {
-                    listOfNotNull(cfg.schedulerLocalNodeId.trim().takeIf { it.isNotEmpty() })
-                }
-            }
-        },
+    val capacityReservation = CapacityReservation(nodeStore)
+    val placementScheduler = SchedulerFactory.create(
+        strategy = cfg.schedulerStrategy,
+        nodeStore = nodeStore,
+        reservation = capacityReservation,
+        localNodeId = cfg.schedulerLocalNodeId,
+        schedulerEnabled = cfg.schedulerEnabled,
     )
     val placementService = PlacementService(
         scheduler = placementScheduler,
         store = placementStore,
         log = log,
         telemetry = telemetry,
+        reservation = capacityReservation,
     )
     val livenessMonitor = LivenessMonitor(
         store = nodeStore,

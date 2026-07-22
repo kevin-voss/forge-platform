@@ -33,7 +33,7 @@ data class AppConfig(
     val historyEnabled: Boolean = true,
     val startupAdoptLabels: Boolean = true,
     val schedulerEnabled: Boolean = true,
-    val schedulerStrategy: String = "single-node",
+    val schedulerStrategy: String = "least-allocated",
     val schedulerLocalNodeId: String = "node-local",
     val nodeHeartbeatTimeoutSeconds: Long = 15,
     val livenessIntervalMs: Long = 5_000,
@@ -245,10 +245,10 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
     }
 
     val schedulerStrategy = env["FORGE_SCHEDULER_STRATEGY"]?.trim().orEmpty()
-        .ifEmpty { "single-node" }
-    if (schedulerStrategy != "single-node") {
+        .ifEmpty { "least-allocated" }
+    if (schedulerStrategy !in setOf("first-fit", "least-allocated", "single-node")) {
         throw IllegalArgumentException(
-            "FORGE_SCHEDULER_STRATEGY must be single-node, got '$schedulerStrategy'",
+            "FORGE_SCHEDULER_STRATEGY must be first-fit|least-allocated|single-node, got '$schedulerStrategy'",
         )
     }
 
