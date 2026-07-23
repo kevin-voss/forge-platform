@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning
+In progress
 
 ## Milestone
 
@@ -106,7 +106,7 @@ FORGE_DEMO_TARGET=hetzner make demo DEMO=23   # opt-in only; never part of the d
 
 | Step | N | Title | Status | Notes |
 |---|---:|---|---|---|
-| [23.01](../steps/23-forge-infrastructure/23.01-skeleton-provider-interface-and-nodepools.md) | 153 | Service skeleton, provider interface, NodePool/Node resources | Not started | Provider interface (16 methods); op-id ledger; inert `NodePoolController` |
+| [23.01](../steps/23-forge-infrastructure/23.01-skeleton-provider-interface-and-nodepools.md) | 153 | Service skeleton, provider interface, NodePool/Node resources | Complete | Provider interface (16 methods); op-id ledger; inert `NodePoolController` |
 | [23.02](../steps/23-forge-infrastructure/23.02-docker-provider-local-nodes.md) | 154 | Local Docker provider (local cloud simulation) | Not started | First real adapter; the CI/demo default provider |
 | [23.03](../steps/23-forge-infrastructure/23.03-node-bootstrap-and-join.md) | 155 | Node bootstrap, install, join, drain, delete | Not started | Phase state machine; bootstrap token from epic 22; timeout cleanup |
 | [23.04](../steps/23-forge-infrastructure/23.04-ssh-and-bare-metal-providers.md) | 156 | Generic SSH provider + static bare-metal inventory | Not started | Adopt/release semantics; finite-capacity conditions |
@@ -132,4 +132,4 @@ FORGE_DEMO_TARGET=hetzner make demo DEMO=23   # opt-in only; never part of the d
 
 ## Next step to implement
 
-**[23.01](../steps/23-forge-infrastructure/23.01-skeleton-provider-interface-and-nodepools.md) — Service skeleton, provider interface, NodePool/Node resources** (the adapter seam and operation ledger every later provider and phase implements against).
+**[23.02](../steps/23-forge-infrastructure/23.02-docker-provider-local-nodes.md) — Local Docker provider (local cloud simulation)** (first real adapter that makes `NodePoolController` create machines).

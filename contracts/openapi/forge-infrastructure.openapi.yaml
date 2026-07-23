@@ -1,0 +1,125 @@
+openapi: 3.0.3
+info:
+  title: Forge Infrastructure API
+  version: 0.1.0
+  description: |
+    Health and debug API for Forge Infrastructure (epic 23 / step 23.01).
+    Provider adapters and NodePool/Node CRUD live on Control's epic-20 resource API;
+    this surface is the service's own liveness/readiness and operation ledger inspect.
+servers:
+  - url: http://127.0.0.1:4111
+    description: Local Compose (host port 4111)
+
+paths:
+  /health/live:
+    get:
+      operationId: getHealthLive
+      security: []
+      responses:
+        "200":
+          description: Process is up
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: ok
+
+  /health/ready:
+    get:
+      operationId: getHealthReady
+      security: []
+      responses:
+        "200":
+          description: Ready to serve (DB reachable and kinds registered)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: ok
+        "503":
+          description: Not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: not_ready
+
+  /v1/operations/{opId}:
+    get:
+      operationId: getOperation
+      summary: Inspect a provider_operations ledger entry (internal debug)
+      parameters:
+        - name: opId
+          in: path
+          required: true
+          schema:
+            type: string
+            example: op_01J5Z3K9QDJ8XN5V2H9T3RXYA
+      responses:
+        "200":
+          description: Ledger row
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderOperation"
+              example:
+                id: op_01J5Z3K9QDJ8XN5V2H9T3RXYA
+                providerName: docker-local
+                kind: create_node
+                targetKind: node
+                naturalKey: local-docker-pool#0
+                status: pending
+                request:
+                  name: local-docker-pool-0
+                  machineType: docker-small
+        "404":
+          description: Unknown operation id
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, not_ready]
+    ProviderOperation:
+      type: object
+      properties:
+        id:
+          type: string
+        providerName:
+          type: string
+        kind:
+          type: string
+        targetKind:
+          type: string
+        targetId:
+          type: string
+          nullable: true
+        naturalKey:
+          type: string
+        request:
+          type: object
+          additionalProperties: true
+        status:
+          type: string
+          enum: [pending, succeeded, failed]
+        result:
+          type: object
+          nullable: true
+          additionalProperties: true
+        error:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
