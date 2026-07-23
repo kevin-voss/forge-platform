@@ -3,11 +3,11 @@
 Python/FastAPI agent runtime service (epic 15). Host port **4301**.
 
 Skeleton (15.01), agent registry (15.02), tool registry with per-call
-permission checks (15.03), and the bounded run engine with audit history
-(15.04). YAML agents load at startup; fake tools
-(`echo.ping`, `fail.raise`, `deployment.read`) register under
-`FORGE_AGENTS_TOOLS_MODE=fake` (CI default). Platform tools, approval, CLI,
-and the epic gate (`make demo DEMO=15`) arrive in later steps.
+permission checks (15.03), bounded run engine with audit history (15.04),
+and platform tools (15.05) backed by Control/Runtime/Observe/Storage/Models/
+Events. Fake tool mode (`FORGE_AGENTS_TOOLS_MODE=fake`) is the CI default.
+Human approval for destructive tools, seed agents/CLI, and the epic gate
+(`make demo DEMO=15`) arrive in later steps.
 
 ## Local
 
@@ -32,6 +32,8 @@ curl -fsS localhost:4301/
 curl -fsS localhost:4301/v1/agents | grep -q fixture-echo
 curl -s -o /dev/null -w '%{http_code}\n' localhost:4301/v1/agents/nope   # 404
 curl -fsS localhost:4301/v1/tools | grep -q '"required_permissions"'
+curl -fsS localhost:4301/v1/tools | python3 -c 'import sys,json;\
+print(any(t["name"]=="runtime.restart" and t["destructive"] for t in json.load(sys.stdin)["tools"]))'
 
 # Dry-run (deterministic fake model + fake tools)
 RID=$(curl -fsS -XPOST localhost:4301/v1/agents/fixture-echo/runs \
@@ -74,18 +76,39 @@ enforces, deny-by-default:
 2. tool is declared on the agent → else `not_declared` (overreach)
 3. arguments match `input_schema` → else `invalid_arguments`
 4. call scope has every required permission → else `permission_denied`
-5. `tool.execute(args)`
+5. `tool.execute(args)` — backend failures normalize to
+   `{tool, error_code, message}` (`backend_unavailable`, `tool_timeout`, …)
+   and never crash the run
 
 Every decision is audited in structured logs (`decision`, `reason`) and counted
 on in-process metrics `agent_tool_calls_total` / `agent_tool_denied_total`.
+Live backends also record `agent_tool_backend_latency_seconds` and
+`agent_tool_backend_errors_total`.
 
-Fake tools (mode `fake`):
+### CI helper tools
 
 | Name | Permissions | Notes |
 |---|---|---|
 | `echo.ping` | `project:read` | Echoes `message` |
-| `fail.raise` | `project:read` | Raises at execute time |
-| `deployment.read` | `deployment:read` | Stub deployment payload |
+| `fail.raise` | `project:read` | Normalized execute failure |
+
+### Platform tools (15.05)
+
+| Name | Permissions | Destructive | Backend |
+|---|---|---|---|
+| `deployment.read` | `deployment:read` | no | Control |
+| `logs.search` | `logs:read` | no | Observe |
+| `metrics.query` | `metrics:read` | no | Observe |
+| `runtime.restart` | `runtime:restart` | **yes** | Runtime |
+| `storage.get` | `storage:read` | no | Storage |
+| `storage.put` | `storage:write` | no | Storage |
+| `models.generate` | `models:generate` | no | Models |
+| `models.embed` | `models:embed` | no | Models |
+| `events.publish` | `events:publish` | no | Events |
+
+`FORGE_AGENTS_TOOLS_MODE=fake` returns deterministic fixtures under
+`app/tools/fixtures/`. `live` uses httpx clients against the service URLs
+below (approval gating for `runtime.restart` lands in 15.06).
 
 ## Run engine
 
@@ -118,8 +141,14 @@ Pass `"context":{"dry_run":true}` to use the deterministic fake model planner
 |---|---|---|
 | `PORT` | required (`8080` in Compose) | Listen port; host maps `4301` |
 | `FORGE_MODELS_URL` | `http://forge-models:4300` | Models base URL; must be absolute http(s) |
+| `FORGE_CONTROL_URL` | `http://forge-control:4001` | Control (live tools) |
+| `FORGE_RUNTIME_URL` | `http://forge-runtime:4102` | Runtime (live tools) |
+| `FORGE_OBSERVE_URL` | `http://forge-observe:4106` | Observe (live tools) |
+| `FORGE_STORAGE_URL` | `http://forge-storage:4107` | Storage (live tools) |
+| `FORGE_EVENTS_URL` | `http://forge-events:4105` | Events (live tools) |
 | `FORGE_AGENTS_DEFS_DIR` | packaged `agents/` | Directory of `*.yaml` / `*.yml` agent definitions |
-| `FORGE_AGENTS_TOOLS_MODE` | `fake` | `fake\|live` — live adapters arrive in 15.05 |
+| `FORGE_AGENTS_TOOLS_MODE` | `fake` | `fake\|live` platform tool backends |
+| `FORGE_AGENTS_TOOL_TIMEOUT_SECONDS` | `15` | Per-tool HTTP timeout (live) |
 | `FORGE_AGENTS_DB_PATH` | `/data/agents/runs.db` | SQLite run + step audit store |
 | `FORGE_AGENTS_MAX_CONCURRENT_RUNS` | `4` | In-flight run cap (`429` when exceeded) |
 | `FORGE_LOG_LEVEL` | `info` | `debug\|info\|warn\|error` |
@@ -141,7 +170,14 @@ services/forge-agents/
 │   ├── logging.py          # JSON logs + X-Request-ID middleware
 │   ├── permissions.py      # CallScope + PermissionChecker
 │   ├── agents/             # models + YAML loader + registry
-│   ├── tools/              # Tool base, registry, fake tools, invoker
+│   ├── tools/              # registry, invoker, fake + platform adapters
+│   │   ├── control.py      # deployment.read
+│   │   ├── observe.py      # logs.search, metrics.query
+│   │   ├── runtime.py      # runtime.restart (destructive)
+│   │   ├── storage.py      # storage.get/put
+│   │   ├── models.py       # models.generate/embed
+│   │   ├── events.py       # events.publish
+│   │   └── fixtures/       # deterministic fake responses
 │   ├── run/                # RunEngine, RunStore, ModelClient
 │   └── api/                # agents, tools, runs routes
 ├── tests/

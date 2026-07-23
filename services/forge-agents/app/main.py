@@ -23,6 +23,7 @@ from app.run.engine import RunEngine
 from app.run.metrics import RunMetrics
 from app.run.model_client import FakeModelClient, HttpModelClient
 from app.run.store import RunStore
+from app.tools.backend_config import ToolBackendConfig
 from app.tools.invoker import ToolInvoker
 from app.tools.metrics import ToolMetrics
 from app.tools.registry import ToolsMode, build_tool_registry
@@ -47,6 +48,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "tools_registry_size": tool_registry.tools_registry_size,
             "tool_names": [t.name for t in tool_registry.list()],
             "tools_mode": settings.forge_agents_tools_mode,
+            "tool_timeout_seconds": settings.forge_agents_tool_timeout_seconds,
             "db_path": settings.forge_agents_db_path,
             "max_concurrent_runs": settings.forge_agents_max_concurrent_runs,
         },
@@ -74,7 +76,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         raise
 
     mode: ToolsMode = resolved.forge_agents_tools_mode  # type: ignore[assignment]
-    tool_registry = build_tool_registry(mode)
+    tool_backend = ToolBackendConfig(
+        mode=mode,
+        control_url=resolved.forge_control_url,
+        runtime_url=resolved.forge_runtime_url,
+        observe_url=resolved.forge_observe_url,
+        storage_url=resolved.forge_storage_url,
+        models_url=resolved.forge_models_url,
+        events_url=resolved.forge_events_url,
+        timeout_seconds=resolved.forge_agents_tool_timeout_seconds,
+    )
+    tool_registry = build_tool_registry(mode, config=tool_backend)
     tool_metrics = ToolMetrics()
     tool_invoker = ToolInvoker(
         tool_registry,

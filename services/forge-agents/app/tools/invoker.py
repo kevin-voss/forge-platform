@@ -9,6 +9,7 @@ from typing import Any, Sequence
 from app.agents.models import AgentDefinition
 from app.permissions import CallScope, PermissionChecker
 from app.tools.base import ToolResult, validate_against_schema
+from app.tools.errors import ERROR_TOOL_ERROR, ToolError
 from app.tools.metrics import ToolMetrics, default_tool_metrics
 from app.tools.registry import ToolRegistry
 
@@ -62,7 +63,7 @@ class ToolInvoker:
     2. agent.tools membership → not_declared (overreach)
     3. input schema → invalid_arguments
     4. permission scope → permission_denied
-    5. tool.execute
+    5. tool.execute (backend errors normalized; never crash the run)
     """
 
     def __init__(
@@ -128,7 +129,54 @@ class ToolInvoker:
                 missing_permissions=missing,
             )
 
-        result: ToolResult = await tool.execute(args)
+        try:
+            result: ToolResult = await tool.execute(args, scope=scope)
+        except ToolError as exc:
+            normalized = exc.to_normalized(name)
+            self._metrics.record_backend_error(name, exc.error_code)
+            logger.info(
+                "tool execution error",
+                extra={
+                    "tool": name,
+                    "decision": "allow",
+                    "error_code": exc.error_code,
+                    "agent": agent.name,
+                    "project_id": scope.project_id,
+                },
+            )
+            return InvokeResult(
+                ok=False,
+                tool=name,
+                decision="allow",
+                reason=exc.error_code,
+                error=exc.message,
+                output=normalized,
+            )
+        except Exception as exc:  # noqa: BLE001 — normalize unexpected tool failures
+            message = f"{type(exc).__name__}: {exc}"
+            normalized = {
+                "tool": name,
+                "error_code": ERROR_TOOL_ERROR,
+                "message": message,
+            }
+            self._metrics.record_backend_error(name, ERROR_TOOL_ERROR)
+            logger.exception(
+                "tool execution crashed",
+                extra={
+                    "tool": name,
+                    "agent": agent.name,
+                    "project_id": scope.project_id,
+                },
+            )
+            return InvokeResult(
+                ok=False,
+                tool=name,
+                decision="allow",
+                reason=ERROR_TOOL_ERROR,
+                error=message,
+                output=normalized,
+            )
+
         self._metrics.record_allow(name)
         logger.info(
             "tool call allowed",

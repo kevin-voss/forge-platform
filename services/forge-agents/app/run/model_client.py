@@ -183,6 +183,49 @@ def _args_for_tool(tool: str, run_input: str, context: dict[str, Any]) -> dict[s
     if tool == "deployment.read":
         dep = context.get("deployment_id") or "dep-fixture"
         return {"deployment_id": str(dep)}
+    if tool == "logs.search":
+        args: dict[str, Any] = {"limit": 20}
+        if context.get("deployment_id"):
+            args["deployment"] = str(context["deployment_id"])
+        elif context.get("project_id"):
+            args["project"] = str(context["project_id"])
+        else:
+            args["deployment"] = "dep-fixture"
+        if context.get("q"):
+            args["q"] = str(context["q"])
+        return args
+    if tool == "metrics.query":
+        return {"query": str(context.get("query") or "up")}
+    if tool == "runtime.restart":
+        dep = context.get("deployment_id") or "dep-fixture"
+        return {"deployment_id": str(dep)}
+    if tool == "storage.get":
+        return {
+            "bucket": str(context.get("bucket") or "agent-notes"),
+            "key": str(context.get("key") or "diag.txt"),
+        }
+    if tool == "storage.put":
+        return {
+            "bucket": str(context.get("bucket") or "agent-notes"),
+            "key": str(context.get("key") or "diag.txt"),
+            "content": run_input or "note",
+        }
+    if tool == "models.generate":
+        return {
+            "model": str(context.get("model") or "local-general"),
+            "prompt": run_input or "diagnose",
+        }
+    if tool == "models.embed":
+        return {
+            "model": str(context.get("model") or "local-embed-small"),
+            "input": run_input or "hello",
+        }
+    if tool == "events.publish":
+        return {
+            "subject": str(context.get("subject") or "application.diagnosed"),
+            "data": {"message": run_input or "ok"},
+            "source": "forge-agents",
+        }
     if tool == "fail.raise":
         return {"reason": run_input or "fail"}
     return {}

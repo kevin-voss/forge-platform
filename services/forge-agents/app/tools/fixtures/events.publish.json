@@ -1,0 +1,6 @@
+{
+  "event_id": "evt-fixture-1",
+  "stream": "application",
+  "seq": 1,
+  "subject": "application.diagnosed"
+}

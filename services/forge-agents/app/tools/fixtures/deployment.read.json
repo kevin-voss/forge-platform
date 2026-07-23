@@ -1,0 +1,7 @@
+{
+  "deployment_id": "dep-fixture",
+  "status": "running",
+  "ready": true,
+  "image": "registry.local/demo:v1",
+  "desired_replicas": 1
+}

@@ -1,0 +1,5 @@
+{
+  "model": "local-general",
+  "text": "diagnosis: readiness probe failed on port 8080",
+  "usage": {"input_tokens": 12, "output_tokens": 8}
+}

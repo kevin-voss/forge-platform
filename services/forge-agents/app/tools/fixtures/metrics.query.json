@@ -1,0 +1,11 @@
+{
+  "query": "up",
+  "result_type": "vector",
+  "samples": [
+    {
+      "metric": {"__name__": "up", "job": "forge-runtime"},
+      "value": 1,
+      "timestamp": 1721728800
+    }
+  ]
+}

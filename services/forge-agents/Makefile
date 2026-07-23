@@ -19,8 +19,14 @@ dev: sync
 	FORGE_LOG_LEVEL=$${FORGE_LOG_LEVEL:-info} \
 	FORGE_ENV=$${FORGE_ENV:-development} \
 	FORGE_MODELS_URL=$${FORGE_MODELS_URL:-http://127.0.0.1:4300} \
+	FORGE_CONTROL_URL=$${FORGE_CONTROL_URL:-http://127.0.0.1:4001} \
+	FORGE_RUNTIME_URL=$${FORGE_RUNTIME_URL:-http://127.0.0.1:4102} \
+	FORGE_OBSERVE_URL=$${FORGE_OBSERVE_URL:-http://127.0.0.1:4106} \
+	FORGE_STORAGE_URL=$${FORGE_STORAGE_URL:-http://127.0.0.1:4107} \
+	FORGE_EVENTS_URL=$${FORGE_EVENTS_URL:-http://127.0.0.1:4105} \
 	FORGE_AGENTS_DEFS_DIR=$${FORGE_AGENTS_DEFS_DIR:-} \
 	FORGE_AGENTS_TOOLS_MODE=$${FORGE_AGENTS_TOOLS_MODE:-fake} \
+	FORGE_AGENTS_TOOL_TIMEOUT_SECONDS=$${FORGE_AGENTS_TOOL_TIMEOUT_SECONDS:-15} \
 	FORGE_AGENTS_DB_PATH=$${FORGE_AGENTS_DB_PATH:-/tmp/forge-agents-runs.db} \
 	FORGE_AGENTS_MAX_CONCURRENT_RUNS=$${FORGE_AGENTS_MAX_CONCURRENT_RUNS:-4} \
 	FORGE_SHUTDOWN_GRACE_SECONDS=$${FORGE_SHUTDOWN_GRACE_SECONDS:-10} \
@@ -50,9 +56,10 @@ test-integration: run
 	@# Agent registry (15.02)
 	@curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/agents" | grep -q 'fixture-echo'
 	@code="$$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$(HOST_PORT)/v1/agents/nope")"; test "$$code" = "404"
-	@# Tool registry (15.03)
+	@# Tool registry (15.03) + platform tools (15.05)
 	@curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/tools" | grep -q '"required_permissions"'
 	@curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/tools" | grep -q 'echo.ping'
+	@curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/tools" | python3 -c 'import sys,json; tools=json.load(sys.stdin)["tools"]; assert any(t["name"]=="runtime.restart" and t["destructive"] for t in tools); assert any(t["name"]=="deployment.read" for t in tools); assert any(t["name"]=="logs.search" for t in tools)'
 	@# Run engine dry-run (15.04)
 	@rid="$$(curl -fsS -XPOST "http://127.0.0.1:$(HOST_PORT)/v1/agents/fixture-echo/runs" \
 		-H 'content-type: application/json' -H 'X-Forge-Project: integ' \

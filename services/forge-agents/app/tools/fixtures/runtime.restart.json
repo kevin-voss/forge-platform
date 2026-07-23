@@ -1,0 +1,5 @@
+{
+  "deployment_id": "dep-fixture",
+  "restarted": true,
+  "status": "restarting"
+}

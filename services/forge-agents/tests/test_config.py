@@ -16,6 +16,12 @@ def test_parses_valid_env(clean_env: pytest.MonkeyPatch) -> None:
     assert settings.port == 4301
     assert settings.forge_log_level == "info"
     assert settings.forge_models_url == "http://forge-models:4300"
+    assert settings.forge_control_url == "http://forge-control:4001"
+    assert settings.forge_runtime_url == "http://forge-runtime:4102"
+    assert settings.forge_observe_url == "http://forge-observe:4106"
+    assert settings.forge_storage_url == "http://forge-storage:4107"
+    assert settings.forge_events_url == "http://forge-events:4105"
+    assert settings.forge_agents_tool_timeout_seconds == 15.0
     assert settings.forge_service_name == "forge-agents"
     assert settings.forge_agents_tools_mode == "fake"
     assert settings.forge_agents_db_path == "/data/agents/runs.db"
@@ -36,6 +42,23 @@ def test_accepts_tools_mode_live(clean_env: pytest.MonkeyPatch) -> None:
     clean_env.setenv("FORGE_AGENTS_TOOLS_MODE", "LIVE")
     settings = get_settings()
     assert settings.forge_agents_tools_mode == "live"
+
+
+def test_accepts_tool_backend_urls_and_timeout(clean_env: pytest.MonkeyPatch) -> None:
+    clean_env.setenv("PORT", "4301")
+    clean_env.setenv("FORGE_CONTROL_URL", "http://127.0.0.1:4001")
+    clean_env.setenv("FORGE_RUNTIME_URL", "http://127.0.0.1:4102")
+    clean_env.setenv("FORGE_OBSERVE_URL", "http://127.0.0.1:4106")
+    clean_env.setenv("FORGE_STORAGE_URL", "http://127.0.0.1:4107")
+    clean_env.setenv("FORGE_EVENTS_URL", "http://127.0.0.1:4105")
+    clean_env.setenv("FORGE_AGENTS_TOOL_TIMEOUT_SECONDS", "7.5")
+    settings = get_settings()
+    assert settings.forge_control_url == "http://127.0.0.1:4001"
+    assert settings.forge_runtime_url == "http://127.0.0.1:4102"
+    assert settings.forge_observe_url == "http://127.0.0.1:4106"
+    assert settings.forge_storage_url == "http://127.0.0.1:4107"
+    assert settings.forge_events_url == "http://127.0.0.1:4105"
+    assert settings.forge_agents_tool_timeout_seconds == 7.5
 
 
 def test_rejects_bad_tools_mode(clean_env: pytest.MonkeyPatch) -> None:

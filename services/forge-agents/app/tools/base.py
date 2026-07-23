@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
+
+if TYPE_CHECKING:
+    from app.permissions import CallScope
 
 
 class ToolResult:
@@ -26,8 +29,13 @@ class Tool(ABC):
     required_permissions: list[str]
 
     @abstractmethod
-    async def execute(self, args: dict[str, Any]) -> ToolResult:
-        """Run the tool with validated arguments."""
+    async def execute(
+        self,
+        args: dict[str, Any],
+        *,
+        scope: CallScope | None = None,
+    ) -> ToolResult:
+        """Run the tool with validated arguments (and optional call scope)."""
 
 
 def validate_against_schema(instance: object, schema: dict[str, Any]) -> list[str]:

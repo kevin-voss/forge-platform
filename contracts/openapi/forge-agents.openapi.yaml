@@ -142,7 +142,11 @@ paths:
       description: |
         Returns tools from the in-process registry (`FORGE_AGENTS_TOOLS_MODE`).
         Each entry includes JSON Schema input/output, `destructive` flag, and
-        `required_permissions` checked before every invocation.
+        `required_permissions` checked before every invocation. Platform tools
+        (Control/Runtime/Observe/Storage/Models/Events) are always listed;
+        `runtime.restart` is `destructive: true` (approval gated in 15.06).
+        Live backends use service URLs + `FORGE_AGENTS_TOOL_TIMEOUT_SECONDS`;
+        tool execution errors normalize to `{tool,error_code,message}`.
       responses:
         "200":
           description: Tool registry listing
@@ -167,6 +171,37 @@ paths:
                       required: [echo]
                     destructive: false
                     required_permissions: [project:read]
+                  - name: deployment.read
+                    input_schema:
+                      type: object
+                      properties:
+                        deployment_id:
+                          type: string
+                      required: [deployment_id]
+                    output_schema:
+                      type: object
+                      properties:
+                        deployment_id: {type: string}
+                        status: {type: string}
+                        ready: {type: boolean}
+                      required: [deployment_id, status, ready]
+                    destructive: false
+                    required_permissions: [deployment:read]
+                  - name: runtime.restart
+                    input_schema:
+                      type: object
+                      properties:
+                        deployment_id:
+                          type: string
+                      required: [deployment_id]
+                    output_schema:
+                      type: object
+                      properties:
+                        deployment_id: {type: string}
+                        restarted: {type: boolean}
+                      required: [deployment_id, restarted]
+                    destructive: true
+                    required_permissions: [runtime:restart]
 
   /v1/agents/{name}/runs:
     post:

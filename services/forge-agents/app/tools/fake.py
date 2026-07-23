@@ -1,10 +1,12 @@
-"""Deterministic fake/mock tools for CI and unit tests (real tools in 15.05)."""
+"""Deterministic CI-only tools (echo / fail) used by fixture agents."""
 
 from __future__ import annotations
 
 from typing import Any
 
+from app.permissions import CallScope
 from app.tools.base import Tool, ToolResult
+from app.tools.errors import ERROR_TOOL_ERROR, ToolError
 
 
 class EchoPingTool(Tool):
@@ -30,12 +32,17 @@ class EchoPingTool(Tool):
         "required": ["echo"],
     }
 
-    async def execute(self, args: dict[str, Any]) -> ToolResult:
+    async def execute(
+        self,
+        args: dict[str, Any],
+        *,
+        scope: CallScope | None = None,
+    ) -> ToolResult:
         return ToolResult(output={"echo": str(args["message"])})
 
 
 class FailRaiseTool(Tool):
-    """Always fails at execute time (for run-engine failure-path tests later)."""
+    """Always fails at execute time with a normalized ToolError."""
 
     name = "fail.raise"
     destructive = False
@@ -57,47 +64,16 @@ class FailRaiseTool(Tool):
         "required": ["ok"],
     }
 
-    async def execute(self, args: dict[str, Any]) -> ToolResult:
+    async def execute(
+        self,
+        args: dict[str, Any],
+        *,
+        scope: CallScope | None = None,
+    ) -> ToolResult:
         reason = args.get("reason") or "fail.raise"
-        raise RuntimeError(f"fake tool failure: {reason}")
-
-
-class DeploymentReadTool(Tool):
-    """Stub deployment.read returning a fixed fixture payload."""
-
-    name = "deployment.read"
-    destructive = False
-    required_permissions = ["deployment:read"]
-    input_schema: dict[str, Any] = {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-            "deployment_id": {"type": "string", "minLength": 1},
-        },
-        "required": ["deployment_id"],
-    }
-    output_schema: dict[str, Any] = {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-            "deployment_id": {"type": "string"},
-            "status": {"type": "string"},
-            "ready": {"type": "boolean"},
-        },
-        "required": ["deployment_id", "status", "ready"],
-    }
-
-    async def execute(self, args: dict[str, Any]) -> ToolResult:
-        dep_id = str(args["deployment_id"])
-        return ToolResult(
-            output={
-                "deployment_id": dep_id,
-                "status": "running",
-                "ready": True,
-            }
-        )
+        raise ToolError(ERROR_TOOL_ERROR, f"fake tool failure: {reason}")
 
 
 def build_fake_tools() -> list[Tool]:
-    """Return the fake tool set registered when FORGE_AGENTS_TOOLS_MODE=fake."""
-    return [EchoPingTool(), FailRaiseTool(), DeploymentReadTool()]
+    """Return CI helper tools that are always registered."""
+    return [EchoPingTool(), FailRaiseTool()]

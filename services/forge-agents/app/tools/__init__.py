@@ -1,4 +1,4 @@
-"""Tool registry, fake tools, and permission-aware invoker."""
+"""Tool registry, fake helpers, platform adapters, and permission-aware invoker."""
 
 from app.tools.base import Tool, ToolResult, validate_against_schema
 from app.tools.invoker import InvokeResult, ToolInvoker

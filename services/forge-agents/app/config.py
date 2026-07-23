@@ -12,6 +12,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 LogLevel = Literal["debug", "info", "warn", "error"]
 
 
+def _validate_http_url(value: str, *, name: str) -> str:
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError(f"{name} must be an absolute http(s) URL")
+    return value
+
+
 class Settings(BaseSettings):
     """Process settings loaded from the environment."""
 
@@ -27,6 +34,26 @@ class Settings(BaseSettings):
         default="http://forge-models:4300",
         alias="FORGE_MODELS_URL",
     )
+    forge_control_url: str = Field(
+        default="http://forge-control:4001",
+        alias="FORGE_CONTROL_URL",
+    )
+    forge_runtime_url: str = Field(
+        default="http://forge-runtime:4102",
+        alias="FORGE_RUNTIME_URL",
+    )
+    forge_observe_url: str = Field(
+        default="http://forge-observe:4106",
+        alias="FORGE_OBSERVE_URL",
+    )
+    forge_storage_url: str = Field(
+        default="http://forge-storage:4107",
+        alias="FORGE_STORAGE_URL",
+    )
+    forge_events_url: str = Field(
+        default="http://forge-events:4105",
+        alias="FORGE_EVENTS_URL",
+    )
     forge_agents_defs_dir: str = Field(
         default="",
         alias="FORGE_AGENTS_DEFS_DIR",
@@ -35,7 +62,14 @@ class Settings(BaseSettings):
     forge_agents_tools_mode: Literal["fake", "live"] = Field(
         default="fake",
         alias="FORGE_AGENTS_TOOLS_MODE",
-        description="Tool backend mode: fake stubs (CI default) or live adapters (15.05)",
+        description="Tool backend mode: fake fixtures (CI default) or live HTTP adapters",
+    )
+    forge_agents_tool_timeout_seconds: float = Field(
+        default=15.0,
+        alias="FORGE_AGENTS_TOOL_TIMEOUT_SECONDS",
+        ge=0.1,
+        le=300.0,
+        description="Per-tool HTTP timeout for live backends",
     )
     forge_agents_db_path: str = Field(
         default="/data/agents/runs.db",
@@ -66,9 +100,17 @@ class Settings(BaseSettings):
             return value.strip().lower()
         return value
 
-    @field_validator("forge_models_url", mode="before")
+    @field_validator(
+        "forge_models_url",
+        "forge_control_url",
+        "forge_runtime_url",
+        "forge_observe_url",
+        "forge_storage_url",
+        "forge_events_url",
+        mode="before",
+    )
     @classmethod
-    def normalize_models_url(cls, value: object) -> object:
+    def normalize_service_urls(cls, value: object) -> object:
         if isinstance(value, str):
             return value.strip()
         return value
@@ -76,10 +118,32 @@ class Settings(BaseSettings):
     @field_validator("forge_models_url")
     @classmethod
     def validate_models_url(cls, value: str) -> str:
-        parsed = urlparse(value)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise ValueError("FORGE_MODELS_URL must be an absolute http(s) URL")
-        return value
+        return _validate_http_url(value, name="FORGE_MODELS_URL")
+
+    @field_validator("forge_control_url")
+    @classmethod
+    def validate_control_url(cls, value: str) -> str:
+        return _validate_http_url(value, name="FORGE_CONTROL_URL")
+
+    @field_validator("forge_runtime_url")
+    @classmethod
+    def validate_runtime_url(cls, value: str) -> str:
+        return _validate_http_url(value, name="FORGE_RUNTIME_URL")
+
+    @field_validator("forge_observe_url")
+    @classmethod
+    def validate_observe_url(cls, value: str) -> str:
+        return _validate_http_url(value, name="FORGE_OBSERVE_URL")
+
+    @field_validator("forge_storage_url")
+    @classmethod
+    def validate_storage_url(cls, value: str) -> str:
+        return _validate_http_url(value, name="FORGE_STORAGE_URL")
+
+    @field_validator("forge_events_url")
+    @classmethod
+    def validate_events_url(cls, value: str) -> str:
+        return _validate_http_url(value, name="FORGE_EVENTS_URL")
 
     @field_validator("forge_agents_defs_dir", mode="before")
     @classmethod

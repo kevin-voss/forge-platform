@@ -6,8 +6,10 @@ import logging
 from dataclasses import dataclass, field
 from typing import Literal
 
+from app.tools.backend_config import ToolBackendConfig
 from app.tools.base import Tool, schema_is_valid
 from app.tools.fake import build_fake_tools
+from app.tools.platform import build_platform_tools
 
 logger = logging.getLogger("forge-agents")
 
@@ -43,19 +45,30 @@ class ToolRegistry:
         ]
 
 
-def build_tool_registry(mode: ToolsMode = "fake") -> ToolRegistry:
+def build_tool_registry(
+    mode: ToolsMode = "fake",
+    *,
+    config: ToolBackendConfig | None = None,
+) -> ToolRegistry:
     """Build the tool registry for the configured tools mode.
 
-    `fake` (default/CI): deterministic echo/fail/deployment.read stubs.
-    `live`: same stubs until 15.05 wires real platform adapters; logged as such.
+    Always includes CI helpers (`echo.ping`, `fail.raise`) plus platform tools
+    whose backends are fake fixtures or live HTTP clients.
     """
-    tools_list = build_fake_tools()
-    if mode == "live":
-        logger.info(
-            "tools mode live: using stub tools until platform adapters (15.05)",
-            extra={"tools_mode": mode},
+    resolved = config or ToolBackendConfig(mode=mode)
+    if resolved.mode != mode:
+        resolved = ToolBackendConfig(
+            mode=mode,
+            control_url=resolved.control_url,
+            runtime_url=resolved.runtime_url,
+            observe_url=resolved.observe_url,
+            storage_url=resolved.storage_url,
+            models_url=resolved.models_url,
+            events_url=resolved.events_url,
+            timeout_seconds=resolved.timeout_seconds,
         )
 
+    tools_list = [*build_fake_tools(), *build_platform_tools(resolved)]
     by_name: dict[str, Tool] = {}
     for tool in tools_list:
         if tool.name in by_name:
@@ -73,6 +86,7 @@ def build_tool_registry(mode: ToolsMode = "fake") -> ToolRegistry:
             "tools_registry_size": registry.tools_registry_size,
             "tool_names": sorted(by_name),
             "tools_mode": mode,
+            "destructive_tools": sorted(t.name for t in by_name.values() if t.destructive),
         },
     )
     return registry
