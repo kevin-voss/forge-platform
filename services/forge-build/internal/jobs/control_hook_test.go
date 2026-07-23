@@ -145,7 +145,7 @@ func TestControlHookOnlyOnSucceeded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec2 := waitControlSettled(t, mgr, acc2.BuildID, 5*time.Second)
+	rec2 := waitControlSettled(t, mgr, acc2.BuildID, 5*time.Second, false)
 	if rec2.Status != jobs.StatusSucceeded {
 		t.Fatalf("status=%s err=%v", rec2.Status, rec2.Error)
 	}
@@ -178,7 +178,7 @@ func TestControlHookRetryThenSucceed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec := waitControlSettled(t, mgr, acc.BuildID, 5*time.Second)
+	rec := waitControlSettled(t, mgr, acc.BuildID, 5*time.Second, false)
 	if rec.Status != jobs.StatusSucceeded {
 		t.Fatalf("status=%s", rec.Status)
 	}
@@ -214,7 +214,7 @@ func TestControlHookDownLeavesImage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec := waitControlSettled(t, mgr, acc.BuildID, 5*time.Second)
+	rec := waitControlSettled(t, mgr, acc.BuildID, 5*time.Second, false)
 	if rec.Status != jobs.StatusSucceeded {
 		t.Fatalf("status=%s", rec.Status)
 	}
@@ -246,7 +246,9 @@ func TestControlAutoDeploy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec := waitControlSettled(t, mgr, acc.BuildID, 5*time.Second)
+	// Wait past image recording until deploy link or control error — ImageRecorded
+	// alone races under CI load when CreateDeployment is still in flight.
+	rec := waitControlSettled(t, mgr, acc.BuildID, 5*time.Second, true)
 	if !rec.ImageRecorded || rec.LinkedDeploymentID != "dep-xyz" {
 		t.Fatalf("rec=%+v", rec)
 	}
@@ -256,8 +258,10 @@ func TestControlAutoDeploy(t *testing.T) {
 }
 
 // waitControlSettled waits until the build is terminal and Control linking has
-// either succeeded (imageRecorded) or failed (controlError set).
-func waitControlSettled(t *testing.T, mgr *jobs.Manager, id string, timeout time.Duration) *jobs.Record {
+// either succeeded (imageRecorded) or failed (controlError set). When
+// requireDeploy is true, also wait for LinkedDeploymentID (or a controlError
+// after recording), so AutoDeploy tests do not return mid-flight.
+func waitControlSettled(t *testing.T, mgr *jobs.Manager, id string, timeout time.Duration, requireDeploy bool) *jobs.Record {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for {
@@ -269,12 +273,18 @@ func waitControlSettled(t *testing.T, mgr *jobs.Manager, id string, timeout time
 			if rec.ServiceID == "" || rec.Status != jobs.StatusSucceeded {
 				return rec
 			}
-			if rec.ImageRecorded || rec.ControlError != "" {
+			if rec.ControlError != "" {
 				return rec
+			}
+			if rec.ImageRecorded {
+				if !requireDeploy || rec.LinkedDeploymentID != "" {
+					return rec
+				}
 			}
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("timeout status=%s recorded=%v err=%q", rec.Status, rec.ImageRecorded, rec.ControlError)
+			t.Fatalf("timeout status=%s recorded=%v deploy=%q err=%q",
+				rec.Status, rec.ImageRecorded, rec.LinkedDeploymentID, rec.ControlError)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
