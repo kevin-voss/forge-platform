@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning
+In progress
 
 ## Milestone
 
@@ -120,7 +120,7 @@ Phase 4 — scale-down
 
 | Step | N | Title | Status | Notes |
 |---|---:|---|---|---|
-| [24.01](../steps/24-forge-autoscaler/24.01-skeleton-scalingpolicy-and-metric-sources.md) | 160 | Service skeleton, `ScalingPolicy` resource, metric sources | Not started | Go service on `4112`; pluggable `MetricSource`; recommendations only, no actuation |
+| [24.01](../steps/24-forge-autoscaler/24.01-skeleton-scalingpolicy-and-metric-sources.md) | 160 | Service skeleton, `ScalingPolicy` resource, metric sources | Complete | Go service on `4112`; pluggable `MetricSource`; recommendations only, no actuation |
 | [24.02](../steps/24-forge-autoscaler/24.02-workload-cpu-memory-autoscaling.md) | 161 | CPU/memory workload autoscaling | Not started | Utilization math, desired-replica formula, dampening; first real actuation |
 | [24.03](../steps/24-forge-autoscaler/24.03-request-rate-and-latency-autoscaling.md) | 162 | Request-rate, latency, error-rate autoscaling | Not started | Gateway-sourced metrics + custom app metric hook |
 | [24.04](../steps/24-forge-autoscaler/24.04-worker-queue-depth-autoscaling.md) | 163 | Worker autoscaling from queue signals | Not started | Events-sourced today, Queue-sourced later; scale-to-low, drain-safe shutdown |
@@ -149,4 +149,4 @@ Phase 4 — scale-down
 
 ## Next step to implement
 
-**[24.01](../steps/24-forge-autoscaler/24.01-skeleton-scalingpolicy-and-metric-sources.md) — Service skeleton, `ScalingPolicy` resource, metric sources** (the service, the resource kind, and the metric-source seam every later step in the epic builds on; no actuation yet).
+**[24.02](../steps/24-forge-autoscaler/24.02-workload-cpu-memory-autoscaling.md) — CPU/memory workload autoscaling** (utilization math, desired-replica formula, dampening; first real actuation).

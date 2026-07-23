@@ -1,0 +1,534 @@
+openapi: 3.0.3
+info:
+  title: Forge Autoscaler API
+  version: 0.1.0
+  description: |
+    ScalingPolicy resource API and evaluation surface (epic 24 / step 24.01).
+    Records recommendations only — no replica actuation in this step.
+servers:
+  - url: http://127.0.0.1:4112
+    description: Local Compose (host port 4112)
+
+paths:
+  /health/live:
+    get:
+      operationId: getHealthLive
+      security: []
+      responses:
+        "200":
+          description: Process is up
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: ok
+
+  /health/ready:
+    get:
+      operationId: getHealthReady
+      security: []
+      responses:
+        "200":
+          description: Ready to serve
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: ok
+        "503":
+          description: Not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: not_ready
+
+  /v1/projects/{project}/environments/{environment}/scalingpolicies:
+    parameters:
+      - $ref: "#/components/parameters/Project"
+      - $ref: "#/components/parameters/Environment"
+    get:
+      operationId: listScalingPolicies
+      summary: List ScalingPolicy resources in an environment
+      responses:
+        "200":
+          description: Policy list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ScalingPolicy"
+    post:
+      operationId: createScalingPolicy
+      summary: Create a ScalingPolicy
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          schema:
+            type: string
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateScalingPolicyRequest"
+            example:
+              metadata:
+                name: invoice-api-scaling
+              spec:
+                targetRef:
+                  kind: Application
+                  name: invoice-api
+                minReplicas: 2
+                maxReplicas: 20
+                metrics:
+                  - type: cpu
+                    targetAverageUtilization: 65
+                behavior:
+                  scaleUp:
+                    stabilizationWindowSeconds: 0
+                    maxReplicasPerMinute: 4
+                  scaleDown:
+                    stabilizationWindowSeconds: 300
+                    maxReplicasPerMinute: 2
+                schedules: []
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScalingPolicy"
+        "409":
+          description: Conflict (already exists or idempotency key conflict)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/projects/{project}/environments/{environment}/scalingpolicies/{name}:
+    parameters:
+      - $ref: "#/components/parameters/Project"
+      - $ref: "#/components/parameters/Environment"
+      - $ref: "#/components/parameters/Name"
+    get:
+      operationId: getScalingPolicy
+      summary: Get a ScalingPolicy by name
+      responses:
+        "200":
+          description: ScalingPolicy envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScalingPolicy"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: replaceScalingPolicy
+      summary: Replace ScalingPolicy spec (requires metadata.resourceVersion)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaceScalingPolicyRequest"
+      responses:
+        "200":
+          description: Replaced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScalingPolicy"
+        "409":
+          description: resource_version_conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                error:
+                  code: resource_version_conflict
+                  message: resourceVersion is stale
+                  details:
+                    currentResourceVersion: "42"
+                  requestId: req_example
+    patch:
+      operationId: patchScalingPolicy
+      summary: Merge-patch ScalingPolicy spec
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaceScalingPolicyRequest"
+      responses:
+        "200":
+          description: Patched
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScalingPolicy"
+        "409":
+          description: resource_version_conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteScalingPolicy
+      summary: Delete a ScalingPolicy
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/projects/{project}/environments/{environment}/scalingpolicies/{name}/status:
+    parameters:
+      - $ref: "#/components/parameters/Project"
+      - $ref: "#/components/parameters/Environment"
+      - $ref: "#/components/parameters/Name"
+    put:
+      operationId: replaceScalingPolicyStatus
+      summary: Replace ScalingPolicy status (evaluator / controller writer)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaceScalingPolicyStatusRequest"
+      responses:
+        "200":
+          description: Status replaced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScalingPolicy"
+        "409":
+          description: resource_version_conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/watch/scalingpolicies:
+    get:
+      operationId: watchScalingPolicies
+      summary: SSE watch stream for ScalingPolicy changes
+      parameters:
+        - name: since
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Replay events with resourceVersion greater than this cursor
+      responses:
+        "200":
+          description: |
+            text/event-stream of ADDED / MODIFIED / STATUS_MODIFIED / DELETED frames.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              example: |
+                event: ADDED
+                id: 1
+                data: {"type":"ADDED","resourceVersion":"1","resource":{"apiVersion":"forge.dev/v1","kind":"ScalingPolicy"}}
+
+components:
+  parameters:
+    Project:
+      name: project
+      in: path
+      required: true
+      schema:
+        type: string
+    Environment:
+      name: environment
+      in: path
+      required: true
+      schema:
+        type: string
+    Name:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+
+  schemas:
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties:
+                type: string
+            requestId:
+              type: string
+
+    TargetRef:
+      type: object
+      required: [kind, name]
+      properties:
+        kind:
+          type: string
+          example: Application
+        name:
+          type: string
+          example: invoice-api
+
+    MetricSpec:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          example: cpu
+        targetAverageUtilization:
+          type: number
+          example: 65
+        targetValue:
+          type: number
+        query:
+          type: string
+
+    ScaleBehavior:
+      type: object
+      required: [stabilizationWindowSeconds, maxReplicasPerMinute]
+      properties:
+        stabilizationWindowSeconds:
+          type: integer
+          example: 300
+        maxReplicasPerMinute:
+          type: integer
+          example: 2
+
+    Behavior:
+      type: object
+      required: [scaleUp, scaleDown]
+      properties:
+        scaleUp:
+          $ref: "#/components/schemas/ScaleBehavior"
+        scaleDown:
+          $ref: "#/components/schemas/ScaleBehavior"
+
+    Schedule:
+      type: object
+      properties:
+        name:
+          type: string
+        cron:
+          type: string
+        timeZone:
+          type: string
+        minReplicas:
+          type: integer
+        maxReplicas:
+          type: integer
+
+    ScalingPolicySpec:
+      type: object
+      required: [targetRef, minReplicas, maxReplicas, metrics]
+      properties:
+        targetRef:
+          $ref: "#/components/schemas/TargetRef"
+        minReplicas:
+          type: integer
+          example: 2
+        maxReplicas:
+          type: integer
+          example: 20
+        metrics:
+          type: array
+          items:
+            $ref: "#/components/schemas/MetricSpec"
+        behavior:
+          $ref: "#/components/schemas/Behavior"
+        schedules:
+          type: array
+          items:
+            $ref: "#/components/schemas/Schedule"
+
+    Condition:
+      type: object
+      required: [type, status]
+      properties:
+        type:
+          type: string
+          example: AbleToScale
+        status:
+          type: string
+          example: "True"
+        reason:
+          type: string
+          example: ReadyForScaling
+        message:
+          type: string
+        lastTransitionTime:
+          type: string
+          format: date-time
+
+    Recommendation:
+      type: object
+      properties:
+        metricType:
+          type: string
+        metricValue:
+          type: number
+          nullable: true
+        targetValue:
+          type: number
+          nullable: true
+        recommendedReplicas:
+          type: integer
+          nullable: true
+        reason:
+          type: string
+        computedAt:
+          type: string
+          format: date-time
+
+    ScalingPolicyStatus:
+      type: object
+      properties:
+        phase:
+          type: string
+          example: Ready
+        observedGeneration:
+          type: integer
+        currentReplicas:
+          type: integer
+        desiredReplicas:
+          type: integer
+        recommendations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Recommendation"
+        conditions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Condition"
+
+    ResourceMetadata:
+      type: object
+      required: [id, name, project, environment, generation, resourceVersion]
+      properties:
+        id:
+          type: string
+          example: sp_01J5Z3K9QDJ8XN5V2H9T3RXYA
+        name:
+          type: string
+          example: invoice-api-scaling
+        project:
+          type: string
+        environment:
+          type: string
+        generation:
+          type: integer
+        resourceVersion:
+          type: string
+          example: "1"
+        creationTimestamp:
+          type: string
+          format: date-time
+
+    ScalingPolicy:
+      type: object
+      required: [apiVersion, kind, metadata, spec, status]
+      properties:
+        apiVersion:
+          type: string
+          example: forge.dev/v1
+        kind:
+          type: string
+          example: ScalingPolicy
+        metadata:
+          $ref: "#/components/schemas/ResourceMetadata"
+        spec:
+          $ref: "#/components/schemas/ScalingPolicySpec"
+        status:
+          $ref: "#/components/schemas/ScalingPolicyStatus"
+
+    CreateScalingPolicyRequest:
+      type: object
+      required: [metadata, spec]
+      properties:
+        metadata:
+          type: object
+          required: [name]
+          properties:
+            name:
+              type: string
+        spec:
+          $ref: "#/components/schemas/ScalingPolicySpec"
+
+    ReplaceScalingPolicyRequest:
+      type: object
+      required: [metadata, spec]
+      properties:
+        metadata:
+          type: object
+          required: [resourceVersion]
+          properties:
+            resourceVersion:
+              type: string
+        spec:
+          $ref: "#/components/schemas/ScalingPolicySpec"
+
+    ReplaceScalingPolicyStatusRequest:
+      type: object
+      required: [metadata, status]
+      properties:
+        metadata:
+          type: object
+          required: [resourceVersion]
+          properties:
+            resourceVersion:
+              type: string
+        status:
+          $ref: "#/components/schemas/ScalingPolicyStatus"
+
+    ResourceWatchEvent:
+      type: object
+      required: [type, resourceVersion, resource]
+      properties:
+        type:
+          type: string
+          enum: [ADDED, MODIFIED, STATUS_MODIFIED, DELETED]
+        resourceVersion:
+          type: string
+        resource:
+          $ref: "#/components/schemas/ScalingPolicy"

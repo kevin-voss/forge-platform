@@ -4,7 +4,7 @@ Atomic steps for [Forge Autoscaler](../../epics/24-forge-autoscaler.md).
 
 | Step | N | File | Status |
 |---|---:|---|---|
-| 24.01 | 160 | [24.01-skeleton-scalingpolicy-and-metric-sources.md](24.01-skeleton-scalingpolicy-and-metric-sources.md) | Not started |
+| 24.01 | 160 | [24.01-skeleton-scalingpolicy-and-metric-sources.md](24.01-skeleton-scalingpolicy-and-metric-sources.md) | Complete |
 | 24.02 | 161 | [24.02-workload-cpu-memory-autoscaling.md](24.02-workload-cpu-memory-autoscaling.md) | Not started |
 | 24.03 | 162 | [24.03-request-rate-and-latency-autoscaling.md](24.03-request-rate-and-latency-autoscaling.md) | Not started |
 | 24.04 | 163 | [24.04-worker-queue-depth-autoscaling.md](24.04-worker-queue-depth-autoscaling.md) | Not started |

@@ -47,6 +47,7 @@
 | Forge Discovery | 4109 |
 | Forge Network | 4110 |
 | Forge Infrastructure | 4111 |
+| Forge Autoscaler | 4112 |
 
 ## AI and model services
 
@@ -66,7 +67,6 @@ Not yet allocated — reserved so future service skeletons stay consistent. Plan
 |---|---:|---|
 | Forge Console (web UI) | 3010 | 40 |
 | Forge Scheduler (if extracted from Control) | 4108 | 08 / 39 |
-| Forge Autoscaler | 4112 | 24 |
 | Forge Registry | 4113 | 26 |
 | Forge Deploy | 4114 | 27 |
 | Forge Queue | 4115 | 28 |
