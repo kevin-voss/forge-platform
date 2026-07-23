@@ -1,0 +1,46 @@
+# Demo 12 overlay — same rules as deploy/observability/prometheus/rules/forge-alerts.yml
+# with a shorter HighErrorRate `for:` so the acceptance gate finishes quickly.
+# Threshold stays at 0.05 (FORGE_ALERT_ERROR_RATE_THRESHOLD default).
+groups:
+  - name: forge.availability
+    rules:
+      - alert: ServiceDown
+        expr: forge_service_up == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Forge service {{ $labels.service_name }} is down"
+          description: "forge_service_up has been 0 for more than 30s."
+
+      - alert: NodeOffline
+        expr: max by (forge_node) (forge_node_heartbeat_age_seconds) > 90
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Forge node {{ $labels.forge_node }} heartbeat is stale"
+          description: "forge_node_heartbeat_age_seconds > 90s for more than 30s."
+
+  - name: forge.errors
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum by (service_name, forge_service, forge_project) (
+              rate(forge_http_requests_total{http_status_class="5xx"}[1m])
+            )
+            /
+            clamp_min(
+              sum by (service_name, forge_service, forge_project) (
+                rate(forge_http_requests_total[1m])
+              ),
+              1e-9
+            )
+          ) > 0.05
+        for: 10s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Elevated 5xx error rate on {{ $labels.service_name }}"
+          description: "5xx / total request rate has exceeded 5% for more than 10s."

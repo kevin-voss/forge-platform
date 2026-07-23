@@ -1,0 +1,56 @@
+# Demo 12 overlay — OTEL stack + instrumented Control/Build/Runtime/Gateway + Observe.
+# Used with the root compose file:
+#   docker compose -f compose.yaml -f demos/12-observability/docker-compose.yml up -d ...
+#
+# Runs with FORGE_AUTH_MODE=dev for an unauthenticated observability gate.
+# Prometheus rules are overridden with a shorter HighErrorRate `for:` (10s).
+
+services:
+  prometheus:
+    volumes:
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./demos/12-observability/prometheus:/etc/prometheus/rules:ro
+      - forge-prometheus-data:/prometheus
+
+  forge-control:
+    environment:
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+      FORGE_RECONCILE_INTERVAL_SECONDS: ${FORGE_RECONCILE_INTERVAL_SECONDS:-3}
+      FORGE_LIFECYCLE_OWNER: ${FORGE_LIFECYCLE_OWNER:-runtime}
+      FORGE_OTEL_ENABLED: "true"
+      FORGE_OTEL_EXPORTER_ENDPOINT: ${FORGE_OTEL_EXPORTER_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${FORGE_OTEL_EXPORTER_ENDPOINT:-http://otel-collector:4317}
+
+  forge-runtime:
+    environment:
+      FORGE_PROBE_INTERVAL_SECONDS: ${FORGE_PROBE_INTERVAL_SECONDS:-2}
+      FORGE_PROBE_FAILURE_THRESHOLD: ${FORGE_PROBE_FAILURE_THRESHOLD:-1}
+      FORGE_OTEL_ENABLED: "true"
+      FORGE_OTEL_EXPORTER_ENDPOINT: ${FORGE_OTEL_EXPORTER_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${FORGE_OTEL_EXPORTER_ENDPOINT:-http://otel-collector:4317}
+
+  forge-gateway:
+    environment:
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+      # Quoted so Compose does not treat {service} as interpolation.
+      FORGE_HOST_PATTERN: "{service}.demo.localhost"
+      FORGE_ROUTE_SYNC_INTERVAL_SECONDS: ${FORGE_ROUTE_SYNC_INTERVAL_SECONDS:-2}
+      FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS: ${FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS:-1}
+      FORGE_UPSTREAM_FAILURE_THRESHOLD: ${FORGE_UPSTREAM_FAILURE_THRESHOLD:-1}
+      FORGE_UPSTREAM_SUCCESS_THRESHOLD: ${FORGE_UPSTREAM_SUCCESS_THRESHOLD:-1}
+      FORGE_OTEL_ENABLED: "true"
+      FORGE_OTEL_EXPORTER_ENDPOINT: ${FORGE_OTEL_EXPORTER_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${FORGE_OTEL_EXPORTER_ENDPOINT:-http://otel-collector:4317}
+
+  forge-build:
+    environment:
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+      FORGE_OTEL_ENABLED: "true"
+      FORGE_OTEL_EXPORTER_ENDPOINT: ${FORGE_OTEL_EXPORTER_ENDPOINT:-http://otel-collector:4317}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${FORGE_OTEL_EXPORTER_ENDPOINT:-http://otel-collector:4317}
+
+  forge-observe:
+    environment:
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+      FORGE_ALERT_ERROR_RATE_THRESHOLD: ${FORGE_ALERT_ERROR_RATE_THRESHOLD:-0.05}
+      FORGE_ALERT_ERROR_RATE_FOR: ${FORGE_ALERT_ERROR_RATE_FOR:-10s}

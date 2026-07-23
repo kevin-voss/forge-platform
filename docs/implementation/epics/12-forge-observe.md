@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Goal
 
@@ -69,7 +69,7 @@ An induced error fires the error-rate alert
 | [12.04](../steps/12-forge-observe/12.04-log-query-and-filter.md) | Log query/filter by project/deployment/request/trace ID | Complete | Correlated log search API |
 | [12.05](../steps/12-forge-observe/12.05-cli-logs-follow.md) | CLI `forge logs --follow` | Complete | Live tail via Observe SSE + Runtime fallback |
 | [12.06](../steps/12-forge-observe/12.06-basic-alert-rules.md) | Basic alert rules | Complete | ServiceDown / HighErrorRate + `GET /v1/alerts` |
-| [12.07](../steps/12-forge-observe/12.07-demo-12-observability.md) | Demo `12-observability` (one distributed trace) + gate | Not started | Single trace end-to-end; epic gate |
+| [12.07](../steps/12-forge-observe/12.07-demo-12-observability.md) | Demo `12-observability` (one distributed trace) + gate | Complete | Single trace end-to-end; epic gate |
 
 ## Assumptions
 
@@ -88,4 +88,4 @@ An induced error fires the error-rate alert
 
 ## Next step to implement
 
-**[12.07](../steps/12-forge-observe/12.07-demo-12-observability.md) — Demo `12-observability` + epic gate**.
+Epic complete — proceed to epic `13-forge-storage` (`N = 85`).

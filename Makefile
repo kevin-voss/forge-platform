@@ -39,7 +39,7 @@ help:
 	@echo "  make format                Format repository files where applicable"
 	@echo "  make clean                 Remove local build artifacts"
 	@echo "  make reset                 Destroy local volumes and restart clean"
-	@echo "  make demo DEMO=00          Run a numbered demo (e.g. DEMO=11 event-driven)"
+	@echo "  make demo DEMO=00          Run a numbered demo (e.g. DEMO=12 observability)"
 	@echo "  make service-test SERVICE= Run tests for one service"
 	@echo "  make service-run SERVICE=  Run one service locally"
 
@@ -160,7 +160,7 @@ demo:
 		exit 1; \
 	fi; \
 	echo "Running $${matches[0]}"; \
-	"$${matches[0]}"
+	exec -a "forge-demo-$${demo_num}" bash "$${matches[0]}"
 
 service-test:
 	@if [[ -z "$(SERVICE)" ]]; then echo "SERVICE is required" >&2; exit 1; fi
