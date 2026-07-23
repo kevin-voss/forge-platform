@@ -2,6 +2,8 @@
 
 Rust/Axum object storage service (epic 13). Host port **4107**.
 
+Epic acceptance gate: `make demo DEMO=13` (`demos/13-object-storage`).
+
 ## Step 13.06 — Quotas, delete, restart durability
 
 * Per-project byte quota (`FORGE_STORAGE_DEFAULT_QUOTA_BYTES`, default 1 GiB) with optional `project_quota` override

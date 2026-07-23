@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 91`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 92`**.
 
 ## Epics
 
@@ -21,7 +21,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [10](epics/10-forge-secrets.md) | Forge Secrets | Complete | 7/7 steps; demo 10 secrets acceptance gate passed |
 | [11](epics/11-forge-events.md) | Forge Events | Complete | 7/7 steps; demo 11 event-driven acceptance gate passed |
 | [12](epics/12-forge-observe.md) | Forge Observe | Complete | 7/7 steps; demo 12 observability acceptance gate passed |
-| [13](epics/13-forge-storage.md) | Forge Storage | In progress | 6/7 steps; quotas, delete + refcount GC, restart durability |
+| [13](epics/13-forge-storage.md) | Forge Storage | Complete | 7/7 steps; demo 13 object-storage acceptance gate passed |
 | [14](epics/14-forge-models.md) | Forge Models | Planning | 7 steps |
 | [15](epics/15-forge-agents.md) | Forge Agents | Planning | 8 steps |
 | [16](epics/16-forge-workflows.md) | Forge Workflows | Planning | 7 steps |
@@ -124,7 +124,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **88** | [SHA-256 + range requests](steps/13-forge-storage/13.04-sha256-range-requests.md) | Complete |  | Content-addressed SHA-256; ETag; Range 206/416; verify-on-read |
 | **89** | [Signed tokens + expiry](steps/13-forge-storage/13.05-signed-tokens-expiry.md) | Complete |  | HMAC signed tokens; query/Bearer auth; expiry + TTL clamp |
 | **90** | [Quotas + delete + restart durability](steps/13-forge-storage/13.06-quotas-delete-durability.md) | Complete |  | Per-project quota 413; DELETE + cascade; usage; boot reconcile |
-| **91** | [Demo `13-object-storage` + gate](steps/13-forge-storage/13.07-demo-and-gate.md) | Not started |  |  |
+| **91** | [Demo `13-object-storage` + gate](steps/13-forge-storage/13.07-demo-and-gate.md) | Complete |  | Demo 13: bucket→50MiB stream→checksum→range→expired token→delete→restart; epic gate |
 | **92** | [Skeleton + Compose](steps/14-forge-models/14.01-skeleton-compose.md) | Not started |  |  |
 | **93** | [Model registry + `GET /v1/models`](steps/14-forge-models/14.02-model-registry.md) | Not started |  |  |
 | **94** | [Local embeddings adapter](steps/14-forge-models/14.03-local-embeddings-adapter.md) | Not started |  |  |

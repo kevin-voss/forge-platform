@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Goal
 
@@ -72,7 +72,7 @@ make demo DEMO=13
 | [13.04](../steps/13-forge-storage/13.04-sha256-range-requests.md) | SHA-256 + range requests | Complete | Content-addressed SHA-256; ETag; Range 206/416; verify-on-read |
 | [13.05](../steps/13-forge-storage/13.05-signed-tokens-expiry.md) | Signed tokens + expiry | Complete | HMAC signed access tokens; `?token=` / Bearer; expiry + skew |
 | [13.06](../steps/13-forge-storage/13.06-quotas-delete-durability.md) | Quotas + delete + restart durability | Complete | Per-project quota 413; DELETE + cascade; usage; boot reconcile |
-| [13.07](../steps/13-forge-storage/13.07-demo-and-gate.md) | Demo `13-object-storage` + gate | Not started | Depends on 13.06; epic acceptance gate |
+| [13.07](../steps/13-forge-storage/13.07-demo-and-gate.md) | Demo `13-object-storage` + gate | Complete | Demo 13 acceptance gate; epic complete |
 
 ## Assumptions
 
@@ -91,4 +91,4 @@ make demo DEMO=13
 
 ## Next step to implement
 
-**[13.07](../steps/13-forge-storage/13.07-demo-and-gate.md) — Demo `13-object-storage` + gate** (depends on 13.06).
+Epic complete. Next roadmap step is **`N = 92`** (epic 14 — Forge Models skeleton).
