@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     port: int = Field(..., alias="PORT", ge=1, le=65535)
     forge_log_level: LogLevel = Field(default="info", alias="FORGE_LOG_LEVEL")
     forge_models_backend: ModelsBackend = Field(default="fake", alias="FORGE_MODELS_BACKEND")
+    forge_models_config: str = Field(default="", alias="FORGE_MODELS_CONFIG")
     forge_service_name: str = Field(default="forge-models", alias="FORGE_SERVICE_NAME")
     forge_service_version: str = Field(default="0.1.0", alias="FORGE_SERVICE_VERSION")
     forge_env: str = Field(default="development", alias="FORGE_ENV")
@@ -54,6 +55,13 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             stripped = value.strip()
             return stripped if stripped else None
+        return value
+
+    @field_validator("forge_models_config", mode="before")
+    @classmethod
+    def strip_config_path(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
         return value
 
 

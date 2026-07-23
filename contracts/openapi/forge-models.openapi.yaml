@@ -1,11 +1,11 @@
 openapi: 3.0.3
 info:
   title: Forge Models API
-  version: 0.1.0
+  version: 0.2.0
   description: |
     Platform model-serving service (epic 14). Health/identity from 14.01;
-    registry, embeddings, generate/classify/summarize, streaming, and usage
-    metrics land in later steps.
+    model registry read APIs from 14.02. Embeddings, generate/classify/summarize,
+    streaming, and usage metrics land in later steps.
 servers:
   - url: http://127.0.0.1:4300
     description: Local Compose (host port 4300)
@@ -31,8 +31,9 @@ paths:
       operationId: getHealthReady
       summary: Readiness probe
       description: |
-        Returns 200 when configuration parsed successfully and backend
-        selection (`FORGE_MODELS_BACKEND`) was validated at startup; 503 otherwise.
+        Returns 200 when configuration parsed successfully, backend
+        selection (`FORGE_MODELS_BACKEND`) was validated, and the model
+        registry loaded at startup; 503 otherwise.
       responses:
         "200":
           description: Ready to receive traffic
@@ -72,7 +73,99 @@ paths:
                 version: 0.1.0
                 uptime_seconds: 12.5
 
+  /v1/models:
+    get:
+      operationId: listModels
+      summary: List registered models
+      description: |
+        Returns the in-memory model registry loaded from `models.yaml`
+        (`FORGE_MODELS_CONFIG`). Each entry includes capabilities, backend,
+        optional embedding dimension, and current adapter health status.
+      responses:
+        "200":
+          description: Registry listing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelListResponse"
+              example:
+                models:
+                  - id: local-embed-small
+                    capabilities: [embed]
+                    backend: local
+                    embedding_dim: 384
+                    status: ok
+                  - id: local-general
+                    capabilities: [classify, generate, summarize]
+                    backend: fake
+                    embedding_dim: null
+                    status: ok
+
+  /v1/models/{model}:
+    get:
+      operationId: getModel
+      summary: Get a registered model
+      parameters:
+        - $ref: "#/components/parameters/ModelId"
+      responses:
+        "200":
+          description: Model registry entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Model"
+              example:
+                id: local-embed-small
+                capabilities: [embed]
+                backend: local
+                embedding_dim: 384
+                status: ok
+        "404":
+          description: Unknown model id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+              example:
+                error: "model not found: nope"
+                code: model_not_found
+
+  /v1/models/{model}/health:
+    get:
+      operationId: getModelHealth
+      summary: Per-model adapter health
+      parameters:
+        - $ref: "#/components/parameters/ModelId"
+      responses:
+        "200":
+          description: Adapter health status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelHealth"
+              example:
+                status: ok
+        "404":
+          description: Unknown model id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+              example:
+                error: "model not found: nope"
+                code: model_not_found
+
 components:
+  parameters:
+    ModelId:
+      name: model
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+      description: Registry model identifier
+
   schemas:
     HealthStatus:
       type: object
@@ -106,3 +199,73 @@ components:
         uptime_seconds:
           type: number
           example: 12.5
+
+    ModelCapability:
+      type: string
+      enum: [embed, generate, classify, summarize]
+
+    ModelStatus:
+      type: string
+      enum: [ok, degraded, down]
+
+    Model:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - capabilities
+        - backend
+        - embedding_dim
+        - status
+      properties:
+        id:
+          type: string
+          example: local-embed-small
+        capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/ModelCapability"
+          uniqueItems: true
+        backend:
+          type: string
+          example: local
+        embedding_dim:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: Fixed embedding dimension; null when embed is unsupported
+        status:
+          $ref: "#/components/schemas/ModelStatus"
+
+    ModelListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - models
+      properties:
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/Model"
+
+    ModelHealth:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+      properties:
+        status:
+          $ref: "#/components/schemas/ModelStatus"
+
+    ErrorBody:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+        - code
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+          example: model_not_found

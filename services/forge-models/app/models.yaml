@@ -1,0 +1,10 @@
+# Default forge-models registry (14.02).
+# Inference adapters land in later steps; FakeAdapter is the placeholder.
+models:
+  - id: local-embed-small
+    backend: local
+    capabilities: [embed]
+    embedding_dim: 384
+  - id: local-general
+    backend: fake
+    capabilities: [generate, classify, summarize]

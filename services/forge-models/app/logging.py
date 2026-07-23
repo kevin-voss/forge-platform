@@ -45,7 +45,18 @@ class JsonLogFormatter(logging.Formatter):
         rid = request_id_var.get()
         if rid:
             payload["request_id"] = rid
-        for key in ("request_id", "path", "method", "status_code", "backend", "signal"):
+        for key in (
+            "request_id",
+            "path",
+            "method",
+            "status_code",
+            "backend",
+            "signal",
+            "count",
+            "ids",
+            "backends",
+            "models_registry_size",
+        ):
             if hasattr(record, key):
                 value = getattr(record, key)
                 if value is not None:

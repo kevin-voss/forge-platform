@@ -11,9 +11,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app import __version__
+from app.api.models import router as models_router
 from app.config import Settings, clear_settings_cache, get_settings
 from app.health import router as health_router
 from app.logging import RequestIdMiddleware, configure_logging
+from app.registry import RegistryLoadError, load_registry
 
 logger = logging.getLogger("forge-models")
 
@@ -23,9 +25,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
     app.state.started_at = time.time()
     app.state.ready = True
+    metrics = app.state.registry.metrics
     logger.info(
         "starting forge-models",
-        extra={"backend": settings.forge_models_backend},
+        extra={
+            "backend": settings.forge_models_backend,
+            "models_registry_size": metrics.models_registry_size,
+        },
     )
     try:
         yield
@@ -35,10 +41,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
-    """Build the FastAPI app. Validates settings before returning."""
+    """Build the FastAPI app. Validates settings and registry before returning."""
     clear_settings_cache()
     resolved = settings if settings is not None else get_settings()
     configure_logging(resolved.forge_service_name, resolved.forge_log_level)
+
+    try:
+        registry = load_registry(resolved.forge_models_config or None)
+    except RegistryLoadError:
+        # Re-raise with original message for clear startup failure.
+        raise
 
     application = FastAPI(
         title="Forge Models",
@@ -46,11 +58,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     application.state.settings = resolved
+    application.state.registry = registry
     application.state.ready = False
     application.state.started_at = time.time()
 
     application.add_middleware(RequestIdMiddleware, logger=logger)
     application.include_router(health_router)
+    application.include_router(models_router)
 
     @application.get("/")
     async def identity(request: Request) -> JSONResponse:
@@ -73,8 +87,14 @@ def main() -> None:
     """Run uvicorn with configured PORT (local `make dev`)."""
     import uvicorn
 
-    # Validate settings before binding so unknown backend / invalid PORT exit non-zero.
+    # Validate settings + registry before binding so bad config exits non-zero.
     settings = get_settings()
+    try:
+        load_registry(settings.forge_models_config or None)
+    except RegistryLoadError as exc:
+        logger.error("registry load failed: %s", exc)
+        raise SystemExit(1) from exc
+
     uvicorn.run(
         "app.main:create_app",
         factory=True,

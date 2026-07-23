@@ -1,42 +1,91 @@
-"""Contract tests for forge-models OpenAPI skeleton."""
+"""Contract tests for forge-models OpenAPI (registry schemas)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
+
+ALLOWED_CAPS = {"embed", "generate", "classify", "summarize"}
+ALLOWED_STATUS = {"ok", "degraded", "down"}
+
 
 def _repo_openapi() -> Path:
     """Resolve canonical OpenAPI when the full repo tree is present."""
     here = Path(__file__).resolve()
-    # Local checkout: services/forge-models/tests → repo root is parents[3]
     if len(here.parents) > 3:
         candidate = here.parents[3] / "contracts" / "openapi" / "forge-models.openapi.yaml"
         if candidate.is_file():
             return candidate
-    # Walk up looking for contracts/openapi/...
     for parent in here.parents:
         candidate = parent / "contracts" / "openapi" / "forge-models.openapi.yaml"
         if candidate.is_file():
             return candidate
-    return here.parents[min(3, len(here.parents) - 1)] / "contracts" / "openapi" / "forge-models.openapi.yaml"
+    return (
+        here.parents[min(3, len(here.parents) - 1)]
+        / "contracts"
+        / "openapi"
+        / "forge-models.openapi.yaml"
+    )
 
 
 OPENAPI = _repo_openapi()
 
 
-def test_openapi_file_exists_and_declares_three_paths() -> None:
+def test_openapi_documents_model_list_get_health() -> None:
     if not OPENAPI.is_file():
         pytest.skip(f"canonical OpenAPI not in build context ({OPENAPI})")
-    text = OPENAPI.read_text(encoding="utf-8")
-    assert "openapi:" in text
-    assert "/health/live" in text
-    assert "/health/ready" in text
-    assert "\n  /:" in text
-    assert "forge-models" in text
-    # No inference surface yet (14.02+)
-    assert "/v1/models" not in text
+    doc = yaml.safe_load(OPENAPI.read_text(encoding="utf-8"))
+    paths = doc["paths"]
+    assert "/v1/models" in paths
+    assert "/v1/models/{model}" in paths
+    assert "/v1/models/{model}/health" in paths
+    schemas = doc["components"]["schemas"]
+    assert "Model" in schemas
+    assert "ModelListResponse" in schemas
+    assert "ModelHealth" in schemas
+    assert "ErrorBody" in schemas
+    caps = schemas["ModelCapability"]["enum"]
+    assert set(caps) == ALLOWED_CAPS
+    assert schemas["Model"]["properties"]["embedding_dim"].get("nullable") is True
+
+
+def _assert_model_shape(model: dict) -> None:
+    assert set(model) >= {"id", "capabilities", "backend", "embedding_dim", "status"}
+    assert isinstance(model["id"], str) and model["id"]
+    assert isinstance(model["backend"], str) and model["backend"]
+    assert isinstance(model["capabilities"], list)
+    assert set(model["capabilities"]).issubset(ALLOWED_CAPS)
+    assert model["status"] in ALLOWED_STATUS
+    dim = model["embedding_dim"]
+    assert dim is None or (isinstance(dim, int) and dim >= 1)
+
+
+def test_list_get_health_responses_validate(client: TestClient) -> None:
+    listed = client.get("/v1/models")
+    assert listed.status_code == 200
+    body = listed.json()
+    assert isinstance(body.get("models"), list)
+    assert body["models"]
+    for model in body["models"]:
+        _assert_model_shape(model)
+
+    sample_id = body["models"][0]["id"]
+    got = client.get(f"/v1/models/{sample_id}")
+    assert got.status_code == 200
+    _assert_model_shape(got.json())
+
+    health = client.get(f"/v1/models/{sample_id}/health")
+    assert health.status_code == 200
+    assert health.json()["status"] in ALLOWED_STATUS
+
+    missing = client.get("/v1/models/no-such-model")
+    assert missing.status_code == 404
+    err = missing.json()
+    assert err["code"] == "model_not_found"
+    assert isinstance(err["error"], str)
 
 
 def test_live_ready_identity_match_contract(client: TestClient) -> None:
