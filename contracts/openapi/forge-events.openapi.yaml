@@ -1,0 +1,111 @@
+openapi: 3.0.3
+info:
+  title: Forge Events API
+  version: 0.1.0
+  description: |
+    Platform events service (epic 11). Skeleton (11.01): runtime-contract health
+    and identity plus NATS JetStream stream bootstrap. Publish/subscribe and
+    durable consumers arrive in later steps.
+servers:
+  - url: http://127.0.0.1:4105
+    description: Local Compose (host port 4105)
+
+paths:
+  /health/live:
+    get:
+      operationId: getHealthLive
+      summary: Liveness probe
+      description: Returns 200 when the process is alive.
+      security: []
+      responses:
+        "200":
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: ok
+
+  /health/ready:
+    get:
+      operationId: getHealthReady
+      summary: Readiness probe
+      description: |
+        Returns 200 when NATS JetStream is connected and platform streams exist;
+        non-200 otherwise. Liveness stays 200 while reconnecting.
+      security: []
+      responses:
+        "200":
+          description: Ready to receive traffic
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: ok
+        "503":
+          description: Not ready (JetStream unreachable or streams missing)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: not_ready
+
+  /:
+    get:
+      operationId: getIdentity
+      summary: Service identity
+      description: |
+        Returns JSON identity for the running service. Required fields match the
+        epic-01 runtime contract: service, language, status.
+      security: []
+      responses:
+        "200":
+          description: Identity payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Identity"
+              example:
+                service: forge-events
+                language: go
+                status: running
+                version: 0.1.0
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      additionalProperties: true
+      properties:
+        status:
+          type: string
+          description: Short health indicator (e.g. ok, not_ready)
+
+    Identity:
+      type: object
+      required:
+        - service
+        - language
+        - status
+      properties:
+        service:
+          type: string
+          description: Logical service name
+          example: forge-events
+        language:
+          type: string
+          description: Implementation language
+          example: go
+        status:
+          type: string
+          description: Process status
+          example: running
+        version:
+          type: string
+          description: Service version
+        uptime_seconds:
+          type: number
+          description: Seconds since process start

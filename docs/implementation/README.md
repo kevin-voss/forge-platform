@@ -74,7 +74,7 @@ Update [`progress.md`](progress.md) after planning and after each step completes
 | [08-multi-node-scheduler](epics/08-multi-node-scheduler.md) | Planning | `08.01`–`08.06` |
 | [09-forge-identity](epics/09-forge-identity.md) | Planning | `09.01`–`09.08` |
 | [10-forge-secrets](epics/10-forge-secrets.md) | Planning | `10.01`–`10.07` |
-| [11-forge-events](epics/11-forge-events.md) | Planning | `11.01`–`11.07` |
+| [11-forge-events](epics/11-forge-events.md) | In progress | `11.01`–`11.07` |
 | [12-forge-observe](epics/12-forge-observe.md) | Planning | `12.01`–`12.07` |
 | [13-forge-storage](epics/13-forge-storage.md) | Planning | `13.01`–`13.07` |
 | [14-forge-models](epics/14-forge-models.md) | Planning | `14.01`–`14.07` |

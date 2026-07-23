@@ -1,0 +1,132 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// DefaultStreams is the platform JetStream stream set for epic 11.
+var DefaultStreams = []string{"build", "deployment", "runtime", "application", "agent"}
+
+// Config holds env-based runtime settings for forge-events.
+type Config struct {
+	Port           int
+	ServiceName    string
+	ServiceVersion string
+	LogLevel       string
+	Env            string
+	ShutdownGrace  time.Duration
+	NATSURL        string
+	Streams        []string
+}
+
+// Load reads configuration from the process environment.
+func Load() (Config, error) {
+	portRaw := strings.TrimSpace(os.Getenv("PORT"))
+	if portRaw == "" {
+		portRaw = "4105"
+	}
+	port, err := strconv.Atoi(portRaw)
+	if err != nil || port < 1 || port > 65535 {
+		return Config{}, fmt.Errorf("PORT must be an integer 1–65535, got %q", portRaw)
+	}
+
+	level := strings.ToLower(strings.TrimSpace(os.Getenv("FORGE_LOG_LEVEL")))
+	if level == "" {
+		level = "info"
+	}
+	switch level {
+	case "debug", "info", "warn", "error":
+	default:
+		return Config{}, fmt.Errorf("FORGE_LOG_LEVEL must be debug|info|warn|error, got %q", level)
+	}
+
+	name := strings.TrimSpace(os.Getenv("FORGE_SERVICE_NAME"))
+	if name == "" {
+		name = "forge-events"
+	}
+	version := strings.TrimSpace(os.Getenv("FORGE_SERVICE_VERSION"))
+	if version == "" {
+		version = "0.1.0"
+	}
+	env := strings.TrimSpace(os.Getenv("FORGE_ENV"))
+	if env == "" {
+		env = "development"
+	}
+
+	graceRaw := strings.TrimSpace(os.Getenv("FORGE_SHUTDOWN_GRACE_SECONDS"))
+	if graceRaw == "" {
+		graceRaw = "10"
+	}
+	graceSecs, err := strconv.Atoi(graceRaw)
+	if err != nil || graceSecs < 0 {
+		return Config{}, fmt.Errorf("FORGE_SHUTDOWN_GRACE_SECONDS must be a non-negative integer, got %q", graceRaw)
+	}
+
+	natsURL := strings.TrimSpace(os.Getenv("FORGE_NATS_URL"))
+	if natsURL == "" {
+		natsURL = "nats://nats:4222"
+	}
+
+	streams, err := parseStreams(os.Getenv("FORGE_EVENTS_STREAMS"))
+	if err != nil {
+		return Config{}, err
+	}
+
+	return Config{
+		Port:           port,
+		ServiceName:    name,
+		ServiceVersion: version,
+		LogLevel:       level,
+		Env:            env,
+		ShutdownGrace:  time.Duration(graceSecs) * time.Second,
+		NATSURL:        natsURL,
+		Streams:        streams,
+	}, nil
+}
+
+func parseStreams(raw string) ([]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		out := make([]string, len(DefaultStreams))
+		copy(out, DefaultStreams)
+		return out, nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, p := range parts {
+		name := strings.TrimSpace(p)
+		if name == "" {
+			continue
+		}
+		if !isValidStreamName(name) {
+			return nil, fmt.Errorf("FORGE_EVENTS_STREAMS contains invalid stream name %q", name)
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("FORGE_EVENTS_STREAMS must list at least one stream")
+	}
+	return out, nil
+}
+
+func isValidStreamName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
