@@ -10,6 +10,6 @@ Atomic steps for [Forge Infrastructure](../../epics/23-forge-infrastructure.md).
 | 23.04 | 156 | [23.04-ssh-and-bare-metal-providers.md](23.04-ssh-and-bare-metal-providers.md) | Complete |
 | 23.05 | 157 | [23.05-hetzner-provider.md](23.05-hetzner-provider.md) | Complete |
 | 23.06 | 158 | [23.06-aws-and-azure-providers.md](23.06-aws-and-azure-providers.md) | Complete |
-| 23.07 | 159 | [23.07-demo-23-local-cloud-simulation.md](23.07-demo-23-local-cloud-simulation.md) | Not started |
+| 23.07 | 159 | [23.07-demo-23-local-cloud-simulation.md](23.07-demo-23-local-cloud-simulation.md) | Complete |
 
 Implement with [`../../IMPLEMENT_STEP.md`](../../IMPLEMENT_STEP.md) (`STEP_ID=23.01` first).

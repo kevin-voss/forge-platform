@@ -88,7 +88,7 @@ func (f *fakeRegistry) List(ctx context.Context, plural, labelSelector string) (
 			out = append(out, p)
 		}
 		return out, nil
-	case "nodes":
+	case registryclient.NodePlural:
 		return append([]registryclient.Resource{}, f.nodes...), nil
 	case "infrastructureproviders":
 		out := make([]registryclient.Resource, 0, len(f.providers))
@@ -114,7 +114,7 @@ func (f *fakeRegistry) Get(ctx context.Context, plural, name string) (*registryc
 			cp := p
 			return &cp, nil
 		}
-	case "nodes":
+	case registryclient.NodePlural:
 		for _, n := range f.nodes {
 			if n.Metadata.Name == name {
 				cp := n
@@ -136,7 +136,7 @@ func (f *fakeRegistry) PutStatus(ctx context.Context, plural, name, resourceVers
 			return &p, nil
 		}
 	}
-	if plural == "nodes" {
+	if plural == registryclient.NodePlural {
 		for i, n := range f.nodes {
 			if n.Metadata.Name == name {
 				n.Status = status
@@ -152,7 +152,7 @@ func (f *fakeRegistry) PutStatus(ctx context.Context, plural, name, resourceVers
 func (f *fakeRegistry) Create(ctx context.Context, plural string, res registryclient.Resource) (*registryclient.Resource, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if plural == "nodes" {
+	if plural == registryclient.NodePlural {
 		f.nodes = append(f.nodes, res)
 	}
 	return &res, nil
@@ -161,7 +161,7 @@ func (f *fakeRegistry) Create(ctx context.Context, plural string, res registrycl
 func (f *fakeRegistry) Delete(ctx context.Context, plural, name string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if plural != "nodes" {
+	if plural != registryclient.NodePlural {
 		return nil
 	}
 	out := f.nodes[:0]

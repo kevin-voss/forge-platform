@@ -44,6 +44,7 @@ help:
 	@echo "  make demo DEMO=20          Declarative resource API gate (epic 20)"
 	@echo "  make demo DEMO=21          Service discovery gate (epic 21)"
 	@echo "  make demo DEMO=22          Forge network gate (epic 22)"
+	@echo "  make demo DEMO=23          Local cloud infrastructure gate (epic 23)"
 	@echo "  make demo DEMO=09-full-platform  Start capstone (start.sh)"
 	@echo "  make demo-accept DEMO=...  Run demo acceptance suite (capstone accept.sh)"
 	@echo "  make demo-full             Alias: demo DEMO=09-full-platform"

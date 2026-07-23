@@ -300,7 +300,7 @@ func (a *admissionLister) List(ctx context.Context, plural, labelSelector string
 }
 
 func (r *registryNodeLister) ListNodes(ctx context.Context) ([]docker.NodeResource, error) {
-	items, err := r.client.List(ctx, "nodes", "")
+	items, err := r.client.List(ctx, registryclient.NodePlural, "")
 	if err != nil {
 		return nil, err
 	}

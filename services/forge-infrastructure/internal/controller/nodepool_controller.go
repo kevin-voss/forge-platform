@@ -213,16 +213,19 @@ func (c *NodePoolController) Reconcile(ctx context.Context, pool registryclient.
 		}
 		opID = begin.Op.ID
 		action = "create_node"
-		if begin.SkipProvider {
-			if begin.Op.Status == operations.StatusPending {
-				action = "create_node_pending"
-			} else {
+		if begin.SkipProvider && begin.Op.Status == operations.StatusPending {
+			action = "create_node_pending"
+		} else {
+			// Always invoke CreateNode: adapters are idempotent by op_id, and a
+			// succeeded ledger row must still recreate a deleted machine / Node.
+			if begin.SkipProvider {
 				action = "create_node_cached"
 			}
-		} else {
 			node, callErr := provRes.CreateNode(ctx, begin.Op.ID, req)
-			if err := c.Ledger.Complete(ctx, begin.Op.ID, node, callErr); err != nil {
-				return err
+			if !begin.SkipProvider {
+				if err := c.Ledger.Complete(ctx, begin.Op.ID, node, callErr); err != nil {
+					return err
+				}
 			}
 			if callErr != nil {
 				if errors.Is(callErr, provider.ErrInventoryExhausted) {
@@ -242,7 +245,7 @@ func (c *NodePoolController) Reconcile(ctx context.Context, pool registryclient.
 					}
 				} else if errors.Is(callErr, provider.ErrProviderNotConfigured) || !c.Providers.Has(provType) {
 					return c.writeProviderNotConfigured(ctx, pool, ready, callErr)
-				} else {
+				} else if !begin.SkipProvider {
 					return c.writeDegraded(ctx, pool, ready, callErr)
 				}
 			}
@@ -490,12 +493,12 @@ func (c *NodePoolController) resolveProvider(ctx context.Context, providerRef st
 
 func (c *NodePoolController) listOwnedNodes(ctx context.Context, poolName string) ([]registryclient.Resource, error) {
 	// Prefer label selector; also filter by spec.nodePoolRef for robustness.
-	items, err := c.Registry.List(ctx, "nodes", "forge.local/node-pool="+poolName)
+	items, err := c.Registry.List(ctx, registryclient.NodePlural, "forge.local/node-pool="+poolName)
 	if err != nil {
 		return nil, err
 	}
 	if len(items) == 0 {
-		all, err := c.Registry.List(ctx, "nodes", "")
+		all, err := c.Registry.List(ctx, registryclient.NodePlural, "")
 		if err != nil {
 			return nil, err
 		}
@@ -516,14 +519,27 @@ func (c *NodePoolController) listOwnedNodes(ctx context.Context, poolName string
 }
 
 func (c *NodePoolController) ensureNodeResource(ctx context.Context, poolName, nodeName string, pn *provider.ProviderNode) (*registryclient.Resource, error) {
-	existing, err := c.Registry.Get(ctx, "nodes", nodeName)
+	existing, err := c.Registry.Get(ctx, registryclient.NodePlural, nodeName)
 	if err != nil {
 		return nil, err
 	}
 	if existing != nil {
+		if pn != nil && pn.Address != "" && stringFromStatus(existing.Status, "address") == "" {
+			status := map[string]any{}
+			for k, v := range existing.Status {
+				status[k] = v
+			}
+			if status["phase"] == nil || status["phase"] == "" {
+				status["phase"] = PhaseProvisioning
+			}
+			status["address"] = pn.Address
+			if put, putErr := c.Registry.PutStatus(ctx, registryclient.NodePlural, nodeName, existing.Metadata.ResourceVersion, status); putErr == nil && put != nil {
+				return put, nil
+			}
+		}
 		return existing, nil
 	}
-	created, err := c.Registry.Create(ctx, "nodes", registryclient.Resource{
+	created, err := c.Registry.Create(ctx, registryclient.NodePlural, registryclient.Resource{
 		APIVersion: "forge.dev/v1",
 		Kind:       "Node",
 		Metadata: registryclient.Metadata{
@@ -533,6 +549,7 @@ func (c *NodePoolController) ensureNodeResource(ctx context.Context, poolName, n
 		Spec: map[string]any{
 			"nodePoolRef":    poolName,
 			"providerNodeId": pn.ID,
+			"address":        pn.Address,
 		},
 		Status: map[string]any{
 			"phase":   PhaseProvisioning,
@@ -541,6 +558,16 @@ func (c *NodePoolController) ensureNodeResource(ctx context.Context, poolName, n
 	})
 	if err != nil {
 		return nil, err
+	}
+	// Generic create ignores status — write phase/address via the status subresource.
+	if created != nil {
+		status := map[string]any{
+			"phase":   PhaseProvisioning,
+			"address": pn.Address,
+		}
+		if put, putErr := c.Registry.PutStatus(ctx, registryclient.NodePlural, nodeName, created.Metadata.ResourceVersion, status); putErr == nil && put != nil {
+			created = put
+		}
 	}
 	if c.Nodes != nil && c.Nodes.Timers != nil && created != nil {
 		nodeID := created.Metadata.ID

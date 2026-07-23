@@ -88,6 +88,30 @@ NodePool provider = docker
 → the scheduler treats them exactly like remote machines
 ```
 
+### Local cloud simulation gate (`demos/23-local-cloud-simulation`)
+
+Default CI/local acceptance is Docker-only:
+
+```bash
+make demo DEMO=23
+```
+
+Flow: apply `InfrastructureProvider(docker-local)` + `NodePool(replicas=2)` →
+nodes reach Ready on `/v1/forgenodes` and online on the scheduler fleet
+`/v1/nodes` → deploy workloads → scale to 3 → scale to 2 (drain/delete) with no
+orphaned `forge.managed=true` containers or stuck ledger ops.
+
+Optional billable targets are explicit and never part of CI:
+
+```bash
+FORGE_DEMO_TARGET=hetzner FORGE_DEMO_CLOUD_CONFIRM=1 make demo DEMO=23
+FORGE_DEMO_TARGET=aws     FORGE_DEMO_CLOUD_CONFIRM=1 make demo DEMO=23
+FORGE_DEMO_TARGET=azure   FORGE_DEMO_CLOUD_CONFIRM=1 make demo DEMO=23
+```
+
+Infrastructure `Node` resources use plural `forgenodes` so they do not collide with
+Control's scheduler fleet list at `GET /v1/nodes`.
+
 ---
 
 ## 4. Node pools

@@ -39,6 +39,8 @@ type ContainerConfig struct {
 	Binds       []string // host:container
 	NanoCPUs    int64
 	MemoryBytes int64
+	User        string   // e.g. "0:0" for Docker socket access
+	GroupAdd    []string // supplementary groups (docker gid)
 }
 
 // ContainerInspect is a trimmed docker inspect response.
@@ -164,16 +166,23 @@ func (c *Client) Ping(ctx context.Context) error {
 }
 
 func (c *Client) ContainerCreate(ctx context.Context, name string, cfg ContainerConfig) (string, error) {
+	hostConfig := map[string]any{
+		"Binds":       cfg.Binds,
+		"NanoCpus":    cfg.NanoCPUs,
+		"Memory":      cfg.MemoryBytes,
+		"NetworkMode": cfg.Network,
+	}
+	if len(cfg.GroupAdd) > 0 {
+		hostConfig["GroupAdd"] = cfg.GroupAdd
+	}
 	body := map[string]any{
-		"Image":  cfg.Image,
-		"Env":    cfg.Env,
-		"Labels": cfg.Labels,
-		"HostConfig": map[string]any{
-			"Binds":       cfg.Binds,
-			"NanoCpus":    cfg.NanoCPUs,
-			"Memory":      cfg.MemoryBytes,
-			"NetworkMode": cfg.Network,
-		},
+		"Image":      cfg.Image,
+		"Env":        cfg.Env,
+		"Labels":     cfg.Labels,
+		"HostConfig": hostConfig,
+	}
+	if strings.TrimSpace(cfg.User) != "" {
+		body["User"] = cfg.User
 	}
 	var out struct {
 		ID string `json:"Id"`

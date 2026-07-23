@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 159`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 160`**.
 
 ## Epics
 
@@ -184,7 +184,7 @@ next implementable step is still the one named at the top of this file. Plan:
 | [20](epics/20-declarative-resource-api.md) | Declarative resource API | M1 | Complete | 8/8 steps; demo 20 declarative-resources acceptance gate passed |
 | [21](epics/21-forge-discovery.md) | Forge Discovery | M1 | Complete | 6/6 steps; demo 21 service-discovery acceptance gate passed |
 | [22](epics/22-forge-network.md) | Forge Network | M1 | Complete | 7/7 steps; demo 22 forge-network acceptance gate passed |
-| [23](epics/23-forge-infrastructure.md) | Forge Infrastructure | M1 | In progress | 5/7 steps (`N = 157` done); Docker/SSH/bare-metal/Hetzner/AWS/Azure |
+| [23](epics/23-forge-infrastructure.md) | Forge Infrastructure | M1 | Complete | 7/7 steps; demo 23 local-cloud-simulation gate passed |
 | [24](epics/24-forge-autoscaler.md) | Forge Autoscaler | M1 | Planning | 8 steps (`N = 160`–`167`); workload + worker + node scaling |
 | [25](epics/25-scheduling-enhancements.md) | Scheduling enhancements | M1 | Planning | 6 steps (`N = 168`–`173`); M1 exit gate |
 | [26](epics/26-forge-registry.md) | Forge Registry | M2 | Catalog | steps not yet materialized |
@@ -237,7 +237,7 @@ next implementable step is still the one named at the top of this file. Plan:
 | **156** | [Generic SSH provider + static bare-metal inventory](steps/23-forge-infrastructure/23.04-ssh-and-bare-metal-providers.md) | Complete |  | `ssh`/`bare-metal` adopt/release; inventory claims; `InventoryExhausted` |
 | **157** | [Hetzner Cloud provider adapter](steps/23-forge-infrastructure/23.05-hetzner-provider.md) | Complete |  | `hetzner` adapter; label idempotency; rate limits; teardown order; orphan grace |
 | **158** | [AWS EC2 + Azure VM provider adapters](steps/23-forge-infrastructure/23.06-aws-and-azure-providers.md) | Complete |  | `aws`/`azure` adapters; tag idempotency; pricing catalog; IAM/RBAC docs |
-| **159** | Epic 23 — Forge Infrastructure (`23.07`) | Not started |  | |
+| **159** | [Demo `23-local-cloud-simulation` + epic gate](steps/23-forge-infrastructure/23.07-demo-23-local-cloud-simulation.md) | Complete |  | `make demo DEMO=23`; Docker provider scale/drain; optional cloud targets documented |
 | **160**–**167** | Epic 24 — Forge Autoscaler (`24.01`–`24.08`) | Not started |  | |
 | **168**–**173** | Epic 25 — Scheduling enhancements (`25.01`–`25.06`) | Not started |  | |
 

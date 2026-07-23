@@ -13,6 +13,13 @@ import kotlinx.serialization.json.contentOrNull
  * Application / Service product specs submitted via [forge apply].
  */
 object PortableManifest {
+    /** Operator-owned kinds may carry provider vocabulary (NodePool, etc.). */
+    private val operatorKinds = setOf(
+        "InfrastructureProvider",
+        "NodePool",
+        "Node",
+    )
+
     private val forbiddenKeyFragments = listOf(
         "provider",
         "machineType",
@@ -59,6 +66,9 @@ object PortableManifest {
     )
 
     fun validate(kind: String, spec: JsonObject, pathPrefix: String = "spec") {
+        if (kind.trim() in operatorKinds) {
+            return
+        }
         walk(spec, pathPrefix) { path, key, element ->
             val normalized = key.trim()
             if (normalized in forbiddenKeyExact ||

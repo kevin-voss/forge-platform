@@ -2,13 +2,13 @@
 
 Go service (host port **4111**) that turns declared `NodePool` resources into real machines via pluggable provider adapters.
 
-## Step 23.06 (current)
+## Step 23.07 (epic gate)
 
 * Health: `GET /health/live`, `GET /health/ready`
 * Debug: `GET /v1/operations/{opId}` (operation ledger)
 * Admission: `POST /v1/admission/infrastructureproviders` (inventory + Hetzner/AWS/Azure config schema)
 * `Provider` interface (16 methods) + registry
-* **`docker` provider** — starts `forge-runtime` containers as independent nodes
+* **`docker` provider** — starts `forge-runtime` containers as independent nodes (Docker socket + Compose DNS address)
 * **`ssh` / `bare-metal` providers** — adopt/release from static inventory
 * **`hetzner` provider** — Hetzner Cloud IaaS (servers, private networks, volumes, floating IPs)
 * **`aws` provider** — EC2 / EBS / VPC / Elastic IP only (no EKS/ECS/RDS/…)
@@ -18,9 +18,10 @@ Go service (host port **4111**) that turns declared `NodePool` resources into re
 * Bootstrap payload templating (cloud-init + SSH script) + epic-22 bootstrap token client
 * `node_bootstrap_timers` deadlines; automatic delete on bootstrap/join timeout
 * Drain-before-delete (epic 08 reschedule hook); drain timeout deletes with stranded workload log
-* Cluster-scoped kinds: `InfrastructureProvider`, `NodePool`, `Node`
+* Cluster-scoped kinds: `InfrastructureProvider`, `NodePool`, `Node` (plural **`forgenodes`** — avoids Control fleet `GET /v1/nodes`)
 * `provider_operations` ledger (`op_<ULID>`) for idempotent mutating calls
 * `ssh_inventory_claims` table for exclusive host claim/release
+* Gate demo: `make demo DEMO=23` (`demos/23-local-cloud-simulation`)
 
 ## Configuration
 

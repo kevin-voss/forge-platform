@@ -1,0 +1,20 @@
+# Default Docker provider gate (CI / local). Operator-owned kinds may name
+# providers and machine types — product manifests must not.
+apiVersion: forge.dev/v1
+kind: InfrastructureProvider
+metadata:
+  name: docker-local
+spec:
+  type: docker
+---
+apiVersion: forge.dev/v1
+kind: NodePool
+metadata:
+  name: local-docker-pool
+  labels:
+    demo: "23"
+spec:
+  providerRef: docker-local
+  replicas: 2
+  machineType: docker-small
+  region: local

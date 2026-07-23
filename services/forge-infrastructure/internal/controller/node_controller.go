@@ -65,6 +65,9 @@ func (c *NodeController) Reconcile(ctx context.Context, node registryclient.Reso
 	pool := stringFromSpec(node.Spec, "nodePoolRef")
 	providerNodeID := stringFromSpec(node.Spec, "providerNodeId")
 	address := stringFromStatus(node.Status, "address")
+	if address == "" {
+		address = stringFromSpec(node.Spec, "address")
+	}
 	runtimeNodeID := stringFromStatus(node.Status, "runtimeNodeId")
 
 	if err := c.ensureTimer(ctx, nodeID, phase); err != nil {
@@ -251,7 +254,7 @@ func (c *NodeController) reconcileDeleting(ctx context.Context, node registrycli
 	from := PhaseDeleting
 	c.emit(ctx, node, from, "", "DeleteDone")
 	if c.Registry != nil {
-		_ = c.Registry.Delete(ctx, "nodes", node.Metadata.Name)
+		_ = c.Registry.Delete(ctx, registryclient.NodePlural, node.Metadata.Name)
 	}
 	if c.Log != nil {
 		c.Log.Info("node deleted",
@@ -292,7 +295,7 @@ func (c *NodeController) checkTimeout(ctx context.Context, node registryclient.R
 		return true, err
 	}
 	// Automatic cleanup: Failed → Draining on next observation; do it immediately.
-	updated, _ := c.Registry.Get(ctx, "nodes", node.Metadata.Name)
+	updated, _ := c.Registry.Get(ctx, registryclient.NodePlural, node.Metadata.Name)
 	if updated != nil {
 		return true, c.transition(ctx, *updated, nodeID, pool, PhaseFailed, EventFailedCleanup, TimeoutReasonForPhase(phase))
 	}
@@ -343,7 +346,7 @@ func (c *NodeController) transition(ctx context.Context, node registryclient.Res
 	}
 
 	if c.Registry != nil {
-		if _, err := c.Registry.PutStatus(ctx, "nodes", node.Metadata.Name, node.Metadata.ResourceVersion, status); err != nil {
+		if _, err := c.Registry.PutStatus(ctx, registryclient.NodePlural, node.Metadata.Name, node.Metadata.ResourceVersion, status); err != nil {
 			return err
 		}
 	}

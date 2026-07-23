@@ -209,15 +209,28 @@ func (p *Provider) CreateNode(ctx context.Context, opID string, req provider.Cre
 			controlURL = v
 		}
 	}
+	nodeAddress := "http://" + name + ":8080"
 	env := []string{
 		"PORT=8080",
 		"FORGE_AUTH_MODE=dev",
 		"FORGE_CONTROL_URL=" + controlURL,
 		"FORGE_RUNTIME_DATA_DIR=/var/lib/forge-runtime",
 		"FORGE_NODE_SLOTS=" + strconv.Itoa(mt.Slots),
-		"FORGE_NODE_ADDRESS=http://" + name + ":8080",
+		"FORGE_NODE_ADDRESS=" + nodeAddress,
 		"FORGE_SERVICE_NAME=forge-runtime",
 		"FORGE_LIFECYCLE_OWNER=control",
+		"DOCKER_HOST=unix:///var/run/docker.sock",
+		"FORGE_NODE_DOCKER_COLOCATED=true",
+		"FORGE_HEARTBEAT_INTERVAL_MS=2000",
+		"FORGE_NETWORK_WG_BACKEND=fake",
+		"FORGE_NETWORK_ROUTE_BACKEND=fake",
+		"FORGE_NETWORK_POLICY_BACKEND=fake",
+		"FORGE_NETWORK_DNS_BACKEND=fake",
+	}
+	if p.cfg.ControlURL != "" {
+		// Overlay join uses the same Control URL host network namespace as compose.
+		env = append(env, "FORGE_NETWORK_URL=http://forge-network:8080")
+		env = append(env, "FORGE_NETWORK_NAME=cluster-overlay")
 	}
 	if tok := strings.TrimSpace(req.BootstrapToken); tok != "" {
 		env = append(env, "FORGE_NODE_BOOTSTRAP_TOKEN="+tok)
@@ -237,11 +250,19 @@ func (p *Provider) CreateNode(ctx context.Context, opID string, req provider.Cre
 	}
 
 	containerID, err := p.engine.ContainerCreate(ctx, name, ContainerConfig{
-		Image:       p.cfg.Image,
-		Env:         env,
-		Labels:      labels,
-		Network:     p.cfg.Network,
-		Binds:       []string{volName + ":/var/lib/forge-runtime"},
+		Image:   p.cfg.Image,
+		Env:     env,
+		Labels:  labels,
+		Network: p.cfg.Network,
+		// Socket mount + root user match compose forge-runtime — required so
+		// scheduled workloads can create containers on the host Docker engine
+		// and /health/ready can leave the docker-unreachable 503 state.
+		Binds: []string{
+			volName + ":/var/lib/forge-runtime",
+			"/var/run/docker.sock:/var/run/docker.sock",
+		},
+		User:        "0:0",
+		GroupAdd:    []string{"0"},
 		NanoCPUs:    int64(mt.CPU) * 1_000_000_000,
 		MemoryBytes: int64(mt.MemoryMiB) * 1024 * 1024,
 	})
@@ -260,6 +281,9 @@ func (p *Provider) CreateNode(ctx context.Context, opID string, req provider.Cre
 	if err != nil {
 		return nil, err
 	}
+	// Prefer Compose DNS name so JoinObserver matches fleet FORGE_NODE_ADDRESS.
+	node.Address = nodeAddress
+	node.Name = name
 	p.log.Info("docker create_node ok",
 		"event", "infra.provider.docker.create_node",
 		"container_id", shortContainerID(containerID),

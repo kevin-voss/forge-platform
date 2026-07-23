@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Milestone
 
@@ -112,7 +112,7 @@ FORGE_DEMO_TARGET=hetzner make demo DEMO=23   # opt-in only; never part of the d
 | [23.04](../steps/23-forge-infrastructure/23.04-ssh-and-bare-metal-providers.md) | 156 | Generic SSH provider + static bare-metal inventory | Complete | Adopt/release semantics; finite-capacity conditions |
 | [23.05](../steps/23-forge-infrastructure/23.05-hetzner-provider.md) | 157 | Hetzner Cloud provider adapter | Complete | First real cloud provider; rate limits; teardown ordering |
 | [23.06](../steps/23-forge-infrastructure/23.06-aws-and-azure-providers.md) | 158 | AWS EC2 + Azure VM provider adapters | Complete | Two adapters; tag idempotency; IAM/RBAC docs; no managed services |
-| [23.07](../steps/23-forge-infrastructure/23.07-demo-23-local-cloud-simulation.md) | 159 | Demo `23-local-cloud-simulation` + epic gate | Not started | Node-loss recovery; optional cloud-target demos; epic gate |
+| [23.07](../steps/23-forge-infrastructure/23.07-demo-23-local-cloud-simulation.md) | 159 | Demo `23-local-cloud-simulation` + epic gate | Complete | Docker scale/drain gate; optional cloud targets documented |
 
 ## Assumptions
 
@@ -132,4 +132,4 @@ FORGE_DEMO_TARGET=hetzner make demo DEMO=23   # opt-in only; never part of the d
 
 ## Next step to implement
 
-**[23.07](../steps/23-forge-infrastructure/23.07-demo-23-local-cloud-simulation.md) — Demo `23-local-cloud-simulation` + epic gate**.
+Epic complete. Continue with epic [`24-forge-autoscaler`](24-forge-autoscaler.md) (`N = 160`).

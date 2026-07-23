@@ -103,12 +103,16 @@ func NodePoolKindPayload() KindRegistration {
 	}
 }
 
+// NodePlural is the cluster-scoped resource plural for infrastructure Node.
+// Distinct from Control's scheduler fleet GET /v1/nodes (bare JSON array).
+const NodePlural = "forgenodes"
+
 // NodeKindPayload registers Node.
 func NodeKindPayload() KindRegistration {
 	return KindRegistration{
 		APIVersion:    "forge.dev/v1",
 		Kind:          "Node",
-		Plural:        "nodes",
+		Plural:        NodePlural,
 		Scope:         "cluster",
 		Controller:    controllerName,
 		SchemaVersion: 1,
@@ -231,13 +235,12 @@ func (c *Client) List(ctx context.Context, plural, labelSelector string) ([]Reso
 	if status < 200 || status >= 300 {
 		return nil, fmt.Errorf("GET %s: status %d body %s", path, status, truncate(string(raw), 256))
 	}
-	// Scheduler fleet GET /v1/nodes returns a bare JSON array — not a resource list.
+	// Defensive: a bare JSON array is never a resource list envelope.
 	trim := bytes.TrimSpace(raw)
 	if len(trim) > 0 && trim[0] == '[' {
 		if c.Log != nil {
 			c.Log.Warn("list returned non-resource array; treating as empty",
 				"plural", plural,
-				"hint", "scheduler fleet may own GET /v1/nodes",
 			)
 		}
 		return nil, nil
