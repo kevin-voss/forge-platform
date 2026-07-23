@@ -66,7 +66,31 @@ interface ResourceRepository {
 
     /** Soft-delete: sets [deleted_at] immediately (finalizer-aware delete arrives in 20.06). */
     fun softDelete(id: String): ResourceRow
+
+    /**
+     * Filtered, cursor-paginated list. [ResourceListResult.resourceVersion] is
+     * `max(resource_version)` over the full matched set (ignoring pagination).
+     */
+    fun list(query: ResourceListQuery): ResourceListResult
 }
+
+data class ResourceListQuery(
+    val kind: String,
+    val organization: String,
+    val project: String?,
+    val environment: String?,
+    val selector: LabelSelector = LabelSelector(emptyList()),
+    val phase: String? = null,
+    val namePrefix: String? = null,
+    val limit: Int,
+    val cursor: CursorCodec.Cursor? = null,
+)
+
+data class ResourceListResult(
+    val items: List<ResourceRow>,
+    val resourceVersion: Long,
+    val nextCursor: String?,
+)
 
 class JdbcResourceRepository(
     private val dataSource: DataSource,
@@ -321,6 +345,147 @@ class JdbcResourceRepository(
             }
         }
     }
+
+    override fun list(query: ResourceListQuery): ResourceListResult = runSql {
+        dataSource.withConnection { conn ->
+            val filter = buildListFilter(query)
+            val resourceVersion = conn.prepareStatement(
+                """
+                SELECT COALESCE(MAX(resource_version), 0)
+                FROM resources
+                WHERE ${filter.whereSql}
+                """.trimIndent(),
+            ).use { ps ->
+                bindFilter(ps, filter.params, start = 1)
+                ps.executeQuery().use { rs ->
+                    check(rs.next())
+                    rs.getLong(1)
+                }
+            }
+
+            val pageLimit = query.limit.coerceAtLeast(1)
+            val rows = conn.prepareStatement(
+                """
+                SELECT
+                    id, kind, api_version, organization, project, environment, name,
+                    generation, resource_version,
+                    labels::text AS labels,
+                    annotations::text AS annotations,
+                    spec::text AS spec,
+                    status::text AS status,
+                    owner_refs::text AS owner_refs,
+                    finalizers::text AS finalizers,
+                    created_at, updated_at, deleted_at
+                FROM resources
+                WHERE ${filter.whereSql}
+                ORDER BY name ASC, id ASC
+                LIMIT ?
+                """.trimIndent(),
+            ).use { ps ->
+                var i = bindFilter(ps, filter.params, start = 1)
+                ps.setInt(i, pageLimit + 1)
+                ps.executeQuery().use { rs ->
+                    buildList {
+                        while (rs.next()) add(mapRow(rs))
+                    }
+                }
+            }
+
+            val hasMore = rows.size > pageLimit
+            val page = if (hasMore) rows.take(pageLimit) else rows
+            val nextCursor = if (hasMore && page.isNotEmpty()) {
+                val last = page.last()
+                CursorCodec.encode(last.name, last.id)
+            } else {
+                null
+            }
+            ResourceListResult(
+                items = page,
+                resourceVersion = resourceVersion,
+                nextCursor = nextCursor,
+            )
+        }
+    }
+
+    private data class ListFilter(
+        val whereSql: String,
+        val params: List<Any?>,
+    )
+
+    private fun buildListFilter(query: ResourceListQuery): ListFilter {
+        val clauses = mutableListOf(
+            "kind = ?",
+            "organization = ?",
+            "deleted_at IS NULL",
+            """
+            (
+                (?::text IS NULL AND project IS NULL)
+                OR project = ?
+            )
+            """.trimIndent(),
+            """
+            (
+                (?::text IS NULL AND environment IS NULL)
+                OR environment = ?
+            )
+            """.trimIndent(),
+        )
+        val params = mutableListOf<Any?>(
+            query.kind,
+            query.organization,
+            query.project,
+            query.project,
+            query.environment,
+            query.environment,
+        )
+
+        val selectorFrag = LabelSelectorSql.render(query.selector)
+        if (selectorFrag.sql != "TRUE") {
+            clauses += selectorFrag.sql
+            params.addAll(selectorFrag.params)
+        }
+
+        if (!query.phase.isNullOrBlank()) {
+            clauses += "status->>'phase' = ?"
+            params.add(query.phase)
+        }
+        if (!query.namePrefix.isNullOrEmpty()) {
+            clauses += "name LIKE ? ESCAPE '\\'"
+            params.add(escapeLikePrefix(query.namePrefix) + "%")
+        }
+        if (query.cursor != null) {
+            clauses += "(name, id) > (?, ?)"
+            params.add(query.cursor.name)
+            params.add(query.cursor.id)
+        }
+
+        return ListFilter(whereSql = clauses.joinToString(" AND "), params = params)
+    }
+
+    private fun bindFilter(
+        ps: java.sql.PreparedStatement,
+        params: List<Any?>,
+        start: Int,
+    ): Int {
+        var i = start
+        for (param in params) {
+            when (param) {
+                null -> ps.setNull(i, Types.VARCHAR)
+                is String -> ps.setString(i, param)
+                is Int -> ps.setInt(i, param)
+                is Long -> ps.setLong(i, param)
+                else -> ps.setObject(i, param)
+            }
+            i++
+        }
+        return i
+    }
+
+    private fun escapeLikePrefix(prefix: String): String =
+        prefix
+            .replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
 
     private fun versionedUpdate(
         id: String,

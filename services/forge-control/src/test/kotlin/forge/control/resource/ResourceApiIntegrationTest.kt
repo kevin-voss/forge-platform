@@ -15,6 +15,7 @@ import forge.control.repo.JdbcEnvironmentRepository
 import forge.control.repo.JdbcIdempotencyStore
 import forge.control.repo.JdbcProjectRepository
 import forge.control.repo.JdbcServiceRepository
+import forge.control.resource.http.ListEnvelope
 import forge.control.service.ApplicationService
 import forge.control.service.DeploymentService
 import forge.control.service.EnvironmentService
@@ -53,6 +54,7 @@ import org.junit.jupiter.api.TestMethodOrder
 import java.sql.DriverManager
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -555,5 +557,100 @@ class ResourceApiIntegrationTest {
         assertEquals(1L, get.metadata.generation)
         assertEquals("1", get.status["observedGeneration"]!!.jsonPrimitive.content)
         assertEquals("Ready", get.status["phase"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    @Order(10)
+    fun labelSelectorPhaseFilterAndPagination() = withApp {
+        val client = jsonClient()
+        val prefix = "lst-${UUID.randomUUID().toString().take(8)}"
+        val specs = listOf(
+            Triple("$prefix-a", "web", "Ready"),
+            Triple("$prefix-b", "web", "Pending"),
+            Triple("$prefix-c", "cache", "Ready"),
+            Triple("$prefix-d", "web", "Ready"),
+            Triple("$prefix-e", "api", "Ready"),
+        )
+        for ((name, tier, phase) in specs) {
+            val created = client.post(basePath()) {
+                contentType(ContentType.Application.Json)
+                setBody(
+                    buildJsonObject {
+                        put("apiVersion", JsonPrimitive("forge.dev/v1"))
+                        put("kind", JsonPrimitive("Widget"))
+                        put(
+                            "metadata",
+                            buildJsonObject {
+                                put("name", JsonPrimitive(name))
+                                put("labels", buildJsonObject { put("tier", JsonPrimitive(tier)) })
+                            },
+                        )
+                        put("spec", buildJsonObject { put("size", JsonPrimitive("s")) })
+                    },
+                )
+            }.body<ResourceEnvelopeResponse>()
+            if (phase == "Ready") {
+                client.put("${basePath()}/$name/status") {
+                    contentType(ContentType.Application.Json)
+                    header("X-Forge-Controller", "widget-controller")
+                    setBody(
+                        buildJsonObject {
+                            put(
+                                "metadata",
+                                buildJsonObject {
+                                    put("resourceVersion", JsonPrimitive(created.metadata.resourceVersion))
+                                },
+                            )
+                            put("status", buildJsonObject { put("phase", JsonPrimitive("Ready")) })
+                        },
+                    )
+                }
+            }
+        }
+
+        val byLabel = client.get("${basePath()}?labelSelector=tier=web&namePrefix=$prefix")
+            .body<ListEnvelope>()
+        assertEquals("WidgetList", byLabel.kind)
+        assertEquals(3, byLabel.items.size)
+        assertTrue(byLabel.items.all { it.metadata.labels["tier"]!!.jsonPrimitive.content == "web" })
+
+        val byPhase = client.get("${basePath()}?labelSelector=tier=web&phase=Ready&namePrefix=$prefix")
+            .body<ListEnvelope>()
+        assertEquals(2, byPhase.items.size)
+        assertTrue(byPhase.items.all { it.status["phase"]!!.jsonPrimitive.content == "Ready" })
+
+        val page1 = client.get("${basePath()}?namePrefix=$prefix&limit=2").body<ListEnvelope>()
+        assertEquals(2, page1.items.size)
+        assertTrue(!page1.nextCursor.isNullOrBlank())
+        val page2 = client.get("${basePath()}?namePrefix=$prefix&limit=2&cursor=${page1.nextCursor}")
+            .body<ListEnvelope>()
+        assertEquals(2, page2.items.size)
+        assertTrue(!page2.nextCursor.isNullOrBlank())
+        val page3 = client.get("${basePath()}?namePrefix=$prefix&limit=2&cursor=${page2.nextCursor}")
+            .body<ListEnvelope>()
+        assertEquals(1, page3.items.size)
+        assertNull(page3.nextCursor)
+
+        val allNames = (page1.items + page2.items + page3.items).map { it.metadata.name }
+        assertEquals(5, allNames.size)
+        assertEquals(allNames.sorted(), allNames)
+        assertEquals(allNames.toSet().size, allNames.size)
+
+        val full = client.get("${basePath()}?namePrefix=$prefix&limit=50").body<ListEnvelope>()
+        val maxItemRv = full.items.maxOf { it.metadata.resourceVersion.toLong() }
+        assertEquals(maxItemRv.toString(), full.resourceVersion)
+    }
+
+    @Test
+    @Order(11)
+    fun malformedLabelSelectorAndCursorReturn400() = withApp {
+        val client = jsonClient()
+        val badSel = client.get("${basePath()}?labelSelector=tier===")
+        assertEquals(HttpStatusCode.BadRequest, badSel.status)
+        assertEquals("invalid_label_selector", badSel.body<ErrorEnvelope>().error.code)
+
+        val badCursor = client.get("${basePath()}?cursor=not-a-cursor")
+        assertEquals(HttpStatusCode.BadRequest, badCursor.status)
+        assertEquals("invalid_cursor", badCursor.body<ErrorEnvelope>().error.code)
     }
 }

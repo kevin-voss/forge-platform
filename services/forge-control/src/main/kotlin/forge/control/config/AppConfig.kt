@@ -83,6 +83,10 @@ data class AppConfig(
      * Soft convention only (not real authz); superseded by epic 09 service identity.
      */
     val statusControllerHeaderEnforced: Boolean = true,
+    /** Default page size for declarative resource list endpoints. */
+    val listDefaultPageSize: Int = 50,
+    /** Max page size for declarative resource list; larger requests are clamped. */
+    val listMaxPageSize: Int = 200,
 )
 
 fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
@@ -512,6 +516,26 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         )
     }
 
+    val listDefaultPageSize = env["FORGE_LIST_DEFAULT_PAGE_SIZE"]?.trim().orEmpty()
+        .ifEmpty { "50" }
+        .toIntOrNull()
+        ?.takeIf { it >= 1 }
+        ?: throw IllegalArgumentException(
+            "FORGE_LIST_DEFAULT_PAGE_SIZE must be a positive integer",
+        )
+    val listMaxPageSize = env["FORGE_LIST_MAX_PAGE_SIZE"]?.trim().orEmpty()
+        .ifEmpty { "200" }
+        .toIntOrNull()
+        ?.takeIf { it >= 1 }
+        ?: throw IllegalArgumentException(
+            "FORGE_LIST_MAX_PAGE_SIZE must be a positive integer",
+        )
+    if (listDefaultPageSize > listMaxPageSize) {
+        throw IllegalArgumentException(
+            "FORGE_LIST_DEFAULT_PAGE_SIZE ($listDefaultPageSize) must be <= FORGE_LIST_MAX_PAGE_SIZE ($listMaxPageSize)",
+        )
+    }
+
     return AppConfig(
         port = port,
         serviceName = env["FORGE_SERVICE_NAME"]?.trim().orEmpty().ifEmpty { "forge-control" },
@@ -589,5 +613,7 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         resourceApiEnabled = resourceApiEnabled,
         resourceDefaultOrganization = resourceDefaultOrganization,
         statusControllerHeaderEnforced = statusControllerHeaderEnforced,
+        listDefaultPageSize = listDefaultPageSize,
+        listMaxPageSize = listMaxPageSize,
     )
 }

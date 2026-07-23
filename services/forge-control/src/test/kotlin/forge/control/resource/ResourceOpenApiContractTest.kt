@@ -1,5 +1,6 @@
 package forge.control.resource
 
+import forge.control.resource.http.ListEnvelope
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
@@ -33,9 +34,56 @@ class ResourceOpenApiContractTest {
         assertTrue(yaml.contains("resourceVersion"))
         assertTrue(yaml.contains("resource_version_conflict") || yaml.contains("ResourceError"))
         assertTrue(yaml.contains("x-create-resource") || yaml.contains("createResource"))
+        assertTrue(yaml.contains("x-list-resources") || yaml.contains("listResources"))
         assertTrue(yaml.contains("x-replace-resource-status") || yaml.contains("replaceResourceStatus"))
         assertTrue(yaml.contains("application/merge-patch+json"))
         assertTrue(yaml.contains("application/json-patch+json"))
+        assertTrue(yaml.contains("labelSelector"))
+        assertTrue(yaml.contains("namePrefix"))
+        assertTrue(yaml.contains("ResourceList:"))
+        assertTrue(yaml.contains("nextCursor"))
+    }
+
+    @Test
+    fun exampleListResponseValidatesAgainstListEnvelope() {
+        val example = """
+            {
+              "apiVersion": "forge.dev/v1",
+              "kind": "WidgetList",
+              "resourceVersion": "1058",
+              "items": [
+                {
+                  "apiVersion": "forge.dev/v1",
+                  "kind": "Widget",
+                  "metadata": {
+                    "id": "wgt_01J5Z3K9QDJ8XN5V2H9T3RXYA",
+                    "name": "sample-1",
+                    "organization": "default",
+                    "project": "invoice-platform",
+                    "environment": "production",
+                    "generation": 1,
+                    "resourceVersion": "1057",
+                    "labels": {"tier": "web"},
+                    "annotations": {},
+                    "ownerRefs": [],
+                    "finalizers": [],
+                    "createdAt": "2026-07-23T10:00:00Z",
+                    "updatedAt": "2026-07-23T10:00:01Z"
+                  },
+                  "spec": {"size": "large"},
+                  "status": {"phase": "Ready"}
+                }
+              ],
+              "nextCursor": "eyJuYW1lIjoic2FtcGxlLTIiLCJpZCI6IndndF8xIn0"
+            }
+        """.trimIndent()
+        val decoded = Json { ignoreUnknownKeys = true; explicitNulls = false }
+            .decodeFromString(ListEnvelope.serializer(), example)
+        assertEquals("WidgetList", decoded.kind)
+        assertEquals("1058", decoded.resourceVersion)
+        assertEquals(1, decoded.items.size)
+        assertEquals("sample-1", decoded.items.single().metadata.name)
+        assertEquals("eyJuYW1lIjoic2FtcGxlLTIiLCJpZCI6IndndF8xIn0", decoded.nextCursor)
     }
 
     @Test

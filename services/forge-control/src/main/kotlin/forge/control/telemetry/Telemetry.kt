@@ -76,6 +76,8 @@ class Telemetry private constructor(
     private val resourceGenerationBumps: LongCounter,
     private val resourceConditionTransitions: LongCounter,
     private val resourceStatusWrites: LongCounter,
+    private val resourceListRequests: LongCounter,
+    private val resourceListPageSize: DoubleHistogram,
     private val resourcesByKind: java.util.concurrent.ConcurrentHashMap<String, AtomicLong>,
     @Suppress("unused") private val resourcesGauge: ObservableLongGauge,
     private val sdk: OpenTelemetrySdk?,
@@ -125,6 +127,17 @@ class Telemetry private constructor(
     fun recordResourceStatusWrite(kind: String) {
         resourceStatusWrites.add(
             1,
+            Attributes.of(AttributeKey.stringKey("kind"), kind),
+        )
+    }
+
+    fun recordResourceList(kind: String, pageSize: Int) {
+        resourceListRequests.add(
+            1,
+            Attributes.of(AttributeKey.stringKey("kind"), kind),
+        )
+        resourceListPageSize.record(
+            pageSize.toDouble(),
             Attributes.of(AttributeKey.stringKey("kind"), kind),
         )
     }
@@ -507,6 +520,12 @@ class Telemetry private constructor(
                     .build(),
                 resourceStatusWrites = meter
                     .counterBuilder("forge_resource_status_writes_total")
+                    .build(),
+                resourceListRequests = meter
+                    .counterBuilder("forge_resource_list_requests_total")
+                    .build(),
+                resourceListPageSize = meter
+                    .histogramBuilder("forge_resource_list_page_size")
                     .build(),
                 resourcesByKind = resourceCounts,
                 resourcesGauge = meter.gaugeBuilder("forge_resources_total")

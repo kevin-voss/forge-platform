@@ -5,13 +5,17 @@ import forge.control.http.idempotentCreate
 import forge.control.logging.JsonLog
 import forge.control.repo.IdempotencyStore
 import forge.control.repo.RepositoryException
+import forge.control.resource.CursorCodec
 import forge.control.resource.GenerationPolicy
 import forge.control.resource.JsonPatch
 import forge.control.resource.KindDescriptor
 import forge.control.resource.KindRegistry
+import forge.control.resource.LabelSelectorParser
+import forge.control.resource.LabelValidator
 import forge.control.resource.MergePatch
 import forge.control.resource.NewResourceRow
 import forge.control.resource.ResourceEnvelopeResponse
+import forge.control.resource.ResourceListQuery
 import forge.control.resource.ResourceRepository
 import forge.control.resource.ResourceScope
 import forge.control.resource.ResourceVersionGuard
@@ -55,6 +59,8 @@ fun Route.resourceRoutes(
     kinds: KindRegistry,
     idempotency: IdempotencyStore? = null,
     defaultOrganization: String = "default",
+    listDefaultPageSize: Int = 50,
+    listMaxPageSize: Int = 200,
     log: JsonLog? = null,
     telemetry: Telemetry = Telemetry.current(),
 ) {
@@ -65,6 +71,8 @@ fun Route.resourceRoutes(
             kinds = kinds,
             idempotency = idempotency,
             defaultOrganization = defaultOrganization,
+            listDefaultPageSize = listDefaultPageSize,
+            listMaxPageSize = listMaxPageSize,
             log = log,
             telemetry = telemetry,
             resolveScope = { _, kind ->
@@ -92,6 +100,8 @@ fun Route.resourceRoutes(
             kinds = kinds,
             idempotency = idempotency,
             defaultOrganization = defaultOrganization,
+            listDefaultPageSize = listDefaultPageSize,
+            listMaxPageSize = listMaxPageSize,
             log = log,
             telemetry = telemetry,
             resolveScope = { call, kind ->
@@ -127,6 +137,8 @@ fun Route.resourceRoutes(
             kinds = kinds,
             idempotency = idempotency,
             defaultOrganization = defaultOrganization,
+            listDefaultPageSize = listDefaultPageSize,
+            listMaxPageSize = listMaxPageSize,
             log = log,
             telemetry = telemetry,
             resolveScope = { call, kind ->
@@ -161,10 +173,60 @@ private fun Route.collectionRoutes(
     kinds: KindRegistry,
     idempotency: IdempotencyStore?,
     defaultOrganization: String,
+    listDefaultPageSize: Int,
+    listMaxPageSize: Int,
     log: JsonLog?,
     telemetry: Telemetry,
     resolveScope: (ApplicationCall, KindDescriptor) -> ScopeCoords,
 ) {
+    get {
+        val kind = resolveKind(kinds, call.parameters["plural"])
+        val scope = resolveScope(call, kind)
+        val selectorRaw = call.request.queryParameters["labelSelector"]
+        val selector = LabelSelectorParser.parse(selectorRaw)
+        val phase = call.request.queryParameters["phase"]?.trim()?.takeIf { it.isNotEmpty() }
+        val namePrefix = call.request.queryParameters["namePrefix"]
+        val cursor = CursorCodec.decode(call.request.queryParameters["cursor"])
+        val requestedLimit = call.request.queryParameters["limit"]?.toIntOrNull()
+        val limit = resolveListLimit(
+            requested = requestedLimit,
+            defaultPageSize = listDefaultPageSize,
+            maxPageSize = listMaxPageSize,
+            log = log,
+        )
+        val result = resources.list(
+            ResourceListQuery(
+                kind = kind.kind,
+                organization = scope.organization,
+                project = scope.project,
+                environment = scope.environment,
+                selector = selector,
+                phase = phase,
+                namePrefix = namePrefix,
+                limit = limit,
+                cursor = cursor,
+            ),
+        )
+        log?.info(
+            "resource.list",
+            "kind" to kind.kind,
+            "project" to scope.project,
+            "environment" to scope.environment,
+            "selector_terms" to selector.terms.size,
+            "result_count" to result.items.size,
+            "has_more" to (result.nextCursor != null),
+        )
+        telemetry.recordResourceList(kind.kind, result.items.size)
+        call.respond(
+            ListEnvelope(
+                apiVersion = "forge.dev/v1",
+                kind = "${kind.kind}List",
+                resourceVersion = result.resourceVersion.toString(),
+                items = result.items.map { it.toResponse() },
+                nextCursor = result.nextCursor,
+            ),
+        )
+    }
     post {
         val kind = resolveKind(kinds, call.parameters["plural"])
         val scope = resolveScope(call, kind)
@@ -227,6 +289,7 @@ private fun Route.itemRoutes(
             ResourceVersionGuard.checkMatch(expected, existing.resourceVersion)
             val labels = body.metadata?.labels ?: existing.labels
             val annotations = body.metadata?.annotations ?: existing.annotations
+            LabelValidator.validate(labels, annotations)
             val ownerRefs = body.metadata?.ownerRefs ?: existing.ownerRefs
             val finalizers = body.metadata?.finalizers ?: existing.finalizers
             val bump = GenerationPolicy.shouldBumpGeneration(existing.spec, body.spec)
@@ -265,6 +328,7 @@ private fun Route.itemRoutes(
                 raw = raw,
             )
             ResourceVersionGuard.checkMatch(expected, existing.resourceVersion)
+            LabelValidator.validate(labels, annotations)
             val bump = GenerationPolicy.shouldBumpGeneration(existing.spec, spec)
             val updated = resources.patch(
                 id = existing.id,
@@ -399,6 +463,9 @@ private fun createResource(
     }
     val organization = body.metadata?.organization?.trim().orEmpty().ifEmpty { defaultOrganization }
     val apiVersion = body.apiVersion?.trim().orEmpty().ifEmpty { "forge.dev/v1" }
+    val labels = body.metadata?.labels ?: JsonObject(emptyMap())
+    val annotations = body.metadata?.annotations ?: JsonObject(emptyMap())
+    LabelValidator.validate(labels, annotations)
     return try {
         resources.insert(
             NewResourceRow(
@@ -409,8 +476,8 @@ private fun createResource(
                 project = scope.project,
                 environment = scope.environment,
                 name = name,
-                labels = body.metadata?.labels ?: JsonObject(emptyMap()),
-                annotations = body.metadata?.annotations ?: JsonObject(emptyMap()),
+                labels = labels,
+                annotations = annotations,
                 spec = body.spec,
                 ownerRefs = body.metadata?.ownerRefs ?: JsonArray(emptyList()),
                 finalizers = body.metadata?.finalizers ?: JsonArray(emptyList()),
@@ -506,6 +573,31 @@ internal fun parseResourceVersion(raw: String?): Long {
             "metadata.resourceVersion must be an integer",
             mapOf("field" to "metadata.resourceVersion"),
         )
+}
+
+private fun resolveListLimit(
+    requested: Int?,
+    defaultPageSize: Int,
+    maxPageSize: Int,
+    log: JsonLog?,
+): Int {
+    if (requested == null) return defaultPageSize.coerceIn(1, maxPageSize)
+    if (requested < 1) {
+        throw ApiException.BadRequest(
+            "limit must be a positive integer",
+            details = mapOf("field" to "limit"),
+            code = "invalid_request",
+        )
+    }
+    if (requested > maxPageSize) {
+        log?.debug(
+            "resource.list.limit_clamped",
+            "requested" to requested,
+            "max" to maxPageSize,
+        )
+        return maxPageSize
+    }
+    return requested
 }
 
 private fun logGenerationBump(

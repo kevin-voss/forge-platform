@@ -694,6 +694,8 @@ fun Application.forgeControlModule(
                         kinds = kinds,
                         idempotency = services.idempotency,
                         defaultOrganization = cfg.resourceDefaultOrganization,
+                        listDefaultPageSize = cfg.listDefaultPageSize,
+                        listMaxPageSize = cfg.listMaxPageSize,
                         log = log,
                         telemetry = telemetry,
                     )

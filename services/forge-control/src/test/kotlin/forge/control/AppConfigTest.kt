@@ -74,6 +74,8 @@ class AppConfigTest {
         assertEquals(true, cfg.resourceApiEnabled)
         assertEquals("default", cfg.resourceDefaultOrganization)
         assertEquals(true, cfg.statusControllerHeaderEnforced)
+        assertEquals(50, cfg.listDefaultPageSize)
+        assertEquals(200, cfg.listMaxPageSize)
     }
 
     @Test
