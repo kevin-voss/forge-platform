@@ -68,6 +68,9 @@ class Telemetry private constructor(
     private val staleReplicasFenced: LongCounter,
     private val placementFiltered: LongCounter,
     private val taintEvictions: LongCounter,
+    private val preemptions: LongCounter,
+    private val disruptionBudgetBlocked: LongCounter,
+    private val pendingAged: LongCounter,
     private val managedDbInstances: LongCounter,
     private val managedDbProvisionDuration: DoubleHistogram,
     private val managedDbProvisionErrors: LongCounter,
@@ -316,6 +319,29 @@ class Telemetry private constructor(
 
     fun recordTaintEviction() {
         taintEvictions.add(1)
+    }
+
+    fun recordPreemption(victimPriority: Int, preemptorPriority: Int) {
+        preemptions.add(
+            1,
+            Attributes.of(
+                AttributeKey.stringKey("victim_priority"),
+                victimPriority.toString(),
+                AttributeKey.stringKey("preemptor_priority"),
+                preemptorPriority.toString(),
+            ),
+        )
+    }
+
+    fun recordDisruptionBudgetBlocked(deployment: String) {
+        disruptionBudgetBlocked.add(
+            1,
+            Attributes.of(AttributeKey.stringKey("deployment"), deployment),
+        )
+    }
+
+    fun recordPendingAged() {
+        pendingAged.add(1)
     }
 
     fun recordNodeArchOs(architecture: String, os: String) {
@@ -587,6 +613,15 @@ class Telemetry private constructor(
                     .build(),
                 taintEvictions = meter
                     .counterBuilder("forge_taint_evictions_total")
+                    .build(),
+                preemptions = meter
+                    .counterBuilder("forge_preemptions_total")
+                    .build(),
+                disruptionBudgetBlocked = meter
+                    .counterBuilder("forge_disruption_budget_blocked_total")
+                    .build(),
+                pendingAged = meter
+                    .counterBuilder("forge_pending_aged_total")
                     .build(),
                 managedDbInstances = meter.counterBuilder("managed_db_instances_total").build(),
                 managedDbProvisionDuration = meter

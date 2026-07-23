@@ -51,6 +51,11 @@ class PlacementOpenApiContractTest {
         assertTrue(yaml.contains("affinity") || yaml.contains("PlacementAffinity"))
         assertTrue(yaml.contains("trace") && (yaml.contains("scores") || yaml.contains("PlacementTrace")))
         assertTrue(yaml.contains("zone") && yaml.contains("region") && yaml.contains("provider"))
+        assertTrue(yaml.contains("/v1/priority-classes") || yaml.contains("listPriorityClasses"))
+        assertTrue(yaml.contains("priority_class") || yaml.contains("PriorityClass"))
+        assertTrue(yaml.contains("disruption-budget") || yaml.contains("DisruptionBudget"))
+        assertTrue(yaml.contains("preemption-events") || yaml.contains("PreemptionEvent"))
+        assertTrue(yaml.contains("PreemptLowerPriority"))
     }
 
     @Test

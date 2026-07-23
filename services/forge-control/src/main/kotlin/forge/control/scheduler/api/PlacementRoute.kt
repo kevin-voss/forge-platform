@@ -98,6 +98,7 @@ fun Route.placementRoutes(
                     antiAffinity = antiAffinity,
                     placement = placementSpec,
                     platform = body.platform,
+                    priorityClass = body.priorityClass?.trim()?.takeIf { it.isNotEmpty() },
                 )
             } catch (_: RepositoryException.ConstraintViolation) {
                 throw ApiException.NotFound(

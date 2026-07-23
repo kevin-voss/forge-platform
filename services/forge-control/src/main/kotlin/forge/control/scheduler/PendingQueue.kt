@@ -50,6 +50,7 @@ class PendingQueue(
         platform: PlatformSpec? = null,
         affinity: PlacementAffinity? = null,
         topologySpreadConstraints: List<TopologySpreadConstraint> = emptyList(),
+        priorityClass: String = "default",
     ): Placement {
         store.find(deploymentId, replicaIndex)?.let { return it }
         if (store.countPending() >= maxLen) {
@@ -77,6 +78,7 @@ class PendingQueue(
                 platform = platform,
                 affinity = affinity,
                 topologySpreadConstraints = topologySpreadConstraints,
+                priorityClass = priorityClass.ifBlank { "default" },
             ),
         )
     }

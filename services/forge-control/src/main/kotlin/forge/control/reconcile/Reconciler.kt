@@ -4,6 +4,7 @@ import forge.control.logging.JsonLog
 import forge.control.manageddb.AttachmentEnvResult
 import forge.control.manageddb.AttachmentEnvSource
 import forge.control.manageddb.NoOpAttachmentEnvSource
+import forge.control.scheduler.DisruptionBudgetGuard
 import forge.control.scheduler.PlaceResult
 import forge.control.scheduler.PlacementService
 import forge.control.scheduler.StaleReplicaFencer
@@ -56,6 +57,7 @@ class Reconciler(
     private val secretsClient: SecretsClient = NoOpSecretsClient,
     private val injectMaskInLogs: Boolean = true,
     private val attachmentEnvSource: AttachmentEnvSource = NoOpAttachmentEnvSource,
+    private val disruptionBudgetGuard: DisruptionBudgetGuard? = null,
 ) {
     private val waitStartedAt = ConcurrentHashMap<String, Long>()
 
@@ -312,6 +314,15 @@ class Reconciler(
             ?: throw IllegalArgumentException("StopReplica missing replica index")
         val deploymentId = UUID.fromString(desired.deploymentId)
         return telemetry.inSpan("reconcile.stop_replica") {
+            if (!allowsVoluntaryRemoval(deploymentId)) {
+                return@inSpan ExecutedAction(
+                    action = ReconcileAction.StopReplica.name,
+                    replicaIndex = index,
+                    result = ActionResult.Held,
+                    durationMs = 0,
+                    detail = "disruption_budget",
+                )
+            }
             val runtimeId = WorkloadNamer.runtimeDeploymentId(
                 desired.serviceSlug,
                 deploymentId,
@@ -425,6 +436,15 @@ class Reconciler(
             index,
         )
         return telemetry.inSpan("reconcile.drain_replica") {
+            if (!allowsVoluntaryRemoval(deploymentId)) {
+                return@inSpan ExecutedAction(
+                    action = ReconcileAction.DrainReplica.name,
+                    replicaIndex = index,
+                    result = ActionResult.Held,
+                    durationMs = 0,
+                    detail = "disruption_budget",
+                )
+            }
             // Mark Runtime status stopped first so Gateway sync Ready=false.
             runtimeClient.drainWorkload(runtimeId)
             val result = trafficShifter.drain(runtimeId)
@@ -455,6 +475,11 @@ class Reconciler(
                     )
             }
         }
+    }
+
+    private fun allowsVoluntaryRemoval(deploymentId: UUID): Boolean {
+        val guard = disruptionBudgetGuard ?: return true
+        return guard.allowsVoluntaryRemoval(deploymentId).allowed
     }
 
     private fun resolveStartIndex(

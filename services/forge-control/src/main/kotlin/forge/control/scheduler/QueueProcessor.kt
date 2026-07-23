@@ -25,6 +25,7 @@ class QueueProcessor(
     private val log: JsonLog,
     private val intervalMs: Long,
     private val telemetry: Telemetry = Telemetry.current(),
+    private val agingPolicy: PendingAgingPolicy? = null,
     private val executor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "forge-placement-queue").apply { isDaemon = true }
     },
@@ -64,7 +65,8 @@ class QueueProcessor(
                 queue.count().toLong(),
             )
             var drained = 0
-            for (pending in queue.listFifo()) {
+            val ordered = agingPolicy?.orderForDrain(queue.listFifo()) ?: queue.listFifo()
+            for (pending in ordered) {
                 if (tryPlace(pending)) {
                     drained++
                     telemetry.recordQueueDrain()
@@ -74,6 +76,7 @@ class QueueProcessor(
                         "replica_index" to pending.replicaIndex,
                         "placement_id" to pending.id,
                         "reason" to "placed_from_queue",
+                        "priority_class" to pending.priorityClass,
                     )
                 }
             }
@@ -106,6 +109,7 @@ class QueueProcessor(
                 topologySpreadConstraints = pending.topologySpreadConstraints,
             ),
             platform = pending.platform,
+            priorityClass = pending.priorityClass,
         )
         return when (val decision = scheduler.place(request)) {
             is PlacementDecision.NoNodeAvailable -> false

@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 171`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 172`**.
 
 ## Epics
 
@@ -186,7 +186,7 @@ next implementable step is still the one named at the top of this file. Plan:
 | [22](epics/22-forge-network.md) | Forge Network | M1 | Complete | 7/7 steps; demo 22 forge-network acceptance gate passed |
 | [23](epics/23-forge-infrastructure.md) | Forge Infrastructure | M1 | Complete | 7/7 steps; demo 23 local-cloud-simulation gate passed |
 | [24](epics/24-forge-autoscaler.md) | Forge Autoscaler | M1 | Complete | 8/8 steps; `make demo DEMO=24` autoscaling gate passed |
-| [25](epics/25-scheduling-enhancements.md) | Scheduling enhancements | M1 | In progress | 3/6 steps (`N = 168`–`170` complete); next `25.04` (`N = 171`) |
+| [25](epics/25-scheduling-enhancements.md) | Scheduling enhancements | M1 | In progress | 4/6 steps (`N = 168`–`171` complete); next `25.05` (`N = 172`) |
 | [26](epics/26-forge-registry.md) | Forge Registry | M2 | Catalog | steps not yet materialized |
 | [27](epics/27-deployment-strategies.md) | Deployment strategies | M2 | Catalog | canary, blue-green, traffic shifting |
 | [28](epics/28-forge-queue.md) | Forge Queue | M2 | Catalog | job semantics over Forge Events |
@@ -249,12 +249,13 @@ next implementable step is still the one named at the top of this file. Plan:
 | **168** | [CPU/memory/disk requests and limits + real capacity accounting](steps/25-scheduling-enhancements/25.01-resource-requests-limits-and-capacity.md) | Complete |  | Slots derived view; allocatable/overcommit; unschedulable reasons; Runtime limit enforcement |
 | **169** | [Node labels, selectors, taints, tolerations, architecture/OS](steps/25-scheduling-enhancements/25.02-labels-selectors-taints-tolerations.md) | Complete |  | Label merger; nodeSelector/platform/taints filters + trace; NoExecute eviction; Runtime FORGE_NODE_LABELS/TAINTS |
 | **170** | [Workload affinity/anti-affinity + topology spreading](steps/25-scheduling-enhancements/25.03-affinity-and-topology-spread.md) | Complete |  | Topology columns; affinity/spread filters + scorers; legacy anti_affinity sugar; HA 3-replica/2-zone flow |
-| **171**–**173** | Epic 25 — Scheduling enhancements (`25.04`–`25.06`) | Not started |  | |
+| **171** | [Priority classes, preemption, disruption budgets](steps/25-scheduling-enhancements/25.04-priority-preemption-and-disruption-budgets.md) | Complete |  | PriorityClass; preemption+audit; disruption budgets; pending aging |
+| **172**–**173** | Epic 25 — Scheduling enhancements (`25.05`–`25.06`) | Not started |  | |
 
 Per-step rows live in each epic's steps README; the global lookup is
 [`STEPS.md`](STEPS.md#future-queue--standalone-cloud-epics-2025).
 
-> Next: **N = 171** (`25.04` priority, preemption, and disruption budgets).
+> Next: **N = 172** (`25.05` GPU and stateful placement).
 
 > Planned steps including the future queue: **173** (`N = 1` … `N = 173`).
 

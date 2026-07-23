@@ -70,6 +70,10 @@ data class AppConfig(
     val systemReservedMemoryMb: Int = 256,
     val rescheduleEnabled: Boolean = true,
     val rescheduleGraceSeconds: Long = 5,
+    val preemptionEnabled: Boolean = true,
+    val preemptionGraceSeconds: Long = 10,
+    val pendingStarvationSeconds: Long = 300,
+    val defaultPriorityClass: String = "default",
     /** Managed DB provisioner: `fake` (CI default) or `local` (real Docker provisioner). */
     val dbProvisioner: String = "fake",
     /** Docker network for product Postgres containers. */
@@ -525,6 +529,41 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         )
     }
 
+    val preemptionEnabledRaw = env["FORGE_PREEMPTION_ENABLED"]?.trim()?.lowercase().orEmpty()
+        .ifEmpty { "true" }
+    val preemptionEnabled = when (preemptionEnabledRaw) {
+        "true", "1", "yes" -> true
+        "false", "0", "no" -> false
+        else -> throw IllegalArgumentException(
+            "FORGE_PREEMPTION_ENABLED must be true|false, got '$preemptionEnabledRaw'",
+        )
+    }
+    val preemptionGraceRaw = env["FORGE_PREEMPTION_GRACE_S"]?.trim().orEmpty().ifEmpty { "10" }
+    val preemptionGraceSeconds = preemptionGraceRaw.toLongOrNull()
+        ?: throw IllegalArgumentException(
+            "FORGE_PREEMPTION_GRACE_S must be a non-negative integer, got '$preemptionGraceRaw'",
+        )
+    if (preemptionGraceSeconds < 0) {
+        throw IllegalArgumentException(
+            "FORGE_PREEMPTION_GRACE_S must be a non-negative integer, got '$preemptionGraceRaw'",
+        )
+    }
+    val pendingStarvationRaw = env["FORGE_PENDING_STARVATION_S"]?.trim().orEmpty().ifEmpty { "300" }
+    val pendingStarvationSeconds = pendingStarvationRaw.toLongOrNull()
+        ?: throw IllegalArgumentException(
+            "FORGE_PENDING_STARVATION_S must be a non-negative integer, got '$pendingStarvationRaw'",
+        )
+    if (pendingStarvationSeconds < 0) {
+        throw IllegalArgumentException(
+            "FORGE_PENDING_STARVATION_S must be a non-negative integer, got '$pendingStarvationRaw'",
+        )
+    }
+    val defaultPriorityClass = env["FORGE_DEFAULT_PRIORITY_CLASS"]?.trim().orEmpty()
+        .ifEmpty { "default" }
+    if (defaultPriorityClass.isBlank()) {
+        throw IllegalArgumentException("FORGE_DEFAULT_PRIORITY_CLASS must not be blank")
+    }
+
     val dbProvisioner = env["FORGE_DB_PROVISIONER"]?.trim()?.lowercase().orEmpty()
         .ifEmpty { "fake" }
     if (dbProvisioner !in setOf("fake", "local")) {
@@ -737,6 +776,10 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         systemReservedMemoryMb = systemReservedMemoryMb,
         rescheduleEnabled = rescheduleEnabled,
         rescheduleGraceSeconds = rescheduleGraceSeconds,
+        preemptionEnabled = preemptionEnabled,
+        preemptionGraceSeconds = preemptionGraceSeconds,
+        pendingStarvationSeconds = pendingStarvationSeconds,
+        defaultPriorityClass = defaultPriorityClass,
         dbProvisioner = dbProvisioner,
         dbManagedNetwork = dbManagedNetwork,
         dbPostgresImage = dbPostgresImage,

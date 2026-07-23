@@ -6,9 +6,13 @@ import forge.control.reconcile.DeploymentStore
 import forge.control.reconcile.ReconcileStatusStore
 import forge.control.reconcile.RuntimeClient
 import forge.control.scheduler.BootstrapTokenStore
+import forge.control.scheduler.DisruptionBudgetGuard
+import forge.control.scheduler.DisruptionBudgetStore
 import forge.control.scheduler.NodeJoinOrchestrator
 import forge.control.scheduler.NodeStore
 import forge.control.scheduler.PlacementService
+import forge.control.scheduler.PreemptionAuditor
+import forge.control.scheduler.PriorityClassStore
 import forge.control.scheduler.TaintChangeHandler
 import forge.control.service.ApplicationService
 import forge.control.service.DeploymentService
@@ -35,6 +39,10 @@ data class ControlServices(
     val reconcileStatusStore: ReconcileStatusStore? = null,
     val deploymentHistory: DeploymentHistory? = null,
     val placementService: PlacementService? = null,
+    val priorityClassStore: PriorityClassStore? = null,
+    val disruptionBudgetStore: DisruptionBudgetStore? = null,
+    val disruptionBudgetGuard: DisruptionBudgetGuard? = null,
+    val preemptionAuditor: PreemptionAuditor? = null,
     val nodeStore: NodeStore? = null,
     val nodeStrictRegister: Boolean = false,
     /** Invoked after a successful node registration (capacity may have increased). */

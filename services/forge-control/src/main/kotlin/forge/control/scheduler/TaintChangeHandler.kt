@@ -125,6 +125,7 @@ class TaintChangeHandler(
                 topologySpreadConstraints = lost.topologySpreadConstraints,
             ),
             platform = lost.platform,
+            priorityClass = lost.priorityClass,
         )
     }
 }

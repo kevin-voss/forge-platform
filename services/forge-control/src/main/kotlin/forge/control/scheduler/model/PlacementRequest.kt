@@ -12,6 +12,8 @@ data class PlacementRequest(
     val antiAffinity: AntiAffinity = AntiAffinity.Soft,
     val placement: PlacementSpec = PlacementSpec(),
     val platform: PlatformSpec? = null,
+    /** Priority class name; omission resolves to platform default (`default`). */
+    val priorityClass: String? = null,
 ) {
     init {
         require(deploymentId.isNotBlank()) { "deploymentId must not be blank" }

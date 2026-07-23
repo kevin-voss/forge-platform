@@ -188,6 +188,7 @@ class NodeOfflineHandler(
                 topologySpreadConstraints = lost.topologySpreadConstraints,
             ),
             platform = lost.platform,
+            priorityClass = lost.priorityClass,
         )
         val (toNode, resultLabel) = when (result) {
             is PlaceResult.Ok -> result.placement.nodeId to "placed"

@@ -1,6 +1,7 @@
 package forge.control.reconcile
 
 import forge.control.logging.JsonLog
+import forge.control.scheduler.DisruptionBudgetGuard
 import forge.control.scheduler.PlacementService
 import forge.control.scheduler.StaleReplicaFencer
 import forge.control.telemetry.Telemetry
@@ -43,6 +44,7 @@ class ReconciliationController(
     private val injectMaskInLogs: Boolean = true,
     private val attachmentEnvSource: forge.control.manageddb.AttachmentEnvSource =
         forge.control.manageddb.NoOpAttachmentEnvSource,
+    private val disruptionBudgetGuard: DisruptionBudgetGuard? = null,
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "forge-reconcile").apply { isDaemon = true }
     },
@@ -59,6 +61,7 @@ class ReconciliationController(
         secretsClient = secretsClient,
         injectMaskInLogs = injectMaskInLogs,
         attachmentEnvSource = attachmentEnvSource,
+        disruptionBudgetGuard = disruptionBudgetGuard,
     ),
 ) : AutoCloseable {
     private val running = AtomicBoolean(false)

@@ -21,6 +21,7 @@ data class CreatePlacementRequest(
     @SerialName("service_id") val serviceId: String? = null,
     val placement: PlacementConstraintsDto? = null,
     val platform: PlatformSpec? = null,
+    @SerialName("priority_class") val priorityClass: String? = null,
 )
 
 @Serializable
@@ -67,6 +68,8 @@ data class PlacementResponse(
     val placement: PlacementConstraintsDto? = null,
     val platform: PlatformSpec? = null,
     val topology: NodeTopology? = null,
+    @SerialName("priority_class") val priorityClass: String = "default",
+    @SerialName("preempted_by_placement_id") val preemptedByPlacementId: String? = null,
 )
 
 fun Placement.toResponse(topology: NodeTopology? = null): PlacementResponse =
@@ -86,6 +89,8 @@ fun Placement.toResponse(topology: NodeTopology? = null): PlacementResponse =
         limits = limits,
         trace = trace,
         unschedulableReasons = unschedulableReasons.takeIf { it.isNotEmpty() },
+        priorityClass = priorityClass,
+        preemptedByPlacementId = preemptedByPlacementId,
         placement = if (
             !nodeSelector.isNullOrEmpty() ||
             tolerations.isNotEmpty() ||

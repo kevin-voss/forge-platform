@@ -69,9 +69,12 @@ import forge.control.scheduler.SchedulerFactory
 import forge.control.scheduler.StaleReplicaFencer
 import forge.control.scheduler.model.AntiAffinity
 import forge.control.scheduler.api.bootstrapTokenRoutes
+import forge.control.scheduler.api.disruptionBudgetRoutes
 import forge.control.scheduler.api.nodeFleetRoutes
 import forge.control.scheduler.api.nodeRegistrationRoutes
 import forge.control.scheduler.api.placementRoutes
+import forge.control.scheduler.api.preemptionEventRoutes
+import forge.control.scheduler.api.priorityClassRoutes
 import forge.control.repo.JdbcApplicationRepository
 import forge.control.repo.JdbcAuditRepository
 import forge.control.repo.JdbcDeploymentRepository
@@ -295,6 +298,19 @@ fun main() {
         telemetry = telemetry,
     )
     val capacityReservation = CapacityReservation(nodeStore)
+    val priorityClassStore = forge.control.scheduler.JdbcPriorityClassStore(
+        dataSource = db.dataSource,
+        defaultName = cfg.defaultPriorityClass,
+    )
+    priorityClassStore.ensureDefault()
+    val disruptionBudgetStore = forge.control.scheduler.JdbcDisruptionBudgetStore(db.dataSource)
+    val disruptionBudgetGuard = forge.control.scheduler.DisruptionBudgetGuard(
+        store = disruptionBudgetStore,
+        placements = placementStore,
+        log = log,
+        telemetry = telemetry,
+    )
+    val preemptionAuditor = forge.control.scheduler.JdbcPreemptionAuditor(db.dataSource)
     val placementScheduler = SchedulerFactory.create(
         strategy = cfg.schedulerStrategy,
         nodeStore = nodeStore,
@@ -313,6 +329,12 @@ fun main() {
     } else {
         null
     }
+    val pendingAgingPolicy = forge.control.scheduler.PendingAgingPolicy(
+        priorityClasses = priorityClassStore,
+        starvationSeconds = cfg.pendingStarvationSeconds,
+        log = log,
+        telemetry = telemetry,
+    )
     val queueProcessor = if (pendingQueue != null) {
         QueueProcessor(
             queue = pendingQueue,
@@ -321,10 +343,28 @@ fun main() {
             log = log,
             intervalMs = cfg.queueRetryMs,
             telemetry = telemetry,
+            agingPolicy = pendingAgingPolicy,
         )
     } else {
         null
     }
+    val preemptionSelector = forge.control.scheduler.PreemptionSelector(
+        nodes = nodeStore,
+        placements = placementStore,
+        priorityClasses = priorityClassStore,
+        workloadAffinity = forge.control.scheduler.WorkloadAffinityFilter(nodeStore, placementStore),
+        topologySpread = forge.control.scheduler.TopologySpreadFilter(nodeStore, placementStore),
+        strictNodeSelector = cfg.strictNodeSelector,
+        budgetGuard = disruptionBudgetGuard,
+        telemetry = telemetry,
+    )
+    val gracefulEvictor = forge.control.scheduler.GracefulEvictor(
+        store = placementStore,
+        reservation = capacityReservation,
+        log = log,
+        grace = Duration.ofSeconds(cfg.preemptionGraceSeconds),
+        telemetry = telemetry,
+    )
     val placementService = PlacementService(
         scheduler = placementScheduler,
         store = placementStore,
@@ -334,7 +374,14 @@ fun main() {
         pendingQueue = pendingQueue,
         queueProcessor = queueProcessor,
         defaultAntiAffinity = AntiAffinity.parse(cfg.antiAffinityDefault),
+        priorityClasses = priorityClassStore,
+        defaultPriorityClass = cfg.defaultPriorityClass,
+        preemptionEnabled = cfg.preemptionEnabled,
+        preemptionSelector = preemptionSelector,
+        gracefulEvictor = gracefulEvictor,
+        preemptionAuditor = preemptionAuditor,
     )
+    gracefulEvictor.resubmitFn = { lost -> placementService.resubmitFromLost(lost) }
     val nodeOfflineHandler = if (cfg.schedulerEnabled) {
         NodeOfflineHandler(
             store = placementStore,
@@ -430,6 +477,7 @@ fun main() {
         secretsClient = secretsClient,
         injectMaskInLogs = cfg.injectMaskInLogs,
         attachmentEnvSource = managedDbService,
+        disruptionBudgetGuard = disruptionBudgetGuard,
     )
     val startupRecovery = StartupRecovery(
         deploymentStore = deploymentStore,
@@ -465,6 +513,10 @@ fun main() {
         reconcileStatusStore = reconcileStatusStore,
         deploymentHistory = deploymentHistory,
         placementService = placementService,
+        priorityClassStore = priorityClassStore,
+        disruptionBudgetStore = disruptionBudgetStore,
+        disruptionBudgetGuard = disruptionBudgetGuard,
+        preemptionAuditor = preemptionAuditor,
         nodeStore = nodeStore,
         nodeStrictRegister = cfg.nodeStrictRegister,
         onNodeRegistered = { placementService.drainQueue() },
@@ -743,6 +795,18 @@ fun Application.forgeControlModule(
             val placementService = services.placementService
             if (placementService != null) {
                 placementRoutes(placementService, nodeStore)
+            }
+            val priorityClasses = services.priorityClassStore
+            if (priorityClasses != null) {
+                priorityClassRoutes(priorityClasses)
+            }
+            val disruptionBudgets = services.disruptionBudgetStore
+            if (disruptionBudgets != null) {
+                disruptionBudgetRoutes(disruptionBudgets)
+            }
+            val preemptionEvents = services.preemptionAuditor
+            if (preemptionEvents != null) {
+                preemptionEventRoutes(preemptionEvents)
             }
             if (nodeStore != null) {
                 nodeFleetRoutes(nodeStore)

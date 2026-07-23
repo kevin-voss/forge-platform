@@ -49,6 +49,8 @@ data class Placement(
     val affinity: PlacementAffinity? = null,
     val topologySpreadConstraints: List<TopologySpreadConstraint> = emptyList(),
     val workloadLabels: Map<String, String> = emptyMap(),
+    val priorityClass: String = "default",
+    val preemptedByPlacementId: String? = null,
 ) {
     val unschedulableReasons: List<UnschedulableReasonEntry>
         get() = trace?.filters
@@ -105,6 +107,9 @@ interface PlacementStore {
 
     /** Lost placements that have no active replacement row. */
     fun listLostWithoutActive(): List<Placement>
+
+    /** Record which placement preempted a lost victim (audit linkage). */
+    fun markPreemptedBy(placementId: String, preemptorPlacementId: String): Placement?
 }
 
 class JdbcPlacementStore(
@@ -119,11 +124,12 @@ class JdbcPlacementStore(
                     status, anti_affinity, slots, service_id, rescheduled_from_node,
                     requests_json, limits_json, trace_json,
                     node_selector_json, tolerations_json, platform_json,
-                    affinity_json, topology_spread_json
+                    affinity_json, topology_spread_json,
+                    priority_class, preempted_by_placement_id
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb,
-                    ?::jsonb, ?::jsonb
+                    ?::jsonb, ?::jsonb, ?, ?
                 )
                 ON CONFLICT (deployment_id, replica_index)
                     WHERE status IN ('placed', 'pending')
@@ -172,6 +178,8 @@ class JdbcPlacementStore(
                         )
                     },
                 )
+                ps.setString(21, placement.priorityClass.ifBlank { "default" })
+                ps.setString(22, placement.preemptedByPlacementId)
                 ps.executeUpdate()
             }
             find(conn, placement.deploymentId, placement.replicaIndex)
@@ -192,7 +200,8 @@ class JdbcPlacementStore(
                            status, anti_affinity, slots, service_id, rescheduled_from_node,
                            requests_json, limits_json, trace_json,
                            node_selector_json, tolerations_json, platform_json,
-                           affinity_json, topology_spread_json
+                           affinity_json, topology_spread_json,
+                           priority_class, preempted_by_placement_id
                     FROM placements
                     WHERE deployment_id = ?
                     """.trimIndent(),
@@ -259,7 +268,8 @@ class JdbcPlacementStore(
                        status, anti_affinity, slots, service_id, rescheduled_from_node,
                        requests_json, limits_json, trace_json,
                        node_selector_json, tolerations_json, platform_json,
-                           affinity_json, topology_spread_json
+                       affinity_json, topology_spread_json,
+                       priority_class, preempted_by_placement_id
                 FROM placements
                 WHERE status = 'placed'
                   AND node_id IS NOT NULL
@@ -286,7 +296,8 @@ class JdbcPlacementStore(
                        status, anti_affinity, slots, service_id, rescheduled_from_node,
                        requests_json, limits_json, trace_json,
                        node_selector_json, tolerations_json, platform_json,
-                           affinity_json, topology_spread_json
+                       affinity_json, topology_spread_json,
+                       priority_class, preempted_by_placement_id
                 FROM placements
                 WHERE status = 'pending'
                 ORDER BY created_at ASC, replica_index ASC
@@ -352,7 +363,8 @@ class JdbcPlacementStore(
                        status, anti_affinity, slots, service_id, rescheduled_from_node,
                        requests_json, limits_json, trace_json,
                        node_selector_json, tolerations_json, platform_json,
-                           affinity_json, topology_spread_json
+                       affinity_json, topology_spread_json,
+                       priority_class, preempted_by_placement_id
                 FROM placements
                 WHERE id = ?
                 ORDER BY created_at DESC
@@ -377,7 +389,8 @@ class JdbcPlacementStore(
                            status, anti_affinity, slots, service_id, rescheduled_from_node,
                            requests_json, limits_json, trace_json,
                            node_selector_json, tolerations_json, platform_json,
-                           affinity_json, topology_spread_json
+                           affinity_json, topology_spread_json,
+                           priority_class, preempted_by_placement_id
                     FROM placements
                     WHERE node_id = ?
                     """.trimIndent(),
@@ -422,7 +435,8 @@ class JdbcPlacementStore(
                        l.created_at, l.status, l.anti_affinity, l.slots, l.service_id,
                        l.rescheduled_from_node, l.requests_json, l.limits_json, l.trace_json,
                        l.node_selector_json, l.tolerations_json, l.platform_json,
-                       l.affinity_json, l.topology_spread_json
+                       l.affinity_json, l.topology_spread_json,
+                       l.priority_class, l.preempted_by_placement_id
                 FROM placements l
                 WHERE l.status = 'lost'
                   AND NOT EXISTS (
@@ -442,6 +456,24 @@ class JdbcPlacementStore(
             }
         }
     }
+
+    override fun markPreemptedBy(placementId: String, preemptorPlacementId: String): Placement? =
+        runSql {
+            dataSource.withConnection { conn ->
+                conn.prepareStatement(
+                    """
+                    UPDATE placements
+                    SET preempted_by_placement_id = ?
+                    WHERE id = ?
+                    """.trimIndent(),
+                ).use { ps ->
+                    ps.setString(1, preemptorPlacementId)
+                    ps.setString(2, placementId)
+                    if (ps.executeUpdate() == 0) return@withConnection null
+                }
+                findById(placementId)
+            }
+        }
 
     private fun find(
         conn: java.sql.Connection,
@@ -464,7 +496,8 @@ class JdbcPlacementStore(
                        status, anti_affinity, slots, service_id, rescheduled_from_node,
                        requests_json, limits_json, trace_json,
                        node_selector_json, tolerations_json, platform_json,
-                           affinity_json, topology_spread_json
+                       affinity_json, topology_spread_json,
+                       priority_class, preempted_by_placement_id
                 FROM placements
                 WHERE deployment_id = ? AND replica_index = ?
                 """.trimIndent(),
@@ -516,6 +549,12 @@ class JdbcPlacementStore(
             platform = decodePlatform(platformRaw),
             affinity = decodeAffinity(affinityRaw),
             topologySpreadConstraints = decodeSpread(spreadRaw),
+            priorityClass = runCatching { rs.getString("priority_class") }.getOrNull()
+                ?.takeIf { it.isNotBlank() }
+                ?: "default",
+            preemptedByPlacementId = runCatching {
+                rs.getString("preempted_by_placement_id")
+            }.getOrNull(),
         )
     }
 
@@ -674,4 +713,11 @@ class InMemoryPlacementStore : PlacementStore {
             .filter { it.status == PendingQueue.STATUS_LOST }
             .filter { find(it.deploymentId, it.replicaIndex) == null }
             .sortedWith(compareBy({ it.createdAt }, { it.replicaIndex }))
+
+    override fun markPreemptedBy(placementId: String, preemptorPlacementId: String): Placement? {
+        val existing = rows[placementId] ?: return null
+        val updated = existing.copy(preemptedByPlacementId = preemptorPlacementId)
+        rows[placementId] = updated
+        return updated
+    }
 }
