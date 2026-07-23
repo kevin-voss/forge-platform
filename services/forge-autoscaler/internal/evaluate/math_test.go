@@ -49,3 +49,34 @@ func TestClampAndRateLimit(t *testing.T) {
 		t.Fatalf("unlimited: got %d", got)
 	}
 }
+
+func TestDesiredFromPerReplicaTarget(t *testing.T) {
+	if got := evaluate.DesiredFromPerReplicaTarget(450, 150); got != 3 {
+		t.Fatalf("got %d want 3", got)
+	}
+	if got := evaluate.DesiredFromPerReplicaTarget(151, 150); got != 2 {
+		t.Fatalf("got %d want 2", got)
+	}
+	if got := evaluate.DesiredFromPerReplicaTarget(0, 150); got != 0 {
+		t.Fatalf("got %d want 0", got)
+	}
+}
+
+func TestGuardrailRecommendationNeverScalesDown(t *testing.T) {
+	desired, code := evaluate.GuardrailRecommendation(4, 0.05, 0.20, 200, 50)
+	if desired != 4 || code != "HoldWithinTarget" {
+		t.Fatalf("within target: desired=%d code=%s", desired, code)
+	}
+	desired, code = evaluate.GuardrailRecommendation(4, 0.40, 0.20, 10, 50)
+	if desired != 4 || code != "HoldInsufficientSamples" {
+		t.Fatalf("low samples: desired=%d code=%s", desired, code)
+	}
+	desired, code = evaluate.GuardrailRecommendation(4, 0.40, 0.20, 200, 50)
+	if desired < 4 || code != "ScaleUpGuardrail" {
+		t.Fatalf("breach: desired=%d code=%s", desired, code)
+	}
+	desired, code = evaluate.GuardrailRecommendation(4, 0.01, 0.20, 200, 50)
+	if desired != 4 {
+		t.Fatalf("guardrail must not scale down, got %d", desired)
+	}
+}

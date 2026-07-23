@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 162`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 163`**.
 
 ## Epics
 
@@ -240,7 +240,8 @@ next implementable step is still the one named at the top of this file. Plan:
 | **159** | [Demo `23-local-cloud-simulation` + epic gate](steps/23-forge-infrastructure/23.07-demo-23-local-cloud-simulation.md) | Complete |  | `make demo DEMO=23`; Docker provider scale/drain; optional cloud targets documented |
 | **160** | [Skeleton, ScalingPolicy resource, metric sources](steps/24-forge-autoscaler/24.01-skeleton-scalingpolicy-and-metric-sources.md) | Complete |  | `forge-autoscaler` on `4112`; `ScalingPolicy` CRUD/status/watch; `MetricSource` + FakeSource; eval loop records recommendations only |
 | **161** | [CPU/memory workload autoscaling](steps/24-forge-autoscaler/24.02-workload-cpu-memory-autoscaling.md) | Complete |  | Utilization math, stabilization, rate limits; Observe+Runtime sources; Application actuation |
-| **162**–**167** | Epic 24 — remaining (`24.03`–`24.08`) | Not started |  | |
+| **162** | [Request-rate, latency, error-rate autoscaling](steps/24-forge-autoscaler/24.03-request-rate-and-latency-autoscaling.md) | Complete |  | Gateway httpRequests/activeConnections; Observe p95/errorRate; guardrails; mixed-metric max |
+| **163**–**167** | Epic 24 — remaining (`24.04`–`24.08`) | Not started |  | |
 | **168**–**173** | Epic 25 — Scheduling enhancements (`25.01`–`25.06`) | Not started |  | |
 
 Per-step rows live in each epic's steps README; the global lookup is

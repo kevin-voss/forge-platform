@@ -57,17 +57,17 @@ func run() error {
 	hub := policy.NewHub(db.Pool, 1000)
 	store := &policy.Store{Pool: db.Pool, Hub: hub}
 
+	tel := telemetry.NewRegistry()
 	fake := metrics.NewFakeSource()
 	router := &metrics.Router{
-		Observe: &metrics.ObserveSource{BaseURL: cfg.ObserveURL},
-		Gateway: &metrics.GatewaySource{BaseURL: cfg.GatewayAdminURL},
+		Observe: &metrics.ObserveSource{BaseURL: cfg.ObserveURL, Metrics: tel},
+		Gateway: &metrics.GatewaySource{BaseURL: cfg.GatewayAdminURL, Metrics: tel},
 		Queue:   &metrics.QueueSource{BaseURL: cfg.EventsURL},
 		Runtime: &metrics.RuntimeSource{BaseURL: cfg.RuntimeURL},
 		Fake:    fake,
 		Prefer:  cfg.MetricSourceMode,
 	}
 	actuator := &actuate.ApplicationClient{BaseURL: cfg.ControlURL}
-	tel := telemetry.NewRegistry()
 
 	ready := health.NewReadiness(db)
 	mux := http.NewServeMux()

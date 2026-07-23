@@ -3,8 +3,8 @@ info:
   title: Forge Autoscaler API
   version: 0.1.0
   description: |
-    ScalingPolicy resource API and evaluation surface (epic 24 / step 24.01).
-    Records recommendations only — no replica actuation in this step.
+    ScalingPolicy resource API and evaluation surface (epic 24 / step 24.03).
+    Evaluates CPU/memory and traffic metrics and actuates Application desired replicas.
 servers:
   - url: http://127.0.0.1:4112
     description: Local Compose (host port 4112)
@@ -316,14 +316,29 @@ components:
       properties:
         type:
           type: string
-          example: cpu
+          description: |
+            Metric signal type. Actuable in 24.03: cpu, memory, httpRequests,
+            activeConnections, p95Latency, errorRate.
+          example: httpRequests
+          enum:
+            - cpu
+            - memory
+            - custom
+            - httpRequests
+            - activeConnections
+            - p95Latency
+            - errorRate
+            - queueDepth
         targetAverageUtilization:
           type: number
           example: 65
         targetValue:
           type: number
+          description: Absolute target (e.g. RPS per replica, p95 seconds, error ratio)
+          example: 150
         query:
           type: string
+
 
     ScaleBehavior:
       type: object

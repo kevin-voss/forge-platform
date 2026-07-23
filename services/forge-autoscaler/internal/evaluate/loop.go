@@ -22,14 +22,15 @@ type Store interface {
 
 // Loop ticks periodically, fetches metrics, computes desired replicas, and actuates.
 type Loop struct {
-	Store      Store
-	Source     metrics.MetricSource
-	Actuator   actuate.Actuator
-	Stabilizer *Stabilizer
-	Metrics    *telemetry.Registry
-	Interval   time.Duration
-	Log        *slog.Logger
-	Now        func() time.Time
+	Store          Store
+	Source         metrics.MetricSource
+	Actuator       actuate.Actuator
+	Stabilizer     *Stabilizer
+	Metrics        *telemetry.Registry
+	Interval       time.Duration
+	Log            *slog.Logger
+	Now            func() time.Time
+	MinSampleCount int64
 }
 
 // Run blocks until ctx is cancelled, evaluating on each tick.
@@ -81,6 +82,13 @@ func (l *Loop) now() time.Time {
 	return time.Now().UTC()
 }
 
+func (l *Loop) minSamples() int64 {
+	if l.MinSampleCount > 0 {
+		return l.MinSampleCount
+	}
+	return metrics.DefaultMinSampleCount
+}
+
 func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 	status := row.Status
 	status.ObservedGeneration = row.Generation
@@ -94,8 +102,7 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 	currentReplicas := l.resolveCurrentReplicas(ctx, row)
 
 	for _, metric := range row.Spec.Metrics {
-		if !isWorkloadUtilizationMetric(metric.Type) {
-			// Later steps (24.03+) own non-utilization metrics; skip actuation math here.
+		if !metrics.IsActuableMetric(metric.Type) {
 			sample, err := l.Source.Fetch(ctx, row.Spec.TargetRef, metric)
 			rec := policy.Recommendation{
 				MetricType:  metric.Type,
@@ -114,6 +121,18 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 			continue
 		}
 
+		if strings.EqualFold(metrics.NormalizeMetricType(metric.Type), "httpRequests") ||
+			strings.EqualFold(metrics.NormalizeMetricType(metric.Type), "activeConnections") {
+			if l.Log != nil {
+				l.Log.Info("autoscaler metric fetch",
+					"span", "autoscaler.metrics.gateway",
+					"policy_id", row.ID,
+					"metric_type", metric.Type,
+					"target_name", row.Spec.TargetRef.Name,
+				)
+			}
+		}
+
 		sample, err := l.Source.Fetch(ctx, row.Spec.TargetRef, metric)
 		target := metrics.TargetAverage(metric)
 		rec := policy.Recommendation{
@@ -125,8 +144,8 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 			fetchFailed = true
 			rec.MetricValue = nil
 			rec.Reason = "metric fetch failed: " + err.Error()
-			if errors.Is(err, metrics.ErrNotImplemented) {
-				rec.Reason = "metric fetch failed: " + err.Error()
+			if errors.Is(err, metrics.ErrUnavailable) {
+				rec.Reason = "MetricUnavailable: " + err.Error()
 			}
 			if l.Log != nil {
 				l.Log.Info("autoscaler evaluation",
@@ -147,10 +166,11 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 			rec.TargetValue = floatPtr(sample.Target)
 			target = sample.Target
 		}
-		recommended := DesiredFromUtilization(currentReplicas, v, target)
+
+		recommended, reason := l.recommend(currentReplicas, metric.Type, v, target, sample.SampleCount)
 		recommended = ClampReplicas(recommended, row.Spec.MinReplicas, row.Spec.MaxReplicas)
 		rec.RecommendedReplicas = intPtr(recommended)
-		rec.Reason = fmt.Sprintf("utilization math: ceil(%d * %.4g / %.4g) = %d", currentReplicas, v, target, recommended)
+		rec.Reason = reason
 		if l.Log != nil {
 			l.Log.Info("autoscaler evaluation",
 				"policy_id", row.ID,
@@ -158,8 +178,12 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 				"target_name", row.Spec.TargetRef.Name,
 				"metric_type", metric.Type,
 				"metric_value", v,
+				"observed", v,
+				"target", target,
 				"target_value", target,
 				"recommended_replicas", recommended,
+				"sample_count", sample.SampleCount,
+				"source", sample.Source,
 				"reason", rec.Reason,
 			)
 		}
@@ -224,7 +248,7 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 			Type:    "ScalingActive",
 			Status:  "Unknown",
 			Reason:  "MetricFetchFailed",
-			Message: "partial metric failure; using successful utilization signals",
+			Message: "partial metric failure; using successful signals",
 		})
 		status.Phase = "Degraded"
 	} else {
@@ -263,6 +287,28 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 	}
 	if dominant != nil {
 		status.LastRecommendation = dominant
+		if l.Log != nil {
+			observed := 0.0
+			if dominant.MetricValue != nil {
+				observed = *dominant.MetricValue
+			}
+			target := 0.0
+			if dominant.TargetValue != nil {
+				target = *dominant.TargetValue
+			}
+			recReplicas := desired
+			if dominant.RecommendedReplicas != nil {
+				recReplicas = *dominant.RecommendedReplicas
+			}
+			l.Log.Info("autoscaler dominant metric",
+				"policy_id", row.ID,
+				"metric_type", dominant.MetricType,
+				"observed", observed,
+				"target", target,
+				"recommended_replicas", recReplicas,
+				"reason", dominant.Reason,
+			)
+		}
 	}
 	status.DesiredReplicas = desired
 
@@ -329,6 +375,27 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 	return err
 }
 
+func (l *Loop) recommend(currentReplicas int, metricType string, observed, target float64, sampleCount int64) (int, string) {
+	switch {
+	case metrics.IsWorkloadUtilizationMetric(metricType):
+		recommended := DesiredFromUtilization(currentReplicas, observed, target)
+		reason := fmt.Sprintf("ScaleUtilization: ceil(%d * %.4g / %.4g) = %d", currentReplicas, observed, target, recommended)
+		return recommended, reason
+	case metrics.IsTrafficRateMetric(metricType):
+		recommended := DesiredFromPerReplicaTarget(observed, target)
+		if recommended == 0 && currentReplicas > 0 && observed == 0 {
+			// Zero traffic → allow scale-down toward min via recommendation 0 (clamped later).
+			recommended = 0
+		}
+		return recommended, ReasonForTrafficRate(metricType, currentReplicas, recommended, observed, target)
+	case metrics.IsGuardrailMetric(metricType):
+		recommended, code := GuardrailRecommendation(currentReplicas, observed, target, sampleCount, l.minSamples())
+		return recommended, fmt.Sprintf("%s: observed=%.4g target=%.4g samples=%d", code, observed, target, sampleCount)
+	default:
+		return currentReplicas, "HoldUnknownMetric"
+	}
+}
+
 func (l *Loop) resolveCurrentReplicas(ctx context.Context, row policy.Row) int {
 	if l.Actuator != nil && strings.EqualFold(row.Spec.TargetRef.Kind, "Application") {
 		view, err := l.Actuator.Get(ctx, row.Project, row.Environment, row.Spec.TargetRef.Name)
@@ -343,15 +410,6 @@ func (l *Loop) resolveCurrentReplicas(ctx context.Context, row policy.Row) int {
 		return row.Status.CurrentReplicas
 	}
 	return row.Spec.MinReplicas
-}
-
-func isWorkloadUtilizationMetric(metricType string) bool {
-	switch strings.ToLower(strings.TrimSpace(metricType)) {
-	case "cpu", "memory":
-		return true
-	default:
-		return false
-	}
 }
 
 func floatPtr(v float64) *float64 { return &v }

@@ -14,6 +14,7 @@ type Registry struct {
 	mu              sync.Mutex
 	recommendations map[string]*atomic.Int64
 	scaleActions    map[string]*atomic.Int64
+	sourceLatency   map[string]*atomic.Uint64 // last latency in microseconds
 }
 
 // NewRegistry creates an empty metrics registry.
@@ -21,6 +22,7 @@ func NewRegistry() *Registry {
 	return &Registry{
 		recommendations: map[string]*atomic.Int64{},
 		scaleActions:    map[string]*atomic.Int64{},
+		sourceLatency:   map[string]*atomic.Uint64{},
 	}
 }
 
@@ -56,6 +58,26 @@ func (r *Registry) IncScaleAction(direction, result string) {
 	counter.Add(1)
 }
 
+// ObserveSourceLatency records forge_autoscaler_metric_source_latency_seconds{source}.
+func (r *Registry) ObserveSourceLatency(source string, seconds float64) {
+	if r == nil {
+		return
+	}
+	if seconds < 0 {
+		seconds = 0
+	}
+	key := labelsKey("source", source)
+	micros := uint64(seconds * 1_000_000)
+	r.mu.Lock()
+	gauge, ok := r.sourceLatency[key]
+	if !ok {
+		gauge = &atomic.Uint64{}
+		r.sourceLatency[key] = gauge
+	}
+	r.mu.Unlock()
+	gauge.Store(micros)
+}
+
 // Handler serves Prometheus text exposition.
 func (r *Registry) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -73,6 +95,13 @@ func (r *Registry) Handler() http.Handler {
 		actKeys := sortedKeys(r.scaleActions)
 		for _, key := range actKeys {
 			fmt.Fprintf(&b, "forge_autoscaler_scale_actions_total%s %d\n", key, r.scaleActions[key].Load())
+		}
+		b.WriteString("# HELP forge_autoscaler_metric_source_latency_seconds Last metric-source fetch latency in seconds.\n")
+		b.WriteString("# TYPE forge_autoscaler_metric_source_latency_seconds gauge\n")
+		latKeys := sortedUintKeys(r.sourceLatency)
+		for _, key := range latKeys {
+			secs := float64(r.sourceLatency[key].Load()) / 1_000_000
+			fmt.Fprintf(&b, "forge_autoscaler_metric_source_latency_seconds%s %g\n", key, secs)
 		}
 		r.mu.Unlock()
 		_, _ = w.Write([]byte(b.String()))
@@ -103,6 +132,15 @@ func escapeLabel(s string) string {
 }
 
 func sortedKeys(m map[string]*atomic.Int64) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedUintKeys(m map[string]*atomic.Uint64) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
