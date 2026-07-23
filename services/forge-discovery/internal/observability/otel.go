@@ -26,6 +26,9 @@ const (
 	MetricServiceUp       = "forge_discovery_up"
 	MetricHTTPRequests    = "forge_http_requests_total"
 	MetricHTTPDurationSec = "forge_http_request_duration_seconds"
+	MetricDNSQueries      = "forge_discovery_dns_queries_total"
+	MetricDNSNXDomain     = "forge_discovery_dns_nxdomain_total"
+	MetricDNSForwardErrs  = "forge_discovery_dns_forward_errors_total"
 )
 
 // Config controls OTEL bootstrap.
@@ -74,14 +77,17 @@ func LoadConfig(serviceName, serviceVersion, env string) Config {
 
 // Provider holds SDK handles and standard instruments.
 type Provider struct {
-	enabled   bool
-	tp        *sdktrace.TracerProvider
-	mp        *sdkmetric.MeterProvider
-	Tracer    trace.Tracer
-	Requests  metric.Int64Counter
-	Duration  metric.Float64Histogram
-	serviceUp metric.Int64ObservableGauge
-	upValue   atomic.Int64
+	enabled       bool
+	tp            *sdktrace.TracerProvider
+	mp            *sdkmetric.MeterProvider
+	Tracer        trace.Tracer
+	Requests      metric.Int64Counter
+	Duration      metric.Float64Histogram
+	DNSQueries    metric.Int64Counter
+	DNSNXDomain   metric.Int64Counter
+	DNSForwardErr metric.Int64Counter
+	serviceUp     metric.Int64ObservableGauge
+	upValue       atomic.Int64
 }
 
 // Enabled reports whether export is active.
@@ -159,6 +165,9 @@ func Init(ctx context.Context, cfg Config) *Provider {
 	meter := mp.Meter("forge.discovery")
 	requests, _ := meter.Int64Counter(MetricHTTPRequests)
 	duration, _ := meter.Float64Histogram(MetricHTTPDurationSec, metric.WithUnit("s"))
+	dnsQueries, _ := meter.Int64Counter(MetricDNSQueries)
+	dnsNX, _ := meter.Int64Counter(MetricDNSNXDomain)
+	dnsFwdErr, _ := meter.Int64Counter(MetricDNSForwardErrs)
 	versionAttr := attribute.String("version", cfg.ServiceVersion)
 	up, _ := meter.Int64ObservableGauge(MetricServiceUp,
 		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
@@ -173,6 +182,9 @@ func Init(ctx context.Context, cfg Config) *Provider {
 	p.Tracer = tp.Tracer("forge.discovery")
 	p.Requests = requests
 	p.Duration = duration
+	p.DNSQueries = dnsQueries
+	p.DNSNXDomain = dnsNX
+	p.DNSForwardErr = dnsFwdErr
 	p.serviceUp = up
 	return p
 }

@@ -13,15 +13,23 @@ type ReadyChecker interface {
 	Ready(ctx context.Context) error
 }
 
-// Readiness tracks DB + Control kind-registration readiness.
+// Readiness tracks DB + Control kind-registration + optional DNS readiness.
 type Readiness struct {
 	kindsRegistered atomic.Bool
 	db              ReadyChecker
+	dns             ReadyChecker
 }
 
 // NewReadiness returns a readiness gate bound to a DB checker.
 func NewReadiness(db ReadyChecker) *Readiness {
 	return &Readiness{db: db}
+}
+
+// SetDNS attaches an optional DNS readiness probe (21.04).
+func (r *Readiness) SetDNS(dns ReadyChecker) {
+	if r != nil {
+		r.dns = dns
+	}
 }
 
 // MarkKindsRegistered flips the Control registration gate.
@@ -66,6 +74,10 @@ func (h *HealthHandler) handleReady(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 	if h.ready.db == nil || h.ready.db.Ready(ctx) != nil {
+		writeJSON(w, http.StatusServiceUnavailable, healthResponse{Status: "not_ready"})
+		return
+	}
+	if h.ready.dns != nil && h.ready.dns.Ready(ctx) != nil {
 		writeJSON(w, http.StatusServiceUnavailable, healthResponse{Status: "not_ready"})
 		return
 	}

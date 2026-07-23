@@ -25,6 +25,13 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FORGE_DISCOVERY_WATCH_BUFFER_SIZE", "")
 	t.Setenv("FORGE_DISCOVERY_WATCH_MAX_CONNECTIONS", "")
 	t.Setenv("FORGE_DISCOVERY_WATCH_HEARTBEAT_SECONDS", "")
+	t.Setenv("FORGE_DISCOVERY_DNS_ENABLED", "")
+	t.Setenv("FORGE_DISCOVERY_DNS_PORT", "")
+	t.Setenv("FORGE_DISCOVERY_DNS_ZONE", "")
+	t.Setenv("FORGE_DISCOVERY_DNS_TTL_SECONDS", "")
+	t.Setenv("FORGE_DISCOVERY_DNS_NEGATIVE_TTL_SECONDS", "")
+	t.Setenv("FORGE_DISCOVERY_DNS_FORWARD_UPSTREAM", "")
+	t.Setenv("FORGE_DISCOVERY_DNS_FORWARD_TIMEOUT_MS", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -56,6 +63,15 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.WatchBufferSize != 500 || cfg.WatchMaxConnections != 1000 || cfg.WatchHeartbeat != 15*time.Second {
 		t.Fatalf("watch cfg = %+v", cfg)
+	}
+	if !cfg.DNSEnabled || cfg.DNSPort != 5053 || cfg.DNSZone != "svc.forge" {
+		t.Fatalf("dns cfg = %+v", cfg)
+	}
+	if cfg.DNSTTLSeconds != 5 || cfg.DNSNegativeTTLSeconds != 2 {
+		t.Fatalf("dns ttl = %d/%d", cfg.DNSTTLSeconds, cfg.DNSNegativeTTLSeconds)
+	}
+	if cfg.DNSForwardUpstream != "127.0.0.11" || cfg.DNSForwardTimeout != 2*time.Second {
+		t.Fatalf("dns forward = %q %v", cfg.DNSForwardUpstream, cfg.DNSForwardTimeout)
 	}
 }
 

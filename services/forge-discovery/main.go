@@ -15,6 +15,7 @@ import (
 
 	"forge.local/services/forge-discovery/internal/config"
 	"forge.local/services/forge-discovery/internal/controlmirror"
+	discoverydns "forge.local/services/forge-discovery/internal/dns"
 	"forge.local/services/forge-discovery/internal/httpapi"
 	"forge.local/services/forge-discovery/internal/middleware"
 	"forge.local/services/forge-discovery/internal/nodewatch"
@@ -103,7 +104,7 @@ func run() error {
 		return fmt.Errorf("listen: %w", err)
 	}
 
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 2)
 	go func() {
 		log.Info("listening", "addr", ln.Addr().String())
 		if err := httpServer.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -112,6 +113,43 @@ func run() error {
 		}
 		errCh <- nil
 	}()
+
+	var dnsServer *discoverydns.Server
+	if cfg.DNSEnabled {
+		dnsServer = &discoverydns.Server{
+			Addr: fmt.Sprintf(":%d", cfg.DNSPort),
+			Zone: cfg.DNSZone,
+			Resolver: &discoverydns.ZoneResolver{
+				Store: db,
+				Zone:  cfg.DNSZone,
+				TTL: discoverydns.TTLPolicy{
+					MaxTTL:      time.Duration(cfg.DNSTTLSeconds) * time.Second,
+					NegativeTTL: time.Duration(cfg.DNSNegativeTTLSeconds) * time.Second,
+				},
+			},
+			Forwarder: &discoverydns.Forwarder{
+				Upstream: cfg.DNSForwardUpstream,
+				Timeout:  cfg.DNSForwardTimeout,
+			},
+			Log:           log,
+			Tracer:        otelProvider.Tracer,
+			QueriesTotal:  otelProvider.DNSQueries,
+			NXDomainTotal: otelProvider.DNSNXDomain,
+			ForwardErrors: otelProvider.DNSForwardErr,
+		}
+		ready.SetDNS(dnsServer)
+		go func() {
+			log.Info("dns listening", "addr", dnsServer.Addr, "zone", cfg.DNSZone)
+			if err := dnsServer.ListenAndServe(); err != nil {
+				errCh <- fmt.Errorf("dns: %w", err)
+			}
+		}()
+		// Brief wait so /health/ready can see the UDP bind.
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) && !dnsServer.IsBound() {
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
 
 	// Register kinds after listen so /health/live answers during Control backoff.
 	regClient := controlmirror.New(cfg.ControlURL, log)
@@ -166,6 +204,9 @@ func run() error {
 		"watch_buffer_size", cfg.WatchBufferSize,
 		"watch_max_connections", cfg.WatchMaxConnections,
 		"watch_heartbeat_seconds", int(cfg.WatchHeartbeat.Seconds()),
+		"dns_enabled", cfg.DNSEnabled,
+		"dns_port", cfg.DNSPort,
+		"dns_zone", cfg.DNSZone,
 	)
 
 	sigCh := make(chan os.Signal, 1)
@@ -174,6 +215,9 @@ func run() error {
 	select {
 	case err := <-errCh:
 		bgCancel()
+		if dnsServer != nil {
+			_ = dnsServer.Shutdown()
+		}
 		return err
 	case sig := <-sigCh:
 		log.Info("shutdown signal received", "signal", sig.String())
@@ -182,6 +226,9 @@ func run() error {
 	bgCancel()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownGrace)
 	defer cancel()
+	if dnsServer != nil {
+		_ = dnsServer.Shutdown()
+	}
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}

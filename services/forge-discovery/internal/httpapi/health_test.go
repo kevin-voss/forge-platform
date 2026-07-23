@@ -57,3 +57,26 @@ func TestReadyRequiresDBAndKinds(t *testing.T) {
 		t.Fatalf("db down: %d", rr.Code)
 	}
 }
+
+func TestReadyRequiresDNSWhenAttached(t *testing.T) {
+	db := &stubDB{}
+	dns := &stubDB{}
+	ready := NewReadiness(db)
+	ready.SetDNS(dns)
+	ready.MarkKindsRegistered()
+	mux := NewRouter(ready)
+
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("dns ok: %d", rr.Code)
+	}
+
+	dns.err = errors.New("dns down")
+	rr = httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("dns down: %d", rr.Code)
+	}
+}

@@ -1,10 +1,15 @@
 # forge-discovery
 
 Platform service discovery directory (epic 21). Host port `4109` / container `8080`.
+Authoritative DNS for `.svc.forge` on host/container `5053/udp` (step `21.04`).
 
 Step `21.03` adds readiness-filtered endpoint selection (`Ready`-only by default), a
 scoped SSE watch with `since` replay and resync-on-miss, and the Go client library
 `pkg/discoveryclient` for product code that resolves peers directly.
+
+Step `21.04` serves `<service>.<environment>.<project>.svc.forge` from Ready endpoints
+with lease-tied TTLs, SRV records for named ports, alias resolution, and forwarding of
+everything outside `svc.forge` to Docker's embedded DNS (`127.0.0.11`).
 
 ## Quick start
 
@@ -27,7 +32,60 @@ curl -s 'localhost:4109/v1/projects/demo/environments/local/services/demo-echo/e
 
 # SSE watch
 curl -N 'localhost:4109/v1/projects/demo/environments/local/services/demo-echo/endpoints/watch?since=0'
+
+# DNS (host-published 5053/udp for dig debugging)
+dig @127.0.0.1 -p 5053 demo-echo.local.demo.svc.forge A +short
+dig @127.0.0.1 -p 5053 _http._tcp.demo-echo.local.demo.svc.forge SRV +short
+dig @127.0.0.1 -p 5053 nonexistent.local.demo.svc.forge A   # NXDOMAIN
+dig @127.0.0.1 -p 5053 example.com A +short                 # forwarded
 ```
+
+## Internal DNS (`.svc.forge`)
+
+| Name shape | Record | Source |
+|---|---|---|
+| `<service>.<environment>.<project>.svc.forge` | `A`/`AAAA` | Ready endpoint addresses |
+| `_<port>._<proto>.<service>.<environment>.<project>.svc.forge` | `SRV` | Ready listen ports → `<id>.<service>…` target |
+| alias from `Service.spec.aliases` | same as canonical | `discovery.services.aliases` |
+
+Answer TTL = `min(FORGE_DISCOVERY_DNS_TTL_SECONDS, remaining lease)`. Empty Ready sets return
+`NXDOMAIN` with `FORGE_DISCOVERY_DNS_NEGATIVE_TTL_SECONDS` (SOA minttl).
+
+### Local Compose wiring
+
+`forge-discovery` listens on a fixed Compose IP `172.30.0.53:5053/udp`. Workload-facing
+services (`forge-runtime`, `forge-gateway`) set:
+
+```yaml
+dns:
+  - 172.30.0.53
+```
+
+Non-`.svc.forge` queries are forwarded by Discovery to `127.0.0.11` (Docker embedded DNS),
+so Compose service names and public names keep resolving. `forge-discovery` itself keeps
+Docker's default resolver (it must not point at itself).
+
+Product/workload containers started by Runtime should use the same `dns:` (or Runtime
+bootstrap wiring in later epics) so app code can `getaddrinfo("users.local.demo.svc.forge")`.
+
+Host-side `dig` uses the published mapping `5053:5053/udp` (optional; not required for
+in-network resolution).
+
+### Bare metal / Hetzner / AWS / Azure
+
+On each node, configure the system or container resolver so `.svc.forge` is sent to
+Discovery over the private Forge network, and everything else stays on the node's normal
+upstream:
+
+```text
+# Example split: dnsmasq / systemd-resolved / CoreDNS on the node
+server=/svc.forge/<discovery-private-ip>#5053
+server=/<node-default-upstream>
+```
+
+Do not publish `5053/udp` on a public interface. Node bootstrap that installs this split
+forwarder is shared with epic 23 (Forge Infrastructure); this service only documents the
+contract.
 
 ## Configuration
 
@@ -52,6 +110,13 @@ curl -N 'localhost:4109/v1/projects/demo/environments/local/services/demo-echo/e
 | `FORGE_DISCOVERY_WATCH_BUFFER_SIZE` | `500` | Per-service ring for `since` replay |
 | `FORGE_DISCOVERY_WATCH_MAX_CONNECTIONS` | `1000` | SSE connection cap |
 | `FORGE_DISCOVERY_WATCH_HEARTBEAT_SECONDS` | `15` | SSE keep-alive comment ping |
+| `FORGE_DISCOVERY_DNS_ENABLED` | `true` | UDP authoritative + forwarder |
+| `FORGE_DISCOVERY_DNS_PORT` | `5053` | UDP listen port |
+| `FORGE_DISCOVERY_DNS_ZONE` | `svc.forge` | Authoritative zone |
+| `FORGE_DISCOVERY_DNS_TTL_SECONDS` | `5` | Max positive answer TTL |
+| `FORGE_DISCOVERY_DNS_NEGATIVE_TTL_SECONDS` | `2` | NXDOMAIN / empty TTL |
+| `FORGE_DISCOVERY_DNS_FORWARD_UPSTREAM` | `127.0.0.11` | Non-zone upstream (Docker DNS locally) |
+| `FORGE_DISCOVERY_DNS_FORWARD_TIMEOUT_MS` | `2000` | Upstream exchange timeout |
 | `FORGE_OTEL_ENABLED` | `true` | OTLP export |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel-collector:4317` | OTLP gRPC |
 
@@ -83,7 +148,8 @@ addrs, _ := c.Resolve(ctx, "demo-echo")
 ## Health
 
 * `GET /health/live` → `200 {"status":"ok"}` while the process is up
-* `GET /health/ready` → `200 {"status":"ok"}` after DB pool + Control kind registration succeed; otherwise `503 {"status":"not_ready"}`
+* `GET /health/ready` → `200 {"status":"ok"}` after DB pool + Control kind registration + DNS
+  synthetic query succeed; otherwise `503 {"status":"not_ready"}`
 
 ## Persistence
 

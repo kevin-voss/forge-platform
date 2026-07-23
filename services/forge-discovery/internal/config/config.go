@@ -33,6 +33,14 @@ type Config struct {
 	WatchBufferSize     int
 	WatchMaxConnections int
 	WatchHeartbeat      time.Duration
+
+	DNSEnabled            bool
+	DNSPort               int
+	DNSZone               string
+	DNSTTLSeconds         int
+	DNSNegativeTTLSeconds int
+	DNSForwardUpstream    string
+	DNSForwardTimeout     time.Duration
 }
 
 // Load reads configuration from the process environment.
@@ -139,6 +147,39 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	dnsEnabled := true
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("FORGE_DISCOVERY_DNS_ENABLED"))) {
+	case "false", "0", "no":
+		dnsEnabled = false
+	}
+	dnsPort, err := positiveIntEnv("FORGE_DISCOVERY_DNS_PORT", 5053)
+	if err != nil {
+		return Config{}, err
+	}
+	if dnsPort > 65535 {
+		return Config{}, fmt.Errorf("FORGE_DISCOVERY_DNS_PORT must be 1–65535, got %d", dnsPort)
+	}
+	dnsZone := strings.TrimSpace(os.Getenv("FORGE_DISCOVERY_DNS_ZONE"))
+	if dnsZone == "" {
+		dnsZone = "svc.forge"
+	}
+	dnsTTL, err := positiveIntEnv("FORGE_DISCOVERY_DNS_TTL_SECONDS", 5)
+	if err != nil {
+		return Config{}, err
+	}
+	dnsNegTTL, err := positiveIntEnv("FORGE_DISCOVERY_DNS_NEGATIVE_TTL_SECONDS", 2)
+	if err != nil {
+		return Config{}, err
+	}
+	dnsUpstream := strings.TrimSpace(os.Getenv("FORGE_DISCOVERY_DNS_FORWARD_UPSTREAM"))
+	if dnsUpstream == "" {
+		dnsUpstream = "127.0.0.11"
+	}
+	dnsFwdTimeoutMs, err := positiveIntEnv("FORGE_DISCOVERY_DNS_FORWARD_TIMEOUT_MS", 2000)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		Port:                   port,
 		ServiceName:            name,
@@ -159,6 +200,13 @@ func Load() (Config, error) {
 		WatchBufferSize:        watchBuf,
 		WatchMaxConnections:    watchMax,
 		WatchHeartbeat:         time.Duration(watchHB) * time.Second,
+		DNSEnabled:             dnsEnabled,
+		DNSPort:                dnsPort,
+		DNSZone:                dnsZone,
+		DNSTTLSeconds:          dnsTTL,
+		DNSNegativeTTLSeconds:  dnsNegTTL,
+		DNSForwardUpstream:     dnsUpstream,
+		DNSForwardTimeout:      time.Duration(dnsFwdTimeoutMs) * time.Millisecond,
 	}, nil
 }
 

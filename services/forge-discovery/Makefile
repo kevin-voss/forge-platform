@@ -28,6 +28,13 @@ dev:
 	FORGE_DISCOVERY_WATCH_BUFFER_SIZE=$${FORGE_DISCOVERY_WATCH_BUFFER_SIZE:-500} \
 	FORGE_DISCOVERY_WATCH_MAX_CONNECTIONS=$${FORGE_DISCOVERY_WATCH_MAX_CONNECTIONS:-1000} \
 	FORGE_DISCOVERY_WATCH_HEARTBEAT_SECONDS=$${FORGE_DISCOVERY_WATCH_HEARTBEAT_SECONDS:-15} \
+	FORGE_DISCOVERY_DNS_ENABLED=$${FORGE_DISCOVERY_DNS_ENABLED:-true} \
+	FORGE_DISCOVERY_DNS_PORT=$${FORGE_DISCOVERY_DNS_PORT:-5053} \
+	FORGE_DISCOVERY_DNS_ZONE=$${FORGE_DISCOVERY_DNS_ZONE:-svc.forge} \
+	FORGE_DISCOVERY_DNS_TTL_SECONDS=$${FORGE_DISCOVERY_DNS_TTL_SECONDS:-5} \
+	FORGE_DISCOVERY_DNS_NEGATIVE_TTL_SECONDS=$${FORGE_DISCOVERY_DNS_NEGATIVE_TTL_SECONDS:-2} \
+	FORGE_DISCOVERY_DNS_FORWARD_UPSTREAM=$${FORGE_DISCOVERY_DNS_FORWARD_UPSTREAM:-127.0.0.11} \
+	FORGE_DISCOVERY_DNS_FORWARD_TIMEOUT_MS=$${FORGE_DISCOVERY_DNS_FORWARD_TIMEOUT_MS:-2000} \
 	FORGE_OTEL_ENABLED=$${FORGE_OTEL_ENABLED:-false} \
 	go run .
 
@@ -94,9 +101,24 @@ test-integration: run
 		kill $$watch_pid 2>/dev/null || true; \
 		wait $$watch_pid 2>/dev/null || true; \
 		grep -q 'demo-echo-itest-2' /tmp/forge-discovery-watch.out
+	@# DNS: Ready A records, NXDOMAIN, forward, alias (21.04).
+	@command -v dig >/dev/null || { echo "dig required for DNS integration checks"; exit 1; }
+	@curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/services/demo-echo/endpoints" \
+		-H 'content-type: application/json' \
+		-d '{"id":"demo-echo-dns-0","node":"node-a","address":{"ip":"172.20.0.40","port":8080},"leaseSeconds":20}' >/dev/null
+	@curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/endpoints/demo-echo-dns-0/renew" \
+		-H 'content-type: application/json' -d '{"ready":true,"leaseSeconds":20}' >/dev/null
+	@dig @127.0.0.1 -p 5053 demo-echo.local.demo.svc.forge A +short | grep -q '172.20.0.40'
+	@dig @127.0.0.1 -p 5053 _http._tcp.demo-echo.local.demo.svc.forge SRV +short | grep -q '8080'
+	@dig @127.0.0.1 -p 5053 nonexistent.local.demo.svc.forge A | grep -q 'NXDOMAIN'
+	@dig @127.0.0.1 -p 5053 example.com A +short | grep -Eq '^[0-9.]+$$'
+	@$(COMPOSE) exec -T postgres psql -U forge -d forge -v ON_ERROR_STOP=1 -c \
+		"UPDATE discovery.services SET aliases = '[\"legacy-echo\"]'::jsonb WHERE project='demo' AND environment='local' AND name='demo-echo';" >/dev/null
+	@dig @127.0.0.1 -p 5053 legacy-echo.local.demo.svc.forge A +short | grep -q '172.20.0.40'
 	@curl -sf -X DELETE "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/endpoints/demo-echo-itest-0" -o /dev/null -w '%{http_code}' | grep -q 204
 	@curl -sf -X DELETE "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/endpoints/demo-echo-itest-1" -o /dev/null -w '%{http_code}' | grep -q 204
 	@curl -sf -X DELETE "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/endpoints/demo-echo-itest-2" -o /dev/null -w '%{http_code}' | grep -q 204
+	@curl -sf -X DELETE "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/endpoints/demo-echo-dns-0" -o /dev/null -w '%{http_code}' | grep -q 204
 	@# Restart re-registers kinds idempotently.
 	@$(COMPOSE) restart $(SERVICE) >/dev/null
 	@$(MAKE) wait
@@ -109,7 +131,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (health + kinds + register/renew/list/watch + graceful SIGTERM)."
+	@echo "Integration checks passed (health + kinds + register/renew/list/watch + DNS + graceful SIGTERM)."
 
 lint:
 	@go vet ./...

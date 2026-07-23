@@ -1,5 +1,12 @@
 name: forge-platform
 
+# Fixed subnet so forge-discovery can hold a stable DNS nameserver IP (21.04).
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -215,6 +222,9 @@ services:
     image: forge/forge-gateway:local
     container_name: forge-gateway
     restart: unless-stopped
+    # Resolve .svc.forge via Discovery; non-zone names forward to Docker DNS (21.04).
+    dns:
+      - 172.30.0.53
     ports:
       - "4000:8080"
     environment:
@@ -258,6 +268,8 @@ services:
       forge-control:
         condition: service_healthy
       forge-runtime:
+        condition: service_healthy
+      forge-discovery:
         condition: service_healthy
     stop_grace_period: 15s
     healthcheck:
@@ -366,6 +378,9 @@ services:
     image: forge/forge-runtime:local
     container_name: forge-runtime
     restart: unless-stopped
+    # Resolve .svc.forge via Discovery; non-zone names forward to Docker DNS (21.04).
+    dns:
+      - 172.30.0.53
     ports:
       - "4102:8080"
     environment:
@@ -804,8 +819,14 @@ services:
     image: forge/forge-discovery:local
     container_name: forge-discovery
     restart: unless-stopped
+    # Stable IP used as Compose `dns:` nameserver for workload-facing services (21.04).
+    networks:
+      default:
+        ipv4_address: 172.30.0.53
     ports:
       - "4109:8080"
+      # Host publish for dig debugging (optional; zone is also reachable on the Compose network).
+      - "5053:5053/udp"
     environment:
       PORT: "8080"
       FORGE_SERVICE_NAME: forge-discovery
@@ -827,6 +848,14 @@ services:
       FORGE_DISCOVERY_WATCH_BUFFER_SIZE: ${FORGE_DISCOVERY_WATCH_BUFFER_SIZE:-500}
       FORGE_DISCOVERY_WATCH_MAX_CONNECTIONS: ${FORGE_DISCOVERY_WATCH_MAX_CONNECTIONS:-1000}
       FORGE_DISCOVERY_WATCH_HEARTBEAT_SECONDS: ${FORGE_DISCOVERY_WATCH_HEARTBEAT_SECONDS:-15}
+      FORGE_DISCOVERY_DNS_ENABLED: ${FORGE_DISCOVERY_DNS_ENABLED:-true}
+      FORGE_DISCOVERY_DNS_PORT: ${FORGE_DISCOVERY_DNS_PORT:-5053}
+      FORGE_DISCOVERY_DNS_ZONE: ${FORGE_DISCOVERY_DNS_ZONE:-svc.forge}
+      FORGE_DISCOVERY_DNS_TTL_SECONDS: ${FORGE_DISCOVERY_DNS_TTL_SECONDS:-5}
+      FORGE_DISCOVERY_DNS_NEGATIVE_TTL_SECONDS: ${FORGE_DISCOVERY_DNS_NEGATIVE_TTL_SECONDS:-2}
+      # Docker embedded DNS inside the discovery container (forwards non-zone queries).
+      FORGE_DISCOVERY_DNS_FORWARD_UPSTREAM: ${FORGE_DISCOVERY_DNS_FORWARD_UPSTREAM:-127.0.0.11}
+      FORGE_DISCOVERY_DNS_FORWARD_TIMEOUT_MS: ${FORGE_DISCOVERY_DNS_FORWARD_TIMEOUT_MS:-2000}
       FORGE_OTEL_ENABLED: ${FORGE_OTEL_ENABLED:-true}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
     depends_on:
