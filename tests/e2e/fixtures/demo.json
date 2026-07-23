@@ -1,0 +1,18 @@
+{
+  "id": "00-fixture",
+  "title": "Fixture Demo",
+  "epic": "50",
+  "deploy": "tests/e2e/fixtures/lifecycle/deploy.sh",
+  "seed": "tests/e2e/fixtures/lifecycle/seed.sh",
+  "hosts": [
+    {
+      "host": "app.fixture.localhost",
+      "path": "/",
+      "expect": 200
+    }
+  ],
+  "baseURL": "http://app.fixture.localhost:4000",
+  "spec": "tests/e2e/projects/smoke/spec.ts",
+  "services": ["control", "cli", "runtime", "gateway"],
+  "teardown": "tests/e2e/fixtures/lifecycle/teardown.sh"
+}

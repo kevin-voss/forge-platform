@@ -4,8 +4,10 @@
   "version": "0.0.0",
   "description": "Forge Platform Playwright E2E harness",
   "scripts": {
+    "build": "tsc",
     "test": "playwright test",
-    "test:headless": "HEADLESS=1 playwright test"
+    "test:headless": "HEADLESS=1 playwright test",
+    "test:harness": "tsc && node --test harness/demo.test.js harness/forge.test.js"
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",

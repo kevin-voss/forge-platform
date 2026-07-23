@@ -91,6 +91,7 @@ Build **epic 50 first** (the harness everything depends on), then the demo produ
 |---|---|
 | [service-coverage-matrix.md](service-coverage-matrix.md) | Every service × which demo(s) exercise it, and how. The completeness contract. |
 | [e2e-harness.md](e2e-harness.md) | Technical design of the harness, orchestrator, headed/headless, artifacts, findings hooks. |
+| [shared-spa-style.md](shared-spa-style.md) | Shared minimal SPA convention for all demo product UIs (decided in 50.02). |
 | [findings-template.md](findings-template.md) | Copy-paste template for one platform finding. |
 | [PLATFORM_FINDINGS.md](PLATFORM_FINDINGS.md) | The living, single findings document (starts empty). |
 | [projects/](projects/) | One technical plan per demo product. |

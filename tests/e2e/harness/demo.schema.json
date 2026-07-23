@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/demo-project.json",
+  "title": "DemoProject",
+  "description": "Contract every demo product ships as demos/5X-<name>/demo.json for the platform E2E harness.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "title",
+    "epic",
+    "deploy",
+    "hosts",
+    "baseURL",
+    "spec",
+    "services",
+    "teardown"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable product id, e.g. 01-taskflow"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable product name"
+    },
+    "epic": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Implementation epic id, e.g. 51"
+    },
+    "compose": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional extra product compose file relative to repo root"
+    },
+    "deploy": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Deploy script command (path + optional args) relative to repo root"
+    },
+    "seed": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional idempotent seed script command"
+    },
+    "hosts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["host", "path", "expect"],
+        "properties": {
+          "host": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expect": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          }
+        }
+      }
+    },
+    "baseURL": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Playwright baseURL for the product UI"
+    },
+    "spec": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Playwright spec path relative to repo root"
+    },
+    "services": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Platform services exercised (coverage rollup)"
+    },
+    "teardown": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Teardown script command (path + optional args)"
+    }
+  }
+}

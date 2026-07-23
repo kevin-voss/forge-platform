@@ -191,8 +191,8 @@ Related targets: `make e2e-install` (Playwright browsers), `make e2e-report` (op
 
 ## 11. Open questions
 
-* Do we standardize product frontends on one stack (e.g. a tiny static + fetch SPA) to keep demos
-  small, or let each product pick? Recommendation: **one minimal SPA style** for all five to keep
-  the browser automation and Dockerfiles trivial. Decide in `50.02`.
+* ~~Do we standardize product frontends on one stack?~~ **Decided in 50.02:** one shared minimal
+  SPA style (static HTML/CSS/vanilla JS + `fetch`) for all five products — see
+  [`shared-spa-style.md`](shared-spa-style.md).
 * Should findings optionally open Beads issues? Out of scope for planning; `findings.json` is
   structured enough to bridge later.

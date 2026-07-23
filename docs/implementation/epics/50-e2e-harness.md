@@ -58,7 +58,7 @@ proving the whole lifecycle and the findings pipeline before any real product de
 | Step | Title | Status | Notes |
 |---|---|---|---|
 | 50.01 | Harness skeleton (Playwright + config + artifacts) | Complete | `tests/e2e/` layout, headed/headless from env, video+trace, pinned versions |
-| 50.02 | `DemoProject` contract + lifecycle runner | Not started | `demo.json` schema; `demo.ts` up→ready→seed→test→down; shared SPA style decision |
+| 50.02 | `DemoProject` contract + lifecycle runner | Complete | `demo.json` schema; `demo.ts` up→ready→seed→test→down; shared SPA style decision |
 | 50.03 | Platform preflight + gateway host routing | Not started | `make dev` bring-up, all-service health wait, `*.localhost:4000` Host matching |
 | 50.04 | Findings collector | Not started | `findings.ts` → `PLATFORM_FINDINGS.md` + `findings.json`; severity; product vs platform assert wrapper |
 | 50.05 | `make test-platform-e2e` orchestrator | Not started | run products in order, `HEADLESS`/`PROJECTS`/`KEEP`, aggregate exit code |

@@ -9,7 +9,7 @@ Atomic steps for [Platform E2E harness & orchestrator](../../epics/50-e2e-harnes
 | N | Step | File | Status |
 |---:|---|---|---|
 | **174** | `50.01` | [50.01-harness-skeleton.md](50.01-harness-skeleton.md) | Complete |
-| **175** | `50.02` | [50.02-demoproject-contract-and-runner.md](50.02-demoproject-contract-and-runner.md) | Not started |
+| **175** | `50.02` | [50.02-demoproject-contract-and-runner.md](50.02-demoproject-contract-and-runner.md) | Complete |
 | **176** | `50.03` | [50.03-platform-preflight-and-gateway-routing.md](50.03-platform-preflight-and-gateway-routing.md) | Not started |
 | **177** | `50.04` | [50.04-findings-collector.md](50.04-findings-collector.md) | Not started |
 | **178** | `50.05` | [50.05-test-platform-e2e-orchestrator.md](50.05-test-platform-e2e-orchestrator.md) | Not started |

@@ -3,3 +3,8 @@ artifacts/
 playwright-report/
 test-results/
 blob-report/
+# tsc emit (CommonJS require entry for harness modules)
+*.js
+*.d.ts
+*.js.map
+!harness/demo.schema.json

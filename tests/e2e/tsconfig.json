@@ -9,7 +9,11 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "types": ["node"]
+    "declaration": true,
+    "types": ["node"],
+    "rootDir": ".",
+    "outDir": "."
   },
-  "include": ["**/*.ts"]
+  "include": ["harness/**/*.ts", "projects/**/*.ts", "playwright.config.ts"],
+  "exclude": ["node_modules", "artifacts"]
 }
