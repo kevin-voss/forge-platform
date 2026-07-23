@@ -4,8 +4,8 @@ info:
   version: 0.1.0
   description: |
     Platform semantic vector-memory service (epic 17). Health/identity, durable
-    persistence root, and collections with fixed-dimension vectors + metadata
-    (17.02). Upsert and nearest-neighbor search land in later steps.
+    persistence root, collections with fixed-dimension vectors + metadata, batch
+    upsert, and brute-force cosine nearest-neighbor query (17.03).
 servers:
   - url: http://127.0.0.1:4303
     description: Local Compose (host port 4303)
@@ -173,14 +173,117 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /v1/collections/{name}/upsert:
+    post:
+      operationId: upsertRecords
+      summary: Batch upsert vectors + metadata
+      description: |
+        Insert or update records by id. Vectors are L2-normalized before storage.
+        Batch size is capped by `FORGE_MEMORY_MAX_UPSERT_BATCH` (default 512).
+      parameters:
+        - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/CollectionName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertRequest"
+            example:
+              records:
+                - id: i1
+                  vector: [0.1, 0.2, 0.3]
+                  metadata:
+                    type: deploy
+      responses:
+        "200":
+          description: Upsert applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpsertResponse"
+              example:
+                upserted: 1
+        "400":
+          description: Invalid request body or record id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Collection not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Dimension mismatch or batch over cap
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/collections/{name}/query:
+    post:
+      operationId: queryCollection
+      summary: Brute-force cosine nearest-neighbor query
+      description: |
+        L2-normalizes the query vector, scores all live (non-tombstoned) records
+        with optional metadata filter (equality / `$in`), and returns top-k by
+        score descending. `top_k` is capped by `FORGE_MEMORY_MAX_TOP_K` (default 100).
+      parameters:
+        - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/CollectionName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QueryRequest"
+            example:
+              vector: [0.1, 0.2, 0.3]
+              top_k: 5
+              filter:
+                type: deploy
+      responses:
+        "200":
+          description: Ranked results (may be empty)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueryResponse"
+              example:
+                results:
+                  - id: i1
+                    score: 0.98
+                    metadata:
+                      type: deploy
+        "400":
+          description: Invalid top_k
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Collection not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Dimension mismatch or top_k over cap
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /v1/collections/{name}/records:
     get:
       operationId: listRecords
       summary: List records in a collection
       description: |
-        Paginated list of records (`id`, `vector`, `metadata`, optional
-        `document_ref`). Upsert HTTP is added in 17.03; records are stored via
-        the insert-storage primitive.
+        Paginated list of live records (`id`, `vector`, `metadata`, optional
+        `document_ref`). Tombstoned records are omitted.
       parameters:
         - $ref: "#/components/parameters/ForgeProjectHeader"
         - $ref: "#/components/parameters/CollectionName"
@@ -236,6 +339,25 @@ paths:
                 $ref: "#/components/schemas/Error"
         "422":
           description: Dimension mismatch (insert/upsert paths)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: deleteRecord
+      summary: Tombstone a record
+      description: |
+        Marks the record deleted so it is excluded from queries. Vector slots
+        are reclaimed by boot/periodic compaction (`FORGE_MEMORY_COMPACT_ON_BOOT`).
+      parameters:
+        - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/CollectionName"
+        - $ref: "#/components/parameters/RecordId"
+      responses:
+        "204":
+          description: Record tombstoned
+        "404":
+          description: Record or collection not found
           content:
             application/json:
               schema:
@@ -379,6 +501,86 @@ components:
           type: integer
         limit:
           type: integer
+
+    UpsertRequest:
+      type: object
+      required: [records]
+      properties:
+        records:
+          type: array
+          minItems: 1
+          maxItems: 512
+          items:
+            $ref: "#/components/schemas/UpsertRecord"
+
+    UpsertRecord:
+      type: object
+      required: [id, vector]
+      properties:
+        id:
+          type: string
+        vector:
+          type: array
+          items:
+            type: number
+            format: float
+        metadata:
+          type: object
+          additionalProperties: true
+          default: {}
+        document_ref:
+          type: string
+
+    UpsertResponse:
+      type: object
+      required: [upserted]
+      properties:
+        upserted:
+          type: integer
+          minimum: 0
+
+    QueryRequest:
+      type: object
+      required: [vector, top_k]
+      properties:
+        vector:
+          type: array
+          items:
+            type: number
+            format: float
+        top_k:
+          type: integer
+          minimum: 1
+          maximum: 100
+        filter:
+          type: object
+          additionalProperties: true
+          description: |
+            Metadata predicates AND-ed together. Scalar values are equality;
+            `{"$in":[...]}` matches any listed value.
+
+    QueryResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/QueryHit"
+
+    QueryHit:
+      type: object
+      required: [id, score, metadata]
+      properties:
+        id:
+          type: string
+        score:
+          type: number
+          format: float
+          description: Cosine similarity (dot of L2-normalized vectors), descending
+        metadata:
+          type: object
+          additionalProperties: true
 
     Error:
       type: object

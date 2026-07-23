@@ -38,6 +38,9 @@ fn base_state(store: Arc<LocalStore>, ready: bool) -> AppState {
         list_page_size: 100,
         max_dim: 4096,
         max_metadata_bytes: 65_536,
+        max_top_k: 100,
+        max_upsert_batch: 512,
+        compact_on_boot: false,
         meta_path,
     }
 }

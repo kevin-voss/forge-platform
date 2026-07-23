@@ -3,7 +3,7 @@ use forge_memory::config::Config;
 use forge_memory::state::{bootstrap, spawn_ready_retry};
 use std::net::SocketAddr;
 use tokio::signal;
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -32,6 +32,21 @@ async fn run() -> Result<(), String> {
     );
 
     let state = bootstrap(&cfg).await?;
+    if cfg.compact_on_boot {
+        match state.ensure_collections() {
+            Ok(collections) => match collections.compact_all() {
+                Ok(removed) => {
+                    info!(tombstones_removed = removed, "boot compaction complete");
+                }
+                Err(err) => {
+                    warn!(error = %err, "boot compaction failed");
+                }
+            },
+            Err(err) => {
+                warn!(error = %err, "boot compaction skipped: collection store unavailable");
+            }
+        }
+    }
     let _ready_retry =
         spawn_ready_retry(state.clone(), cfg.ready_retry_initial, cfg.ready_retry_max);
 

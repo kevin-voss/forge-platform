@@ -4,6 +4,7 @@ pub mod config;
 pub mod health;
 pub mod meta;
 pub mod project;
+pub mod search;
 pub mod state;
 pub mod store;
 pub mod vectors;

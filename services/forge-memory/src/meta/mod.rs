@@ -314,6 +314,242 @@ impl MetaStore {
             .map_err(|e| MetaError::Internal(format!("max offset: {e}")))?;
         Ok(max.map(|m| m + 1).unwrap_or(0))
     }
+
+    /// Fetch record meta including tombstoned rows (for upsert revive / overwrite).
+    pub fn get_record_meta_any(
+        &self,
+        project_id: &str,
+        collection: &str,
+        id: &str,
+    ) -> Result<Option<RecordMeta>, MetaError> {
+        let _ = self.get_collection(project_id, collection)?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| MetaError::Internal("lock".into()))?;
+        conn.query_row(
+            "SELECT collection, id, offset, metadata, document_ref, deleted FROM records \
+             WHERE collection = ?1 AND id = ?2",
+            params![collection, id],
+            map_record_row,
+        )
+        .optional()
+        .map_err(|e| MetaError::Internal(format!("get record any: {e}")))
+    }
+
+    /// Insert or update record metadata. Returns whether live count changed (+1).
+    pub fn upsert_record_meta(
+        &self,
+        collection: &str,
+        id: &str,
+        offset: i64,
+        metadata: &serde_json::Value,
+        document_ref: Option<&str>,
+    ) -> Result<(RecordMeta, bool), MetaError> {
+        let metadata_json = serde_json::to_string(metadata)
+            .map_err(|e| MetaError::Invalid(format!("metadata json: {e}")))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| MetaError::Internal("lock".into()))?;
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|e| MetaError::Internal(format!("begin: {e}")))?;
+
+        let prior: Option<(i64, i64)> = tx
+            .query_row(
+                "SELECT deleted, offset FROM records WHERE collection = ?1 AND id = ?2",
+                params![collection, id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|e| MetaError::Internal(format!("lookup prior: {e}")))?;
+
+        let count_delta = match prior {
+            None => 1i64,
+            Some((deleted, _)) if deleted != 0 => 1,
+            Some(_) => 0,
+        };
+
+        tx.execute(
+            "INSERT INTO records (collection, id, offset, metadata, document_ref, deleted) \
+             VALUES (?1, ?2, ?3, ?4, ?5, 0) \
+             ON CONFLICT(collection, id) DO UPDATE SET \
+               offset = excluded.offset, \
+               metadata = excluded.metadata, \
+               document_ref = excluded.document_ref, \
+               deleted = 0",
+            params![collection, id, offset, metadata_json, document_ref],
+        )
+        .map_err(|e| MetaError::Internal(format!("upsert record: {e}")))?;
+
+        if count_delta != 0 {
+            tx.execute(
+                "UPDATE collections SET count = count + ?1 WHERE name = ?2",
+                params![count_delta, collection],
+            )
+            .map_err(|e| MetaError::Internal(format!("bump count: {e}")))?;
+        }
+
+        tx.commit()
+            .map_err(|e| MetaError::Internal(format!("commit: {e}")))?;
+
+        Ok((
+            RecordMeta {
+                collection: collection.to_string(),
+                id: id.to_string(),
+                offset,
+                metadata: metadata.clone(),
+                document_ref: document_ref.map(str::to_string),
+                deleted: false,
+            },
+            count_delta != 0,
+        ))
+    }
+
+    /// Soft-delete a record (tombstone). Returns true if a live row was tombstoned.
+    pub fn tombstone_record(
+        &self,
+        project_id: &str,
+        collection: &str,
+        id: &str,
+    ) -> Result<bool, MetaError> {
+        let _ = self.get_collection(project_id, collection)?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| MetaError::Internal("lock".into()))?;
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|e| MetaError::Internal(format!("begin: {e}")))?;
+        let n = tx
+            .execute(
+                "UPDATE records SET deleted = 1 \
+                 WHERE collection = ?1 AND id = ?2 AND deleted = 0",
+                params![collection, id],
+            )
+            .map_err(|e| MetaError::Internal(format!("tombstone: {e}")))?;
+        if n == 0 {
+            return Err(MetaError::NotFound);
+        }
+        tx.execute(
+            "UPDATE collections SET count = MAX(count - 1, 0) WHERE name = ?1",
+            params![collection],
+        )
+        .map_err(|e| MetaError::Internal(format!("decrement count: {e}")))?;
+        tx.commit()
+            .map_err(|e| MetaError::Internal(format!("commit: {e}")))?;
+        Ok(true)
+    }
+
+    /// All live records for query / compaction (no pagination).
+    pub fn list_all_live_record_meta(
+        &self,
+        project_id: &str,
+        collection: &str,
+    ) -> Result<Vec<RecordMeta>, MetaError> {
+        let _ = self.get_collection(project_id, collection)?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| MetaError::Internal("lock".into()))?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT collection, id, offset, metadata, document_ref, deleted FROM records \
+                 WHERE collection = ?1 AND deleted = 0 ORDER BY offset ASC",
+            )
+            .map_err(|e| MetaError::Internal(format!("prepare live records: {e}")))?;
+        let rows = stmt
+            .query_map(params![collection], map_record_row)
+            .map_err(|e| MetaError::Internal(format!("list live records: {e}")))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| MetaError::Internal(format!("row: {e}")))?);
+        }
+        Ok(out)
+    }
+
+    pub fn count_tombstoned(&self, collection: &str) -> Result<usize, MetaError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| MetaError::Internal("lock".into()))?;
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM records WHERE collection = ?1 AND deleted = 1",
+                params![collection],
+                |row| row.get(0),
+            )
+            .map_err(|e| MetaError::Internal(format!("count tombstones: {e}")))?;
+        Ok(n as usize)
+    }
+
+    /// Replace live record offsets and hard-delete tombstones after vector rewrite.
+    pub fn apply_compaction(
+        &self,
+        collection: &str,
+        live: &[RecordMeta],
+    ) -> Result<usize, MetaError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| MetaError::Internal("lock".into()))?;
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|e| MetaError::Internal(format!("begin: {e}")))?;
+        let removed = tx
+            .execute(
+                "DELETE FROM records WHERE collection = ?1 AND deleted = 1",
+                params![collection],
+            )
+            .map_err(|e| MetaError::Internal(format!("delete tombstones: {e}")))?;
+        for rec in live {
+            tx.execute(
+                "UPDATE records SET offset = ?1 WHERE collection = ?2 AND id = ?3 AND deleted = 0",
+                params![rec.offset, collection, rec.id],
+            )
+            .map_err(|e| MetaError::Internal(format!("update offset: {e}")))?;
+        }
+        tx.execute(
+            "UPDATE collections SET count = ?1 WHERE name = ?2",
+            params![live.len() as i64, collection],
+        )
+        .map_err(|e| MetaError::Internal(format!("set count: {e}")))?;
+        tx.commit()
+            .map_err(|e| MetaError::Internal(format!("commit: {e}")))?;
+        Ok(removed)
+    }
+
+    /// List every collection (all projects) for boot compaction.
+    pub fn list_all_collections(&self) -> Result<Vec<Collection>, MetaError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| MetaError::Internal("lock".into()))?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT name, project_id, dim, distance, count, created_at FROM collections \
+                 ORDER BY name ASC",
+            )
+            .map_err(|e| MetaError::Internal(format!("prepare all collections: {e}")))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(Collection {
+                    name: row.get(0)?,
+                    project_id: row.get(1)?,
+                    dim: row.get(2)?,
+                    distance: row.get(3)?,
+                    count: row.get(4)?,
+                    created_at: row.get(5)?,
+                })
+            })
+            .map_err(|e| MetaError::Internal(format!("list all collections: {e}")))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| MetaError::Internal(format!("row: {e}")))?);
+        }
+        Ok(out)
+    }
 }
 
 fn map_record_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RecordMeta> {

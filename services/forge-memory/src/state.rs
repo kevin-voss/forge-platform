@@ -12,6 +12,10 @@ use tracing::{error, info, warn};
 pub struct MemoryMetrics {
     pub memory_collections_total: AtomicU64,
     pub memory_records_total: AtomicU64,
+    pub memory_upserts_total: AtomicU64,
+    pub memory_query_candidates: AtomicU64,
+    pub memory_query_latency_micros_total: AtomicU64,
+    pub memory_query_count: AtomicU64,
 }
 
 /// Shared application state for health, identity, and collection APIs.
@@ -27,6 +31,9 @@ pub struct AppState {
     pub list_page_size: usize,
     pub max_dim: usize,
     pub max_metadata_bytes: usize,
+    pub max_top_k: usize,
+    pub max_upsert_batch: usize,
+    pub compact_on_boot: bool,
     pub meta_path: std::path::PathBuf,
 }
 
@@ -113,6 +120,9 @@ pub async fn bootstrap(cfg: &Config) -> Result<AppState, String> {
         list_page_size: cfg.list_page_size,
         max_dim: cfg.max_dim,
         max_metadata_bytes: cfg.max_metadata_bytes,
+        max_top_k: cfg.max_top_k,
+        max_upsert_batch: cfg.max_upsert_batch,
+        compact_on_boot: cfg.compact_on_boot,
         meta_path,
     };
 

@@ -193,6 +193,16 @@ impl VectorFile {
         }
         Ok(out)
     }
+
+    /// Shrink the file to exactly `len` vector slots (used by compaction).
+    pub fn truncate(&mut self, len: u64) -> Result<(), VectorFileError> {
+        let stride = Self::stride(self.dim);
+        let new_bytes = (len as usize).saturating_mul(stride);
+        self.file.set_len(new_bytes as u64)?;
+        self.len = len;
+        self.remap()?;
+        Ok(())
+    }
 }
 
 /// Remove a vector file if present (best-effort after collection delete).

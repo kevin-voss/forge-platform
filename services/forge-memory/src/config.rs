@@ -18,6 +18,9 @@ pub struct Config {
     pub max_dim: usize,
     pub list_page_size: usize,
     pub max_metadata_bytes: usize,
+    pub max_top_k: usize,
+    pub max_upsert_batch: usize,
+    pub compact_on_boot: bool,
 }
 
 impl Config {
@@ -93,6 +96,15 @@ impl Config {
         if max_metadata_bytes == 0 {
             return Err("FORGE_MEMORY_MAX_METADATA_BYTES must be >= 1".into());
         }
+        let max_top_k = parse_u64_env("FORGE_MEMORY_MAX_TOP_K", 100)? as usize;
+        if max_top_k == 0 {
+            return Err("FORGE_MEMORY_MAX_TOP_K must be >= 1".into());
+        }
+        let max_upsert_batch = parse_u64_env("FORGE_MEMORY_MAX_UPSERT_BATCH", 512)? as usize;
+        if max_upsert_batch == 0 {
+            return Err("FORGE_MEMORY_MAX_UPSERT_BATCH must be >= 1".into());
+        }
+        let compact_on_boot = parse_bool_env("FORGE_MEMORY_COMPACT_ON_BOOT", true)?;
 
         Ok(Self {
             port,
@@ -108,6 +120,9 @@ impl Config {
             max_dim,
             list_page_size,
             max_metadata_bytes,
+            max_top_k,
+            max_upsert_batch,
+            compact_on_boot,
         })
     }
 }
@@ -132,6 +147,23 @@ fn parse_u64_env(key: &str, default: u64) -> Result<u64, String> {
             trimmed
                 .parse()
                 .map_err(|_| format!("{key} must be a non-negative integer, got {raw:?}"))
+        }
+        Err(_) => Ok(default),
+    }
+}
+
+fn parse_bool_env(key: &str, default: bool) -> Result<bool, String> {
+    match env::var(key) {
+        Ok(raw) => {
+            let trimmed = raw.trim().to_ascii_lowercase();
+            if trimmed.is_empty() {
+                return Ok(default);
+            }
+            match trimmed.as_str() {
+                "1" | "true" | "yes" | "on" => Ok(true),
+                "0" | "false" | "no" | "off" => Ok(false),
+                other => Err(format!("{key} must be true|false (or 1|0), got {other:?}")),
+            }
         }
         Err(_) => Ok(default),
     }
@@ -163,6 +195,9 @@ mod tests {
             "FORGE_MEMORY_MAX_DIM",
             "FORGE_MEMORY_LIST_PAGE_SIZE",
             "FORGE_MEMORY_MAX_METADATA_BYTES",
+            "FORGE_MEMORY_MAX_TOP_K",
+            "FORGE_MEMORY_MAX_UPSERT_BATCH",
+            "FORGE_MEMORY_COMPACT_ON_BOOT",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()

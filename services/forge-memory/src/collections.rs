@@ -1,11 +1,13 @@
-//! CollectionStore: collection CRUD + record insert/read over MetaStore + VectorFile.
+//! CollectionStore: collection CRUD + record insert/upsert/query/delete over MetaStore + VectorFile.
 
 use crate::meta::{Collection, MetaError, MetaStore, RecordMeta};
-use crate::vectors::{remove_file, VectorFile, VectorFileError};
+use crate::search::{cosine_dot, l2_normalize, matches_filter, select_topk};
+use crate::vectors::{self, remove_file, VectorFile, VectorFileError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use tracing::{info, warn};
 
 /// Full record returned by read APIs.
@@ -16,6 +18,22 @@ pub struct Record {
     pub metadata: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub document_ref: Option<String>,
+}
+
+/// Single nearest-neighbor hit.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct QueryHit {
+    pub id: String,
+    pub score: f32,
+    pub metadata: serde_json::Value,
+}
+
+/// Query result plus observability counters.
+#[derive(Debug, Clone)]
+pub struct QueryOutcome {
+    pub results: Vec<QueryHit>,
+    pub candidates_scanned: usize,
+    pub latency: std::time::Duration,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,7 +124,7 @@ impl CollectionStore {
         self.vectors_dir.join(format!("{name}.vec"))
     }
 
-    fn open_vector_file(
+    pub(crate) fn open_vector_file(
         &self,
         name: &str,
         dim: usize,
@@ -192,7 +210,30 @@ impl CollectionStore {
         Ok(())
     }
 
-    /// Insert-storage primitive (HTTP upsert lands in 17.03). Enforces dimension + metadata size.
+    fn validate_vector_and_metadata(
+        &self,
+        expected_dim: usize,
+        vector: &[f32],
+        metadata: &serde_json::Value,
+    ) -> Result<(), CollectionError> {
+        if vector.len() != expected_dim {
+            return Err(CollectionError::DimensionMismatch {
+                expected: expected_dim,
+                got: vector.len(),
+            });
+        }
+        let meta_bytes = serde_json::to_vec(metadata)
+            .map_err(|e| CollectionError::Invalid(format!("metadata json: {e}")))?;
+        if meta_bytes.len() > self.max_metadata_bytes {
+            return Err(CollectionError::Invalid(format!(
+                "metadata exceeds {} bytes",
+                self.max_metadata_bytes
+            )));
+        }
+        Ok(())
+    }
+
+    /// Insert-storage primitive (no normalize). Prefer [`Self::upsert_record`] for HTTP.
     pub fn insert_record(
         &self,
         project_id: &str,
@@ -204,27 +245,13 @@ impl CollectionStore {
     ) -> Result<Record, CollectionError> {
         let col = self.meta.get_collection(project_id, collection)?;
         let expected = col.dim as usize;
-        if vector.len() != expected {
-            return Err(CollectionError::DimensionMismatch {
-                expected,
-                got: vector.len(),
-            });
-        }
-        let meta_bytes = serde_json::to_vec(&metadata)
-            .map_err(|e| CollectionError::Invalid(format!("metadata json: {e}")))?;
-        if meta_bytes.len() > self.max_metadata_bytes {
-            return Err(CollectionError::Invalid(format!(
-                "metadata exceeds {} bytes",
-                self.max_metadata_bytes
-            )));
-        }
+        self.validate_vector_and_metadata(expected, vector, &metadata)?;
 
         let vf = self.open_vector_file(collection, expected)?;
         let offset = {
             let mut file = vf
                 .lock()
                 .map_err(|_| CollectionError::Internal("vector lock".into()))?;
-            // Prefer contiguous append; also tolerate holes via next_vector_offset.
             let next = self.meta.next_vector_offset(collection)?;
             file.write_at(next as u64, vector)?;
             next
@@ -244,6 +271,169 @@ impl CollectionStore {
             metadata,
             document_ref,
         })
+    }
+
+    /// Upsert by id: L2-normalize, overwrite existing slot or append, upsert metadata.
+    pub fn upsert_record(
+        &self,
+        project_id: &str,
+        collection: &str,
+        id: &str,
+        vector: &[f32],
+        metadata: serde_json::Value,
+        document_ref: Option<String>,
+    ) -> Result<Record, CollectionError> {
+        let col = self.meta.get_collection(project_id, collection)?;
+        let expected = col.dim as usize;
+        self.validate_vector_and_metadata(expected, vector, &metadata)?;
+
+        let normalized = l2_normalize(vector);
+        let prior = self.meta.get_record_meta_any(project_id, collection, id)?;
+        let offset = match &prior {
+            Some(existing) => existing.offset,
+            None => self.meta.next_vector_offset(collection)?,
+        };
+
+        let vf = self.open_vector_file(collection, expected)?;
+        {
+            let mut file = vf
+                .lock()
+                .map_err(|_| CollectionError::Internal("vector lock".into()))?;
+            file.write_at(offset as u64, &normalized)?;
+        }
+
+        self.meta
+            .upsert_record_meta(collection, id, offset, &metadata, document_ref.as_deref())?;
+
+        Ok(Record {
+            id: id.to_string(),
+            vector: normalized,
+            metadata,
+            document_ref,
+        })
+    }
+
+    /// Batch upsert; returns number of records written.
+    pub fn upsert_batch(
+        &self,
+        project_id: &str,
+        collection: &str,
+        records: &[(String, Vec<f32>, serde_json::Value, Option<String>)],
+    ) -> Result<usize, CollectionError> {
+        // Ensure collection exists once up front.
+        let _ = self.meta.get_collection(project_id, collection)?;
+        let mut n = 0usize;
+        for (id, vector, metadata, document_ref) in records {
+            self.upsert_record(
+                project_id,
+                collection,
+                id,
+                vector,
+                metadata.clone(),
+                document_ref.clone(),
+            )?;
+            n += 1;
+        }
+        Ok(n)
+    }
+
+    /// Brute-force cosine NN over live records with optional metadata filter.
+    pub fn query(
+        &self,
+        project_id: &str,
+        collection: &str,
+        vector: &[f32],
+        top_k: usize,
+        filter: Option<&serde_json::Value>,
+    ) -> Result<QueryOutcome, CollectionError> {
+        let started = Instant::now();
+        let col = self.meta.get_collection(project_id, collection)?;
+        let expected = col.dim as usize;
+        if vector.len() != expected {
+            return Err(CollectionError::DimensionMismatch {
+                expected,
+                got: vector.len(),
+            });
+        }
+        let query_norm = l2_normalize(vector);
+        let live = self
+            .meta
+            .list_all_live_record_meta(project_id, collection)?;
+        let vf = self.open_vector_file(collection, expected)?;
+        let file = vf
+            .lock()
+            .map_err(|_| CollectionError::Internal("vector lock".into()))?;
+
+        let mut scored: Vec<(String, f32, serde_json::Value)> = Vec::new();
+        let mut candidates = 0usize;
+        for meta in live {
+            if !matches_filter(filter, &meta.metadata) {
+                continue;
+            }
+            candidates += 1;
+            let raw = file.read_at(meta.offset as u64)?;
+            let cand_norm = l2_normalize(&raw);
+            if cand_norm.len() != expected {
+                return Err(CollectionError::Corrupt(format!(
+                    "vector at offset {} has dim {}, expected {}",
+                    meta.offset,
+                    cand_norm.len(),
+                    expected
+                )));
+            }
+            let score = cosine_dot(&query_norm, &cand_norm);
+            scored.push((meta.id, score, meta.metadata));
+        }
+
+        let top = select_topk(scored.iter().map(|(id, s, _)| (id.clone(), *s)), top_k);
+        let mut results = Vec::with_capacity(top.len());
+        for s in top {
+            let metadata = scored
+                .iter()
+                .find(|(id, _, _)| id == &s.id)
+                .map(|(_, _, m)| m.clone())
+                .unwrap_or(serde_json::Value::Null);
+            results.push(QueryHit {
+                id: s.id,
+                score: s.score,
+                metadata,
+            });
+        }
+
+        Ok(QueryOutcome {
+            results,
+            candidates_scanned: candidates,
+            latency: started.elapsed(),
+        })
+    }
+
+    /// Tombstone a record (excluded from subsequent queries).
+    pub fn delete_record(
+        &self,
+        project_id: &str,
+        collection: &str,
+        id: &str,
+    ) -> Result<(), CollectionError> {
+        self.meta.tombstone_record(project_id, collection, id)?;
+        info!(
+            project_id = %project_id,
+            collection = %collection,
+            record_id = %id,
+            "record tombstoned"
+        );
+        Ok(())
+    }
+
+    pub fn compact_collection(
+        &self,
+        project_id: &str,
+        name: &str,
+    ) -> Result<usize, CollectionError> {
+        vectors::compact_collection(self, project_id, name)
+    }
+
+    pub fn compact_all(&self) -> Result<usize, CollectionError> {
+        vectors::compact_all(self)
     }
 
     pub fn get_record(
@@ -364,5 +554,146 @@ mod tests {
         assert_eq!(rec.vector, vec![0.1, 0.2, 0.3]);
         assert_eq!(rec.metadata["type"], "deploy");
         assert_eq!(rec.document_ref.as_deref(), Some("storage://bucket/obj"));
+    }
+
+    #[test]
+    fn upsert_updates_existing_id_in_place() {
+        let dir = tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("vectors")).unwrap();
+        let s = store(dir.path());
+        s.create_collection("proj-a", "incidents", 2, "cosine")
+            .unwrap();
+        s.upsert_record(
+            "proj-a",
+            "incidents",
+            "r1",
+            &[1.0, 0.0],
+            serde_json::json!({"v": 1}),
+            None,
+        )
+        .unwrap();
+        let before = s
+            .meta()
+            .get_record_meta("proj-a", "incidents", "r1")
+            .unwrap();
+        s.upsert_record(
+            "proj-a",
+            "incidents",
+            "r1",
+            &[0.0, 1.0],
+            serde_json::json!({"v": 2}),
+            None,
+        )
+        .unwrap();
+        let after = s
+            .meta()
+            .get_record_meta("proj-a", "incidents", "r1")
+            .unwrap();
+        assert_eq!(before.offset, after.offset);
+        assert_eq!(after.metadata["v"], 2);
+        let col = s.get_collection("proj-a", "incidents").unwrap();
+        assert_eq!(col.count, 1);
+        let rec = s.get_record("proj-a", "incidents", "r1").unwrap();
+        // Stored L2-normalized.
+        assert!((rec.vector[0] - 0.0).abs() < 1e-5);
+        assert!((rec.vector[1] - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn query_ranks_known_fixture() {
+        let dir = tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("vectors")).unwrap();
+        let s = store(dir.path());
+        s.create_collection("proj-a", "incidents", 2, "cosine")
+            .unwrap();
+        s.upsert_record(
+            "proj-a",
+            "incidents",
+            "east",
+            &[1.0, 0.0],
+            serde_json::json!({"type": "deploy"}),
+            None,
+        )
+        .unwrap();
+        s.upsert_record(
+            "proj-a",
+            "incidents",
+            "north",
+            &[0.0, 1.0],
+            serde_json::json!({"type": "alert"}),
+            None,
+        )
+        .unwrap();
+        s.upsert_record(
+            "proj-a",
+            "incidents",
+            "diag",
+            &[0.8, 0.2],
+            serde_json::json!({"type": "deploy"}),
+            None,
+        )
+        .unwrap();
+
+        let out = s
+            .query("proj-a", "incidents", &[1.0, 0.0], 2, None)
+            .unwrap();
+        assert_eq!(out.results.len(), 2);
+        assert_eq!(out.results[0].id, "east");
+        assert!((out.results[0].score - 1.0).abs() < 1e-5);
+        assert_eq!(out.results[1].id, "diag");
+
+        let filtered = s
+            .query(
+                "proj-a",
+                "incidents",
+                &[1.0, 0.0],
+                5,
+                Some(&serde_json::json!({"type": "deploy"})),
+            )
+            .unwrap();
+        assert_eq!(filtered.results.len(), 2);
+        assert!(filtered
+            .results
+            .iter()
+            .all(|h| h.metadata["type"] == "deploy"));
+    }
+
+    #[test]
+    fn delete_excludes_then_compaction_reclaims() {
+        let dir = tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("vectors")).unwrap();
+        let s = store(dir.path());
+        s.create_collection("proj-a", "incidents", 2, "cosine")
+            .unwrap();
+        s.upsert_record(
+            "proj-a",
+            "incidents",
+            "keep",
+            &[1.0, 0.0],
+            serde_json::json!({}),
+            None,
+        )
+        .unwrap();
+        s.upsert_record(
+            "proj-a",
+            "incidents",
+            "drop",
+            &[0.0, 1.0],
+            serde_json::json!({}),
+            None,
+        )
+        .unwrap();
+        s.delete_record("proj-a", "incidents", "drop").unwrap();
+        let out = s
+            .query("proj-a", "incidents", &[1.0, 0.0], 5, None)
+            .unwrap();
+        assert_eq!(out.results.len(), 1);
+        assert_eq!(out.results[0].id, "keep");
+        assert_eq!(s.meta().count_tombstoned("incidents").unwrap(), 1);
+        let removed = s.compact_collection("proj-a", "incidents").unwrap();
+        assert_eq!(removed, 1);
+        assert_eq!(s.meta().count_tombstoned("incidents").unwrap(), 0);
+        let vf = s.open_vector_file("incidents", 2).unwrap();
+        assert_eq!(vf.lock().unwrap().len(), 1);
     }
 }
