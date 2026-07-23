@@ -27,6 +27,8 @@ type Config struct {
 	DefaultAckWaitS      int
 	DefaultMaxDeliveries int
 	AckTokenTTLS         int
+	DLQEnabled           bool
+	DLQRetentionDays     int
 }
 
 // Load reads configuration from the process environment.
@@ -117,6 +119,15 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("FORGE_ACK_TOKEN_TTL_S (%d) must be >= FORGE_DEFAULT_ACK_WAIT_S (%d)", ackTokenTTL, ackWaitS)
 	}
 
+	dlqEnabled, err := parseBool("FORGE_DLQ_ENABLED", os.Getenv("FORGE_DLQ_ENABLED"), true)
+	if err != nil {
+		return Config{}, err
+	}
+	dlqRetentionDays, err := parsePositiveInt("FORGE_DLQ_RETENTION_DAYS", os.Getenv("FORGE_DLQ_RETENTION_DAYS"), 7)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		Port:                 port,
 		ServiceName:          name,
@@ -132,7 +143,24 @@ func Load() (Config, error) {
 		DefaultAckWaitS:      ackWaitS,
 		DefaultMaxDeliveries: maxDeliveries,
 		AckTokenTTLS:         ackTokenTTL,
+		DLQEnabled:           dlqEnabled,
+		DLQRetentionDays:     dlqRetentionDays,
 	}, nil
+}
+
+func parseBool(name, raw string, def bool) (bool, error) {
+	raw = strings.TrimSpace(strings.ToLower(raw))
+	if raw == "" {
+		return def, nil
+	}
+	switch raw {
+	case "1", "true", "yes", "on":
+		return true, nil
+	case "0", "false", "no", "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s must be true|false, got %q", name, raw)
+	}
 }
 
 func parsePositiveInt(name, raw string, def int) (int, error) {

@@ -27,16 +27,28 @@ func TestPlatformStreamsPresent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("JetStream: %v", err)
 	}
-	names := []string{"build", "deployment", "runtime", "application", "agent"}
+	families := []string{"build", "deployment", "runtime", "application", "agent"}
+	names := StreamNames(families, true)
 	if err := StreamsPresent(js, names); err != nil {
 		t.Fatalf("platform streams: %v", err)
 	}
-	for _, name := range names {
+	for _, name := range families {
 		info, err := js.StreamInfo(name)
 		if err != nil {
 			t.Fatalf("StreamInfo(%s): %v", name, err)
 		}
 		want := []string{name + ".>"}
+		if !subjectsCompatible(info.Config.Subjects, want) {
+			t.Fatalf("stream %s subjects = %v, want %v", name, info.Config.Subjects, want)
+		}
+	}
+	for _, family := range families {
+		name := DLQStreamName(family)
+		info, err := js.StreamInfo(name)
+		if err != nil {
+			t.Fatalf("StreamInfo(%s): %v", name, err)
+		}
+		want := []string{"dlq." + family + ".>"}
 		if !subjectsCompatible(info.Config.Subjects, want) {
 			t.Fatalf("stream %s subjects = %v, want %v", name, info.Config.Subjects, want)
 		}

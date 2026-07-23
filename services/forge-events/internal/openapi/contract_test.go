@@ -31,6 +31,7 @@ func TestOpenAPISkeletonPaths(t *testing.T) {
 	for _, p := range []string{
 		"/health/live", "/health/ready", "/",
 		"/v1/events", "/v1/consume", "/v1/consumers", "/v1/ack", "/v1/nak",
+		"/v1/dlq", "/v1/dlq/{dlq_id}", "/v1/dlq/{dlq_id}:redeliver",
 	} {
 		if paths[p] == nil {
 			t.Fatalf("openapi missing path %s", p)
@@ -105,10 +106,37 @@ func TestOpenAPISkeletonPaths(t *testing.T) {
 		"Envelope", "PublishRequest", "PublishResponse",
 		"ConsumeRequest", "ConsumeResponse", "DeliveredMessage", "ErrorEnvelope",
 		"CreateConsumerRequest", "ConsumerInfo", "AckRequest", "NakRequest",
+		"DLQEntry", "DLQDetail", "DLQRedeliverResponse",
 	} {
 		if schemas[name] == nil {
 			t.Fatalf("openapi missing schema %s", name)
 		}
+	}
+
+	dlqEntry, ok := schemas["DLQEntry"].(map[string]any)
+	if !ok {
+		t.Fatal("DLQEntry not an object")
+	}
+	dlqProps, ok := dlqEntry["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("DLQEntry missing properties")
+	}
+	for _, field := range []string{
+		"dlq_id", "event_id", "original_subject", "consumer",
+		"delivery_count", "last_error", "first_failed_at",
+	} {
+		if dlqProps[field] == nil {
+			t.Fatalf("DLQEntry missing property %s", field)
+		}
+	}
+
+	redeliverPath, ok := paths["/v1/dlq/{dlq_id}:redeliver"].(map[string]any)
+	if !ok {
+		t.Fatal("openapi redeliver path missing")
+	}
+	postRedeliver, ok := redeliverPath["post"].(map[string]any)
+	if !ok || postRedeliver["operationId"] != "redeliverDLQ" {
+		t.Fatalf("redeliver operationId = %v", postRedeliver["operationId"])
 	}
 
 	envelope, ok := schemas["Envelope"].(map[string]any)

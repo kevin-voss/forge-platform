@@ -1,6 +1,7 @@
 package consumers
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
@@ -28,21 +29,27 @@ type AckMetrics struct {
 	Pending     atomic.Int64
 }
 
+// TerminalHandler routes a message that has exhausted max_deliveries (DLQ).
+// Implementations must never silently drop the payload.
+type TerminalHandler func(ctx context.Context, msg *nats.Msg, consumer, eventID string, deliveryCount int, lastError string) error
+
 // pendingDelivery holds an in-flight JetStream message awaiting ack/nak.
 type pendingDelivery struct {
 	msg           *nats.Msg
 	consumer      string
 	eventID       string
 	deliveryCount int
+	maxDeliveries int
 	expires       time.Time
 	used          bool
 }
 
 // AckManager maps opaque single-use ack tokens to JetStream deliveries.
 type AckManager struct {
-	ttl     time.Duration
-	log     *slog.Logger
-	metrics *AckMetrics
+	ttl      time.Duration
+	log      *slog.Logger
+	metrics  *AckMetrics
+	terminal TerminalHandler
 
 	mu      sync.Mutex
 	pending map[string]*pendingDelivery
@@ -67,8 +74,23 @@ func NewAckManager(ttl time.Duration, log *slog.Logger, metrics *AckMetrics) *Ac
 	}
 }
 
+// SetTerminalHandler registers the DLQ (or other) handler for max-delivery exhaustion.
+func (a *AckManager) SetTerminalHandler(h TerminalHandler) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.terminal = h
+}
+
 // Register stores msg under a new opaque token. Caller must not ack the msg.
 func (a *AckManager) Register(msg *nats.Msg, consumer, eventID string, deliveryCount int) string {
+	return a.RegisterDelivery(msg, consumer, eventID, deliveryCount, 0)
+}
+
+// RegisterDelivery stores msg with max_deliveries so Nak can detect the terminal attempt.
+func (a *AckManager) RegisterDelivery(msg *nats.Msg, consumer, eventID string, deliveryCount, maxDeliveries int) string {
 	token := newAckToken()
 	a.mu.Lock()
 	a.pending[token] = &pendingDelivery{
@@ -76,6 +98,7 @@ func (a *AckManager) Register(msg *nats.Msg, consumer, eventID string, deliveryC
 		consumer:      consumer,
 		eventID:       eventID,
 		deliveryCount: deliveryCount,
+		maxDeliveries: maxDeliveries,
 		expires:       time.Now().Add(a.ttl),
 	}
 	pending := int64(len(a.pending))
@@ -104,11 +127,44 @@ func (a *AckManager) Ack(token string) error {
 }
 
 // Nak negatively acknowledges a delivery, optionally delaying redelivery.
+// On the final delivery attempt (delivery_count >= max_deliveries), routes to
+// the terminal handler (DLQ) and Terms the message instead of nacking.
 func (a *AckManager) Nak(token string, delay time.Duration) error {
 	d, err := a.take(token)
 	if err != nil {
 		return err
 	}
+
+	a.mu.Lock()
+	terminal := a.terminal
+	a.mu.Unlock()
+
+	if terminal != nil && d.maxDeliveries > 0 && d.deliveryCount >= d.maxDeliveries {
+		lastErr := "max_deliveries exceeded"
+		if err := terminal(context.Background(), d.msg, d.consumer, d.eventID, d.deliveryCount, lastErr); err != nil {
+			// Handler queues for retry; still Term so the durable stops looping.
+			a.log.Error("terminal handler error after max deliveries",
+				"span", "events.park",
+				"consumer", d.consumer,
+				"event_id", d.eventID,
+				"delivery_count", d.deliveryCount,
+				"error", err.Error(),
+			)
+		}
+		if err := d.msg.Term(); err != nil {
+			return fmt.Errorf("jetstream term: %w", err)
+		}
+		a.metrics.Nacked.Add(1)
+		a.log.Warn("event parked after max deliveries (dlq)",
+			"span", "events.park",
+			"consumer", d.consumer,
+			"event_id", d.eventID,
+			"delivery_count", d.deliveryCount,
+			"max_deliveries", d.maxDeliveries,
+		)
+		return nil
+	}
+
 	if delay > 0 {
 		if err := d.msg.NakWithDelay(delay); err != nil {
 			return fmt.Errorf("jetstream nak delay: %w", err)

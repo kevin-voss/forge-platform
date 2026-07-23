@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode"
 
+	"forge.local/services/forge-events/internal/dlq"
 	"forge.local/services/forge-events/internal/events"
 
 	"github.com/nats-io/nats.go"
@@ -63,6 +64,12 @@ type Metrics struct {
 	Parked   atomic.Uint64
 }
 
+// DLQRouter routes terminal poison messages to a dead-letter queue.
+type DLQRouter interface {
+	Enabled() bool
+	Route(ctx context.Context, fail dlq.TerminalFailure) error
+}
+
 // Store creates and pull-consumes named JetStream durable consumers.
 type Store struct {
 	js                   JS
@@ -72,6 +79,7 @@ type Store struct {
 	maxBatch             int
 	wait                 time.Duration
 	ack                  *AckManager
+	dlq                  DLQRouter
 	log                  *slog.Logger
 	metrics              *Metrics
 
@@ -111,7 +119,7 @@ func NewStore(
 	if wait <= 0 {
 		wait = 2 * time.Second
 	}
-	return &Store{
+	s := &Store{
 		js:                   js,
 		families:             append([]string(nil), families...),
 		defaultAckWaitS:      defaultAckWaitS,
@@ -124,6 +132,18 @@ func NewStore(
 		registry:             make(map[string]ConsumerInfo),
 		subs:                 make(map[string]*nats.Subscription),
 	}
+	ack.SetTerminalHandler(s.handleTerminal)
+	return s
+}
+
+// SetDLQRouter attaches the DLQ router used on max-delivery exhaustion.
+func (s *Store) SetDLQRouter(r DLQRouter) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.dlq = r
 }
 
 // AckManager returns the shared ack token manager.
@@ -315,9 +335,9 @@ func (s *Store) Consume(ctx context.Context, req ConsumeRequest) (events.Consume
 			deliveryCount = int(meta.NumDelivered)
 		}
 
-		// Max deliveries exceeded: park (terminal) for DLQ handling in 11.04.
+		// Max deliveries exceeded: park + route to DLQ.
 		if deliveryCount > info.MaxDeliveries {
-			s.park(msg, name, "", deliveryCount)
+			s.park(msg, name, "", deliveryCount, "max_deliveries exceeded")
 			continue
 		}
 
@@ -341,7 +361,7 @@ func (s *Store) Consume(ctx context.Context, req ConsumeRequest) (events.Consume
 
 		if deliveryCount >= info.MaxDeliveries {
 			// Final delivery attempt — still expose to consumer; if they nak,
-			// JetStream will not redeliver (parked). Log terminal state.
+			// AckManager routes to DLQ and Terms.
 			s.log.Info("event final delivery",
 				"span", "events.redeliver",
 				"consumer", name,
@@ -351,7 +371,7 @@ func (s *Store) Consume(ctx context.Context, req ConsumeRequest) (events.Consume
 			)
 		}
 
-		token := s.ack.Register(msg, name, eventID, deliveryCount)
+		token := s.ack.RegisterDelivery(msg, name, eventID, deliveryCount, info.MaxDeliveries)
 		out = append(out, events.DeliveredMessage{
 			EventID:       eventID,
 			Subject:       subject,
@@ -383,12 +403,13 @@ func (s *Store) Consume(ctx context.Context, req ConsumeRequest) (events.Consume
 	return events.ConsumeResult{Messages: out}, nil
 }
 
-func (s *Store) park(msg *nats.Msg, consumer, eventID string, deliveryCount int) {
+func (s *Store) park(msg *nats.Msg, consumer, eventID string, deliveryCount int, lastError string) {
 	if eventID == "" {
 		if env, err := events.UnmarshalEnvelope(msg.Data); err == nil {
 			eventID = env.ID
 		}
 	}
+	_ = s.handleTerminal(context.Background(), msg, consumer, eventID, deliveryCount, lastError)
 	_ = msg.Term()
 	s.metrics.Parked.Add(1)
 	s.log.Warn("event parked (max deliveries exceeded)",
@@ -397,6 +418,38 @@ func (s *Store) park(msg *nats.Msg, consumer, eventID string, deliveryCount int)
 		"event_id", eventID,
 		"delivery_count", deliveryCount,
 	)
+}
+
+func (s *Store) handleTerminal(ctx context.Context, msg *nats.Msg, consumer, eventID string, deliveryCount int, lastError string) error {
+	s.mu.Lock()
+	router := s.dlq
+	s.mu.Unlock()
+	if router == nil || !router.Enabled() {
+		return nil
+	}
+	subject := msg.Subject
+	family := ""
+	if env, err := events.UnmarshalEnvelope(msg.Data); err == nil {
+		if eventID == "" {
+			eventID = env.ID
+		}
+		if env.Subject != "" {
+			subject = env.Subject
+		}
+	}
+	if f, err := events.FamilyForSubject(subject, s.families); err == nil {
+		family = f
+	}
+	return router.Route(ctx, dlq.TerminalFailure{
+		Payload:         append([]byte(nil), msg.Data...),
+		OriginalSubject: subject,
+		Consumer:        consumer,
+		EventID:         eventID,
+		DeliveryCount:   deliveryCount,
+		LastError:       lastError,
+		FirstFailedAt:   time.Now().UTC().Truncate(time.Millisecond),
+		Family:          family,
+	})
 }
 
 func (s *Store) recoverConsumer(name string) (ConsumerInfo, error) {

@@ -20,6 +20,8 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FORGE_DEFAULT_ACK_WAIT_S", "")
 	t.Setenv("FORGE_DEFAULT_MAX_DELIVERIES", "")
 	t.Setenv("FORGE_ACK_TOKEN_TTL_S", "")
+	t.Setenv("FORGE_DLQ_ENABLED", "")
+	t.Setenv("FORGE_DLQ_RETENTION_DAYS", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -45,6 +47,12 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.AckTokenTTLS != 60 {
 		t.Fatalf("AckTokenTTLS = %d, want 60", cfg.AckTokenTTLS)
+	}
+	if !cfg.DLQEnabled {
+		t.Fatal("DLQEnabled = false, want true")
+	}
+	if cfg.DLQRetentionDays != 7 {
+		t.Fatalf("DLQRetentionDays = %d, want 7", cfg.DLQRetentionDays)
 	}
 	if cfg.ServiceName != "forge-events" {
 		t.Fatalf("ServiceName = %q, want forge-events", cfg.ServiceName)

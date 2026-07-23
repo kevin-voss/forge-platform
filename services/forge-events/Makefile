@@ -22,6 +22,8 @@ dev:
 	FORGE_DEFAULT_ACK_WAIT_S=$${FORGE_DEFAULT_ACK_WAIT_S:-30} \
 	FORGE_DEFAULT_MAX_DELIVERIES=$${FORGE_DEFAULT_MAX_DELIVERIES:-5} \
 	FORGE_ACK_TOKEN_TTL_S=$${FORGE_ACK_TOKEN_TTL_S:-60} \
+	FORGE_DLQ_ENABLED=$${FORGE_DLQ_ENABLED:-true} \
+	FORGE_DLQ_RETENTION_DAYS=$${FORGE_DLQ_RETENTION_DAYS:-7} \
 	FORGE_SHUTDOWN_GRACE_SECONDS=$${FORGE_SHUTDOWN_GRACE_SECONDS:-10} \
 	go run ./cmd/forge-events
 
@@ -83,6 +85,43 @@ test-integration: run
 			| python3 -c 'import sys,json; b=json.load(sys.stdin); assert len(b["messages"])>=1; assert int(b["messages"][0]["delivery_count"])>=2'; \
 		code="$$(curl -s -o /tmp/forge-events-bad-subject.json -w '%{http_code}' -X POST "http://127.0.0.1:$(HOST_PORT)/v1/events" -H 'content-type: application/json' -d '{"subject":"nope.bad","data":{}}')"; \
 		test "$$code" = "400"
+	@# Poison message → max_deliveries → DLQ list/detail/redeliver/delete.
+	@subj="application.poison.make_$$$$"; cons="poison_$$$$"; \
+		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/consumers" \
+			-H 'content-type: application/json' \
+			-d "{\"name\":\"$$cons\",\"subject\":\"$$subj\",\"ack_wait_s\":30,\"max_deliveries\":3}" >/dev/null; \
+		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/events" \
+			-H 'content-type: application/json' \
+			-d "{\"subject\":\"$$subj\",\"data\":{\"service\":\"poison\"},\"source\":\"test\"}" >/dev/null; \
+		for i in 1 2 3; do \
+			tok=""; \
+			for j in $$(seq 1 40); do \
+				tok="$$(curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/consume" \
+					-H 'content-type: application/json' \
+					-d "{\"consumer\":\"$$cons\",\"batch\":1}" \
+					| python3 -c 'import sys,json; b=json.load(sys.stdin); print(b["messages"][0]["ack_token"] if b.get("messages") else "")')"; \
+				if [ -n "$$tok" ]; then break; fi; \
+				sleep 0.25; \
+			done; \
+			test -n "$$tok"; \
+			code="$$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$(HOST_PORT)/v1/nak" \
+				-H 'content-type: application/json' -d "{\"ack_token\":\"$$tok\"}")"; \
+			test "$$code" = "204"; \
+		done; \
+		did=""; \
+		for i in $$(seq 1 40); do \
+			did="$$(curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/dlq?subject=$$subj&consumer=$$cons" \
+				| python3 -c 'import sys,json; b=json.load(sys.stdin); print(b[0]["dlq_id"] if b else "")')"; \
+			if [ -n "$$did" ]; then break; fi; \
+			sleep 0.25; \
+		done; \
+		test -n "$$did"; \
+		curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/dlq/$$did" \
+			| python3 -c 'import sys,json; b=json.load(sys.stdin); assert b["dlq_id"] and b["envelope"]["id"] and b["original_subject"] and int(b["delivery_count"])>=3'; \
+		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/dlq/$$did:redeliver" \
+			| python3 -c 'import sys,json; b=json.load(sys.stdin); assert b["republished_to"] and b["event_id"]'; \
+		code="$$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "http://127.0.0.1:$(HOST_PORT)/v1/dlq/$$did")"; \
+		test "$$code" = "204"
 	@# Bad NATS URL → readiness 503 while live stays 200.
 	@docker run --rm -d --name forge-events-bad-nats-$$$$ \
 		-e PORT=8080 \
@@ -133,7 +172,7 @@ test-integration: run
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
 	@grep -q '4105' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@echo "Integration checks passed (health + identity + JetStream streams + durable consume/ack/redelivery + unknown subject 400 + ready/503 + restart idempotency + invalid PORT + graceful SIGTERM)."
+	@echo "Integration checks passed (health + identity + JetStream streams + durable consume/ack/redelivery + DLQ inspect/redeliver/delete + unknown subject 400 + ready/503 + restart idempotency + invalid PORT + graceful SIGTERM)."
 
 lint:
 	@go vet ./...

@@ -1,11 +1,11 @@
 openapi: 3.0.3
 info:
   title: Forge Events API
-  version: 0.3.0
+  version: 0.4.0
   description: |
-    Platform events service (epic 11). Step 11.03 adds named durable consumers
-    with explicit ack/nak and bounded retry (max_deliveries + ack_wait). DLQ,
-    schemas, and auth arrive in later steps. Auth is not required yet (11.06).
+    Platform events service (epic 11). Step 11.04 adds dead-letter queues with
+    inspect, redeliver, and delete APIs for messages that exhaust max_deliveries.
+    Schemas and auth arrive in later steps. Auth is not required yet (11.06).
 servers:
   - url: http://127.0.0.1:4105
     description: Local Compose (host port 4105)
@@ -266,7 +266,8 @@ paths:
       summary: Negatively acknowledge a delivered message
       description: |
         Negatively acknowledges a delivery, scheduling redelivery (optionally
-        delayed by delay_s). Tokens are single-use.
+        delayed by delay_s). Tokens are single-use. On the final delivery
+        attempt the message is routed to the DLQ and terminated.
       security: []
       requestBody:
         required: true
@@ -305,7 +306,127 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /v1/dlq:
+    get:
+      operationId: listDLQ
+      summary: List dead-letter queue entries
+      description: |
+        Lists DLQ messages with failure metadata. Optional filters narrow by
+        original subject and consumer name. Payloads are omitted from the list.
+      security: []
+      parameters:
+        - name: subject
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by original event subject
+        - name: consumer
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by durable consumer name
+      responses:
+        "200":
+          description: DLQ entries (may be empty)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DLQEntry"
+              example:
+                - dlq_id: dlq_01
+                  event_id: evt_1
+                  original_subject: application.crashed
+                  consumer: crash-worker
+                  delivery_count: 3
+                  last_error: max_deliveries exceeded
+                  first_failed_at: "2026-07-23T01:00:00Z"
+                  created_at: "2026-07-23T01:00:01Z"
+
+  /v1/dlq/{dlq_id}:
+    get:
+      operationId: getDLQ
+      summary: Inspect a DLQ entry
+      description: Returns failure metadata plus the full original event envelope.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/DLQId"
+      responses:
+        "200":
+          description: DLQ detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DLQDetail"
+        "404":
+          description: Unknown DLQ id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteDLQ
+      summary: Acknowledge/remove a DLQ entry
+      description: Deletes the DLQ index entry and best-effort removes the JetStream message.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/DLQId"
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Unknown DLQ id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/dlq/{dlq_id}:redeliver:
+    post:
+      operationId: redeliverDLQ
+      summary: Redeliver a DLQ message to its original subject
+      description: |
+        Republishes the original envelope to its original subject, preserving
+        the original event id for downstream idempotency. The DLQ entry is
+        retained until explicitly deleted.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/DLQId"
+      responses:
+        "202":
+          description: Republished
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DLQRedeliverResponse"
+              example:
+                republished_to: application.crashed
+                event_id: evt_1
+        "404":
+          description: Unknown DLQ id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Original subject stream unavailable; DLQ entry retained
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
 components:
+  parameters:
+    DLQId:
+      name: dlq_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Dead-letter entry id
   schemas:
     HealthStatus:
       type: object
@@ -518,6 +639,66 @@ components:
           type: integer
           minimum: 0
           description: Optional delay before redelivery
+
+    DLQEntry:
+      type: object
+      description: Dead-letter list row with failure metadata (no payload)
+      required:
+        - dlq_id
+        - event_id
+        - original_subject
+        - consumer
+        - delivery_count
+        - first_failed_at
+        - created_at
+      properties:
+        dlq_id:
+          type: string
+        event_id:
+          type: string
+          description: Original event id
+        original_subject:
+          type: string
+        consumer:
+          type: string
+          description: Durable consumer that exhausted retries
+        delivery_count:
+          type: integer
+          minimum: 1
+        last_error:
+          type: string
+        first_failed_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        family:
+          type: string
+
+    DLQDetail:
+      allOf:
+        - $ref: "#/components/schemas/DLQEntry"
+        - type: object
+          required:
+            - envelope
+          properties:
+            envelope:
+              description: Full original event envelope JSON
+              $ref: "#/components/schemas/Envelope"
+
+    DLQRedeliverResponse:
+      type: object
+      required:
+        - republished_to
+        - event_id
+      properties:
+        republished_to:
+          type: string
+          description: Original subject the envelope was republished to
+        event_id:
+          type: string
+          description: Preserved original event id
 
     ErrorEnvelope:
       type: object

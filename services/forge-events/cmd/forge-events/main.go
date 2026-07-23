@@ -16,6 +16,7 @@ import (
 	"forge.local/services/forge-events/internal/api"
 	"forge.local/services/forge-events/internal/config"
 	"forge.local/services/forge-events/internal/consumers"
+	"forge.local/services/forge-events/internal/dlq"
 	"forge.local/services/forge-events/internal/events"
 	"forge.local/services/forge-events/internal/health"
 	natsx "forge.local/services/forge-events/internal/nats"
@@ -48,11 +49,13 @@ func run() error {
 		"default_ack_wait_s", cfg.DefaultAckWaitS,
 		"default_max_deliveries", cfg.DefaultMaxDeliveries,
 		"ack_token_ttl_s", cfg.AckTokenTTLS,
+		"dlq_enabled", cfg.DLQEnabled,
+		"dlq_retention_days", cfg.DLQRetentionDays,
 		"shutdown_grace_seconds", int(cfg.ShutdownGrace.Seconds()),
 	)
 
 	metrics := &natsx.Metrics{}
-	conn := natsx.NewConn(cfg.NATSURL, cfg.Streams, log, metrics)
+	conn := natsx.NewConnWithDLQ(cfg.NATSURL, cfg.Streams, cfg.DLQEnabled, log, metrics)
 	if err := conn.Connect(context.Background()); err != nil {
 		return err
 	}
@@ -79,11 +82,19 @@ func run() error {
 		&consumers.Metrics{},
 	)
 
+	dlqMetrics := &dlq.Metrics{}
+	dlqStore := dlq.NewStore(conn.JetStream())
+	dlqRouter := dlq.NewRouter(conn.JetStream(), dlqStore, cfg.DLQEnabled, log, dlqMetrics)
+	store.SetDLQRouter(dlqRouter)
+	redeliverer := dlq.NewRedeliverer(conn.JetStream(), dlqStore, log, dlqMetrics)
+	retention := dlq.NewRetentionRunner(dlqStore, dlqRouter, cfg.DLQRetentionDays, log, dlqMetrics)
+
 	mux := http.NewServeMux()
 	health.NewHandler(conn, cfg.ServiceName, cfg.ServiceVersion).Register(mux)
 	(&api.PublishHandler{Publisher: publisher, MaxBytes: cfg.EventMaxBytes}).Register(mux)
 	(&api.ConsumeHandler{Consumer: store, MaxBytes: cfg.EventMaxBytes, Wait: cfg.ConsumeWait}).Register(mux)
 	(&api.ConsumersHandler{Store: store, Acker: ackMgr, MaxBytes: cfg.EventMaxBytes}).Register(mux)
+	(&api.DLQHandler{Store: dlqStore, Redeliverer: redeliverer, Enabled: cfg.DLQEnabled}).Register(mux)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -95,6 +106,10 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
+
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	defer bgCancel()
+	go retention.Run(bgCtx)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -111,11 +126,13 @@ func run() error {
 
 	select {
 	case err := <-errCh:
+		bgCancel()
 		return err
 	case sig := <-sigCh:
 		log.Info("shutdown signal received", "signal", sig.String())
 	}
 
+	bgCancel()
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownGrace)
 	defer cancel()
 

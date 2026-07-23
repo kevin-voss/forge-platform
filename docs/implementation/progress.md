@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 74`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 75`**.
 
 ## Epics
 
@@ -19,7 +19,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | Complete | 6/6 steps complete; demo 08 multi-node acceptance gate passed |
 | [09](epics/09-forge-identity.md) | Forge Identity | Complete | 8/8 steps complete; demo 09 platform-identity acceptance gate passed; default auth enforce |
 | [10](epics/10-forge-secrets.md) | Forge Secrets | Complete | 7/7 steps; demo 10 secrets acceptance gate passed |
-| [11](epics/11-forge-events.md) | Forge Events | In progress | 2/7 steps; publish + pull-consume API on `4105` |
+| [11](epics/11-forge-events.md) | Forge Events | In progress | 4/7 steps; durable consume + DLQ inspect/redeliver on `4105` |
 | [12](epics/12-forge-observe.md) | Forge Observe | Planning | 7 steps |
 | [13](epics/13-forge-storage.md) | Forge Storage | Planning | 7 steps |
 | [14](epics/14-forge-models.md) | Forge Models | Planning | 7 steps |
@@ -107,7 +107,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **71** | [Skeleton + NATS wiring](steps/11-forge-events/11.01-skeleton-and-nats-wiring.md) | Complete |  | Go skeleton on `4105`; JetStream connect + platform stream bootstrap; ready gated on streams |
 | **72** | [Publish/subscribe API](steps/11-forge-events/11.02-publish-subscribe-api.md) | Complete |  | `POST /v1/events` + `POST /v1/consume`; envelope; subject allow-list; OpenAPI |
 | **73** | [Durable consumers, ack, retry](steps/11-forge-events/11.03-durable-consumers-ack-retry.md) | Complete |  | Named durables; explicit ack/nak; ack_wait redelivery; max_deliveries park |
-| **74** | [DLQ + inspect APIs](steps/11-forge-events/11.04-dlq-and-inspect-apis.md) | Not started |  |  |
+| **74** | [DLQ + inspect APIs](steps/11-forge-events/11.04-dlq-and-inspect-apis.md) | Complete |  | `dlq_*` streams; terminal→DLQ; list/detail/redeliver/delete APIs |
 | **75** | [Event JSON Schemas](steps/11-forge-events/11.05-event-json-schemas.md) | Not started |  |  |
 | **76** | [Idempotency keys + consumer identity](steps/11-forge-events/11.06-idempotency-keys-and-consumer-identity.md) | Not started |  |  |
 | **77** | [Demo `11-event-driven` (Go producer → Elixir consumer) + gate](steps/11-forge-events/11.07-demo-11-event-driven.md) | Not started |  |  |

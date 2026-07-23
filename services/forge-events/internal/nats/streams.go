@@ -31,6 +31,49 @@ func SpecsForNames(names []string) []StreamSpec {
 	return out
 }
 
+// DLQStreamName returns the JetStream stream name for a family's dead-letter queue.
+func DLQStreamName(family string) string {
+	return "dlq_" + family
+}
+
+// DLQSpecForFamily returns the DLQ stream spec for a source family
+// (subjects dlq.<family>.>).
+func DLQSpecForFamily(family string) StreamSpec {
+	return StreamSpec{
+		Name:     DLQStreamName(family),
+		Subjects: []string{"dlq." + family + ".>"},
+	}
+}
+
+// DLQSpecsForFamilies builds DLQ stream specs for each source family.
+func DLQSpecsForFamilies(families []string) []StreamSpec {
+	out := make([]StreamSpec, 0, len(families))
+	for _, f := range families {
+		out = append(out, DLQSpecForFamily(f))
+	}
+	return out
+}
+
+// BootstrapSpecs returns platform streams plus optional DLQ streams.
+func BootstrapSpecs(families []string, dlqEnabled bool) []StreamSpec {
+	out := SpecsForNames(families)
+	if dlqEnabled {
+		out = append(out, DLQSpecsForFamilies(families)...)
+	}
+	return out
+}
+
+// StreamNames returns the JetStream stream names that must be present when ready.
+func StreamNames(families []string, dlqEnabled bool) []string {
+	out := append([]string(nil), families...)
+	if dlqEnabled {
+		for _, f := range families {
+			out = append(out, DLQStreamName(f))
+		}
+	}
+	return out
+}
+
 // BootstrapStreams idempotently ensures each stream exists with compatible subjects.
 // A pre-existing stream with a matching subject set is accepted; create-if-absent otherwise.
 func BootstrapStreams(js nats.JetStreamContext, specs []StreamSpec, log *slog.Logger) error {

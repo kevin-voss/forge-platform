@@ -20,10 +20,11 @@ type Metrics struct {
 
 // Conn wraps a NATS connection with JetStream and reconnect-aware bootstrap.
 type Conn struct {
-	url     string
-	streams []string
-	log     *slog.Logger
-	metrics *Metrics
+	url        string
+	streams    []string
+	dlqEnabled bool
+	log        *slog.Logger
+	metrics    *Metrics
 
 	mu        sync.Mutex
 	nc        *nats.Conn
@@ -35,6 +36,11 @@ type Conn struct {
 
 // NewConn prepares a connection manager; call Connect to dial.
 func NewConn(url string, streams []string, log *slog.Logger, metrics *Metrics) *Conn {
+	return NewConnWithDLQ(url, streams, true, log, metrics)
+}
+
+// NewConnWithDLQ prepares a connection manager with optional DLQ stream bootstrap.
+func NewConnWithDLQ(url string, streams []string, dlqEnabled bool, log *slog.Logger, metrics *Metrics) *Conn {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -42,13 +48,14 @@ func NewConn(url string, streams []string, log *slog.Logger, metrics *Metrics) *
 		metrics = &Metrics{}
 	}
 	c := &Conn{
-		url:     url,
-		streams: append([]string(nil), streams...),
-		log:     log,
-		metrics: metrics,
+		url:        url,
+		streams:    append([]string(nil), streams...),
+		dlqEnabled: dlqEnabled,
+		log:        log,
+		metrics:    metrics,
 	}
 	c.bootErr.Store("")
-	c.metrics.Streams.Store(int64(len(streams)))
+	c.metrics.Streams.Store(int64(len(StreamNames(streams, dlqEnabled))))
 	return c
 }
 
@@ -121,9 +128,14 @@ func (c *Conn) runBootstrap(reason string) {
 		return
 	}
 
+	c.mu.Lock()
+	dlqEnabled := c.dlqEnabled
+	c.mu.Unlock()
+
 	c.log.Info("events.bootstrap starting", "span", "events.bootstrap", "reason", reason)
 	start := time.Now()
-	err := BootstrapStreams(js, SpecsForNames(streams), c.log)
+	specs := BootstrapSpecs(streams, dlqEnabled)
+	err := BootstrapStreams(js, specs, c.log)
 	if err != nil {
 		c.bootOk.Store(false)
 		c.metrics.Ready.Store(0)
@@ -139,10 +151,12 @@ func (c *Conn) runBootstrap(reason string) {
 	c.bootOk.Store(true)
 	c.bootErr.Store("")
 	c.metrics.Ready.Store(1)
+	c.metrics.Streams.Store(int64(len(specs)))
 	c.log.Info("events.bootstrap complete",
 		"span", "events.bootstrap",
 		"reason", reason,
-		"streams", len(streams),
+		"streams", len(specs),
+		"dlq_enabled", dlqEnabled,
 		"duration_ms", time.Since(start).Milliseconds(),
 	)
 }
@@ -176,8 +190,9 @@ func (c *Conn) ReadyError() error {
 	c.mu.Lock()
 	js := c.js
 	streams := append([]string(nil), c.streams...)
+	dlqEnabled := c.dlqEnabled
 	c.mu.Unlock()
-	if err := StreamsPresent(js, streams); err != nil {
+	if err := StreamsPresent(js, StreamNames(streams, dlqEnabled)); err != nil {
 		return err
 	}
 	return nil

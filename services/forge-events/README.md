@@ -2,8 +2,9 @@
 
 Go HTTP service on host port `4105` that wraps NATS JetStream with a Forge
 publish/consume API. Bootstraps platform event streams (`build`, `deployment`,
-`runtime`, `application`, `agent`) and exposes durable consumers with explicit
-ack/nak and bounded retry.
+`runtime`, `application`, `agent`) plus per-family dead-letter streams
+(`dlq_<family>`), and exposes durable consumers with explicit ack/nak, bounded
+retry, and DLQ inspect/redeliver APIs.
 
 ## Quick start
 
@@ -30,6 +31,9 @@ curl -s -X POST localhost:4105/v1/consume \
 curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:4105/v1/ack \
   -H 'content-type: application/json' \
   -d '{"ack_token":"<token>"}'
+
+# After max_deliveries naks, inspect the DLQ
+curl -s 'localhost:4105/v1/dlq?subject=application.crashed' | jq
 ```
 
 ## Local development
@@ -54,12 +58,28 @@ make -C services/forge-events test
 | `FORGE_DEFAULT_ACK_WAIT_S` | `30` | Default ack wait / redelivery delay |
 | `FORGE_DEFAULT_MAX_DELIVERIES` | `5` | Default max delivery attempts |
 | `FORGE_ACK_TOKEN_TTL_S` | `60` (or ≥ ack wait) | Opaque ack token validity window |
+| `FORGE_DLQ_ENABLED` | `true` | Bootstrap `dlq_*` streams + route terminal failures |
+| `FORGE_DLQ_RETENTION_DAYS` | `7` | Age-based DLQ index/stream cleanup |
 | `FORGE_SHUTDOWN_GRACE_SECONDS` | `10` | SIGTERM drain window |
+
+## DLQ
+
+Messages that exhaust `max_deliveries` are published to `dlq.<family>.entry`
+with failure metadata headers (`original_subject`, `consumer`, `delivery_count`,
+`last_error`, `first_failed_at`). Operators can:
+
+* `GET /v1/dlq?subject=&consumer=` — list
+* `GET /v1/dlq/{dlq_id}` — full envelope + metadata
+* `POST /v1/dlq/{dlq_id}:redeliver` — republish to the original subject (same event id)
+* `DELETE /v1/dlq/{dlq_id}` — acknowledge/remove
+
+DLQ routing never silently drops a poison message: publish failures are queued
+for retry.
 
 ## Auth
 
-No auth on publish/consume yet. Identity tokens land in step `11.06`.
+No auth on publish/consume/DLQ yet. Identity tokens land in step `11.06`.
 
 ## Status
 
-Step `11.03` — durable consumers, explicit ack/nak, bounded retry. DLQ is `11.04`.
+Step `11.04` — dead-letter queue with inspect and redeliver APIs. Schemas are `11.05`.
