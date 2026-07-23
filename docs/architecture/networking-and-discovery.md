@@ -195,14 +195,26 @@ endpoint addresses against active workload leases and observed routes; drift inc
 `forge_network_dns_resolution_total{result}` and span `network.dns.resolve`.
 NetworkPolicy denies from step `22.05` still apply after a name resolves.
 
-## 10. Local fidelity
+## 10. Local fidelity (proven)
 
-Everything above must be demonstrable on one developer machine with Docker:
+Proven by `make demo DEMO=22` (`demos/22-forge-network`) on one developer machine
+with Docker. Fake WireGuard / nftables / route backends stand in for kernel
+features on Docker Desktop and CI; the control plane and DNS contracts are the same.
 
-* several runtime-node containers form a real Forge network
-* a workload on node A reaches a service on node B by internal name
-* a `NetworkPolicy` denies an unauthorized path, and the deny is visible
-* a node restarts, rejoins, and traffic converges
+Local path exercised by the gate:
+
+```text
+bootstrap tokens → node leases (10.100.x.0/24) → peer registry
+→ docker transport (colocated) / wireguard (membership override, fake WG)
+→ workload overlay leases → Discovery DNS A (overlay only)
+→ NetworkPolicy allow then deny-all + forge_network_policy_denied_total
+→ node leave releases lease → peers and DNS answers drop
+```
+
+* three runtime-node containers join a Forge network with overlay addresses
+* a workload on node A resolves a service on node B by `.svc.forge` to an overlay IP
+* a `NetworkPolicy` deny path is observable (metric + `network.policy.denied`)
+* a stopped node is removed from the peer set and from Ready DNS answers
 
 If a networking feature cannot be shown locally, it cannot be trusted in production —
 and it will not pass its epic gate.

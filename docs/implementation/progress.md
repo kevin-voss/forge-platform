@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 152`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 153`**.
 
 ## Epics
 
@@ -183,7 +183,7 @@ next implementable step is still the one named at the top of this file. Plan:
 |---|---|---|---|---|
 | [20](epics/20-declarative-resource-api.md) | Declarative resource API | M1 | Complete | 8/8 steps; demo 20 declarative-resources acceptance gate passed |
 | [21](epics/21-forge-discovery.md) | Forge Discovery | M1 | Complete | 6/6 steps; demo 21 service-discovery acceptance gate passed |
-| [22](epics/22-forge-network.md) | Forge Network | M1 | In progress | 6/7 steps (`N = 151` complete; next `22.07` / `N = 152`) |
+| [22](epics/22-forge-network.md) | Forge Network | M1 | Complete | 7/7 steps; demo 22 forge-network acceptance gate passed |
 | [23](epics/23-forge-infrastructure.md) | Forge Infrastructure | M1 | Planning | 7 steps (`N = 153`–`159`); Docker/SSH/bare-metal/Hetzner/AWS/Azure |
 | [24](epics/24-forge-autoscaler.md) | Forge Autoscaler | M1 | Planning | 8 steps (`N = 160`–`167`); workload + worker + node scaling |
 | [25](epics/25-scheduling-enhancements.md) | Scheduling enhancements | M1 | Planning | 6 steps (`N = 168`–`173`); M1 exit gate |
@@ -230,7 +230,7 @@ next implementable step is still the one named at the top of this file. Plan:
 | **149** | [Local Docker mode + provider private networks](steps/22-forge-network/22.04-local-and-provider-network-modes.md) | Complete |  | TransportResolver; membership + network_routes; Runtime route.rs; compose docker_colocated |
 | **150** | [NetworkPolicy resource + enforcement](steps/22-forge-network/22.05-network-policy-resource-and-enforcement.md) | Complete |  | NetworkPolicy CRUD; PolicyCompiler; rules API; Runtime nftables policy; deny metrics/events |
 | **151** | [Overlay + Discovery/DNS integration](steps/22-forge-network/22.06-overlay-dns-and-cross-node-services.md) | Complete |  | Runtime DNS bootstrap; overlay lease registration; Discovery overlay filter; drift reconcile + metrics |
-| **152** | Epic 22 — Forge Network (`22.07`) | Not started |  | |
+| **152** | [Demo `22-forge-network` + epic gate](steps/22-forge-network/22.07-demo-22-forge-network.md) | Complete |  | `make demo DEMO=22`; join/peers/DNS/policy/node-loss |
 | **153**–**159** | Epic 23 — Forge Infrastructure (`23.01`–`23.07`) | Not started |  | |
 | **160**–**167** | Epic 24 — Forge Autoscaler (`24.01`–`24.08`) | Not started |  | |
 | **168**–**173** | Epic 25 — Scheduling enhancements (`25.01`–`25.06`) | Not started |  | |

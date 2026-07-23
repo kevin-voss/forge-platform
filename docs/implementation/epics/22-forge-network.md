@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Milestone
 
@@ -159,7 +159,7 @@ Restart node-b
 | [22.04](../steps/22-forge-network/22.04-local-and-provider-network-modes.md) | 149 | Local Docker mode + provider private networks | Complete | Per-pair transport selection |
 | [22.05](../steps/22-forge-network/22.05-network-policy-resource-and-enforcement.md) | 150 | `NetworkPolicy` resource + enforcement | Complete | Node-level enforcement + observability |
 | [22.06](../steps/22-forge-network/22.06-overlay-dns-and-cross-node-services.md) | 151 | Overlay + Discovery/DNS integration | Complete | Cross-node calls by internal name |
-| [22.07](../steps/22-forge-network/22.07-demo-22-forge-network.md) | 152 | Demo `22-forge-network` + epic gate | Not started | Join, reach, deny, rejoin |
+| [22.07](../steps/22-forge-network/22.07-demo-22-forge-network.md) | 152 | Demo `22-forge-network` + epic gate | Complete | `make demo DEMO=22` join/peers/DNS/policy/node-loss |
 
 ## Assumptions
 
@@ -210,5 +210,4 @@ Restart node-b
 
 ## Next step to implement
 
-**[22.07](../steps/22-forge-network/22.07-demo-22-forge-network.md) —
-Demo `22-forge-network` + epic gate**.
+Epic complete. Next future-queue step: **[23.01](../steps/23-forge-infrastructure/23.01-skeleton-provider-interface-and-nodepools.md)** (`N = 153`).

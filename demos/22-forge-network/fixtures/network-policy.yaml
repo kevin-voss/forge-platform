@@ -1,0 +1,19 @@
+# NetworkPolicy allow-list: frontend → api on TCP 8080 (epic 22 gate).
+# Applied via forge-network HTTP API by run.sh (kind is owned by forge-network, not Control).
+apiVersion: forge.dev/v1
+kind: NetworkPolicy
+metadata:
+  name: api-from-frontend
+  organization: default
+  project: demo
+  environment: production
+spec:
+  target:
+    application: api
+  ingress:
+    - from:
+        service: frontend
+      ports:
+        - port: 8080
+          protocol: tcp
+  egress: []

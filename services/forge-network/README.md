@@ -153,9 +153,20 @@ curl -s -X POST localhost:4110/v1/networks/cluster-overlay/nodes/node-a/rotate-k
 
 [`contracts/openapi/forge-network.openapi.yaml`](../../contracts/openapi/forge-network.openapi.yaml)
 
+## Demo gate
+
+```bash
+make demo DEMO=22
+```
+
+Acceptance gate: [`demos/22-forge-network`](../../demos/22-forge-network) — three-node
+join, peer mesh, overlay DNS, NetworkPolicy allow/deny, node-loss peer cleanup.
+Uses fake WireGuard/nft/route backends by default for CI and Docker Desktop.
+
 ## Related
 
 * Epic: [`docs/implementation/epics/22-forge-network.md`](../../docs/implementation/epics/22-forge-network.md)
 * Step `22.01`: [`22.01-skeleton-and-address-allocation.md`](../../docs/implementation/steps/22-forge-network/22.01-skeleton-and-address-allocation.md)
 * Step `22.03`: [`22.03-wireguard-peer-management.md`](../../docs/implementation/steps/22-forge-network/22.03-wireguard-peer-management.md)
 * Step `22.04`: [`22.04-local-and-provider-network-modes.md`](../../docs/implementation/steps/22-forge-network/22.04-local-and-provider-network-modes.md)
+* Step `22.07`: [`22.07-demo-22-forge-network.md`](../../docs/implementation/steps/22-forge-network/22.07-demo-22-forge-network.md)
