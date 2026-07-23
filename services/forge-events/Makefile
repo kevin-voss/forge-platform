@@ -16,6 +16,9 @@ dev:
 	FORGE_ENV=$${FORGE_ENV:-development} \
 	FORGE_NATS_URL=$${FORGE_NATS_URL:-nats://127.0.0.1:5002} \
 	FORGE_EVENTS_STREAMS=$${FORGE_EVENTS_STREAMS:-build,deployment,runtime,application,agent} \
+	FORGE_EVENT_MAX_BYTES=$${FORGE_EVENT_MAX_BYTES:-262144} \
+	FORGE_CONSUME_MAX_BATCH=$${FORGE_CONSUME_MAX_BATCH:-100} \
+	FORGE_CONSUME_WAIT_MS=$${FORGE_CONSUME_WAIT_MS:-2000} \
 	FORGE_SHUTDOWN_GRACE_SECONDS=$${FORGE_SHUTDOWN_GRACE_SECONDS:-10} \
 	go run ./cmd/forge-events
 
@@ -46,6 +49,18 @@ test-integration: run
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q 'events.bootstrap'
 	@# Platform streams present via JetStream API (Go one-shot against compose NATS).
 	@FORGE_EVENTS_EXPECT_STREAMS=1 FORGE_NATS_URL=nats://127.0.0.1:5002 go test ./internal/nats -run TestPlatformStreamsPresent -count=1
+	@# Publish → consume round-trip + unknown subject 400.
+	@subj="application.crashed.make_$$$$"; \
+		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/events" \
+			-H 'content-type: application/json' \
+			-d "{\"subject\":\"$$subj\",\"data\":{\"service\":\"demo\",\"reason\":\"oom\"},\"source\":\"runtime\"}" \
+			| python3 -c 'import sys,json; b=json.load(sys.stdin); assert b.get("event_id") and b.get("stream")=="application" and int(b.get("seq",0))>0'; \
+		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/consume" \
+			-H 'content-type: application/json' \
+			-d "{\"subject\":\"$$subj\",\"batch\":10,\"consumer\":\"make_$$$$\"}" \
+			| python3 -c 'import sys,json; b=json.load(sys.stdin); assert len(b["messages"])>=1; m=b["messages"][0]; assert m["subject"].startswith("application.crashed"); assert m["data"]["service"]=="demo"; assert m.get("ack_token")'
+	@code="$$(curl -s -o /tmp/forge-events-bad-subject.json -w '%{http_code}' -X POST "http://127.0.0.1:$(HOST_PORT)/v1/events" -H 'content-type: application/json' -d '{"subject":"nope.bad","data":{}}')"; \
+		test "$$code" = "400"
 	@# Bad NATS URL → readiness 503 while live stays 200.
 	@docker run --rm -d --name forge-events-bad-nats-$$$$ \
 		-e PORT=8080 \
@@ -96,7 +111,7 @@ test-integration: run
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
 	@grep -q '4105' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@echo "Integration checks passed (health + identity + JetStream streams + ready/503 + restart idempotency + invalid PORT + graceful SIGTERM)."
+	@echo "Integration checks passed (health + identity + JetStream streams + publish/consume + unknown subject 400 + ready/503 + restart idempotency + invalid PORT + graceful SIGTERM)."
 
 lint:
 	@go vet ./...

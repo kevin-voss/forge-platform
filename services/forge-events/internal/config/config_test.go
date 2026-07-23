@@ -14,6 +14,9 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FORGE_SHUTDOWN_GRACE_SECONDS", "")
 	t.Setenv("FORGE_NATS_URL", "")
 	t.Setenv("FORGE_EVENTS_STREAMS", "")
+	t.Setenv("FORGE_EVENT_MAX_BYTES", "")
+	t.Setenv("FORGE_CONSUME_MAX_BATCH", "")
+	t.Setenv("FORGE_CONSUME_WAIT_MS", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -21,6 +24,15 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.Port != 4105 {
 		t.Fatalf("Port = %d, want 4105", cfg.Port)
+	}
+	if cfg.EventMaxBytes != 256*1024 {
+		t.Fatalf("EventMaxBytes = %d, want %d", cfg.EventMaxBytes, 256*1024)
+	}
+	if cfg.ConsumeMaxBatch != 100 {
+		t.Fatalf("ConsumeMaxBatch = %d, want 100", cfg.ConsumeMaxBatch)
+	}
+	if cfg.ConsumeWait != 2*time.Second {
+		t.Fatalf("ConsumeWait = %v, want 2s", cfg.ConsumeWait)
 	}
 	if cfg.ServiceName != "forge-events" {
 		t.Fatalf("ServiceName = %q, want forge-events", cfg.ServiceName)

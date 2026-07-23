@@ -13,14 +13,17 @@ var DefaultStreams = []string{"build", "deployment", "runtime", "application", "
 
 // Config holds env-based runtime settings for forge-events.
 type Config struct {
-	Port           int
-	ServiceName    string
-	ServiceVersion string
-	LogLevel       string
-	Env            string
-	ShutdownGrace  time.Duration
-	NATSURL        string
-	Streams        []string
+	Port            int
+	ServiceName     string
+	ServiceVersion  string
+	LogLevel        string
+	Env             string
+	ShutdownGrace   time.Duration
+	NATSURL         string
+	Streams         []string
+	EventMaxBytes   int
+	ConsumeMaxBatch int
+	ConsumeWait     time.Duration
 }
 
 // Load reads configuration from the process environment.
@@ -76,16 +79,56 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	maxBytes, err := parsePositiveInt("FORGE_EVENT_MAX_BYTES", os.Getenv("FORGE_EVENT_MAX_BYTES"), 256*1024)
+	if err != nil {
+		return Config{}, err
+	}
+	maxBatch, err := parsePositiveInt("FORGE_CONSUME_MAX_BATCH", os.Getenv("FORGE_CONSUME_MAX_BATCH"), 100)
+	if err != nil {
+		return Config{}, err
+	}
+	waitMS, err := parseNonNegativeInt("FORGE_CONSUME_WAIT_MS", os.Getenv("FORGE_CONSUME_WAIT_MS"), 2000)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
-		Port:           port,
-		ServiceName:    name,
-		ServiceVersion: version,
-		LogLevel:       level,
-		Env:            env,
-		ShutdownGrace:  time.Duration(graceSecs) * time.Second,
-		NATSURL:        natsURL,
-		Streams:        streams,
+		Port:            port,
+		ServiceName:     name,
+		ServiceVersion:  version,
+		LogLevel:        level,
+		Env:             env,
+		ShutdownGrace:   time.Duration(graceSecs) * time.Second,
+		NATSURL:         natsURL,
+		Streams:         streams,
+		EventMaxBytes:   maxBytes,
+		ConsumeMaxBatch: maxBatch,
+		ConsumeWait:     time.Duration(waitMS) * time.Millisecond,
 	}, nil
+}
+
+func parsePositiveInt(name, raw string, def int) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("%s must be a positive integer, got %q", name, raw)
+	}
+	return n, nil
+}
+
+func parseNonNegativeInt(name, raw string, def int) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("%s must be a non-negative integer, got %q", name, raw)
+	}
+	return n, nil
 }
 
 func parseStreams(raw string) ([]string, error) {

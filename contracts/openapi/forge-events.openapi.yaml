@@ -1,11 +1,11 @@
 openapi: 3.0.3
 info:
   title: Forge Events API
-  version: 0.1.0
+  version: 0.2.0
   description: |
-    Platform events service (epic 11). Skeleton (11.01): runtime-contract health
-    and identity plus NATS JetStream stream bootstrap. Publish/subscribe and
-    durable consumers arrive in later steps.
+    Platform events service (epic 11). Step 11.02 adds HTTP publish and
+    pull-consume over NATS JetStream. Durable ack/retry, DLQ, schemas, and
+    auth arrive in later steps. Auth is not required yet (documented for 11.06).
 servers:
   - url: http://127.0.0.1:4105
     description: Local Compose (host port 4105)
@@ -74,6 +74,96 @@ paths:
                 status: running
                 version: 0.1.0
 
+  /v1/events:
+    post:
+      operationId: publishEvent
+      summary: Publish an event
+      description: |
+        Validates the subject against known stream families, wraps the payload in
+        a standard envelope, and publishes to JetStream. Returns 202 with
+        event_id, stream, and sequence. No auth yet (11.06).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishRequest"
+            example:
+              subject: application.crashed
+              data:
+                service: demo
+                reason: oom
+              source: runtime
+      responses:
+        "202":
+          description: Event accepted and stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishResponse"
+              example:
+                event_id: evt_1
+                stream: application
+                seq: 42
+        "400":
+          description: Unknown or invalid subject / request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "413":
+          description: Payload exceeds FORGE_EVENT_MAX_BYTES
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: JetStream publish failed (retryable)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/consume:
+    post:
+      operationId: consumeEvents
+      summary: Pull-consume events
+      description: |
+        Long-polls JetStream for a batch of messages matching subject. Returns an
+        empty messages array when none arrive within the wait window. Messages
+        include an ack_token stub; durable ack semantics arrive in 11.03.
+        Auto-ack is applied on deliver in this step.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConsumeRequest"
+            example:
+              subject: application.crashed
+              batch: 10
+      responses:
+        "200":
+          description: Batch of delivered messages (may be empty)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsumeResponse"
+        "400":
+          description: Unknown or invalid subject / request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: JetStream consume failed (retryable)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
 components:
   schemas:
     HealthStatus:
@@ -109,3 +199,132 @@ components:
         uptime_seconds:
           type: number
           description: Seconds since process start
+
+    Envelope:
+      type: object
+      description: Standard event wrapper stored as the JetStream message payload
+      required:
+        - id
+        - subject
+        - time
+        - data
+      properties:
+        id:
+          type: string
+          description: Unique event id (also used as NATS msg-id)
+          example: evt_01hxyz
+        subject:
+          type: string
+          example: application.crashed
+        time:
+          type: string
+          format: date-time
+        source:
+          type: string
+          description: Optional producer identity
+          example: runtime
+        data:
+          description: Opaque JSON payload (schema validation in 11.05)
+
+    PublishRequest:
+      type: object
+      required:
+        - subject
+        - data
+      properties:
+        subject:
+          type: string
+          description: Concrete subject in a known family (e.g. application.crashed)
+        data:
+          description: Opaque JSON event payload
+        source:
+          type: string
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+
+    PublishResponse:
+      type: object
+      required:
+        - event_id
+        - stream
+        - seq
+      properties:
+        event_id:
+          type: string
+        stream:
+          type: string
+        seq:
+          type: integer
+          format: int64
+          minimum: 0
+
+    ConsumeRequest:
+      type: object
+      required:
+        - subject
+      properties:
+        subject:
+          type: string
+        batch:
+          type: integer
+          minimum: 1
+          description: Max messages to return (capped by FORGE_CONSUME_MAX_BATCH)
+        consumer:
+          type: string
+          description: Optional pull consumer name; default is subject-derived
+
+    DeliveredMessage:
+      type: object
+      required:
+        - event_id
+        - subject
+        - time
+        - data
+        - ack_token
+      properties:
+        event_id:
+          type: string
+        subject:
+          type: string
+        time:
+          type: string
+          format: date-time
+        source:
+          type: string
+        data:
+          description: Opaque JSON payload from the envelope
+        ack_token:
+          type: string
+          description: Opaque delivery token (ack API in 11.03)
+
+    ConsumeResponse:
+      type: object
+      required:
+        - messages
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeliveredMessage"
+
+    ErrorEnvelope:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties:
+                type: string

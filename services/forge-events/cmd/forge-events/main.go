@@ -13,7 +13,9 @@ import (
 	"syscall"
 	"time"
 
+	"forge.local/services/forge-events/internal/api"
 	"forge.local/services/forge-events/internal/config"
+	"forge.local/services/forge-events/internal/events"
 	"forge.local/services/forge-events/internal/health"
 	natsx "forge.local/services/forge-events/internal/nats"
 )
@@ -39,6 +41,9 @@ func run() error {
 		"log_level", cfg.LogLevel,
 		"nats_url", cfg.NATSURL,
 		"streams", strings.Join(cfg.Streams, ","),
+		"event_max_bytes", cfg.EventMaxBytes,
+		"consume_max_batch", cfg.ConsumeMaxBatch,
+		"consume_wait_ms", int(cfg.ConsumeWait.Milliseconds()),
 		"shutdown_grace_seconds", int(cfg.ShutdownGrace.Seconds()),
 	)
 
@@ -54,8 +59,14 @@ func run() error {
 		}
 	}()
 
+	eventMetrics := &events.Metrics{}
+	publisher := events.NewPublisher(conn.JetStream(), cfg.Streams, cfg.EventMaxBytes, log, eventMetrics)
+	consumer := events.NewConsumer(conn.JetStream(), cfg.Streams, cfg.ConsumeMaxBatch, cfg.ConsumeWait, log, eventMetrics)
+
 	mux := http.NewServeMux()
 	health.NewHandler(conn, cfg.ServiceName, cfg.ServiceVersion).Register(mux)
+	(&api.PublishHandler{Publisher: publisher, MaxBytes: cfg.EventMaxBytes}).Register(mux)
+	(&api.ConsumeHandler{Consumer: consumer, MaxBytes: cfg.EventMaxBytes, Wait: cfg.ConsumeWait}).Register(mux)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

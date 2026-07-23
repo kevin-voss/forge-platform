@@ -62,7 +62,7 @@ Restart consumer mid-stream → no lost/duplicate processing (idempotency)
 | Step | Title | Status | Notes |
 |---|---|---|---|
 | [11.01](../steps/11-forge-events/11.01-skeleton-and-nats-wiring.md) | Skeleton + NATS wiring | Complete | Go service on 4105; JetStream connection + stream bootstrap |
-| [11.02](../steps/11-forge-events/11.02-publish-subscribe-api.md) | Publish/subscribe API | Not started | Publish + subscribe surface |
+| [11.02](../steps/11-forge-events/11.02-publish-subscribe-api.md) | Publish/subscribe API | Complete | HTTP publish + pull-consume over JetStream; envelope + OpenAPI |
 | [11.03](../steps/11-forge-events/11.03-durable-consumers-ack-retry.md) | Durable consumers, ack, retry | Not started | Survive restart; retry policy |
 | [11.04](../steps/11-forge-events/11.04-dlq-and-inspect-apis.md) | DLQ + inspect APIs | Not started | Dead-letter + inspection |
 | [11.05](../steps/11-forge-events/11.05-event-json-schemas.md) | Event JSON Schemas | Not started | build.*, deployment.*, runtime.node.offline, application.crashed, agent.run.* |
@@ -87,4 +87,4 @@ Restart consumer mid-stream → no lost/duplicate processing (idempotency)
 
 ## Next step to implement
 
-**[11.02](../steps/11-forge-events/11.02-publish-subscribe-api.md) — Publish/subscribe API** (HTTP publish + subscribe surface over JetStream).
+**[11.03](../steps/11-forge-events/11.03-durable-consumers-ack-retry.md) — Durable consumers, ack, retry** (survive restart; retry policy).
