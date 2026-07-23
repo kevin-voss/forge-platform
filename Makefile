@@ -53,6 +53,7 @@ help:
 	@echo "  make demo DEMO=23          Local cloud infrastructure gate (epic 23)"
 	@echo "  make demo DEMO=24          Autoscaling gate (epic 24)"
 	@echo "  make demo DEMO=25          HA placement M1 exit gate (epic 25)"
+	@echo "  make demo DEMO=50          E2E harness self-test gate (epic 50)"
 	@echo "  make demo DEMO=09-full-platform  Start capstone (start.sh)"
 	@echo "  make demo-accept DEMO=...  Run demo acceptance suite (capstone accept.sh)"
 	@echo "  make demo-full             Alias: demo DEMO=09-full-platform"

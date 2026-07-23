@@ -219,6 +219,14 @@ e2e-report:
 Related targets: `make e2e-install` (Playwright browsers), `make e2e-report`,
 `make demo DEMO=5X` (when `demos/5X-*/demo.json` exists, reuses the orchestrator lifecycle).
 
+### 50.07 outcome — harness self-test demo + gate
+
+**Landed:** `demos/50-e2e-harness` is a minimal nginx “hello” product (`hello.localhost`) with
+`demo.json` → orchestrator lifecycle. Spec `tests/e2e/projects/50-harness/spec.ts` clicks
+**Say hello**, asserts **Hello, Forge**, records one deliberate `minor` sample finding via
+`platform.expect`, then restores `PLATFORM_FINDINGS.md` / `findings.json` so the gate exits 0.
+`make demo DEMO=50` (and `HEADLESS=1`) is the epic 50 acceptance gate.
+
 ## 9. Determinism
 
 * AI backends use fakes: `FORGE_MODELS_BACKEND=fake`, `FORGE_AGENTS_TOOLS_MODE=fake` (same knobs the

@@ -1,0 +1,18 @@
+{
+  "id": "50-e2e-harness",
+  "title": "Harness Self-Test",
+  "epic": "50",
+  "deploy": "demos/50-e2e-harness/run.sh",
+  "seed": "demos/50-e2e-harness/seed.sh",
+  "hosts": [
+    {
+      "host": "hello.localhost",
+      "path": "/",
+      "expect": 200
+    }
+  ],
+  "baseURL": "http://hello.localhost:4000",
+  "spec": "tests/e2e/projects/50-harness/spec.ts",
+  "services": ["control", "cli", "runtime", "gateway"],
+  "teardown": "demos/50-e2e-harness/run.sh --down"
+}

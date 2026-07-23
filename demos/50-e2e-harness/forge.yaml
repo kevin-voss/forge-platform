@@ -1,0 +1,62 @@
+# Build manifest (for `forge build` when used with a source repo):
+#   service: { name: hello, port: 8080 }
+#   build:   { dockerfile: Dockerfile, context: . }
+#
+# Resource docs applied by run.sh via `forge apply -f` (placeholders filled at deploy time).
+apiVersion: forge.dev/v1
+kind: Project
+metadata:
+  name: ${PROJECT_NAME}
+spec:
+  slug: ${PROJECT_SLUG}
+---
+apiVersion: forge.dev/v1
+kind: Environment
+metadata:
+  name: local
+  project: ${PROJECT_SLUG}
+spec: {}
+---
+apiVersion: forge.dev/v1
+kind: Application
+metadata:
+  name: hello
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    app: hello
+    demo: "50"
+spec:
+  image: ${IMAGE}
+  resources:
+    cpu: 50m
+    memory: 64Mi
+  scaling:
+    minReplicas: 1
+    maxReplicas: 1
+---
+apiVersion: forge.dev/v1
+kind: Service
+metadata:
+  name: hello
+  project: ${PROJECT_SLUG}
+  annotations:
+    forge.dev/parent: hello
+spec:
+  port: 8080
+---
+apiVersion: forge.dev/v1
+kind: Deployment
+metadata:
+  name: hello
+  project: ${PROJECT_SLUG}
+  environment: local
+  annotations:
+    forge.dev/parent: hello
+  labels:
+    app: hello
+    demo: "50"
+spec:
+  service: hello
+  image: ${IMAGE}
+  replicas: 1

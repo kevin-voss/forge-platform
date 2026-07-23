@@ -14,6 +14,6 @@ Atomic steps for [Platform E2E harness & orchestrator](../../epics/50-e2e-harnes
 | **177** | `50.04` | [50.04-findings-collector.md](50.04-findings-collector.md) | Complete |
 | **178** | `50.05` | [50.05-test-platform-e2e-orchestrator.md](50.05-test-platform-e2e-orchestrator.md) | Complete |
 | **179** | `50.06` | [50.06-run-report-and-coverage.md](50.06-run-report-and-coverage.md) | Complete |
-| **180** | `50.07` | [50.07-harness-self-test-demo.md](50.07-harness-self-test-demo.md) | Not started |
+| **180** | `50.07` | [50.07-harness-self-test-demo.md](50.07-harness-self-test-demo.md) | Complete |
 
 Implement with [`../../IMPLEMENT_STEP.md`](../../IMPLEMENT_STEP.md) (`N = 174` first).

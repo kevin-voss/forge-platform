@@ -1,0 +1,29 @@
+# Demo 50 overlay — harness self-test (epic 50.07).
+# Used with the root compose file:
+#   docker compose -f compose.yaml -f demos/50-e2e-harness/docker-compose.yml up -d ...
+#
+# Auth bypass keeps Control usable without a full Identity bootstrap for this
+# trivial hello-world product. Host pattern yields hello.localhost for service
+# name `hello`.
+
+services:
+  forge-control:
+    environment:
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+      FORGE_LIFECYCLE_OWNER: ${FORGE_LIFECYCLE_OWNER:-control}
+      FORGE_RECONCILE_INTERVAL_MS: ${FORGE_RECONCILE_INTERVAL_MS:-1000}
+      FORGE_READINESS_POLL_MS: ${FORGE_READINESS_POLL_MS:-500}
+      FORGE_READINESS_MAX_WAIT_S: ${FORGE_READINESS_MAX_WAIT_S:-90}
+      FORGE_RESOURCE_API_ENABLED: ${FORGE_RESOURCE_API_ENABLED:-true}
+      FORGE_SECRETS_URL: ${FORGE_SECRETS_URL:-disabled}
+      FORGE_OTEL_ENABLED: ${FORGE_OTEL_ENABLED:-false}
+
+  forge-gateway:
+    environment:
+      # Quoted so Compose does not treat {service} as interpolation.
+      FORGE_HOST_PATTERN: "{service}.localhost"
+      FORGE_ROUTE_SYNC_INTERVAL_SECONDS: ${FORGE_ROUTE_SYNC_INTERVAL_SECONDS:-2}
+      FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS: ${FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS:-2}
+      FORGE_UPSTREAM_FAILURE_THRESHOLD: ${FORGE_UPSTREAM_FAILURE_THRESHOLD:-1}
+      FORGE_UPSTREAM_SUCCESS_THRESHOLD: ${FORGE_UPSTREAM_SUCCESS_THRESHOLD:-1}
+      FORGE_UPSTREAM_TRUST_RUNTIME_STATUS: "true"
