@@ -21,7 +21,7 @@ fun Route.serviceRoutes(services: ServiceService, idempotency: IdempotencyStore?
             val body = call.receive<CreateServiceRequest>()
             call.idempotentCreate(idempotency, "service", Json.encodeToString(CreateServiceRequest.serializer(), body)) {
                 val created = services.create(applicationId, body.name, body.port)
-                created.id to Json.encodeToJsonElement(forge.control.http.dto.ServiceResponse.serializer(), created.toResponse())
+                created.id.toString() to Json.encodeToJsonElement(forge.control.http.dto.ServiceResponse.serializer(), created.toResponse())
             }
         }
         get {
@@ -43,7 +43,7 @@ fun Route.serviceRoutes(services: ServiceService, idempotency: IdempotencyStore?
             HttpStatusCode.OK,
         ) {
             val updated = services.recordImage(serviceId, body.image, body.digest, body.commit, body.buildId)
-            updated.id to Json.encodeToJsonElement(forge.control.http.dto.ServiceResponse.serializer(), updated.toResponse())
+            updated.id.toString() to Json.encodeToJsonElement(forge.control.http.dto.ServiceResponse.serializer(), updated.toResponse())
         }
     }
 }

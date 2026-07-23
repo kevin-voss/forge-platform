@@ -71,6 +71,8 @@ class AppConfigTest {
         assertEquals("", cfg.storageUrl)
         assertEquals(60L, cfg.dbRotationGraceSeconds)
         assertEquals(true, cfg.dbPredeleteBackup)
+        assertEquals(true, cfg.resourceApiEnabled)
+        assertEquals("default", cfg.resourceDefaultOrganization)
     }
 
     @Test

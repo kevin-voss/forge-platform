@@ -8,13 +8,12 @@ import io.ktor.server.response.respond
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import java.security.MessageDigest
-import java.util.UUID
 
 suspend fun ApplicationCall.idempotentCreate(
     store: IdempotencyStore?,
     resourceType: String,
     requestBody: String,
-    create: () -> Pair<UUID, JsonElement>,
+    create: () -> Pair<String, JsonElement>,
 ) {
     idempotentAction(store, resourceType, requestBody, HttpStatusCode.Created, create)
 }
@@ -24,7 +23,7 @@ suspend fun ApplicationCall.idempotentAction(
     resourceType: String,
     requestBody: String,
     successStatus: HttpStatusCode,
-    action: () -> Pair<UUID, JsonElement>,
+    action: () -> Pair<String, JsonElement>,
 ) {
     val key = request.headers["Idempotency-Key"] ?: run {
         val (_, body) = action()
@@ -38,7 +37,10 @@ suspend fun ApplicationCall.idempotentAction(
     val existing = store?.find(key)
     if (existing != null) {
         if (existing.requestHash != hash || existing.resourceType != resourceType) {
-            throw ApiException.Conflict("Idempotency-Key was already used with a different request", code = "idempotency_key_conflict")
+            throw ApiException.Conflict(
+                "Idempotency-Key was already used with a different request",
+                code = "idempotency_key_conflict",
+            )
         }
         respond(HttpStatusCode.fromValue(existing.responseStatus), Json.parseToJsonElement(existing.responseBody))
         return

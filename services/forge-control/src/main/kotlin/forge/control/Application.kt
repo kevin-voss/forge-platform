@@ -75,6 +75,11 @@ import forge.control.repo.JdbcEnvironmentRepository
 import forge.control.repo.JdbcProjectRepository
 import forge.control.repo.JdbcServiceRepository
 import forge.control.repo.JdbcIdempotencyStore
+import forge.control.resource.JdbcResourceRepository
+import forge.control.resource.KindDescriptor
+import forge.control.resource.KindRegistry
+import forge.control.resource.ResourceScope
+import forge.control.resource.http.resourceRoutes
 import forge.control.service.ApplicationService
 import forge.control.service.DeploymentService
 import forge.control.service.EnvironmentService
@@ -404,6 +409,8 @@ fun main() {
         nodeStrictRegister = cfg.nodeStrictRegister,
         onNodeRegistered = { placementService.drainQueue() },
         managedDb = managedDbService,
+        resources = JdbcResourceRepository(db.dataSource),
+        kindRegistry = buildKindRegistry(),
     )
 
     val readiness = Readiness()
@@ -677,6 +684,38 @@ fun Application.forgeControlModule(
             if (managedDb != null) {
                 managedDbRoutes(managedDb, services.idempotency)
             }
+            if (cfg.resourceApiEnabled) {
+                val resources = services.resources
+                val kinds = services.kindRegistry
+                if (resources != null && kinds != null) {
+                    resourceRoutes(
+                        resources = resources,
+                        kinds = kinds,
+                        idempotency = services.idempotency,
+                        defaultOrganization = cfg.resourceDefaultOrganization,
+                        log = log,
+                        telemetry = telemetry,
+                    )
+                }
+            }
         }
     }
 }
+
+/**
+ * In-process kind catalog. Product kinds (Application/Service/Deployment) arrive in 20.07;
+ * Widget is a temporary fixture so the generic CRUD surface is exercisable before then.
+ */
+fun buildKindRegistry(): KindRegistry =
+    KindRegistry().also { registry ->
+        registry.register(
+            KindDescriptor(
+                kind = "Widget",
+                plural = "widgets",
+                scope = ResourceScope.Environment,
+                schemaVersion = 1,
+                owningController = "widget-controller",
+                idPrefix = "wgt",
+            ),
+        )
+    }

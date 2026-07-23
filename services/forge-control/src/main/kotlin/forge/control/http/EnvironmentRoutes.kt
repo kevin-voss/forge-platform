@@ -20,7 +20,7 @@ fun Route.environmentRoutes(environments: EnvironmentService, idempotency: Idemp
             val body = call.receive<CreateEnvironmentRequest>()
             call.idempotentCreate(idempotency, "environment", Json.encodeToString(CreateEnvironmentRequest.serializer(), body)) {
                 val created = environments.create(projectId, body.name)
-                created.id to Json.encodeToJsonElement(forge.control.http.dto.EnvironmentResponse.serializer(), created.toResponse())
+                created.id.toString() to Json.encodeToJsonElement(forge.control.http.dto.EnvironmentResponse.serializer(), created.toResponse())
             }
         }
         get {

@@ -26,7 +26,7 @@ fun Route.deploymentRoutes(deployments: DeploymentService, idempotency: Idempote
             val environmentId = body.environmentId.toUuid("environmentId")
             call.idempotentCreate(idempotency, "deployment", Json.encodeToString(CreateDeploymentRequest.serializer(), body)) {
                 val created = deployments.create(serviceId, body.image, body.desiredReplicas, environmentId)
-                created.id to Json.encodeToJsonElement(forge.control.http.dto.DeploymentResponse.serializer(), created.toResponse())
+                created.id.toString() to Json.encodeToJsonElement(forge.control.http.dto.DeploymentResponse.serializer(), created.toResponse())
             }
         }
         get {

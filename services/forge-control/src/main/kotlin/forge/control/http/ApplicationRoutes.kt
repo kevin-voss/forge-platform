@@ -20,7 +20,7 @@ fun Route.applicationRoutes(applications: ApplicationService, idempotency: Idemp
             val body = call.receive<CreateApplicationRequest>()
             call.idempotentCreate(idempotency, "application", Json.encodeToString(CreateApplicationRequest.serializer(), body)) {
                 val created = applications.create(projectId, body.name)
-                created.id to Json.encodeToJsonElement(forge.control.http.dto.ApplicationResponse.serializer(), created.toResponse())
+                created.id.toString() to Json.encodeToJsonElement(forge.control.http.dto.ApplicationResponse.serializer(), created.toResponse())
             }
         }
         get {

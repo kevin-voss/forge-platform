@@ -20,7 +20,7 @@ fun Route.projectRoutes(projects: ProjectService, projectTrees: ProjectTreeServi
             val body = call.receive<CreateProjectRequest>()
             call.idempotentCreate(idempotency, "project", Json.encodeToString(CreateProjectRequest.serializer(), body)) {
                 val created = projects.create(body.name, body.slug)
-                created.id to Json.encodeToJsonElement(forge.control.http.dto.ProjectResponse.serializer(), created.toResponse())
+                created.id.toString() to Json.encodeToJsonElement(forge.control.http.dto.ProjectResponse.serializer(), created.toResponse())
             }
         }
         get {

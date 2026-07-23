@@ -74,6 +74,10 @@ data class AppConfig(
     val dbRotationGraceSeconds: Long = 60,
     /** Take a safety backup before forced deletes. */
     val dbPredeleteBackup: Boolean = true,
+    /** Kill switch for the generic declarative resource API (epic 20). */
+    val resourceApiEnabled: Boolean = true,
+    /** Default organization stored on declarative resources until real tenancy lands. */
+    val resourceDefaultOrganization: String = "default",
 )
 
 fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
@@ -478,6 +482,21 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
             }
         }
 
+    val resourceApiEnabledRaw = env["FORGE_RESOURCE_API_ENABLED"]?.trim()?.lowercase().orEmpty()
+        .ifEmpty { "true" }
+    val resourceApiEnabled = when (resourceApiEnabledRaw) {
+        "true", "1", "yes" -> true
+        "false", "0", "no" -> false
+        else -> throw IllegalArgumentException(
+            "FORGE_RESOURCE_API_ENABLED must be true|false, got '$resourceApiEnabledRaw'",
+        )
+    }
+    val resourceDefaultOrganization = env["FORGE_RESOURCE_DEFAULT_ORGANIZATION"]?.trim().orEmpty()
+        .ifEmpty { "default" }
+    if (resourceDefaultOrganization.isBlank()) {
+        throw IllegalArgumentException("FORGE_RESOURCE_DEFAULT_ORGANIZATION must not be blank")
+    }
+
     return AppConfig(
         port = port,
         serviceName = env["FORGE_SERVICE_NAME"]?.trim().orEmpty().ifEmpty { "forge-control" },
@@ -552,5 +571,7 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         storageUrl = storageUrl,
         dbRotationGraceSeconds = dbRotationGraceSeconds,
         dbPredeleteBackup = dbPredeleteBackup,
+        resourceApiEnabled = resourceApiEnabled,
+        resourceDefaultOrganization = resourceDefaultOrganization,
     )
 }

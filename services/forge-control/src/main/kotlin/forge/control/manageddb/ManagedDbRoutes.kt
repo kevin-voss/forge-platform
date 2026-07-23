@@ -31,7 +31,7 @@ fun Route.managedDbRoutes(managedDb: ManagedDbService, idempotency: IdempotencyS
                 Json.encodeToString(CreateDbInstanceRequest.serializer(), body),
             ) {
                 val created = managedDb.createInstance(projectId, body.name)
-                created.id to Json.encodeToJsonElement(
+                created.id.toString() to Json.encodeToJsonElement(
                     DbInstanceResponse.serializer(),
                     created.toResponse(),
                 )
@@ -77,7 +77,7 @@ fun Route.managedDbRoutes(managedDb: ManagedDbService, idempotency: IdempotencyS
                 Json.encodeToString(CreateDbDatabaseRequest.serializer(), body) + "|$instanceId",
             ) {
                 val created = managedDb.createDatabase(instanceId, body.name)
-                created.database.id to Json.encodeToJsonElement(
+                created.database.id.toString() to Json.encodeToJsonElement(
                     DbDatabaseResponse.serializer(),
                     managedDb.toCreateResponse(created),
                 )
@@ -119,7 +119,7 @@ fun Route.managedDbRoutes(managedDb: ManagedDbService, idempotency: IdempotencyS
             Json.encodeToString(AttachDatabaseRequest.serializer(), body) + "|$databaseId",
         ) {
             val created = managedDb.attach(databaseId, body.applicationId, body.envVar)
-            created.id to Json.encodeToJsonElement(
+            created.id.toString() to Json.encodeToJsonElement(
                 DbAttachmentResponse.serializer(),
                 created.toResponse(),
             )

@@ -1,8 +1,11 @@
 package forge.control.resource
 
+import forge.control.http.ApiException
 import forge.control.repo.instant
 import forge.control.repo.runSql
 import forge.control.repo.withConnection
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import java.sql.ResultSet
 import java.sql.Timestamp
 import java.sql.Types
@@ -28,6 +31,29 @@ interface ResourceRepository {
         environment: String?,
         name: String,
     ): ResourceRow?
+
+    /** Full replace of writable fields; fails with version conflict when [expectedVersion] mismatches. */
+    fun replace(
+        id: String,
+        expectedVersion: Long,
+        labels: JsonObject,
+        annotations: JsonObject,
+        spec: JsonObject,
+        ownerRefs: JsonArray,
+        finalizers: JsonArray,
+    ): ResourceRow
+
+    /** Spec/labels/annotations update with the same version guard as [replace]. */
+    fun patch(
+        id: String,
+        expectedVersion: Long,
+        labels: JsonObject,
+        annotations: JsonObject,
+        spec: JsonObject,
+    ): ResourceRow
+
+    /** Soft-delete: sets [deleted_at] immediately (finalizer-aware delete arrives in 20.06). */
+    fun softDelete(id: String): ResourceRow
 }
 
 class JdbcResourceRepository(
@@ -156,6 +182,180 @@ class JdbcResourceRepository(
             }
         }
     }
+
+    override fun replace(
+        id: String,
+        expectedVersion: Long,
+        labels: JsonObject,
+        annotations: JsonObject,
+        spec: JsonObject,
+        ownerRefs: JsonArray,
+        finalizers: JsonArray,
+    ): ResourceRow = versionedUpdate(
+        id = id,
+        expectedVersion = expectedVersion,
+        labels = labels,
+        annotations = annotations,
+        spec = spec,
+        ownerRefs = ownerRefs,
+        finalizers = finalizers,
+        updateOwnerRefs = true,
+        updateFinalizers = true,
+    )
+
+    override fun patch(
+        id: String,
+        expectedVersion: Long,
+        labels: JsonObject,
+        annotations: JsonObject,
+        spec: JsonObject,
+    ): ResourceRow = versionedUpdate(
+        id = id,
+        expectedVersion = expectedVersion,
+        labels = labels,
+        annotations = annotations,
+        spec = spec,
+        ownerRefs = null,
+        finalizers = null,
+        updateOwnerRefs = false,
+        updateFinalizers = false,
+    )
+
+    override fun softDelete(id: String): ResourceRow = runSql {
+        val now = Instant.now()
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                UPDATE resources
+                SET deleted_at = ?,
+                    updated_at = ?,
+                    resource_version = nextval('resource_version_seq')
+                WHERE id = ? AND deleted_at IS NULL
+                RETURNING
+                    id, kind, api_version, organization, project, environment, name,
+                    generation, resource_version,
+                    labels::text AS labels,
+                    annotations::text AS annotations,
+                    spec::text AS spec,
+                    status::text AS status,
+                    owner_refs::text AS owner_refs,
+                    finalizers::text AS finalizers,
+                    created_at, updated_at, deleted_at
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setTimestamp(1, Timestamp.from(now))
+                ps.setTimestamp(2, Timestamp.from(now))
+                ps.setString(3, id)
+                ps.executeQuery().use { rs ->
+                    if (!rs.next()) {
+                        throw ApiException.NotFound(
+                            "resource not found",
+                            details = mapOf("id" to id),
+                            code = "not_found",
+                        )
+                    }
+                    mapRow(rs)
+                }
+            }
+        }
+    }
+
+    private fun versionedUpdate(
+        id: String,
+        expectedVersion: Long,
+        labels: JsonObject,
+        annotations: JsonObject,
+        spec: JsonObject,
+        ownerRefs: JsonArray?,
+        finalizers: JsonArray?,
+        updateOwnerRefs: Boolean,
+        updateFinalizers: Boolean,
+    ): ResourceRow = runSql {
+        val now = Instant.now()
+        dataSource.withConnection { conn ->
+            val sql = buildString {
+                append(
+                    """
+                    UPDATE resources
+                    SET labels = ?::jsonb,
+                        annotations = ?::jsonb,
+                        spec = ?::jsonb,
+                        updated_at = ?,
+                        resource_version = nextval('resource_version_seq')
+                    """.trimIndent(),
+                )
+                if (updateOwnerRefs) append(",\n    owner_refs = ?::jsonb")
+                if (updateFinalizers) append(",\n    finalizers = ?::jsonb")
+                append(
+                    """
+                    
+                    WHERE id = ? AND resource_version = ? AND deleted_at IS NULL
+                    RETURNING
+                        id, kind, api_version, organization, project, environment, name,
+                        generation, resource_version,
+                        labels::text AS labels,
+                        annotations::text AS annotations,
+                        spec::text AS spec,
+                        status::text AS status,
+                        owner_refs::text AS owner_refs,
+                        finalizers::text AS finalizers,
+                        created_at, updated_at, deleted_at
+                    """.trimIndent(),
+                )
+            }
+            conn.prepareStatement(sql).use { ps ->
+                var i = 1
+                ps.setString(i++, labels.encode())
+                ps.setString(i++, annotations.encode())
+                ps.setString(i++, spec.encode())
+                ps.setTimestamp(i++, Timestamp.from(now))
+                if (updateOwnerRefs) {
+                    ps.setString(i++, (ownerRefs ?: JsonArray(emptyList())).encode())
+                }
+                if (updateFinalizers) {
+                    ps.setString(i++, (finalizers ?: JsonArray(emptyList())).encode())
+                }
+                ps.setString(i++, id)
+                ps.setLong(i, expectedVersion)
+                ps.executeQuery().use { rs ->
+                    if (rs.next()) {
+                        return@withConnection mapRow(rs)
+                    }
+                }
+            }
+            // Version mismatch or missing — distinguish for the caller.
+            val current = findByIdOn(conn, id)
+                ?: throw ApiException.NotFound(
+                    "resource not found",
+                    details = mapOf("id" to id),
+                    code = "not_found",
+                )
+            throw ResourceVersionGuard.conflict(expectedVersion, current.resourceVersion)
+        }
+    }
+
+    private fun findByIdOn(conn: java.sql.Connection, id: String): ResourceRow? =
+        conn.prepareStatement(
+            """
+            SELECT
+                id, kind, api_version, organization, project, environment, name,
+                generation, resource_version,
+                labels::text AS labels,
+                annotations::text AS annotations,
+                spec::text AS spec,
+                status::text AS status,
+                owner_refs::text AS owner_refs,
+                finalizers::text AS finalizers,
+                created_at, updated_at, deleted_at
+            FROM resources
+            WHERE id = ? AND deleted_at IS NULL
+            """.trimIndent(),
+        ).use { ps ->
+            ps.setString(1, id)
+            ps.executeQuery().use { rs ->
+                if (rs.next()) mapRow(rs) else null
+            }
+        }
 
     private fun mapRow(rs: ResultSet): ResourceRow =
         ResourceRow(

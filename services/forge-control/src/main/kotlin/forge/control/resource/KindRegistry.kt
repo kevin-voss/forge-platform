@@ -12,8 +12,8 @@ import java.util.concurrent.ConcurrentHashMap
  * Storage for every kind goes through [ResourceRepository]; step 20.07 may add a
  * second implementation backed by legacy tables without changing that interface.
  *
- * This registry is intentionally not wired into [forge.control.Application] until
- * the generic HTTP surface lands in step 20.02.
+ * Wired into [forge.control.Application] / [forge.control.ControlServices] for the
+ * generic HTTP surface (step 20.02+). Product kinds register at process start.
  */
 class KindRegistry {
     private val byKind = ConcurrentHashMap<String, KindDescriptor>()

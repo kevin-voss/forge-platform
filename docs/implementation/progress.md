@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 133`** (epic 20; current roadmap 1–131 complete).
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 134`** (epic 20; current roadmap 1–131 complete).
 
 ## Epics
 
@@ -181,7 +181,7 @@ next implementable step is still the one named at the top of this file. Plan:
 
 | Epic | Title | Milestone | Status | Notes |
 |---|---|---|---|---|
-| [20](epics/20-declarative-resource-api.md) | Declarative resource API | M1 | In progress | 1/8 steps (`N = 132` complete); facade keeps epics 02/07 APIs intact |
+| [20](epics/20-declarative-resource-api.md) | Declarative resource API | M1 | In progress | 2/8 steps (`N = 133` complete); generic CRUD + optimistic concurrency |
 | [21](epics/21-forge-discovery.md) | Forge Discovery | M1 | Planning | 6 steps (`N = 140`–`145`) |
 | [22](epics/22-forge-network.md) | Forge Network | M1 | Planning | 7 steps (`N = 146`–`152`) |
 | [23](epics/23-forge-infrastructure.md) | Forge Infrastructure | M1 | Planning | 7 steps (`N = 153`–`159`); Docker/SSH/bare-metal/Hetzner/AWS/Azure |
@@ -211,7 +211,7 @@ next implementable step is still the one named at the top of this file. Plan:
 | N | Title | Status | Commit | Notes |
 |---:|---|---|---|---|
 | **132** | [Resource envelope, kind registry, storage schema](steps/20-declarative-resource-api/20.01-resource-envelope-and-registry.md) | Complete |  | Envelope types, `KindRegistry`, `control.resources`, ULID ids; no HTTP yet |
-| **133** | [Generic CRUD endpoints + optimistic concurrency](steps/20-declarative-resource-api/20.02-generic-crud-and-concurrency.md) | Not started |  | |
+| **133** | [Generic CRUD endpoints + optimistic concurrency](steps/20-declarative-resource-api/20.02-generic-crud-and-concurrency.md) | Complete |  | Generic CRUD by `{plural}` + scope; merge/JSON patch; `resourceVersion` 409; idempotency TEXT ids |
 | **134** | [Generation tracking, status subresource, conditions](steps/20-declarative-resource-api/20.03-generation-status-and-conditions.md) | Not started |  | |
 | **135** | [Labels, annotations, filtering, pagination](steps/20-declarative-resource-api/20.04-labels-selectors-and-listing.md) | Not started |  | |
 | **136** | [Watch API + resource events](steps/20-declarative-resource-api/20.05-watch-api-and-resource-events.md) | Not started |  | |

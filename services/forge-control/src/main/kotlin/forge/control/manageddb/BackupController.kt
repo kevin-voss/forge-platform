@@ -31,7 +31,7 @@ fun Route.backupRoutes(managedDb: ManagedDbService, idempotency: IdempotencyStor
                 HttpStatusCode.Accepted,
             ) {
                 val created = managedDb.createBackup(databaseId, projectId)
-                created.id to Json.encodeToJsonElement(
+                created.id.toString() to Json.encodeToJsonElement(
                     DbBackupResponse.serializer(),
                     created.toResponse(),
                 )
@@ -61,7 +61,7 @@ fun Route.backupRoutes(managedDb: ManagedDbService, idempotency: IdempotencyStor
             HttpStatusCode.Accepted,
         ) {
             val accepted = managedDb.restoreBackup(backupId, body.targetDatabaseId, projectId)
-            backupId to Json.encodeToJsonElement(
+            backupId.toString() to Json.encodeToJsonElement(
                 RestoreBackupResponse.serializer(),
                 accepted,
             )

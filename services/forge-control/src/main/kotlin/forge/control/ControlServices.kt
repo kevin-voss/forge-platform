@@ -14,6 +14,8 @@ import forge.control.service.ProjectService
 import forge.control.service.ProjectTreeService
 import forge.control.service.ServiceService
 import forge.control.repo.IdempotencyStore
+import forge.control.resource.KindRegistry
+import forge.control.resource.ResourceRepository
 
 /** Wired domain services for HTTP routes (null in health-only unit tests). */
 data class ControlServices(
@@ -34,4 +36,6 @@ data class ControlServices(
     /** Invoked after a successful node registration (capacity may have increased). */
     val onNodeRegistered: (() -> Unit)? = null,
     val managedDb: ManagedDbService? = null,
+    val resources: ResourceRepository? = null,
+    val kindRegistry: KindRegistry? = null,
 )

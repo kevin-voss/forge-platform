@@ -33,6 +33,15 @@ attached databases return `409` until detached. Cross-project backup/restore
 returns `404`. Product DBs are isolated from Control's own JDBC connection;
 plaintext URLs never appear in Control logs or API responses.
 
+A declarative resource API (`20.01`–`20.02`) stores Kubernetes-style envelopes
+(`apiVersion`/`kind`/`metadata`/`spec`/`status`) in `control.resources` and
+exposes one generic CRUD surface dispatched by `{plural}` + scope
+(`Cluster` / `Project` / `Environment`). Writes use `resourceVersion` optimistic
+concurrency (`409 resource_version_conflict`); `PATCH` accepts merge-patch and
+JSON Patch. Kill switch: `FORGE_RESOURCE_API_ENABLED` (default `true`). A
+temporary `Widget` fixture kind exercises the routes until product kinds land
+in `20.07`.
+
 A reconciliation controller (`07.01`–`07.05`) periodically diffs desired vs
 actual replica state, converges via Runtime, performs rolling updates, and on
 rollout timeout/failure automatically rolls back to the last healthy version.
@@ -161,6 +170,8 @@ make dev
 | `FORGE_DB_PREDELETE_BACKUP` | `true` | Take a safety dump before forced deletes |
 | `FORGE_STORAGE_URL` | _(empty)_ | Enables storage-backed backups when set |
 | `FORGE_SECRETS_URL` | `http://forge-secrets:8080` | Used to persist generated DB credentials + attachment URLs (`disabled` → in-memory) |
+| `FORGE_RESOURCE_API_ENABLED` | `true` | Kill switch for generic declarative resource CRUD (`20.02`) |
+| `FORGE_RESOURCE_DEFAULT_ORGANIZATION` | `default` | Default `metadata.organization` until real tenancy |
 
 See `.env.example`.
 

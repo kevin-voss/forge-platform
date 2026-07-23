@@ -72,11 +72,31 @@ class Telemetry private constructor(
     private val managedDbRestores: LongCounter,
     private val managedDbRotations: LongCounter,
     private val managedDbDeletes: LongCounter,
+    private val resourceWrites: LongCounter,
+    private val resourcesByKind: java.util.concurrent.ConcurrentHashMap<String, AtomicLong>,
+    @Suppress("unused") private val resourcesGauge: ObservableLongGauge,
     private val sdk: OpenTelemetrySdk?,
 ) : AutoCloseable {
     val enabled: Boolean = sdk != null
 
     fun startSpan(name: String): Span = tracer.spanBuilder(name).startSpan()
+
+    fun recordResourceWrite(kind: String, action: String) {
+        resourceWrites.add(
+            1,
+            Attributes.of(
+                AttributeKey.stringKey("kind"),
+                kind,
+                AttributeKey.stringKey("action"),
+                action,
+            ),
+        )
+        if (action == "create") {
+            resourcesByKind.computeIfAbsent(kind) { AtomicLong(0) }.incrementAndGet()
+        } else if (action == "delete") {
+            resourcesByKind.computeIfAbsent(kind) { AtomicLong(0) }.updateAndGet { (it - 1).coerceAtLeast(0) }
+        }
+    }
 
     fun startServerSpan(parent: Context, name: String, method: String, path: String): Span =
         tracer.spanBuilder(name)
@@ -382,6 +402,7 @@ class Telemetry private constructor(
                 .buildWithCallback { measurement ->
                     measurement.record(if (sdk != null) upValue.get() else 0)
                 }
+            val resourceCounts = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
             return Telemetry(
                 tracer = openTelemetry.getTracer("forge.control"),
                 requestCount = meter.counterBuilder("http.server.requests").build(),
@@ -444,6 +465,20 @@ class Telemetry private constructor(
                 managedDbDeletes = meter
                     .counterBuilder("managed_db_deletes_total")
                     .build(),
+                resourceWrites = meter
+                    .counterBuilder("forge_resource_writes_total")
+                    .build(),
+                resourcesByKind = resourceCounts,
+                resourcesGauge = meter.gaugeBuilder("forge_resources_total")
+                    .ofLongs()
+                    .buildWithCallback { measurement ->
+                        for ((kind, count) in resourceCounts) {
+                            measurement.record(
+                                count.get(),
+                                Attributes.of(AttributeKey.stringKey("kind"), kind),
+                            )
+                        }
+                    },
                 sdk = sdk,
             )
         }

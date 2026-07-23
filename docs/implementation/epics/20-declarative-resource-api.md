@@ -92,7 +92,7 @@ finalizer cleared                                  → resource actually deleted
 | Step | N | Title | Status | Notes |
 |---|---:|---|---|---|
 | [20.01](../steps/20-declarative-resource-api/20.01-resource-envelope-and-registry.md) | 132 | Resource envelope, kind registry, storage schema | Complete | Envelope types, `KindRegistry`, `control.resources` table, ULID ids; no public HTTP yet |
-| [20.02](../steps/20-declarative-resource-api/20.02-generic-crud-and-concurrency.md) | 133 | Generic CRUD endpoints + optimistic concurrency | Not started | CRUD for every registered kind; merge/JSON patch; `resourceVersion` 409s; idempotency reuse |
+| [20.02](../steps/20-declarative-resource-api/20.02-generic-crud-and-concurrency.md) | 133 | Generic CRUD endpoints + optimistic concurrency | Complete | CRUD for every registered kind; merge/JSON patch; `resourceVersion` 409s; idempotency reuse |
 | [20.03](../steps/20-declarative-resource-api/20.03-generation-status-and-conditions.md) | 134 | Generation tracking, status subresource, conditions | Not started | `/status` subresource, condition merge, phase helper, spec/status write separation |
 | [20.04](../steps/20-declarative-resource-api/20.04-labels-selectors-and-listing.md) | 135 | Labels, annotations, filtering, pagination | Not started | `labelSelector`, field filters, cursor pagination, list `resourceVersion` |
 | [20.05](../steps/20-declarative-resource-api/20.05-watch-api-and-resource-events.md) | 136 | Watch API + resource events | Not started | SSE watch, replay buffer, `410 Gone`, durable `resource_events` + `GET /v1/events` |
@@ -119,4 +119,4 @@ finalizer cleared                                  → resource actually deleted
 
 ## Next step to implement
 
-**[20.02](../steps/20-declarative-resource-api/20.02-generic-crud-and-concurrency.md) — Generic CRUD endpoints + optimistic concurrency** (`N = 133`; depends on `20.01`).
+**[20.03](../steps/20-declarative-resource-api/20.03-generation-status-and-conditions.md) — Generation tracking, status subresource, conditions** (`N = 134`; depends on `20.02`).
