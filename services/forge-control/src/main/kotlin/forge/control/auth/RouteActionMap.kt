@@ -108,6 +108,7 @@ class RouteActionMap(
         if (p.startsWith("/v1/nodes/bootstrap-tokens")) return AuthTarget.AuthenticateOnly
         // Platform-internal (Runtime / scheduler / kind registration) — not product-tenant mutations.
         if (p.startsWith("/v1/nodes") || p.startsWith("/v1/placements")) return AuthTarget.Skip
+        if (p.startsWith("/v1/reservations")) return AuthTarget.Skip
         if (p.startsWith("/v1/priority-classes") || p.startsWith("/v1/preemption-events")) {
             return AuthTarget.Skip
         }

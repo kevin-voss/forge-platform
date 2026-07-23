@@ -56,6 +56,10 @@ class PlacementOpenApiContractTest {
         assertTrue(yaml.contains("disruption-budget") || yaml.contains("DisruptionBudget"))
         assertTrue(yaml.contains("preemption-events") || yaml.contains("PreemptionEvent"))
         assertTrue(yaml.contains("PreemptLowerPriority"))
+        assertTrue(yaml.contains("/v1/reservations") || yaml.contains("createReservation"))
+        assertTrue(yaml.contains("GpuSpec") || yaml.contains("gpu"))
+        assertTrue(yaml.contains("StatefulSpec") || yaml.contains("stateful"))
+        assertTrue(yaml.contains("InsufficientGpu") || yaml.contains("migration-approvals"))
     }
 
     @Test

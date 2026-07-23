@@ -1,5 +1,6 @@
 package forge.control.scheduler
 
+import forge.control.scheduler.model.GpuRequest
 import forge.control.scheduler.model.ResourceBundle
 import forge.control.scheduler.model.ResourceRequirements
 
@@ -23,6 +24,8 @@ data class ResolvedRequirements(
     val limits: ResourceBundle?,
     /** True when the caller supplied `requests`; slots are informational only. */
     val requestsAuthoritative: Boolean,
+    /** Preserved GPU request (not part of CPU/mem/disk resolution). */
+    val gpu: GpuRequest? = null,
 ) {
     val cpuMillis: Int? get() = requests.cpuMillis
     val memoryMb: Int? get() = requests.memoryMb
@@ -37,6 +40,7 @@ data class ResolvedRequirements(
                 diskMb = diskMb,
                 requests = requests.takeUnless { it.isEmpty() },
                 limits = limits,
+                gpu = gpu,
                 slotsExplicit = true,
                 requestsAuthoritative = true,
             )
@@ -46,6 +50,7 @@ data class ResolvedRequirements(
             ResourceRequirements(
                 slots = slots,
                 limits = limits,
+                gpu = gpu,
                 slotsExplicit = true,
                 requestsAuthoritative = false,
             )
@@ -75,6 +80,7 @@ object RequirementsResolver {
                 requests = derived,
                 limits = limits,
                 requestsAuthoritative = false,
+                gpu = requirements.gpu,
             )
         }
         val explicit = requirements.requests
@@ -89,6 +95,7 @@ object RequirementsResolver {
                 requests = explicit,
                 limits = limits,
                 requestsAuthoritative = true,
+                gpu = requirements.gpu,
             )
         }
 
@@ -105,6 +112,7 @@ object RequirementsResolver {
                 requests = bundle,
                 limits = limits,
                 requestsAuthoritative = true,
+                gpu = requirements.gpu,
             )
         }
 
@@ -120,6 +128,7 @@ object RequirementsResolver {
             requests = derived,
             limits = limits,
             requestsAuthoritative = false,
+            gpu = requirements.gpu,
         )
     }
 

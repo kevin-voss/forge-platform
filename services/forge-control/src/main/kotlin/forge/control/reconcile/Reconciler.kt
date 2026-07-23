@@ -58,6 +58,7 @@ class Reconciler(
     private val injectMaskInLogs: Boolean = true,
     private val attachmentEnvSource: AttachmentEnvSource = NoOpAttachmentEnvSource,
     private val disruptionBudgetGuard: DisruptionBudgetGuard? = null,
+    private val statefulPrimaryGuard: forge.control.scheduler.StatefulPrimaryGuard? = null,
 ) {
     private val waitStartedAt = ConcurrentHashMap<String, Long>()
 
@@ -445,6 +446,15 @@ class Reconciler(
                     detail = "disruption_budget",
                 )
             }
+            if (!allowsStatefulDrain(deploymentId, index)) {
+                return@inSpan ExecutedAction(
+                    action = ReconcileAction.DrainReplica.name,
+                    replicaIndex = index,
+                    result = ActionResult.Held,
+                    durationMs = 0,
+                    detail = "stateful_primary_protected",
+                )
+            }
             // Mark Runtime status stopped first so Gateway sync Ready=false.
             runtimeClient.drainWorkload(runtimeId)
             val result = trafficShifter.drain(runtimeId)
@@ -480,6 +490,14 @@ class Reconciler(
     private fun allowsVoluntaryRemoval(deploymentId: UUID): Boolean {
         val guard = disruptionBudgetGuard ?: return true
         return guard.allowsVoluntaryRemoval(deploymentId).allowed
+    }
+
+    private fun allowsStatefulDrain(deploymentId: UUID, replicaIndex: Int): Boolean {
+        val guard = statefulPrimaryGuard ?: return true
+        val placed = placementService?.list(deploymentId)
+            ?.firstOrNull { it.replicaIndex == replicaIndex }
+            ?: return true
+        return guard.allowsVoluntaryRemoval(placed).allowed
     }
 
     private fun resolveStartIndex(

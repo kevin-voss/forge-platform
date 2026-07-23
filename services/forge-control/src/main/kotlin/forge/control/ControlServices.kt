@@ -13,6 +13,8 @@ import forge.control.scheduler.NodeStore
 import forge.control.scheduler.PlacementService
 import forge.control.scheduler.PreemptionAuditor
 import forge.control.scheduler.PriorityClassStore
+import forge.control.scheduler.ReservationService
+import forge.control.scheduler.StatefulPrimaryGuard
 import forge.control.scheduler.TaintChangeHandler
 import forge.control.service.ApplicationService
 import forge.control.service.DeploymentService
@@ -43,6 +45,8 @@ data class ControlServices(
     val disruptionBudgetStore: DisruptionBudgetStore? = null,
     val disruptionBudgetGuard: DisruptionBudgetGuard? = null,
     val preemptionAuditor: PreemptionAuditor? = null,
+    val reservationService: ReservationService? = null,
+    val statefulPrimaryGuard: StatefulPrimaryGuard? = null,
     val nodeStore: NodeStore? = null,
     val nodeStrictRegister: Boolean = false,
     /** Invoked after a successful node registration (capacity may have increased). */

@@ -1,11 +1,13 @@
 package forge.control.scheduler.api
 
 import forge.control.scheduler.Placement
+import forge.control.scheduler.model.GpuRequest
 import forge.control.scheduler.model.NodeTopology
 import forge.control.scheduler.model.PlacementAffinity
 import forge.control.scheduler.model.PlacementTrace
 import forge.control.scheduler.model.PlatformSpec
 import forge.control.scheduler.model.ResourceBundle
+import forge.control.scheduler.model.StatefulSpec
 import forge.control.scheduler.model.Toleration
 import forge.control.scheduler.model.TopologySpreadConstraint
 import forge.control.scheduler.model.UnschedulableReasonEntry
@@ -22,6 +24,7 @@ data class CreatePlacementRequest(
     val placement: PlacementConstraintsDto? = null,
     val platform: PlatformSpec? = null,
     @SerialName("priority_class") val priorityClass: String? = null,
+    @SerialName("reservation_name") val reservationName: String? = null,
 )
 
 @Serializable
@@ -31,6 +34,7 @@ data class PlacementConstraintsDto(
     val tolerations: List<Toleration>? = null,
     val affinity: PlacementAffinity? = null,
     val topologySpreadConstraints: List<TopologySpreadConstraint>? = null,
+    val stateful: StatefulSpec? = null,
 ) {
     fun resolvedNodeSelector(): Map<String, String> =
         nodeSelector ?: nodeSelectorSnake ?: emptyMap()
@@ -46,6 +50,7 @@ data class PlacementRequirementsDto(
     val slots: Int? = null,
     val requests: ResourceBundle? = null,
     val limits: ResourceBundle? = null,
+    val gpu: GpuRequest? = null,
 )
 
 @Serializable
@@ -70,6 +75,7 @@ data class PlacementResponse(
     val topology: NodeTopology? = null,
     @SerialName("priority_class") val priorityClass: String = "default",
     @SerialName("preempted_by_placement_id") val preemptedByPlacementId: String? = null,
+    val gpu: GpuRequest? = null,
 )
 
 fun Placement.toResponse(topology: NodeTopology? = null): PlacementResponse =
@@ -91,17 +97,20 @@ fun Placement.toResponse(topology: NodeTopology? = null): PlacementResponse =
         unschedulableReasons = unschedulableReasons.takeIf { it.isNotEmpty() },
         priorityClass = priorityClass,
         preemptedByPlacementId = preemptedByPlacementId,
+        gpu = gpu,
         placement = if (
             !nodeSelector.isNullOrEmpty() ||
             tolerations.isNotEmpty() ||
             affinity != null ||
-            topologySpreadConstraints.isNotEmpty()
+            topologySpreadConstraints.isNotEmpty() ||
+            (stateful != null && !stateful.isEmpty())
         ) {
             PlacementConstraintsDto(
                 nodeSelector = nodeSelector,
                 tolerations = tolerations.takeIf { it.isNotEmpty() },
                 affinity = affinity,
                 topologySpreadConstraints = topologySpreadConstraints.takeIf { it.isNotEmpty() },
+                stateful = stateful,
             )
         } else {
             null

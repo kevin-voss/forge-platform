@@ -40,10 +40,14 @@ class GracefulEvictor(
                             slots = lost.slots.coerceAtLeast(1),
                             requests = lost.requests,
                             limits = lost.limits,
+                            gpu = lost.gpu,
                             slotsExplicit = true,
                         ),
                     ).toResourceRequirements()
-                else -> ResourceRequirements(slots = lost.slots.coerceAtLeast(1))
+                else -> ResourceRequirements(
+                    slots = lost.slots.coerceAtLeast(1),
+                    gpu = lost.gpu,
+                )
             }
             reservation.release(nodeId, releaseReqs)
         }

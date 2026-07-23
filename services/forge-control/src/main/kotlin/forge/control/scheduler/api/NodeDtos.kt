@@ -32,6 +32,7 @@ data class NodeCapacityDto(
     @SerialName("cpu_millis") val cpuMillis: Int? = null,
     @SerialName("mem_mb") val memMb: Int? = null,
     @SerialName("disk_mb") val diskMb: Int? = null,
+    val gpu: forge.control.scheduler.model.GpuCapacity? = null,
 )
 
 @Serializable
@@ -47,6 +48,7 @@ data class NodeResourcesDto(
     @SerialName("cpu_millis") val cpuMillis: Int? = null,
     @SerialName("mem_mb") val memMb: Int? = null,
     @SerialName("disk_mb") val diskMb: Int? = null,
+    @SerialName("gpu_count") val gpuCount: Int? = null,
 )
 
 @Serializable
@@ -90,11 +92,23 @@ data class NodeResponse(
 
 fun NodeCapacityDto.toModel(): NodeCapacity? {
     val slots = slots ?: return null
-    return NodeCapacity(slots = slots, cpuMillis = cpuMillis, memMb = memMb, diskMb = diskMb)
+    return NodeCapacity(
+        slots = slots,
+        cpuMillis = cpuMillis,
+        memMb = memMb,
+        diskMb = diskMb,
+        gpu = gpu,
+    )
 }
 
 fun NodeCapacity.toDto(): NodeCapacityDto =
-    NodeCapacityDto(slots = slots, cpuMillis = cpuMillis, memMb = memMb, diskMb = diskMb)
+    NodeCapacityDto(
+        slots = slots,
+        cpuMillis = cpuMillis,
+        memMb = memMb,
+        diskMb = diskMb,
+        gpu = gpu,
+    )
 
 fun FleetNode.toResponse(peers: List<PeerInfo> = emptyList()): NodeResponse {
     val freeSlots = LivenessMonitor.freeSlots(this)
@@ -116,6 +130,7 @@ fun FleetNode.toResponse(peers: List<PeerInfo> = emptyList()): NodeResponse {
             cpuMillis = allocation.cpuMillis,
             memMb = allocation.memMb,
             diskMb = allocation.diskMb,
+            gpuCount = allocation.gpuCount,
         ),
         free = NodeResourcesDto(
             slots = freeSlots,
@@ -127,6 +142,9 @@ fun FleetNode.toResponse(peers: List<PeerInfo> = emptyList()): NodeResponse {
             },
             diskMb = (alloc?.diskMb ?: capacity.diskMb)?.let { total ->
                 (total - (allocation.diskMb ?: 0)).coerceAtLeast(0)
+            },
+            gpuCount = (alloc?.gpu?.count ?: capacity.gpu?.count)?.let { total ->
+                (total - (allocation.gpuCount ?: 0)).coerceAtLeast(0)
             },
         ),
         runningReplicas = allocation.runningReplicas,
@@ -164,6 +182,7 @@ fun HeartbeatRequest.toAllocation(capacitySlots: Int): NodeAllocation {
         cpuMillis = allocated?.cpuMillis,
         memMb = allocated?.memMb,
         diskMb = allocated?.diskMb,
+        gpuCount = allocated?.gpuCount,
         runningReplicas = runningReplicas.orEmpty(),
     )
 }

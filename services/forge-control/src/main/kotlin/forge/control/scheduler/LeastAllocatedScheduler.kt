@@ -16,6 +16,7 @@ class LeastAllocatedScheduler(
     private val workloadAffinity: WorkloadAffinityFilter = WorkloadAffinityFilter.noop(),
     private val topologySpread: TopologySpreadFilter = TopologySpreadFilter.noop(),
     private val placedReplicas: () -> List<Placement> = { emptyList() },
+    private val statefulFilter: StatefulPlacementFilter = StatefulPlacementFilter.noop(),
 ) : Scheduler {
     override fun place(request: PlacementRequest): PlacementDecision =
         CapacityAwarePlacement.place(
@@ -38,6 +39,7 @@ class LeastAllocatedScheduler(
             workloadAffinity = workloadAffinity,
             topologySpread = topologySpread,
             placedReplicas = placedReplicas,
+            statefulFilter = statefulFilter,
             scoreBase = { PlacementCapacity.freeSlots(it).toDouble() },
             useScorePick = true,
         )

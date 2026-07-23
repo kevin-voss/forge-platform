@@ -14,6 +14,8 @@ data class PlacementRequest(
     val platform: PlatformSpec? = null,
     /** Priority class name; omission resolves to platform default (`default`). */
     val priorityClass: String? = null,
+    /** Optional named capacity reservation to consume on successful placement. */
+    val reservationName: String? = null,
 ) {
     init {
         require(deploymentId.isNotBlank()) { "deploymentId must not be blank" }
@@ -29,6 +31,8 @@ data class ResourceRequirements(
     val diskMb: Int? = null,
     val requests: ResourceBundle? = null,
     val limits: ResourceBundle? = null,
+    /** GPU request (count/vendor/model/memory/driver); optional. */
+    val gpu: GpuRequest? = null,
     /** True when [slots] was explicitly supplied by the caller (not derived). */
     val slotsExplicit: Boolean = false,
     /** Cached authority flag after resolution; null means unresolved. */

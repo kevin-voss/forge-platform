@@ -58,6 +58,7 @@ data class NodeCapacity(
     @SerialName("cpu_millis") val cpuMillis: Int? = null,
     @SerialName("mem_mb") val memMb: Int? = null,
     @SerialName("disk_mb") val diskMb: Int? = null,
+    val gpu: forge.control.scheduler.model.GpuCapacity? = null,
 )
 
 @Serializable
@@ -66,6 +67,7 @@ data class NodeAllocation(
     @SerialName("cpu_millis") val cpuMillis: Int? = null,
     @SerialName("mem_mb") val memMb: Int? = null,
     @SerialName("disk_mb") val diskMb: Int? = null,
+    @SerialName("gpu_count") val gpuCount: Int? = null,
     @SerialName("running_replicas") val runningReplicas: List<String> = emptyList(),
 )
 
@@ -934,10 +936,16 @@ private fun bumpAllocation(
     val resolved = RequirementsResolver.resolve(requirements)
     val deltaSlots = if (release) -resolved.slots else resolved.slots
     val nextSlots = (current.slots + deltaSlots).coerceAtLeast(0)
-    // Slots-authoritative path reserves slots only (epic-08 compatibility).
-    // Real-unit reservations apply only when requests are authoritative.
+    val needGpu = requirements.gpu?.count?.takeIf { it > 0 }
+    val nextGpu = when {
+        needGpu == null -> current.gpuCount
+        release -> current.gpuCount?.let { (it - needGpu).coerceAtLeast(0) } ?: 0
+        else -> (current.gpuCount ?: 0) + needGpu
+    }
+    // Slots-authoritative path reserves slots (+ optional GPU) only.
+    // Real-unit CPU/mem/disk reservations apply only when requests are authoritative.
     if (!resolved.requestsAuthoritative) {
-        return current.copy(slots = nextSlots)
+        return current.copy(slots = nextSlots, gpuCount = nextGpu)
     }
     val needCpu = resolved.cpuMillis
     val nextCpu = when {
@@ -957,5 +965,11 @@ private fun bumpAllocation(
         release -> current.diskMb?.let { (it - needDisk).coerceAtLeast(0) } ?: 0
         else -> (current.diskMb ?: 0) + needDisk
     }
-    return current.copy(slots = nextSlots, cpuMillis = nextCpu, memMb = nextMem, diskMb = nextDisk)
+    return current.copy(
+        slots = nextSlots,
+        cpuMillis = nextCpu,
+        memMb = nextMem,
+        diskMb = nextDisk,
+        gpuCount = nextGpu,
+    )
 }

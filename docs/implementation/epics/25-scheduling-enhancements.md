@@ -104,7 +104,7 @@ Stop node-a (simulated node loss)
 | [25.02](../steps/25-scheduling-enhancements/25.02-labels-selectors-taints-tolerations.md) | 169 | Node labels, selectors, taints, tolerations, architecture/OS constraints | Complete | Label merger; nodeSelector/platform/taints filters + trace; NoExecute eviction; Runtime FORGE_NODE_LABELS/TAINTS |
 | [25.03](../steps/25-scheduling-enhancements/25.03-affinity-and-topology-spread.md) | 170 | Workload affinity/anti-affinity + topology spreading | Complete | Hard/soft affinity; node/zone/region/provider; `minimumDistinctNodes`; HA flow |
 | [25.04](../steps/25-scheduling-enhancements/25.04-priority-preemption-and-disruption-budgets.md) | 171 | Priority classes, preemption, disruption budgets | Complete | Victim selection; graceful eviction; budgets honored by drains/rollouts; anti-starvation |
-| [25.05](../steps/25-scheduling-enhancements/25.05-gpu-and-stateful-placement.md) | 172 | GPU, reservations, and stateful placement constraints | Not started | GPU requests/device exposure; reservations; volume affinity; pinning |
+| [25.05](../steps/25-scheduling-enhancements/25.05-gpu-and-stateful-placement.md) | 172 | GPU, reservations, and stateful placement constraints | Complete | GPU requests; TTL reservations; volume affinity; primary protection |
 | [25.06](../steps/25-scheduling-enhancements/25.06-demo-25-ha-placement.md) | 173 | Demo `25-ha-placement` + epic gate | Not started | HA spread + reschedule + preemption; epic gate; M1 exit gate |
 
 ## Assumptions
@@ -126,4 +126,4 @@ Stop node-a (simulated node loss)
 
 ## Next step to implement
 
-**[25.05](../steps/25-scheduling-enhancements/25.05-gpu-and-stateful-placement.md) — GPU, reservations, and stateful placement constraints**
+**[25.06](../steps/25-scheduling-enhancements/25.06-demo-25-ha-placement.md) — Demo `25-ha-placement` + epic gate**

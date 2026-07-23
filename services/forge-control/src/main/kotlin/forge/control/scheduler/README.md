@@ -43,6 +43,13 @@ in `trace.filters`. `NoExecute` taint additions evict non-tolerating placements
 via the 08.05 reschedule path. Runtime sets labels/taints via
 `FORGE_NODE_LABELS` / `FORGE_NODE_TAINTS` and reports host arch/OS.
 
+**GPU / reservations / stateful (25.05):** Node capacity may include GPU
+(count/vendor/model/memory/driver). Placement requests with `requirements.gpu`
+match only eligible nodes (`InsufficientGpu` otherwise). TTL `Reservation`
+holds capacity until consumed or expired (`POST /v1/reservations`). Stateful
+specs pin volume locality and protect primaries (`migrationPolicy:
+manual-approval`) from preemption/drain unless a migration approval exists.
+
 **Demo gate (08.06):** `make demo DEMO=08` (`demos/08-multi-node`) runs two
 Runtime agents, asserts 2+2 placement distribution, then stops `node-b` and
 checks reschedule onto `node-a` via `/v1/nodes` + `/v1/placements`.

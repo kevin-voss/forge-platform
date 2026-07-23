@@ -91,4 +91,5 @@ data class PlacementSpec(
     val tolerations: List<Toleration> = emptyList(),
     val affinity: PlacementAffinity? = null,
     val topologySpreadConstraints: List<TopologySpreadConstraint> = emptyList(),
+    val stateful: StatefulSpec? = null,
 )

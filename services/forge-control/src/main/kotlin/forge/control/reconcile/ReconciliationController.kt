@@ -45,6 +45,7 @@ class ReconciliationController(
     private val attachmentEnvSource: forge.control.manageddb.AttachmentEnvSource =
         forge.control.manageddb.NoOpAttachmentEnvSource,
     private val disruptionBudgetGuard: DisruptionBudgetGuard? = null,
+    private val statefulPrimaryGuard: forge.control.scheduler.StatefulPrimaryGuard? = null,
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "forge-reconcile").apply { isDaemon = true }
     },
@@ -62,6 +63,7 @@ class ReconciliationController(
         injectMaskInLogs = injectMaskInLogs,
         attachmentEnvSource = attachmentEnvSource,
         disruptionBudgetGuard = disruptionBudgetGuard,
+        statefulPrimaryGuard = statefulPrimaryGuard,
     ),
 ) : AutoCloseable {
     private val running = AtomicBoolean(false)

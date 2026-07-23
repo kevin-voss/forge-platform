@@ -23,6 +23,7 @@ class FirstFitScheduler(
     private val workloadAffinity: WorkloadAffinityFilter = WorkloadAffinityFilter.noop(),
     private val topologySpread: TopologySpreadFilter = TopologySpreadFilter.noop(),
     private val placedReplicas: () -> List<Placement> = { emptyList() },
+    private val statefulFilter: StatefulPlacementFilter = StatefulPlacementFilter.noop(),
 ) : Scheduler {
     override fun place(request: PlacementRequest): PlacementDecision =
         CapacityAwarePlacement.place(
@@ -38,6 +39,7 @@ class FirstFitScheduler(
             workloadAffinity = workloadAffinity,
             topologySpread = topologySpread,
             placedReplicas = placedReplicas,
+            statefulFilter = statefulFilter,
             scoreBase = { 0.0 },
             useScorePick = false,
         )
@@ -62,6 +64,7 @@ internal object CapacityAwarePlacement {
         workloadAffinity: WorkloadAffinityFilter = WorkloadAffinityFilter.noop(),
         topologySpread: TopologySpreadFilter = TopologySpreadFilter.noop(),
         placedReplicas: () -> List<Placement> = { emptyList() },
+        statefulFilter: StatefulPlacementFilter = StatefulPlacementFilter.noop(),
         scoreBase: (FleetNode) -> Double = { PlacementCapacity.freeSlots(it).toDouble() },
         useScorePick: Boolean = true,
     ): PlacementDecision {
@@ -128,7 +131,15 @@ internal object CapacityAwarePlacement {
                 .withFilter("topology_spread", spreadResult.eliminated)
                 .withSpreadRelaxed(spreadResult.spreadRelaxed)
 
-            val filtered = spreadResult.candidates
+            val statefulResult = statefulFilter.filter(
+                candidates = spreadResult.candidates,
+                deploymentId = request.deploymentId,
+                serviceId = request.serviceId,
+                stateful = request.placement.stateful,
+            )
+            trace = trace.withFilter("stateful", statefulResult.eliminated)
+
+            val filtered = statefulResult.candidates
             Span.current().setAttribute(
                 AttributeKey.longKey("candidates"),
                 filtered.size.toLong(),
@@ -152,6 +163,9 @@ internal object CapacityAwarePlacement {
             }
             resolved.memoryMb?.let {
                 Span.current().setAttribute(AttributeKey.longKey("requested_memory_mb"), it.toLong())
+            }
+            request.requirements.gpu?.count?.let {
+                Span.current().setAttribute(AttributeKey.longKey("requested_gpu_count"), it.toLong())
             }
 
             if (filtered.isEmpty()) {
@@ -181,13 +195,18 @@ internal object CapacityAwarePlacement {
                     spreadResult.candidates.isEmpty() &&
                         request.placement.topologySpreadConstraints.isNotEmpty() ->
                         TopologySpreadFilter.REASON
+                    statefulResult.candidates.isEmpty() &&
+                        request.placement.stateful != null &&
+                        !request.placement.stateful.isEmpty() ->
+                        StatefulPlacementFilter.REASON
                     else -> UnschedulableReasons.summarize(
                         capacityEliminated +
                             selectorResult.eliminated +
                             platformResult.eliminated +
                             taintResult.eliminated +
                             affinityResult.eliminated +
-                            spreadResult.eliminated,
+                            spreadResult.eliminated +
+                            statefulResult.eliminated,
                     )
                 }
                 val allEliminated = capacityEliminated +
@@ -195,7 +214,8 @@ internal object CapacityAwarePlacement {
                     platformResult.eliminated +
                     taintResult.eliminated +
                     affinityResult.eliminated +
-                    spreadResult.eliminated
+                    spreadResult.eliminated +
+                    statefulResult.eliminated
                 return PlacementDecision.NoNodeAvailable(
                     reason = reason,
                     unschedulableReasons = allEliminated,
@@ -207,7 +227,8 @@ internal object CapacityAwarePlacement {
             val legacySoftOnly =
                 request.antiAffinity == AntiAffinity.Soft &&
                     (affinity == null || affinity.isEmpty()) &&
-                    request.placement.topologySpreadConstraints.isEmpty()
+                    request.placement.topologySpreadConstraints.isEmpty() &&
+                    (request.placement.stateful == null || request.placement.stateful.isEmpty())
             val preferredNodes = if (legacySoftOnly) {
                 antiAffinity.filterPreferred(request.serviceId, filtered)
             } else {
@@ -241,11 +262,12 @@ internal object CapacityAwarePlacement {
                     nodesById = nodes::find,
                     placed = { placedAll },
                 )
-                val total = base + spread + soft
+                val statefulScore = statefulFilter.score(node, request.placement.stateful)
+                val total = base + spread + soft + statefulScore
                 PlacementTraceScore(
                     nodeId = node.id,
                     score = total,
-                    detail = "base=$base spread=$spread soft=$soft",
+                    detail = "base=$base spread=$spread soft=$soft stateful=$statefulScore",
                 )
             }
             if (scores.isNotEmpty()) {
@@ -254,7 +276,8 @@ internal object CapacityAwarePlacement {
 
             val scorePick = useScorePick ||
                 request.placement.topologySpreadConstraints.isNotEmpty() ||
-                preferredTerms.isNotEmpty()
+                preferredTerms.isNotEmpty() ||
+                (request.placement.stateful != null && !request.placement.stateful.isEmpty())
             val chosen = if (scorePick) {
                 val winner = scores
                     .sortedWith(
@@ -286,6 +309,13 @@ internal object CapacityAwarePlacement {
                     zones.size.toLong(),
                 )
             }
+            val volumeRef = request.placement.stateful?.resolvedVolumeRef()
+            statefulFilter.recordPlacement(
+                deploymentId = request.deploymentId,
+                volumeRef = volumeRef,
+                selectedNode = chosen.id,
+                reason = reasonFor(chosen, freeBefore),
+            )
             return PlacementDecision.Assigned(
                 nodeId = chosen.id,
                 strategy = strategy,

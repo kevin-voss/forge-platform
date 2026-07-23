@@ -28,6 +28,8 @@ class PreemptionSelector(
     private val topologySpread: TopologySpreadFilter = TopologySpreadFilter.noop(),
     private val strictNodeSelector: Boolean = false,
     private val budgetGuard: DisruptionBudgetGuard? = null,
+    private val statefulGuard: StatefulPrimaryGuard? = null,
+    private val statefulFilter: StatefulPlacementFilter = StatefulPlacementFilter.noop(),
     private val telemetry: Telemetry = Telemetry.current(),
 ) {
     fun findMinimalVictims(
@@ -45,6 +47,9 @@ class PreemptionSelector(
                 val candidates = placed
                     .filter { it.nodeId == node.id }
                     .filter { priorityOf(it) < preemptorClass.value }
+                    .filter { v ->
+                        statefulGuard?.allowsVoluntaryRemoval(v)?.allowed != false
+                    }
                     .sortedWith(
                         compareBy<Placement> { priorityOf(it) }
                             .thenByDescending { it.slots }
@@ -57,6 +62,12 @@ class PreemptionSelector(
                 if (budgetGuard != null) {
                     val blocked = victims.any { v ->
                         !budgetGuard.allowsVoluntaryRemoval(v.deploymentId).allowed
+                    }
+                    if (blocked) continue
+                }
+                if (statefulGuard != null) {
+                    val blocked = victims.any { v ->
+                        !statefulGuard.allowsVoluntaryRemoval(v).allowed
                     }
                     if (blocked) continue
                 }
@@ -114,7 +125,13 @@ class PreemptionSelector(
             constraints = request.placement.topologySpreadConstraints,
             hardOnly = true,
         )
-        return spreadResult.candidates
+        val statefulResult = statefulFilter.filter(
+            candidates = spreadResult.candidates,
+            deploymentId = request.deploymentId,
+            serviceId = request.serviceId,
+            stateful = request.placement.stateful,
+        )
+        return statefulResult.candidates
     }
 
     private fun minimalSubset(
@@ -148,12 +165,15 @@ class PreemptionSelector(
         val freedCpu = victims.sumOf { it.requests?.cpuMillis ?: 0 }
         val freedMem = victims.sumOf { it.requests?.memoryMb ?: 0 }
         val freedDisk = victims.sumOf { it.requests?.diskMb ?: 0 }
+        val freedGpu = victims.sumOf { it.gpu?.count ?: 0 }
         val simulated = node.copy(
             allocation = node.allocation.copy(
                 slots = (node.allocation.slots - freedSlots).coerceAtLeast(0),
                 cpuMillis = node.allocation.cpuMillis?.let { (it - freedCpu).coerceAtLeast(0) },
                 memMb = node.allocation.memMb?.let { (it - freedMem).coerceAtLeast(0) },
                 diskMb = node.allocation.diskMb?.let { (it - freedDisk).coerceAtLeast(0) },
+                gpuCount = node.allocation.gpuCount?.let { (it - freedGpu).coerceAtLeast(0) }
+                    ?: if (freedGpu > 0) 0 else null,
             ),
         )
         return PlacementCapacity.fits(simulated, requirements)

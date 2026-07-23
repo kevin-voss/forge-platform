@@ -4,10 +4,12 @@ import forge.control.repo.instant
 import forge.control.repo.runSql
 import forge.control.repo.uuid
 import forge.control.repo.withConnection
+import forge.control.scheduler.model.GpuRequest
 import forge.control.scheduler.model.PlacementAffinity
 import forge.control.scheduler.model.PlacementTrace
 import forge.control.scheduler.model.PlatformSpec
 import forge.control.scheduler.model.ResourceBundle
+import forge.control.scheduler.model.StatefulSpec
 import forge.control.scheduler.model.Toleration
 import forge.control.scheduler.model.TopologySpreadConstraint
 import forge.control.scheduler.model.UnschedulableReasonEntry
@@ -51,6 +53,8 @@ data class Placement(
     val workloadLabels: Map<String, String> = emptyMap(),
     val priorityClass: String = "default",
     val preemptedByPlacementId: String? = null,
+    val stateful: StatefulSpec? = null,
+    val gpu: GpuRequest? = null,
 ) {
     val unschedulableReasons: List<UnschedulableReasonEntry>
         get() = trace?.filters
@@ -125,11 +129,12 @@ class JdbcPlacementStore(
                     requests_json, limits_json, trace_json,
                     node_selector_json, tolerations_json, platform_json,
                     affinity_json, topology_spread_json,
-                    priority_class, preempted_by_placement_id
+                    priority_class, preempted_by_placement_id,
+                    stateful_json, gpu_json
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb,
-                    ?::jsonb, ?::jsonb, ?, ?
+                    ?::jsonb, ?::jsonb, ?, ?, ?::jsonb, ?::jsonb
                 )
                 ON CONFLICT (deployment_id, replica_index)
                     WHERE status IN ('placed', 'pending')
@@ -180,6 +185,8 @@ class JdbcPlacementStore(
                 )
                 ps.setString(21, placement.priorityClass.ifBlank { "default" })
                 ps.setString(22, placement.preemptedByPlacementId)
+                ps.setString(23, placement.stateful?.let { placementJson.encodeToString(it) })
+                ps.setString(24, placement.gpu?.let { placementJson.encodeToString(it) })
                 ps.executeUpdate()
             }
             find(conn, placement.deploymentId, placement.replicaIndex)
@@ -201,7 +208,8 @@ class JdbcPlacementStore(
                            requests_json, limits_json, trace_json,
                            node_selector_json, tolerations_json, platform_json,
                            affinity_json, topology_spread_json,
-                           priority_class, preempted_by_placement_id
+                           priority_class, preempted_by_placement_id,
+                           stateful_json, gpu_json
                     FROM placements
                     WHERE deployment_id = ?
                     """.trimIndent(),
@@ -269,7 +277,8 @@ class JdbcPlacementStore(
                        requests_json, limits_json, trace_json,
                        node_selector_json, tolerations_json, platform_json,
                        affinity_json, topology_spread_json,
-                       priority_class, preempted_by_placement_id
+                       priority_class, preempted_by_placement_id,
+                           stateful_json, gpu_json
                 FROM placements
                 WHERE status = 'placed'
                   AND node_id IS NOT NULL
@@ -297,7 +306,8 @@ class JdbcPlacementStore(
                        requests_json, limits_json, trace_json,
                        node_selector_json, tolerations_json, platform_json,
                        affinity_json, topology_spread_json,
-                       priority_class, preempted_by_placement_id
+                       priority_class, preempted_by_placement_id,
+                           stateful_json, gpu_json
                 FROM placements
                 WHERE status = 'pending'
                 ORDER BY created_at ASC, replica_index ASC
@@ -364,7 +374,8 @@ class JdbcPlacementStore(
                        requests_json, limits_json, trace_json,
                        node_selector_json, tolerations_json, platform_json,
                        affinity_json, topology_spread_json,
-                       priority_class, preempted_by_placement_id
+                       priority_class, preempted_by_placement_id,
+                           stateful_json, gpu_json
                 FROM placements
                 WHERE id = ?
                 ORDER BY created_at DESC
@@ -390,7 +401,8 @@ class JdbcPlacementStore(
                            requests_json, limits_json, trace_json,
                            node_selector_json, tolerations_json, platform_json,
                            affinity_json, topology_spread_json,
-                           priority_class, preempted_by_placement_id
+                           priority_class, preempted_by_placement_id,
+                           stateful_json, gpu_json
                     FROM placements
                     WHERE node_id = ?
                     """.trimIndent(),
@@ -497,7 +509,8 @@ class JdbcPlacementStore(
                        requests_json, limits_json, trace_json,
                        node_selector_json, tolerations_json, platform_json,
                        affinity_json, topology_spread_json,
-                       priority_class, preempted_by_placement_id
+                       priority_class, preempted_by_placement_id,
+                           stateful_json, gpu_json
                 FROM placements
                 WHERE deployment_id = ? AND replica_index = ?
                 """.trimIndent(),
@@ -555,6 +568,10 @@ class JdbcPlacementStore(
             preemptedByPlacementId = runCatching {
                 rs.getString("preempted_by_placement_id")
             }.getOrNull(),
+            stateful = decodeStateful(
+                runCatching { rs.getString("stateful_json") }.getOrNull(),
+            ),
+            gpu = decodeGpu(runCatching { rs.getString("gpu_json") }.getOrNull()),
         )
     }
 
@@ -611,6 +628,20 @@ class JdbcPlacementStore(
                 raw,
             )
         }.getOrDefault(emptyList())
+    }
+
+    private fun decodeStateful(raw: String?): StatefulSpec? {
+        if (raw.isNullOrBlank() || raw == "{}") return null
+        return runCatching {
+            placementJson.decodeFromString(StatefulSpec.serializer(), raw)
+        }.getOrNull()
+    }
+
+    private fun decodeGpu(raw: String?): GpuRequest? {
+        if (raw.isNullOrBlank() || raw == "{}") return null
+        return runCatching {
+            placementJson.decodeFromString(GpuRequest.serializer(), raw)
+        }.getOrNull()
     }
 }
 

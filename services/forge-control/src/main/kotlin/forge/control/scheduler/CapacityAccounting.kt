@@ -52,6 +52,8 @@ object CapacityAccounting {
             cpuMillis = cpu,
             memMb = mem,
             diskMb = disk,
+            // GPU is never overcommitted; surface capacity as-is for allocatable.
+            gpu = capacity.gpu,
         )
     }
 

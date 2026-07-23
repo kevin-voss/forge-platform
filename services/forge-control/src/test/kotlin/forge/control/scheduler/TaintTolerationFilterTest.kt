@@ -141,6 +141,7 @@ class TaintTolerationFilterTest {
                 "taints",
                 "workload_affinity",
                 "topology_spread",
+                "stateful",
             ),
             filters,
         )

@@ -1,5 +1,7 @@
 package forge.control.scheduler
 
+import forge.control.scheduler.model.GpuMatcher
+import forge.control.scheduler.model.GpuRequest
 import forge.control.scheduler.model.ResourceRequirements
 import forge.control.scheduler.model.UnschedulableReasonCode
 import forge.control.scheduler.model.UnschedulableReasonEntry
@@ -29,6 +31,14 @@ internal object PlacementCapacity {
         val used = node.allocation.diskMb ?: 0
         return (total - used).coerceAtLeast(0)
     }
+
+    fun freeGpuCount(node: FleetNode): Int? {
+        val total = node.allocatable?.gpu?.count ?: node.capacity.gpu?.count ?: return null
+        val used = node.allocation.gpuCount ?: 0
+        return (total - used).coerceAtLeast(0)
+    }
+
+    fun gpuCapacity(node: FleetNode) = node.allocatable?.gpu ?: node.capacity.gpu
 
     fun fits(node: FleetNode, requirements: ResourceRequirements): Boolean =
         evaluate(node, requirements).ok
@@ -66,6 +76,7 @@ internal object PlacementCapacity {
                     ),
                 )
             }
+            gpuCheck(node, requirements.gpu)?.let { return it }
             return CapacityEval(ok = true)
         }
 
@@ -74,6 +85,7 @@ internal object PlacementCapacity {
         cpuCheck(node, resolved.cpuMillis, required = true)?.let { return it }
         memCheck(node, resolved.memoryMb, required = true)?.let { return it }
         diskCheck(node, resolved.diskMb, required = true)?.let { return it }
+        gpuCheck(node, requirements.gpu)?.let { return it }
         return CapacityEval(ok = true)
     }
 
@@ -188,6 +200,38 @@ internal object PlacementCapacity {
                     code = UnschedulableReasonCode.InsufficientDisk,
                     requested = need,
                     free = free,
+                ),
+            )
+        }
+        return null
+    }
+
+    private fun gpuCheck(node: FleetNode, request: GpuRequest?): CapacityEval? {
+        if (request == null || request.isEmpty()) return null
+        val capacity = gpuCapacity(node)
+        if (!GpuMatcher.matches(capacity, request)) {
+            return CapacityEval(
+                ok = false,
+                reason = UnschedulableReasonEntry(
+                    nodeId = node.id,
+                    reason = UnschedulableReasonCode.InsufficientGpu.wire(),
+                    detail = "requested gpu count=${request.count}" +
+                        (request.vendor?.let { " vendor=$it" } ?: "") +
+                        (request.model?.let { " model=$it" } ?: "") +
+                        "; node gpu=${capacity?.let { "count=${it.count} vendor=${it.vendor} model=${it.model}" } ?: "none"}",
+                ),
+            )
+        }
+        val free = freeGpuCount(node) ?: 0
+        if (free < request.count) {
+            return CapacityEval(
+                ok = false,
+                reason = UnschedulableReasons.entry(
+                    nodeId = node.id,
+                    code = UnschedulableReasonCode.InsufficientGpu,
+                    requested = request.count,
+                    free = free,
+                    unit = "gpu",
                 ),
             )
         }

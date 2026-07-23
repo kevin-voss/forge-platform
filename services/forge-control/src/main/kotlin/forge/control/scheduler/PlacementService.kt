@@ -7,6 +7,7 @@ import forge.control.scheduler.model.PlacementRequest
 import forge.control.scheduler.model.PlacementSpec
 import forge.control.scheduler.model.PlatformSpec
 import forge.control.scheduler.model.ResourceRequirements
+import forge.control.scheduler.model.StatefulSpec
 import forge.control.telemetry.Telemetry
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.trace.Span
@@ -33,6 +34,7 @@ class PlacementService(
     private val preemptionSelector: PreemptionSelector? = null,
     private val gracefulEvictor: GracefulEvictor? = null,
     private val preemptionAuditor: PreemptionAuditor? = null,
+    private val reservationService: ReservationService? = null,
     private val idFactory: () -> String = { "plc_${UUID.randomUUID().toString().replace("-", "").take(12)}" },
     private val clock: () -> Instant = { Instant.now() },
 ) {
@@ -47,6 +49,7 @@ class PlacementService(
         placement: PlacementSpec = PlacementSpec(),
         platform: PlatformSpec? = null,
         priorityClass: String? = null,
+        reservationName: String? = null,
         allowPreemption: Boolean = true,
     ): PlaceResult {
         store.find(deploymentId, replicaIndex)?.let { existing ->
@@ -63,15 +66,27 @@ class PlacementService(
         val resolvedReqs = RequirementsResolver.resolve(
             requirements ?: ResourceRequirements(slots = slots, slotsExplicit = true),
         )
+        var effectivePlacement = placement
+        var preparedHold: CapacityHold? = null
+        reservationName?.takeIf { it.isNotBlank() }?.let { name ->
+            preparedHold = reservationService?.prepareForConsume(name)
+            val nodeId = preparedHold?.nodeId
+            if (!nodeId.isNullOrBlank()) {
+                val pinned = effectivePlacement.stateful?.copy(pinnedNodeId = nodeId)
+                    ?: StatefulSpec(pinnedNodeId = nodeId)
+                effectivePlacement = effectivePlacement.copy(stateful = pinned)
+            }
+        }
         val request = PlacementRequest(
             deploymentId = deploymentId.toString(),
             replicaIndex = replicaIndex,
             serviceId = serviceId,
             requirements = resolvedReqs.toResourceRequirements(),
             antiAffinity = affinity,
-            placement = placement,
+            placement = effectivePlacement,
             platform = platform,
             priorityClass = resolvedClass.name,
+            reservationName = reservationName,
         )
         var decision = placeWithTelemetry(request, resolvedReqs)
 
@@ -89,7 +104,7 @@ class PlacementService(
                 affinity = affinity,
                 resolvedReqs = resolvedReqs,
                 rescheduledFromNode = rescheduledFromNode,
-                placement = placement,
+                placement = effectivePlacement,
                 platform = platform,
             )
             if (preempted != null) return preempted
@@ -97,7 +112,8 @@ class PlacementService(
         }
 
         return when (decision) {
-            is PlacementDecision.NoNodeAvailable ->
+            is PlacementDecision.NoNodeAvailable -> {
+                preparedHold?.let { reservationService?.restoreHold(it) }
                 enqueueOrReject(
                     decision = decision,
                     deploymentId = deploymentId,
@@ -106,12 +122,13 @@ class PlacementService(
                     affinity = affinity,
                     resolvedReqs = resolvedReqs,
                     rescheduledFromNode = rescheduledFromNode,
-                    placement = placement,
+                    placement = effectivePlacement,
                     platform = platform,
                     priorityClassName = resolvedClass.name,
                 )
-            is PlacementDecision.Assigned ->
-                persistAssigned(
+            }
+            is PlacementDecision.Assigned -> {
+                val result = persistAssigned(
                     decision = decision,
                     deploymentId = deploymentId,
                     replicaIndex = replicaIndex,
@@ -119,10 +136,15 @@ class PlacementService(
                     affinity = affinity,
                     resolvedReqs = resolvedReqs,
                     rescheduledFromNode = rescheduledFromNode,
-                    placement = placement,
+                    placement = effectivePlacement,
                     platform = platform,
                     priorityClassName = resolvedClass.name,
                 )
+                reservationName?.takeIf { it.isNotBlank() }?.let { name ->
+                    reservationService?.consume(name, result.placement.id)
+                }
+                result
+            }
         }
     }
 
@@ -155,6 +177,7 @@ class PlacementService(
                 tolerations = lost.tolerations,
                 affinity = lost.affinity,
                 topologySpreadConstraints = lost.topologySpreadConstraints,
+                stateful = lost.stateful,
             ),
             platform = lost.platform,
             priorityClass = lost.priorityClass,
@@ -188,10 +211,14 @@ class PlacementService(
                             slots = deleted.slots.coerceAtLeast(slots),
                             requests = deleted.requests,
                             limits = deleted.limits,
+                            gpu = deleted.gpu,
                             slotsExplicit = true,
                         ),
                     ).toResourceRequirements()
-                else -> ResourceRequirements(slots = deleted.slots.coerceAtLeast(slots))
+                else -> ResourceRequirements(
+                    slots = deleted.slots.coerceAtLeast(slots),
+                    gpu = deleted.gpu,
+                )
             }
             reservation?.release(deleted.nodeId, releaseReqs)
         }
@@ -460,6 +487,8 @@ class PlacementService(
                 affinity = placement.affinity,
                 topologySpreadConstraints = placement.topologySpreadConstraints,
                 priorityClass = priorityClassName,
+                stateful = placement.stateful,
+                gpu = resolvedReqs.gpu,
             ),
         )
         log.info(
@@ -474,6 +503,7 @@ class PlacementService(
             "priority_class" to priorityClassName,
             "requested" to resolvedReqs.requests.toString(),
             "chosen_node" to decision.nodeId,
+            "volume" to (placement.stateful?.resolvedVolumeRef() ?: ""),
         )
         telemetry.recordPlacement(recorded.strategy)
         telemetry.recordPlacementDecision(recorded.strategy, recorded.nodeId ?: "")

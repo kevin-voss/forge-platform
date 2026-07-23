@@ -28,6 +28,8 @@ object SchedulerFactory {
         telemetry: Telemetry = Telemetry.current(),
         strictNodeSelector: Boolean = false,
         topologySpreadDefault: WhenUnsatisfiable = WhenUnsatisfiable.DoNotSchedule,
+        volumeLocality: VolumeLocalityStore = InMemoryVolumeLocalityStore(),
+        log: forge.control.logging.JsonLog? = null,
     ): Scheduler {
         if (!schedulerEnabled) {
             return SingleNodeScheduler(nodeId = null)
@@ -42,6 +44,11 @@ object SchedulerFactory {
         val placedReplicas: () -> List<Placement> = {
             placementStore?.listPlaced().orEmpty()
         }
+        val statefulFilter = StatefulPlacementFilter(
+            volumeLocality = volumeLocality,
+            placedReplicas = placedReplicas,
+            log = log,
+        )
         val onSoftFallback: () -> Unit = { telemetry.recordAntiAffinityFallback() }
         return when (strategy) {
             STRATEGY_FIRST_FIT -> FirstFitScheduler(
@@ -53,6 +60,7 @@ object SchedulerFactory {
                 workloadAffinity = workloadAffinity,
                 topologySpread = topologySpread,
                 placedReplicas = placedReplicas,
+                statefulFilter = statefulFilter,
             )
             STRATEGY_LEAST_ALLOCATED -> LeastAllocatedScheduler(
                 nodes = nodeStore,
@@ -63,6 +71,7 @@ object SchedulerFactory {
                 workloadAffinity = workloadAffinity,
                 topologySpread = topologySpread,
                 placedReplicas = placedReplicas,
+                statefulFilter = statefulFilter,
             )
             STRATEGY_SINGLE_NODE -> SingleNodeScheduler(
                 availableNodes = {

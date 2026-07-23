@@ -8,11 +8,13 @@ enum class UnschedulableReasonCode {
     InsufficientMemory,
     InsufficientDisk,
     InsufficientSlots,
+    InsufficientGpu,
     NoNodeMatchesSelector,
     PlatformMismatch,
     TaintNotTolerated,
     AffinityUnsatisfiable,
     TopologySpreadUnsatisfiable,
+    StatefulConstraintUnsatisfiable,
     ;
 
     fun wire(): String = name

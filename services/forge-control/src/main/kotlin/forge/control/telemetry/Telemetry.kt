@@ -71,6 +71,11 @@ class Telemetry private constructor(
     private val preemptions: LongCounter,
     private val disruptionBudgetBlocked: LongCounter,
     private val pendingAged: LongCounter,
+    private val statefulPrimaryProtected: LongCounter,
+    private val reservationsActiveValue: AtomicLong,
+    @Suppress("unused") private val reservationsActiveGauge: ObservableLongGauge,
+    private val gpuAllocatableByKey: java.util.concurrent.ConcurrentHashMap<String, AtomicLong>,
+    @Suppress("unused") private val gpuAllocatableGauge: ObservableLongGauge,
     private val managedDbInstances: LongCounter,
     private val managedDbProvisionDuration: DoubleHistogram,
     private val managedDbProvisionErrors: LongCounter,
@@ -344,6 +349,19 @@ class Telemetry private constructor(
         pendingAged.add(1)
     }
 
+    fun recordStatefulPrimaryProtected() {
+        statefulPrimaryProtected.add(1)
+    }
+
+    fun setReservationsActive(count: Int) {
+        reservationsActiveValue.set(count.toLong().coerceAtLeast(0))
+    }
+
+    fun setGpuAllocatable(nodeId: String, model: String, count: Int) {
+        val key = "$nodeId|$model"
+        gpuAllocatableByKey.computeIfAbsent(key) { AtomicLong(0) }.set(count.toLong().coerceAtLeast(0))
+    }
+
     fun recordNodeArchOs(architecture: String, os: String) {
         nodesTotal.add(
             1,
@@ -565,6 +583,31 @@ class Telemetry private constructor(
                 }
             val resourceCounts = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
             val watchCounts = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+            val reservationsActive = AtomicLong(0)
+            val reservationsGauge = meter.gaugeBuilder("forge_scheduler_reservations_active_total")
+                .ofLongs()
+                .buildWithCallback { measurement ->
+                    measurement.record(reservationsActive.get())
+                }
+            val gpuAllocatable = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+            val gpuGauge = meter.gaugeBuilder("forge_scheduler_gpu_allocatable")
+                .ofLongs()
+                .buildWithCallback { measurement ->
+                    for ((key, count) in gpuAllocatable) {
+                        val parts = key.split("|", limit = 2)
+                        val node = parts.getOrElse(0) { "" }
+                        val model = parts.getOrElse(1) { "" }
+                        measurement.record(
+                            count.get(),
+                            Attributes.of(
+                                AttributeKey.stringKey("node"),
+                                node,
+                                AttributeKey.stringKey("model"),
+                                model,
+                            ),
+                        )
+                    }
+                }
             return Telemetry(
                 tracer = openTelemetry.getTracer("forge.control"),
                 requestCount = meter.counterBuilder("http.server.requests").build(),
@@ -623,6 +666,13 @@ class Telemetry private constructor(
                 pendingAged = meter
                     .counterBuilder("forge_pending_aged_total")
                     .build(),
+                statefulPrimaryProtected = meter
+                    .counterBuilder("forge_stateful_primary_protected_total")
+                    .build(),
+                reservationsActiveValue = reservationsActive,
+                reservationsActiveGauge = reservationsGauge,
+                gpuAllocatableByKey = gpuAllocatable,
+                gpuAllocatableGauge = gpuGauge,
                 managedDbInstances = meter.counterBuilder("managed_db_instances_total").build(),
                 managedDbProvisionDuration = meter
                     .histogramBuilder("managed_db_provision_duration_seconds")

@@ -61,6 +61,7 @@ fun Route.placementRoutes(
                 slots = slots,
                 requests = body.requirements?.requests,
                 limits = body.requirements?.limits,
+                gpu = body.requirements?.gpu,
                 slotsExplicit = slotsProvided != null,
             )
             try {
@@ -83,11 +84,23 @@ fun Route.placementRoutes(
                     mapOf("field" to "placement.topologySpreadConstraints"),
                 )
             }
+            val stateful = try {
+                body.placement?.stateful?.also {
+                    it.resolvedRole()
+                    it.resolvedMigrationPolicy()
+                }
+            } catch (e: IllegalArgumentException) {
+                throw ApiException.BadRequest(
+                    e.message ?: "invalid stateful placement",
+                    mapOf("field" to "placement.stateful"),
+                )
+            }
             val placementSpec = PlacementSpec(
                 nodeSelector = body.placement?.resolvedNodeSelector().orEmpty(),
                 tolerations = body.placement?.resolvedTolerations().orEmpty(),
                 affinity = body.placement?.affinity,
                 topologySpreadConstraints = topologySpread,
+                stateful = stateful,
             )
             val result = try {
                 placements.placeAndPersist(
@@ -99,6 +112,7 @@ fun Route.placementRoutes(
                     placement = placementSpec,
                     platform = body.platform,
                     priorityClass = body.priorityClass?.trim()?.takeIf { it.isNotEmpty() },
+                    reservationName = body.reservationName?.trim()?.takeIf { it.isNotEmpty() },
                 )
             } catch (_: RepositoryException.ConstraintViolation) {
                 throw ApiException.NotFound(
