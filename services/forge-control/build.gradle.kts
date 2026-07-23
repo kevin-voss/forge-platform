@@ -71,10 +71,45 @@ tasks.register<JavaExec>("migrate") {
     mainClass.set("forge.control.MigrateKt")
 }
 
+// Fat-jar zipTree + EXCLUDE drops duplicate META-INF/services files, which breaks
+// Flyway's ServiceLoader plugins (CoreResourceTypeProvider, filesystem/classpath
+// scanners). Unrecognized SQL names are then silently skipped → 0 migrations.
+val mergeFlywayPlugins = tasks.register("mergeFlywayPlugins") {
+    val outFile = layout.buildDirectory.file(
+        "merged-services/org.flywaydb.core.extensibility.Plugin",
+    )
+    outputs.file(outFile)
+    inputs.files(configurations.runtimeClasspath)
+    doLast {
+        val lines = linkedSetOf<String>()
+        configurations.runtimeClasspath.get().forEach { file ->
+            if (!file.isFile || file.extension != "jar") return@forEach
+            zipTree(file)
+                .matching { include("META-INF/services/org.flywaydb.core.extensibility.Plugin") }
+                .files
+                .forEach { service ->
+                    service.readLines()
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() && !it.startsWith("#") }
+                        .forEach { lines.add(it) }
+                }
+        }
+        val target = outFile.get().asFile
+        target.parentFile.mkdirs()
+        target.writeText(lines.joinToString("\n", postfix = "\n"))
+    }
+}
+
 tasks.jar {
+    dependsOn(mergeFlywayPlugins)
     manifest {
         attributes["Main-Class"] = "forge.control.ApplicationKt"
     }
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
+    // Replace the clobbered SPI descriptor with the merged Flyway plugin list.
+    exclude("META-INF/services/org.flywaydb.core.extensibility.Plugin")
+    from(layout.buildDirectory.dir("merged-services")) {
+        into("META-INF/services")
+    }
 }
