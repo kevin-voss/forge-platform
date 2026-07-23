@@ -1,9 +1,13 @@
-//! Runtime network module: WireGuard peer poll / apply / report (22.03)
-//! and per-pair transport routes (22.04).
+//! Runtime network module: WireGuard peer poll / apply / report (22.03),
+//! per-pair transport routes (22.04), and NetworkPolicy enforcement (22.05).
 
+mod policy;
 mod route;
 mod wireguard;
 
+pub use policy::{
+    select_policy_backend, spawn_policy_poll_loop, PolicyObs, PolicyPollConfig,
+};
 pub use route::{
     apply_routes, select_route_backend, should_start_wireguard, FakeRouteBackend, PeerRoute,
     RouteBackend, Transport, TransportPair,

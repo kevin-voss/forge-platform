@@ -18,6 +18,7 @@ import (
 	"forge.local/services/forge-network/internal/db"
 	"forge.local/services/forge-network/internal/docker"
 	"forge.local/services/forge-network/internal/network"
+	"forge.local/services/forge-network/internal/policy"
 )
 
 func main() {
@@ -90,18 +91,29 @@ func run() error {
 			"event", "network.peers.topology_fallback")
 	}
 
+	policyStore := &policy.Store{
+		Pool:           database.Pool,
+		Log:            log,
+		ClusterDefault: cfg.PolicyDefault,
+	}
+	policyCompiler := &policy.PolicyCompiler{ClusterDefault: cfg.PolicyDefault}
+	policyMetrics := &api.PolicyMetrics{}
+
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	defer bgCancel()
 	go runReclaimer(bgCtx, alloc, cfg.LeaseReclaimInterval, log)
 	go runRotationRetirer(bgCtx, registry, cfg.LeaseReclaimInterval, log)
 
 	mux := api.NewRouter(api.Deps{
-		Alloc:      alloc,
-		Registry:   registry,
-		Computer:   computer,
-		Membership: membership,
-		DB:         database,
-		Log:        log,
+		Alloc:         alloc,
+		Registry:      registry,
+		Computer:      computer,
+		Membership:    membership,
+		Policy:        policyStore,
+		Compiler:      policyCompiler,
+		PolicyMetrics: policyMetrics,
+		DB:            database,
+		Log:           log,
 	})
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -134,6 +146,7 @@ func run() error {
 		"wg_keepalive_s", cfg.WgKeepaliveS,
 		"wg_topology", cfg.WgTopology,
 		"mode_default", cfg.ModeDefault,
+		"policy_default", cfg.PolicyDefault,
 		"version", cfg.ServiceVersion,
 		"env", cfg.Env,
 	)

@@ -443,6 +443,325 @@ paths:
         "404":
           description: Network not found
 
+  /v1/projects/{project}/environments/{environment}/network-policies:
+    parameters:
+      - name: project
+        in: path
+        required: true
+        schema:
+          type: string
+        example: invoice-platform
+      - name: environment
+        in: path
+        required: true
+        schema:
+          type: string
+        example: production
+    get:
+      operationId: listNetworkPolicies
+      summary: List NetworkPolicy resources in an environment
+      responses:
+        "200":
+          description: Policy list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/NetworkPolicy"
+    post:
+      operationId: createNetworkPolicy
+      summary: Create a NetworkPolicy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateNetworkPolicyRequest"
+            example:
+              name: invoice-api-policy
+              organization: forge-labs
+              spec:
+                target:
+                  application: invoice-api
+                ingress:
+                  - from:
+                      service: invoice-frontend
+                    ports:
+                      - port: 8080
+                        protocol: tcp
+                egress:
+                  - to:
+                      database: invoice-db
+                    ports:
+                      - port: 5432
+                        protocol: tcp
+                  - to:
+                      queue: invoice-jobs
+                    ports:
+                      - port: 4222
+                        protocol: tcp
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NetworkPolicy"
+              example:
+                apiVersion: forge.dev/v1
+                kind: NetworkPolicy
+                metadata:
+                  name: invoice-api-policy
+                  organization: forge-labs
+                  project: invoice-platform
+                  environment: production
+                  generation: 1
+                  resourceVersion: "1"
+                spec:
+                  target:
+                    application: invoice-api
+                  ingress:
+                    - from:
+                        service: invoice-frontend
+                      ports:
+                        - port: 8080
+                          protocol: tcp
+                  egress:
+                    - to:
+                        database: invoice-db
+                      ports:
+                        - port: 5432
+                          protocol: tcp
+                    - to:
+                        queue: invoice-jobs
+                      ports:
+                        - port: 4222
+                          protocol: tcp
+                status:
+                  phase: Ready
+                  observedGeneration: 1
+                  conditions:
+                    - type: Enforced
+                      status: "True"
+                      reason: AppliedToAllNodes
+                      message: "3/3 nodes running invoice-api have current rules"
+
+  /v1/projects/{project}/environments/{environment}/network-policies/{name}:
+    parameters:
+      - name: project
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: environment
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getNetworkPolicy
+      summary: Get a NetworkPolicy by name
+      responses:
+        "200":
+          description: NetworkPolicy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NetworkPolicy"
+        "404":
+          description: Not found
+    put:
+      operationId: replaceNetworkPolicy
+      summary: Replace a NetworkPolicy spec
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [spec]
+              properties:
+                spec:
+                  $ref: "#/components/schemas/NetworkPolicySpec"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NetworkPolicy"
+    patch:
+      operationId: patchNetworkPolicy
+      summary: Patch a NetworkPolicy spec
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [spec]
+              properties:
+                spec:
+                  $ref: "#/components/schemas/NetworkPolicySpec"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NetworkPolicy"
+    delete:
+      operationId: deleteNetworkPolicy
+      summary: Delete a NetworkPolicy
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /v1/projects/{project}/environments/{environment}/network-defaults:
+    parameters:
+      - name: project
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: environment
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getNetworkDefaults
+      summary: Get the environment network default policy
+      responses:
+        "200":
+          description: Defaults
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvironmentNetworkDefaults"
+    patch:
+      operationId: patchNetworkDefaults
+      summary: Set the environment network default policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NetworkDefaultsPatch"
+            example:
+              defaultPolicy: deny-all
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvironmentNetworkDefaults"
+
+  /v1/nodes/{node_id}/network-policy-rules:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+    get:
+      operationId: getNetworkPolicyRules
+      summary: Fetch the compiled NetworkPolicy rule set for a node
+      responses:
+        "200":
+          description: Per-node rules
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NetworkPolicyRules"
+              example:
+                node_id: node-a
+                generation: 7
+                rules:
+                  - workload_id: wl_1
+                    direction: ingress
+                    from_cidr: "10.100.2.5/32"
+                    port: 8080
+                    protocol: tcp
+                    action: allow
+                  - workload_id: wl_1
+                    direction: egress
+                    to_cidr: "0.0.0.0/0"
+                    action: deny
+                    reason: default-deny-environment
+
+  /v1/nodes/{node_id}/network-policy-denied:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+    post:
+      operationId: reportNetworkPolicyDenied
+      summary: Report a denied connection from Runtime enforcement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from_workload, to_workload, port]
+              properties:
+                from_workload:
+                  type: string
+                to_workload:
+                  type: string
+                port:
+                  type: integer
+                protocol:
+                  type: string
+                reason:
+                  type: string
+      responses:
+        "202":
+          description: Recorded (metric + network.policy.denied event)
+
+  /v1/workload-placements/{workload_id}:
+    parameters:
+      - name: workload_id
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: upsertWorkloadPlacement
+      summary: Upsert a scheduler placement mirror used by PolicyCompiler
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkloadPlacement"
+      responses:
+        "200":
+          description: Upserted
+
+  /metrics:
+    get:
+      operationId: getMetrics
+      summary: Prometheus text metrics (policy denies + rule generation)
+      security: []
+      responses:
+        "200":
+          description: Prometheus exposition
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: |
+                forge_network_policy_denied_total 0
+                forge_network_policy_rules_generation 7
+
 components:
   parameters:
     NetworkName:
@@ -711,6 +1030,211 @@ components:
           type: string
           enum: [docker, provider-private, wireguard]
           example: provider-private
+
+    CreateNetworkPolicyRequest:
+      type: object
+      required: [name, spec]
+      properties:
+        name:
+          type: string
+          example: invoice-api-policy
+        organization:
+          type: string
+          example: forge-labs
+        spec:
+          $ref: "#/components/schemas/NetworkPolicySpec"
+
+    NetworkPolicySpec:
+      type: object
+      required: [target]
+      properties:
+        target:
+          type: object
+          required: [application]
+          properties:
+            application:
+              type: string
+              example: invoice-api
+        ingress:
+          type: array
+          items:
+            type: object
+            required: [from]
+            properties:
+              from:
+                type: object
+                properties:
+                  service:
+                    type: string
+                    example: invoice-frontend
+              ports:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NetworkPolicyPort"
+        egress:
+          type: array
+          items:
+            type: object
+            required: [to]
+            properties:
+              to:
+                type: object
+                properties:
+                  database:
+                    type: string
+                    example: invoice-db
+                  queue:
+                    type: string
+                    example: invoice-jobs
+              ports:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NetworkPolicyPort"
+
+    NetworkPolicyPort:
+      type: object
+      required: [port, protocol]
+      properties:
+        port:
+          type: integer
+          example: 8080
+        protocol:
+          type: string
+          enum: [tcp, udp]
+          example: tcp
+
+    NetworkPolicy:
+      type: object
+      required: [apiVersion, kind, metadata, spec, status]
+      properties:
+        apiVersion:
+          type: string
+          example: forge.dev/v1
+        kind:
+          type: string
+          example: NetworkPolicy
+        metadata:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            organization:
+              type: string
+            project:
+              type: string
+            environment:
+              type: string
+            generation:
+              type: integer
+            resourceVersion:
+              type: string
+        spec:
+          $ref: "#/components/schemas/NetworkPolicySpec"
+        status:
+          type: object
+          properties:
+            phase:
+              type: string
+              enum: [Ready, Failed]
+            observedGeneration:
+              type: integer
+            conditions:
+              type: array
+              items:
+                type: object
+
+    EnvironmentNetworkDefaults:
+      type: object
+      required: [organization, project, environment, defaultPolicy]
+      properties:
+        organization:
+          type: string
+        project:
+          type: string
+        environment:
+          type: string
+        defaultPolicy:
+          type: string
+          enum: [allow-within-environment, deny-all]
+          example: allow-within-environment
+        generation:
+          type: integer
+
+    NetworkDefaultsPatch:
+      type: object
+      required: [defaultPolicy]
+      properties:
+        defaultPolicy:
+          type: string
+          enum: [allow-within-environment, deny-all]
+          example: deny-all
+        organization:
+          type: string
+
+    NetworkPolicyRules:
+      type: object
+      required: [node_id, generation, rules]
+      properties:
+        node_id:
+          type: string
+          example: node-a
+        generation:
+          type: integer
+          format: int64
+          example: 7
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/NetworkPolicyRule"
+
+    NetworkPolicyRule:
+      type: object
+      required: [workload_id, direction, action]
+      properties:
+        workload_id:
+          type: string
+        direction:
+          type: string
+          enum: [ingress, egress]
+        from_cidr:
+          type: string
+        to_cidr:
+          type: string
+        port:
+          type: integer
+        protocol:
+          type: string
+        action:
+          type: string
+          enum: [allow, deny]
+        reason:
+          type: string
+          example: default-deny-environment
+
+    WorkloadPlacement:
+      type: object
+      required: [organization, project, environment, node_id]
+      properties:
+        workload_id:
+          type: string
+        organization:
+          type: string
+        project:
+          type: string
+        environment:
+          type: string
+        node_id:
+          type: string
+        application:
+          type: string
+        service:
+          type: string
+        database:
+          type: string
+        queue:
+          type: string
 
     ErrorEnvelope:
       type: object

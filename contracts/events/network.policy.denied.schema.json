@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/contracts/events/network.policy.denied/v1",
+  "title": "network.policy.denied",
+  "description": "Emitted when Runtime NetworkPolicy enforcement denies a connection (sampled).",
+  "x-forge-subject": "network.policy.denied",
+  "x-forge-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["from_workload", "to_workload", "port", "occurred_at"],
+  "properties": {
+    "from_workload": {
+      "type": "string",
+      "minLength": 1
+    },
+    "to_workload": {
+      "type": "string",
+      "minLength": 1
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "protocol": {
+      "type": "string",
+      "enum": ["tcp", "udp"]
+    },
+    "reason": {
+      "type": "string"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "node_id": {
+      "type": "string"
+    },
+    "generation": {
+      "type": "integer"
+    },
+    "trace_id": {
+      "type": "string"
+    }
+  }
+}

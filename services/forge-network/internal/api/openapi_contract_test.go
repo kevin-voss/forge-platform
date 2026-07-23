@@ -68,6 +68,23 @@ func TestOpenAPIDeclaresNetworkAndLeases(t *testing.T) {
 		"NetworkMembership",
 		"TransportPair",
 		"docker_colocated",
+		"/v1/projects/{project}/environments/{environment}/network-policies",
+		"/v1/projects/{project}/environments/{environment}/network-defaults",
+		"/v1/nodes/{node_id}/network-policy-rules",
+		"createNetworkPolicy",
+		"listNetworkPolicies",
+		"getNetworkPolicy",
+		"patchNetworkDefaults",
+		"getNetworkPolicyRules",
+		"NetworkPolicy",
+		"NetworkPolicySpec",
+		"NetworkPolicyRules",
+		"EnvironmentNetworkDefaults",
+		"invoice-frontend",
+		"invoice-api",
+		"default-deny-environment",
+		"forge_network_policy_denied_total",
+		"network.policy.denied",
 	} {
 		if !strings.Contains(text, needle) {
 			t.Fatalf("openapi missing %q", needle)

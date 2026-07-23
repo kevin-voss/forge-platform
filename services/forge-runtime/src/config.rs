@@ -89,6 +89,14 @@ pub struct Config {
     pub network_private_iface: String,
     /// Route backend: host|fake (22.04).
     pub network_route_backend: String,
+    /// Policy poll interval (22.05).
+    pub network_policy_poll_interval: Duration,
+    /// Policy backend: host|fake (22.05).
+    pub network_policy_backend: String,
+    /// Fraction of denies logged at detail level + emitted as events (22.05).
+    pub network_deny_log_sample_rate: f64,
+    /// Optional forge-events base URL for `network.policy.denied` (22.05).
+    pub events_url: Option<String>,
 }
 
 impl Config {
@@ -394,6 +402,37 @@ impl Config {
         let network_route_backend =
             non_empty_env("FORGE_NETWORK_ROUTE_BACKEND", "host");
 
+        let policy_poll_raw =
+            env::var("FORGE_NETWORK_POLICY_POLL_INTERVAL_S").unwrap_or_else(|_| "5".into());
+        let policy_poll_secs: u64 = policy_poll_raw.trim().parse().map_err(|_| {
+            format!(
+                "FORGE_NETWORK_POLICY_POLL_INTERVAL_S must be a positive integer, got {policy_poll_raw:?}"
+            )
+        })?;
+        if policy_poll_secs == 0 {
+            return Err(format!(
+                "FORGE_NETWORK_POLICY_POLL_INTERVAL_S must be a positive integer, got {policy_poll_raw:?}"
+            ));
+        }
+        let network_policy_backend =
+            non_empty_env("FORGE_NETWORK_POLICY_BACKEND", "host");
+        let sample_raw =
+            env::var("FORGE_NETWORK_DENY_LOG_SAMPLE_RATE").unwrap_or_else(|_| "0.1".into());
+        let network_deny_log_sample_rate: f64 = sample_raw.trim().parse().map_err(|_| {
+            format!(
+                "FORGE_NETWORK_DENY_LOG_SAMPLE_RATE must be a float 0.0–1.0, got {sample_raw:?}"
+            )
+        })?;
+        if !(0.0..=1.0).contains(&network_deny_log_sample_rate) {
+            return Err(format!(
+                "FORGE_NETWORK_DENY_LOG_SAMPLE_RATE must be a float 0.0–1.0, got {sample_raw:?}"
+            ));
+        }
+        let events_url = env::var("FORGE_EVENTS_URL")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
         Ok(Self {
             port,
             service_name,
@@ -444,6 +483,10 @@ impl Config {
             node_network_membership,
             network_private_iface,
             network_route_backend,
+            network_policy_poll_interval: Duration::from_secs(policy_poll_secs),
+            network_policy_backend,
+            network_deny_log_sample_rate,
+            events_url,
         })
     }
 }
@@ -520,6 +563,10 @@ mod tests {
             "FORGE_NODE_NETWORK_MEMBERSHIP",
             "FORGE_NETWORK_PRIVATE_IFACE",
             "FORGE_NETWORK_ROUTE_BACKEND",
+            "FORGE_NETWORK_POLICY_POLL_INTERVAL_S",
+            "FORGE_NETWORK_POLICY_BACKEND",
+            "FORGE_NETWORK_DENY_LOG_SAMPLE_RATE",
+            "FORGE_EVENTS_URL",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()

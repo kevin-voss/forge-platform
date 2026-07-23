@@ -16,6 +16,12 @@ Step `22.04` adds per-pair transport selection (`docker` /
 `docker_colocated`, with `PATCH /v1/nodes/{id}/network-membership` and
 `GET /v1/networks/{name}/transport`.
 
+Step `22.05` adds environment-scoped `NetworkPolicy` resources, per-environment
+defaults (`allow-within-environment` / `deny-all`), `PolicyCompiler` →
+`GET /v1/nodes/{id}/network-policy-rules`, and Runtime nftables enforcement
+with deny metrics (`forge_network_policy_denied_total`) and
+`network.policy.denied` events.
+
 ## Quick start
 
 ```bash
@@ -67,6 +73,30 @@ Overlaps with Docker bridge/IPAM subnets (via Docker Engine API) or
 | `FORGE_NETWORK_WG_TOPOLOGY` | `mesh` | `hub` documented only ([hub-topology.md](../../docs/implementation/steps/22-forge-network/notes/hub-topology.md)) |
 | `FORGE_NETWORK_WG_ROTATION_WINDOW_S` | `300` | Dual-key window before scheduled retire |
 | `FORGE_NETWORK_MODE_DEFAULT` | `wireguard` | Fallback transport when membership/colocation do not select a mode |
+| `FORGE_NETWORK_POLICY_DEFAULT` | `allow-within-environment` | Cluster fallback when an environment has no defaults row |
+
+## NetworkPolicy (22.05)
+
+```bash
+# Seed a placement mirror (scheduler → forge-network) then create a policy:
+curl -s -X PUT localhost:4110/v1/workload-placements/wl_restricted \
+  -H 'content-type: application/json' \
+  -d '{"organization":"default","project":"demo","environment":"production",
+       "node_id":"node-c","application":"restricted"}' | jq
+
+curl -s -X POST localhost:4110/v1/projects/demo/environments/production/network-policies \
+  -H 'content-type: application/json' \
+  -d '{"name":"restricted-policy","spec":{"target":{"application":"restricted"},
+       "ingress":[{"from":{"service":"allowed-caller"},"ports":[{"port":8080,"protocol":"tcp"}]}]}}' \
+  | jq '.status.phase'
+# → Ready
+
+curl -s localhost:4110/v1/nodes/node-c/network-policy-rules | jq '.rules[] | select(.action=="deny")'
+curl -s localhost:4110/metrics | grep forge_network_policy
+```
+
+Evaluation order: cross-environment deny → explicit policy (allowlist when
+ingress/egress declared) → environment default.
 
 ## Transport modes (22.04)
 

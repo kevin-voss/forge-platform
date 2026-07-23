@@ -40,6 +40,9 @@ type Config struct {
 
 	// Transport mode default when membership/colocation do not select a mode (22.04).
 	ModeDefault string // docker|provider-private|wireguard
+
+	// NetworkPolicy cluster fallback (22.05).
+	PolicyDefault string // allow-within-environment|deny-all
 }
 
 // Load reads configuration from the process environment.
@@ -199,6 +202,16 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("FORGE_NETWORK_MODE_DEFAULT must be docker|provider-private|wireguard, got %q", modeDefault)
 	}
 
+	policyDefault := strings.ToLower(strings.TrimSpace(os.Getenv("FORGE_NETWORK_POLICY_DEFAULT")))
+	if policyDefault == "" {
+		policyDefault = "allow-within-environment"
+	}
+	switch policyDefault {
+	case "allow-within-environment", "deny-all":
+	default:
+		return Config{}, fmt.Errorf("FORGE_NETWORK_POLICY_DEFAULT must be allow-within-environment|deny-all, got %q", policyDefault)
+	}
+
 	return Config{
 		Port:                   port,
 		ServiceName:            name,
@@ -223,6 +236,7 @@ func Load() (Config, error) {
 		WgBackend:              wgBackend,
 		WgRotationWindow:       time.Duration(rotSecs) * time.Second,
 		ModeDefault:            modeDefault,
+		PolicyDefault:          policyDefault,
 	}, nil
 }
 

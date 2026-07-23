@@ -297,6 +297,27 @@ async fn run() -> Result<(), String> {
         None
     };
 
+    let _policy_poll_task = if let Some(network_url) = cfg.network_url.as_deref() {
+        let backend = network::select_policy_backend(&cfg.network_policy_backend);
+        info!(
+            network_url = %network_url,
+            poll_interval_s = cfg.network_policy_poll_interval.as_secs(),
+            deny_sample_rate = cfg.network_deny_log_sample_rate,
+            "starting network policy poll loop"
+        );
+        Some(network::spawn_policy_poll_loop(network::PolicyPollConfig {
+            network_url: network_url.to_string(),
+            node_id: node.info.id.clone(),
+            poll_interval: cfg.network_policy_poll_interval,
+            backend,
+            obs: std::sync::Arc::new(network::PolicyObs::new()),
+            deny_sample_rate: cfg.network_deny_log_sample_rate,
+            events_url: cfg.events_url.clone(),
+        }))
+    } else {
+        None
+    };
+
     let state = AppState {
         docker,
         node,
