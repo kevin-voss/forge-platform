@@ -95,14 +95,62 @@ data class DbAttachment(
     }
 }
 
+/** Lifecycle status for on-demand database backups. */
+enum class DbBackupStatus(val wire: String) {
+    Pending("pending"),
+    Running("running"),
+    Succeeded("succeeded"),
+    Failed("failed"),
+    ;
+
+    companion object {
+        fun parse(raw: String): DbBackupStatus =
+            entries.firstOrNull { it.wire == raw }
+                ?: throw IllegalArgumentException("invalid db backup status: $raw")
+    }
+}
+
+/** Lifecycle status for restore attempts against a backup. */
+enum class DbRestoreStatus(val wire: String) {
+    Running("running"),
+    Succeeded("succeeded"),
+    Failed("failed"),
+    ;
+
+    companion object {
+        fun parse(raw: String): DbRestoreStatus =
+            entries.firstOrNull { it.wire == raw }
+                ?: throw IllegalArgumentException("invalid db restore status: $raw")
+    }
+}
+
 data class DbBackup(
     val id: UUID,
     val databaseId: UUID,
     val location: String?,
-    val status: String,
+    val status: DbBackupStatus,
+    val checksum: String? = null,
+    val sizeBytes: Long? = null,
+    val statusReason: String? = null,
+    val completedAt: Instant? = null,
+    val restoreStatus: DbRestoreStatus? = null,
+    val restoreTargetDatabaseId: UUID? = null,
+    val restoreStatusReason: String? = null,
+    val restoreCompletedAt: Instant? = null,
     val createdAt: Instant,
+)
+
+/** Result of a provisioner dump (archive bytes + integrity metadata). */
+data class DumpArchive(
+    val bytes: ByteArray,
+    val checksum: String,
+    val sizeBytes: Long,
 ) {
-    init {
-        require(status.isNotBlank()) { "status must not be blank" }
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is DumpArchive) return false
+        return checksum == other.checksum && sizeBytes == other.sizeBytes && bytes.contentEquals(other.bytes)
     }
+
+    override fun hashCode(): Int = 31 * checksum.hashCode() + sizeBytes.hashCode()
 }

@@ -46,8 +46,10 @@ import org.junit.jupiter.api.Order
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.TestMethodOrder
+import java.nio.file.Files
 import java.sql.DriverManager
 import java.util.UUID
+import java.util.concurrent.Executor
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -120,14 +122,21 @@ class ManagedDbApiIntegrationTest {
         val relationships = RelationshipValidator(projectRepo, applicationRepo)
         val isolation = IsolationGuard(cfg.database.url, cfg.database.user)
         secrets = InMemoryManagedDbSecretsClient()
+        val sync = Executor { it.run() }
+        val backupDir = Files.createTempDirectory("forge-mdb-api-bak")
+        val archives = VolumeArchiveStore(backupDir)
+        val provisioner = FakeProvisioner(isolation)
         val managedDb = ManagedDbService(
             store = managedDbRepo,
-            provisioner = FakeProvisioner(isolation),
+            provisioner = provisioner,
             isolation = isolation,
             relationships = relationships,
             secrets = secrets,
             applications = applicationRepo,
             defaultEnvVar = "DATABASE_URL",
+            backupRunner = BackupRunner(managedDbRepo, provisioner, archives, executor = sync),
+            restoreRunner = RestoreRunner(managedDbRepo, provisioner, archives, executor = sync),
+            archives = archives,
             log = JsonLog("forge-control", "info"),
         )
         services = ControlServices(
@@ -365,5 +374,55 @@ class ManagedDbApiIntegrationTest {
             .body<List<DbAttachmentResponse>>()
         assertEquals(emptyList(), after)
         assertNull(secrets.get(attachment.secretRef!!))
+    }
+
+    @Test
+    @Order(8)
+    fun backupRestoreListAndCrossProjectIsolation() = withApp {
+        val client = jsonClient()
+        val pid = projectA!!
+        val dbid = databaseId!!
+
+        val created = client.post("/v1/databases/$dbid/backups") {
+            header("X-Forge-Project", pid)
+        }
+        assertEquals(HttpStatusCode.Accepted, created.status)
+        val backup = created.body<DbBackupResponse>()
+        assertTrue(backup.status == "running" || backup.status == "succeeded")
+
+        // Poll get until succeeded (sync runner usually completes immediately).
+        var got: DbBackupResponse? = null
+        repeat(20) {
+            got = client.get("/v1/databases/$dbid/backups/${backup.id}") {
+                header("X-Forge-Project", pid)
+            }.body()
+            if (got!!.status == "succeeded" || got!!.status == "failed") return@repeat
+            Thread.sleep(50)
+        }
+        assertEquals("succeeded", got!!.status)
+        assertNotNull(got!!.checksum)
+        assertNotNull(got!!.location)
+        assertTrue(got!!.sizeBytes!! > 0)
+
+        val listed = client.get("/v1/databases/$dbid/backups") {
+            header("X-Forge-Project", pid)
+        }.body<List<DbBackupResponse>>()
+        assertTrue(listed.any { it.id == backup.id && it.checksum != null })
+
+        val restored = client.post("/v1/databases/backups/${backup.id}/restore") {
+            header("X-Forge-Project", pid)
+            contentType(ContentType.Application.Json)
+            setBody("""{"targetDatabaseId":"$dbid"}""")
+        }
+        assertEquals(HttpStatusCode.Accepted, restored.status)
+        val restoreBody = restored.body<RestoreBackupResponse>()
+        assertEquals("running", restoreBody.status)
+
+        // Cross-project backup create → 404
+        val other = projectB!!
+        val cross = client.post("/v1/databases/$dbid/backups") {
+            header("X-Forge-Project", other)
+        }
+        assertEquals(HttpStatusCode.NotFound, cross.status)
     }
 }

@@ -59,7 +59,7 @@ make demo DEMO=18
 | [18.01](../steps/18-managed-postgresql/18.01-control-apis-provisioner-skeleton.md) | Control APIs + provisioner skeleton | Complete | Resource model + FakeProvisioner seam |
 | [18.02](../steps/18-managed-postgresql/18.02-create-instance-db-credentials.md) | Create instance/database/credentials | Complete | LocalProvisioner + Secrets refs; isolated from Control DB |
 | [18.03](../steps/18-managed-postgresql/18.03-attach-secrets-runtime-injection.md) | Attach + Secrets/Runtime URL injection | Complete | Attach + URL secret; reconciler injects on deploy |
-| [18.04](../steps/18-managed-postgresql/18.04-backup-restore.md) | Backup + restore | Not started | Depends on 18.03 |
+| [18.04](../steps/18-managed-postgresql/18.04-backup-restore.md) | Backup + restore | Complete | On-demand dump/restore + checksum |
 | [18.05](../steps/18-managed-postgresql/18.05-rotation-deletion-protection.md) | Credential rotation + deletion protection | Not started | Depends on 18.04 |
 | [18.06](../steps/18-managed-postgresql/18.06-cli-demo-and-gate.md) | CLI `forge database *` + demo + gate | Not started | Depends on 18.05; 03 |
 
@@ -80,4 +80,4 @@ make demo DEMO=18
 
 ## Next step to implement
 
-**[18.04](../steps/18-managed-postgresql/18.04-backup-restore.md) — Backup + restore**.
+**[18.05](../steps/18-managed-postgresql/18.05-rotation-deletion-protection.md) — Credential rotation + deletion protection**.

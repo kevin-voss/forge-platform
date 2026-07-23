@@ -67,6 +67,33 @@ interface ManagedDbRepository {
 
     fun deleteDatabase(id: UUID)
     fun deleteCredential(id: UUID)
+
+    fun createBackup(
+        databaseId: UUID,
+        status: DbBackupStatus = DbBackupStatus.Running,
+        id: UUID = UUID.randomUUID(),
+    ): DbBackup
+
+    fun findBackupById(id: UUID): DbBackup?
+    fun listBackups(databaseId: UUID): List<DbBackup>
+
+    fun updateBackup(
+        id: UUID,
+        status: DbBackupStatus,
+        location: String? = null,
+        checksum: String? = null,
+        sizeBytes: Long? = null,
+        statusReason: String? = null,
+        completedAt: Instant? = null,
+    ): DbBackup
+
+    fun updateBackupRestore(
+        id: UUID,
+        restoreStatus: DbRestoreStatus,
+        restoreTargetDatabaseId: UUID? = null,
+        restoreStatusReason: String? = null,
+        restoreCompletedAt: Instant? = null,
+    ): DbBackup
 }
 
 class JdbcManagedDbRepository(
@@ -455,6 +482,182 @@ class JdbcManagedDbRepository(
             }
         }
     }
+
+    override fun createBackup(
+        databaseId: UUID,
+        status: DbBackupStatus,
+        id: UUID,
+    ): DbBackup = runSql {
+        val now = Instant.now()
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                INSERT INTO db_backup (id, database_id, location, status, created_at)
+                VALUES (?, ?, NULL, ?, ?)
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, id)
+                ps.setObject(2, databaseId)
+                ps.setString(3, status.wire)
+                ps.setTimestamp(4, java.sql.Timestamp.from(now))
+                ps.executeUpdate()
+            }
+        }
+        DbBackup(
+            id = id,
+            databaseId = databaseId,
+            location = null,
+            status = status,
+            createdAt = now,
+        )
+    }
+
+    override fun findBackupById(id: UUID): DbBackup? = runSql {
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                SELECT id, database_id, location, status, checksum, size_bytes, status_reason,
+                       completed_at, restore_status, restore_target_database_id,
+                       restore_status_reason, restore_completed_at, created_at
+                FROM db_backup WHERE id = ?
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, id)
+                ps.executeQuery().use { rs ->
+                    if (rs.next()) mapBackup(rs) else null
+                }
+            }
+        }
+    }
+
+    override fun listBackups(databaseId: UUID): List<DbBackup> = runSql {
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                SELECT id, database_id, location, status, checksum, size_bytes, status_reason,
+                       completed_at, restore_status, restore_target_database_id,
+                       restore_status_reason, restore_completed_at, created_at
+                FROM db_backup WHERE database_id = ? ORDER BY created_at DESC
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, databaseId)
+                ps.executeQuery().use { rs ->
+                    buildList {
+                        while (rs.next()) add(mapBackup(rs))
+                    }
+                }
+            }
+        }
+    }
+
+    override fun updateBackup(
+        id: UUID,
+        status: DbBackupStatus,
+        location: String?,
+        checksum: String?,
+        sizeBytes: Long?,
+        statusReason: String?,
+        completedAt: Instant?,
+    ): DbBackup = runSql {
+        val existing = findBackupById(id)
+            ?: throw RepositoryException.NotFound("db_backup", id)
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                UPDATE db_backup
+                SET status = ?,
+                    location = COALESCE(?, location),
+                    checksum = COALESCE(?, checksum),
+                    size_bytes = COALESCE(?, size_bytes),
+                    status_reason = ?,
+                    completed_at = COALESCE(?, completed_at)
+                WHERE id = ?
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setString(1, status.wire)
+                ps.setString(2, location)
+                ps.setString(3, checksum)
+                if (sizeBytes != null) ps.setLong(4, sizeBytes) else ps.setObject(4, null)
+                ps.setString(5, statusReason)
+                if (completedAt != null) {
+                    ps.setTimestamp(6, java.sql.Timestamp.from(completedAt))
+                } else {
+                    ps.setObject(6, null)
+                }
+                ps.setObject(7, id)
+                if (ps.executeUpdate() == 0) {
+                    throw RepositoryException.NotFound("db_backup", id)
+                }
+            }
+        }
+        existing.copy(
+            status = status,
+            location = location ?: existing.location,
+            checksum = checksum ?: existing.checksum,
+            sizeBytes = sizeBytes ?: existing.sizeBytes,
+            statusReason = statusReason,
+            completedAt = completedAt ?: existing.completedAt,
+        )
+    }
+
+    override fun updateBackupRestore(
+        id: UUID,
+        restoreStatus: DbRestoreStatus,
+        restoreTargetDatabaseId: UUID?,
+        restoreStatusReason: String?,
+        restoreCompletedAt: Instant?,
+    ): DbBackup = runSql {
+        val existing = findBackupById(id)
+            ?: throw RepositoryException.NotFound("db_backup", id)
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                UPDATE db_backup
+                SET restore_status = ?,
+                    restore_target_database_id = COALESCE(?, restore_target_database_id),
+                    restore_status_reason = ?,
+                    restore_completed_at = COALESCE(?, restore_completed_at)
+                WHERE id = ?
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setString(1, restoreStatus.wire)
+                ps.setObject(2, restoreTargetDatabaseId)
+                ps.setString(3, restoreStatusReason)
+                if (restoreCompletedAt != null) {
+                    ps.setTimestamp(4, java.sql.Timestamp.from(restoreCompletedAt))
+                } else {
+                    ps.setObject(4, null)
+                }
+                ps.setObject(5, id)
+                if (ps.executeUpdate() == 0) {
+                    throw RepositoryException.NotFound("db_backup", id)
+                }
+            }
+        }
+        existing.copy(
+            restoreStatus = restoreStatus,
+            restoreTargetDatabaseId = restoreTargetDatabaseId ?: existing.restoreTargetDatabaseId,
+            restoreStatusReason = restoreStatusReason,
+            restoreCompletedAt = restoreCompletedAt ?: existing.restoreCompletedAt,
+        )
+    }
+
+    private fun mapBackup(rs: java.sql.ResultSet): DbBackup =
+        DbBackup(
+            id = rs.uuid("id"),
+            databaseId = rs.uuid("database_id"),
+            location = rs.getString("location"),
+            status = DbBackupStatus.parse(rs.getString("status")),
+            checksum = rs.getString("checksum"),
+            sizeBytes = rs.getObject("size_bytes")?.let { (it as Number).toLong() },
+            statusReason = rs.getString("status_reason"),
+            completedAt = rs.getTimestamp("completed_at")?.toInstant(),
+            restoreStatus = rs.getString("restore_status")?.let { DbRestoreStatus.parse(it) },
+            restoreTargetDatabaseId = rs.getObject("restore_target_database_id", UUID::class.java),
+            restoreStatusReason = rs.getString("restore_status_reason"),
+            restoreCompletedAt = rs.getTimestamp("restore_completed_at")?.toInstant(),
+            createdAt = rs.instant("created_at"),
+        )
 
     private fun mapInstance(rs: java.sql.ResultSet): DbInstance =
         DbInstance(

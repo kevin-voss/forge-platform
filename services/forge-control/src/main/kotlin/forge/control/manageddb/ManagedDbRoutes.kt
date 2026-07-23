@@ -100,6 +100,8 @@ fun Route.managedDbRoutes(managedDb: ManagedDbService, idempotency: IdempotencyS
         val applicationId = call.parameters.requireUuid("applicationId")
         call.respond(managedDb.listAttachmentsForApplication(applicationId))
     }
+
+    backupRoutes(managedDb, idempotency)
 }
 
 private fun ApplicationCall.resolveProjectId(explicit: String?): UUID {

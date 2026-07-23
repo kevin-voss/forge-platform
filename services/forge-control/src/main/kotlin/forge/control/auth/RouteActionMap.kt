@@ -38,6 +38,7 @@ enum class ScopeKind {
     DbInstance,
     DbDatabase,
     DbAttachment,
+    DbBackup,
 }
 
 class RepositoryProjectScopeResolver(
@@ -70,6 +71,11 @@ class RepositoryProjectScopeResolver(
             ScopeKind.DbAttachment -> {
                 val attachment = dbInstances?.findAttachmentById(uuid) ?: return null
                 val database = dbInstances.findDatabaseById(attachment.databaseId) ?: return null
+                dbInstances.findInstanceById(database.instanceId)?.projectId?.toString()
+            }
+            ScopeKind.DbBackup -> {
+                val backup = dbInstances?.findBackupById(uuid) ?: return null
+                val database = dbInstances.findDatabaseById(backup.databaseId) ?: return null
                 dbInstances.findInstanceById(database.instanceId)?.projectId?.toString()
             }
         }
@@ -225,6 +231,22 @@ class RouteActionMap(
             }
         }
 
+        match(m, p, DB_DATABASE_BACKUPS)?.let { id ->
+            return when (m) {
+                "GET" -> authorize("database.read", ScopeKind.DbDatabase, id)
+                "POST" -> authorize("database.write", ScopeKind.DbDatabase, id)
+                else -> authorize("database.read", ScopeKind.DbDatabase, id)
+            }
+        }
+
+        match(m, p, DB_DATABASE_BACKUP_ITEM)?.let { id ->
+            return authorize("database.read", ScopeKind.DbDatabase, id)
+        }
+
+        match(m, p, DB_BACKUP_RESTORE)?.let { id ->
+            return authorize("database.write", ScopeKind.DbBackup, id)
+        }
+
         match(m, p, DB_ATTACHMENT_ITEM)?.let { id ->
             return when (m) {
                 "DELETE" -> authorize("database.write", ScopeKind.DbAttachment, id)
@@ -298,9 +320,35 @@ class RouteActionMap(
             Pattern(Regex("^/v1/databases/instances/($UUID_OR_ID)/databases$"))
         // Exclude the "instances" / "attachments" collection segments from bare database ids.
         private val DB_DATABASE_ITEM =
-            Pattern(Regex("^/v1/databases/(?!instances(?:/|$)|attachments(?:/|$))($UUID_OR_ID)$"))
+            Pattern(
+                Regex(
+                    "^/v1/databases/(?!instances(?:/|$)|attachments(?:/|$)|backups(?:/|$))" +
+                        "($UUID_OR_ID)$",
+                ),
+            )
         private val DB_DATABASE_ATTACH =
-            Pattern(Regex("^/v1/databases/(?!instances(?:/|$)|attachments(?:/|$))($UUID_OR_ID)/attach$"))
+            Pattern(
+                Regex(
+                    "^/v1/databases/(?!instances(?:/|$)|attachments(?:/|$)|backups(?:/|$))" +
+                        "($UUID_OR_ID)/attach$",
+                ),
+            )
+        private val DB_DATABASE_BACKUPS =
+            Pattern(
+                Regex(
+                    "^/v1/databases/(?!instances(?:/|$)|attachments(?:/|$)|backups(?:/|$))" +
+                        "($UUID_OR_ID)/backups$",
+                ),
+            )
+        private val DB_DATABASE_BACKUP_ITEM =
+            Pattern(
+                Regex(
+                    "^/v1/databases/(?!instances(?:/|$)|attachments(?:/|$)|backups(?:/|$))" +
+                        "($UUID_OR_ID)/backups/$UUID_OR_ID$",
+                ),
+            )
+        private val DB_BACKUP_RESTORE =
+            Pattern(Regex("^/v1/databases/backups/($UUID_OR_ID)/restore$"))
         private val DB_ATTACHMENT_ITEM =
             Pattern(Regex("^/v1/databases/attachments/($UUID_OR_ID)$"))
         private val APPLICATION_DATABASES =

@@ -10,7 +10,7 @@ HTTP APIs for projects, environments, applications, services, and desired-state
 deployments (`02.05`) are available under `/v1`. Control records deployment
 intent only; it does not pull images or start containers.
 
-Managed PostgreSQL (`18.01`–`18.03`) adds project-scoped management-plane
+Managed PostgreSQL (`18.01`–`18.04`) adds project-scoped management-plane
 resources (`db_instance`, `db_database`, `db_credential`, `db_attachment`,
 `db_backup`) and a `Provisioner` seam. Default `FORGE_DB_PROVISIONER=fake` is
 deterministic for CI; `local` starts an isolated Postgres container per instance
@@ -19,8 +19,12 @@ passwords in Secrets (`secret_ref` only in Control), and health-checks to
 `available`. Attach (`POST /v1/databases/{id}/attach`) composes a connection URL
 into Secrets and records `db_attachment`; on deploy the reconciler merges the
 attached env var (default `DATABASE_URL` via `FORGE_DB_DEFAULT_ENV_VAR`) into the
-Runtime workload env. Detach removes injection on the next deploy. Product DBs
-are isolated from Control's own JDBC connection; plaintext URLs never appear in
+Runtime workload env. Detach removes injection on the next deploy. On-demand
+backup (`POST /v1/databases/{id}/backups`) runs `pg_dump`, stores the archive on
+a volume or Forge Storage with a SHA-256 checksum, and restore
+(`POST /v1/databases/backups/{id}/restore`) verifies integrity before
+`pg_restore`. Cross-project backup/restore returns `404`. Product DBs are
+isolated from Control's own JDBC connection; plaintext URLs never appear in
 Control logs or API responses.
 
 A reconciliation controller (`07.01`–`07.05`) periodically diffs desired vs
@@ -144,6 +148,10 @@ make dev
 | `FORGE_DB_POSTGRES_IMAGE` | `postgres:16` | Image used by `LocalProvisioner` |
 | `FORGE_DB_ENDPOINT_HOST` | `127.0.0.1` | Host published ports are reached on (Control health checks) |
 | `FORGE_DB_DEFAULT_ENV_VAR` | `DATABASE_URL` | Default env var name when attaching a managed database |
+| `FORGE_DB_BACKUP_TARGET` | `storage` if `FORGE_STORAGE_URL` set, else `volume` | `storage` \| `volume` for backup archives |
+| `FORGE_DB_BACKUP_BUCKET` | `db-backups` | Forge Storage bucket when target=`storage` |
+| `FORGE_DB_BACKUP_DIR` | `/var/forge/db-backups` | Local volume path when target=`volume` |
+| `FORGE_STORAGE_URL` | _(empty)_ | Enables storage-backed backups when set |
 | `FORGE_SECRETS_URL` | `http://forge-secrets:8080` | Used to persist generated DB credentials + attachment URLs (`disabled` → in-memory) |
 
 See `.env.example`.
@@ -174,6 +182,7 @@ With OTEL export enabled, HTTP/JDBC spans and standard metrics
 `forge_stale_replicas_fenced_total`, `managed_db_instances_total{status}`,
 `managed_db_provision_duration_seconds{op}`, `managed_db_provision_errors_total{op}`,
 `managed_db_attachments_total`,
+`managed_db_backups_total{status}`, `managed_db_restore_total{status}`,
 and spans `scheduler.place` / `scheduler.reschedule` (attributes `strategy`,
 `candidates`, `node`).
 From 07.02 the controller executes start/stop/recreate against Runtime using
@@ -242,7 +251,7 @@ Tables in schema `control`:
 * `placements` (replica → node assignments, `pending` queue, or `lost` audit rows; active unique on `(deployment_id, replica_index)` where `status in (placed,pending)`; `rescheduled_from_node` on replacements)
 * `audit_log` (append-only; create actions for projects/environments/applications/services/deployments)
 * `idempotency_keys` (key, request hash, resource ID, stored response; 24-hour retention target)
-* `db_instance` (incl. `host`/`port`/`container_id`), `db_database` (incl. `status`), `db_credential` (`secret_ref` only), `db_attachment` (`secret_ref` for composed URL), `db_backup` (managed PostgreSQL; `18.01`–`18.03`)
+* `db_instance` (incl. `host`/`port`/`container_id`), `db_database` (incl. `status`), `db_credential` (`secret_ref` only), `db_attachment` (`secret_ref` for composed URL), `db_backup` (checksum/size/restore status; managed PostgreSQL; `18.01`–`18.04`)
 * `flyway_schema_history`
 
 `deployments` also stores rollout policy defaults (`rollout_batch_size=1`,

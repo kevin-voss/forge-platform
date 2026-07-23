@@ -62,6 +62,14 @@ data class AppConfig(
     val dbEndpointHost: String = "127.0.0.1",
     /** Default env var name when attaching a managed database (e.g. DATABASE_URL). */
     val dbDefaultEnvVar: String = "DATABASE_URL",
+    /** Backup archive target: `storage` or `volume` (storage when available). */
+    val dbBackupTarget: String = "volume",
+    /** Forge Storage bucket for backups when target=storage. */
+    val dbBackupBucket: String = "db-backups",
+    /** Local volume directory for backups when target=volume. */
+    val dbBackupDir: String = "/var/forge/db-backups",
+    /** Base URL for forge-storage (empty disables storage-backed backups). */
+    val storageUrl: String = "",
 )
 
 fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
@@ -424,6 +432,29 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
             "FORGE_DB_DEFAULT_ENV_VAR must match [A-Za-z_][A-Za-z0-9_]*, got '$dbDefaultEnvVar'",
         )
     }
+    val storageUrl = env["FORGE_STORAGE_URL"]?.trim().orEmpty()
+        .let { if (it.equals("disabled", ignoreCase = true)) "" else it }
+    val dbBackupTargetRaw = env["FORGE_DB_BACKUP_TARGET"]?.trim()?.lowercase().orEmpty()
+    val dbBackupTarget = when {
+        dbBackupTargetRaw.isNotEmpty() -> dbBackupTargetRaw
+        storageUrl.isNotBlank() -> "storage"
+        else -> "volume"
+    }
+    if (dbBackupTarget !in setOf("storage", "volume")) {
+        throw IllegalArgumentException(
+            "FORGE_DB_BACKUP_TARGET must be storage|volume, got '$dbBackupTarget'",
+        )
+    }
+    val dbBackupBucket = env["FORGE_DB_BACKUP_BUCKET"]?.trim().orEmpty()
+        .ifEmpty { "db-backups" }
+    if (dbBackupBucket.isBlank()) {
+        throw IllegalArgumentException("FORGE_DB_BACKUP_BUCKET must not be blank")
+    }
+    val dbBackupDir = env["FORGE_DB_BACKUP_DIR"]?.trim().orEmpty()
+        .ifEmpty { "/var/forge/db-backups" }
+    if (dbBackupDir.isBlank()) {
+        throw IllegalArgumentException("FORGE_DB_BACKUP_DIR must not be blank")
+    }
 
     return AppConfig(
         port = port,
@@ -493,5 +524,9 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         dbPostgresImage = dbPostgresImage,
         dbEndpointHost = dbEndpointHost,
         dbDefaultEnvVar = dbDefaultEnvVar,
+        dbBackupTarget = dbBackupTarget,
+        dbBackupBucket = dbBackupBucket,
+        dbBackupDir = dbBackupDir,
+        storageUrl = storageUrl,
     )
 }

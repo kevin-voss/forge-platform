@@ -27,6 +27,7 @@ import forge.control.http.serviceRoutes
 import forge.control.http.toEnvelope
 import forge.control.http.installRequestId
 import forge.control.logging.JsonLog
+import forge.control.manageddb.BackupRunner
 import forge.control.manageddb.FakeProvisioner
 import forge.control.manageddb.HttpManagedDbSecretsClient
 import forge.control.manageddb.InMemoryManagedDbSecretsClient
@@ -35,7 +36,10 @@ import forge.control.manageddb.JdbcManagedDbRepository
 import forge.control.manageddb.LocalProvisioner
 import forge.control.manageddb.ManagedDbService
 import forge.control.manageddb.Provisioner
+import forge.control.manageddb.RestoreRunner
+import forge.control.manageddb.buildArchiveStore
 import forge.control.manageddb.managedDbRoutes
+import java.nio.file.Path
 import forge.control.reconcile.HttpGatewayClient
 import forge.control.reconcile.HttpRuntimeClient
 import forge.control.reconcile.JdbcDeploymentHistory
@@ -179,6 +183,27 @@ fun main() {
         )
         else -> FakeProvisioner(isolationGuard)
     }
+    val archiveStore = buildArchiveStore(
+        target = cfg.dbBackupTarget,
+        backupDir = Path.of(cfg.dbBackupDir),
+        storageUrl = cfg.storageUrl,
+        bucket = cfg.dbBackupBucket,
+        serviceToken = cfg.secretsServiceAccount,
+    )
+    val backupRunner = BackupRunner(
+        store = managedDbRepo,
+        provisioner = dbProvisioner,
+        archives = archiveStore,
+        log = log,
+        telemetry = telemetry,
+    )
+    val restoreRunner = RestoreRunner(
+        store = managedDbRepo,
+        provisioner = dbProvisioner,
+        archives = archiveStore,
+        log = log,
+        telemetry = telemetry,
+    )
     val managedDbService = ManagedDbService(
         store = managedDbRepo,
         provisioner = dbProvisioner,
@@ -187,6 +212,9 @@ fun main() {
         secrets = dbSecretsClient,
         applications = applicationRepo,
         defaultEnvVar = cfg.dbDefaultEnvVar,
+        backupRunner = backupRunner,
+        restoreRunner = restoreRunner,
+        archives = archiveStore,
         log = log,
         telemetry = telemetry,
     )

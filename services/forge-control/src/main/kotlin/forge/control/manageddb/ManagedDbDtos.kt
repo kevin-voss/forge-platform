@@ -109,3 +109,50 @@ fun DbDatabase.toResponse(
         password = password,
         createdAt = createdAt.toString(),
     )
+
+@Serializable
+data class RestoreBackupRequest(
+    val targetDatabaseId: String? = null,
+)
+
+@Serializable
+data class DbBackupResponse(
+    val id: String,
+    val databaseId: String,
+    val status: String,
+    val location: String? = null,
+    val checksum: String? = null,
+    val sizeBytes: Long? = null,
+    val statusReason: String? = null,
+    val completedAt: String? = null,
+    val restoreStatus: String? = null,
+    val restoreTargetDatabaseId: String? = null,
+    val restoreStatusReason: String? = null,
+    val restoreCompletedAt: String? = null,
+    val createdAt: String,
+)
+
+@Serializable
+data class RestoreBackupResponse(
+    val backupId: String,
+    val targetDatabaseId: String,
+    val status: String,
+    val statusReason: String? = null,
+)
+
+fun DbBackup.toResponse(): DbBackupResponse =
+    DbBackupResponse(
+        id = id.toString(),
+        databaseId = databaseId.toString(),
+        status = status.wire,
+        location = location,
+        checksum = checksum,
+        sizeBytes = sizeBytes,
+        statusReason = statusReason,
+        completedAt = completedAt?.toString(),
+        restoreStatus = restoreStatus?.wire,
+        restoreTargetDatabaseId = restoreTargetDatabaseId?.toString(),
+        restoreStatusReason = restoreStatusReason,
+        restoreCompletedAt = restoreCompletedAt?.toString(),
+        createdAt = createdAt.toString(),
+    )

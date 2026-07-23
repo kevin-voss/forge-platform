@@ -158,12 +158,90 @@ class LocalProvisioner(
         }
     }
 
-    override fun backup(databaseId: UUID): ProvisionResult {
-        throw UnsupportedOperationException("backup reserved for 18.04")
+    override fun dumpDatabase(instanceId: UUID, databaseName: String): DumpArchive {
+        PostgresAdmin.validateIdent(databaseName, "database")
+        val endpoint = requireEndpoint(instanceId)
+        val containerId = endpoint.containerId
+            ?: throw ProvisionerException("instance has no container_id for dump")
+        isolation.assertNotControlDatabase(endpoint.endpointRef)
+        log?.info(
+            "managed db dump starting",
+            "instance_id" to instanceId,
+            "database" to databaseName,
+            "container_id" to containerId.take(12),
+        )
+        return try {
+            // Consistent snapshot via pg_dump custom format (default transaction snapshot).
+            val bytes = docker.exec(
+                containerId,
+                listOf(
+                    "pg_dump",
+                    "-U", "postgres",
+                    "--format=custom",
+                    "--serializable-deferrable",
+                    "-d", databaseName,
+                ),
+            )
+            if (bytes.isEmpty()) {
+                throw ProvisionerException("pg_dump returned empty archive")
+            }
+            val checksum = BackupChecksum.sha256Hex(bytes)
+            log?.info(
+                "managed db dump complete",
+                "instance_id" to instanceId,
+                "database" to databaseName,
+                "size_bytes" to bytes.size,
+                "checksum" to checksum,
+            )
+            DumpArchive(bytes = bytes, checksum = checksum, sizeBytes = bytes.size.toLong())
+        } catch (e: Exception) {
+            throw ProvisionerException(
+                "local provisioner dump failed: ${e.message ?: e.javaClass.simpleName}",
+                e,
+            )
+        }
     }
 
-    override fun restore(databaseId: UUID, backupId: UUID): ProvisionResult {
-        throw UnsupportedOperationException("restore reserved for 18.04")
+    override fun restoreDatabase(instanceId: UUID, databaseName: String, archive: ByteArray) {
+        PostgresAdmin.validateIdent(databaseName, "database")
+        if (archive.isEmpty()) {
+            throw ProvisionerException("restore refused empty archive")
+        }
+        val endpoint = requireEndpoint(instanceId)
+        val containerId = endpoint.containerId
+            ?: throw ProvisionerException("instance has no container_id for restore")
+        isolation.assertNotControlDatabase(endpoint.endpointRef)
+        log?.info(
+            "managed db restore starting",
+            "instance_id" to instanceId,
+            "database" to databaseName,
+            "size_bytes" to archive.size,
+            "container_id" to containerId.take(12),
+        )
+        try {
+            docker.exec(
+                containerId,
+                listOf(
+                    "pg_restore",
+                    "-U", "postgres",
+                    "--clean",
+                    "--if-exists",
+                    "--no-privileges",
+                    "--dbname", databaseName,
+                ),
+                stdin = archive,
+            )
+            log?.info(
+                "managed db restore complete",
+                "instance_id" to instanceId,
+                "database" to databaseName,
+            )
+        } catch (e: Exception) {
+            throw ProvisionerException(
+                "local provisioner restore failed: ${e.message ?: e.javaClass.simpleName}",
+                e,
+            )
+        }
     }
 
     override fun rotateCredential(credentialId: UUID): ProvisionResult {

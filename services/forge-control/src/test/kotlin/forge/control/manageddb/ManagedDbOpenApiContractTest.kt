@@ -41,6 +41,16 @@ class ManagedDbOpenApiContractTest {
         assertTrue(yaml.contains("x-attach-db-database") || yaml.contains("attachDbDatabase"))
         assertTrue(yaml.contains("x-detach-db-attachment") || yaml.contains("detachDbAttachment"))
         assertTrue(yaml.contains("DbAttachment:"))
+        assertTrue(yaml.contains("/v1/databases/{databaseId}/backups"))
+        assertTrue(yaml.contains("/v1/databases/backups/{backupId}/restore"))
+        assertTrue(yaml.contains("x-create-db-backup") || yaml.contains("createDbBackup"))
+        assertTrue(yaml.contains("x-get-db-backup") || yaml.contains("getDbBackup"))
+        assertTrue(yaml.contains("x-restore-db-backup") || yaml.contains("restoreDbBackup"))
+        assertTrue(yaml.contains("DbBackup:"))
+        assertTrue(yaml.contains("DbBackupStatus:"))
+        assertTrue(yaml.contains("checksum"))
+        assertTrue(yaml.contains("succeeded"))
+        assertTrue(yaml.contains("integrity_error"))
     }
 
     @Test

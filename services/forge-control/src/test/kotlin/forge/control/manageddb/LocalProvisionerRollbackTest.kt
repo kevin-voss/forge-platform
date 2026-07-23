@@ -99,6 +99,9 @@ class LocalProvisionerRollbackTest {
         override fun containerEnv(containerId: String): Map<String, String> = emptyMap()
 
         override fun containerRunning(containerId: String): Boolean = false
+
+        override fun exec(containerId: String, args: List<String>, stdin: ByteArray?): ByteArray =
+            ByteArray(0)
     }
 
     private class RecordingDockerEngine : DockerEngine {
@@ -120,5 +123,8 @@ class LocalProvisionerRollbackTest {
             mapOf("POSTGRES_PASSWORD" to "admin-secret")
 
         override fun containerRunning(containerId: String): Boolean = true
+
+        override fun exec(containerId: String, args: List<String>, stdin: ByteArray?): ByteArray =
+            ByteArray(0)
     }
 }

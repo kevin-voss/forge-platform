@@ -65,6 +65,10 @@ class AppConfigTest {
         assertEquals("forge-net", cfg.dbManagedNetwork)
         assertEquals("postgres:16", cfg.dbPostgresImage)
         assertEquals("127.0.0.1", cfg.dbEndpointHost)
+        assertEquals("volume", cfg.dbBackupTarget)
+        assertEquals("db-backups", cfg.dbBackupBucket)
+        assertEquals("/var/forge/db-backups", cfg.dbBackupDir)
+        assertEquals("", cfg.storageUrl)
     }
 
     @Test

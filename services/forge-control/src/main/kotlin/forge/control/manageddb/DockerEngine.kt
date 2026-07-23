@@ -22,6 +22,9 @@ interface DockerEngine {
     fun publishedPort(containerId: String, containerPort: Int = 5432): Int
     fun containerEnv(containerId: String): Map<String, String>
     fun containerRunning(containerId: String): Boolean
+
+    /** Run a command in the container; capture stdout. */
+    fun exec(containerId: String, args: List<String>, stdin: ByteArray? = null): ByteArray
 }
 
 /**
@@ -119,6 +122,35 @@ class CliDockerEngine(
             allowFailure = true,
         )
         return result.exitCode == 0 && result.stdout.trim().equals("true", ignoreCase = true)
+    }
+
+    override fun exec(containerId: String, args: List<String>, stdin: ByteArray?): ByteArray {
+        val cmd = mutableListOf("exec", "-i", containerId) + args
+        val pb = ProcessBuilder(listOf(dockerBin) + cmd)
+            .redirectErrorStream(false)
+        val process = try {
+            pb.start()
+        } catch (e: Exception) {
+            throw DockerEngineException("failed to start docker exec: ${e.message ?: e.javaClass.simpleName}")
+        }
+        if (stdin != null) {
+            process.outputStream.use { it.write(stdin); it.flush() }
+        } else {
+            process.outputStream.close()
+        }
+        val stdout = process.inputStream.readBytes()
+        val stderr = process.errorStream.bufferedReader().readText()
+        val finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
+        if (!finished) {
+            process.destroyForcibly()
+            throw DockerEngineException("docker exec timed out: ${args.joinToString(" ")}")
+        }
+        if (process.exitValue() != 0) {
+            throw DockerEngineException(
+                "docker exec failed (${process.exitValue()}): ${stderr.ifBlank { String(stdout) }}".trim(),
+            )
+        }
+        return stdout
     }
 
     private data class ExecResult(val exitCode: Int, val stdout: String, val stderr: String)

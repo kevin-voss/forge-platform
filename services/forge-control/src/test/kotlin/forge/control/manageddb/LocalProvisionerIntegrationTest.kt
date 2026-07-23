@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import java.sql.DriverManager
 import java.util.UUID
+import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
@@ -142,6 +143,57 @@ class LocalProvisionerIntegrationTest {
             bad.createInstance(id, UUID.randomUUID(), "boom")
         }
         assertTrue(!docker.containerRunning(name))
+    }
+
+    @Test
+    fun dumpAndRestoreRecoversFixtureData() {
+        assumeTrue(dockerAvailable(), "docker not available")
+        val id = UUID.randomUUID()
+        created += id
+        val inst = provisioner.createInstance(id, UUID.randomUUID(), "bak")
+        val password = CredentialGenerator.password()
+        val user = "bak_user"
+        val dbName = "bak_db"
+        provisioner.createDatabaseWithRole(id, dbName, user, password)
+
+        DriverManager.getConnection(
+            "jdbc:postgresql://${inst.host}:${inst.port}/$dbName",
+            user,
+            password,
+        ).use { conn ->
+            conn.createStatement().use { st ->
+                st.execute("CREATE TABLE fixtures (id INT PRIMARY KEY, note TEXT)")
+                st.execute("INSERT INTO fixtures VALUES (1, 'known-fixture')")
+            }
+        }
+
+        val dump = provisioner.dumpDatabase(id, dbName)
+        assertTrue(dump.sizeBytes > 0)
+        assertEquals(BackupChecksum.sha256Hex(dump.bytes), dump.checksum)
+
+        DriverManager.getConnection(
+            "jdbc:postgresql://${inst.host}:${inst.port}/$dbName",
+            user,
+            password,
+        ).use { conn ->
+            conn.createStatement().use { st ->
+                st.execute("DELETE FROM fixtures")
+            }
+        }
+
+        provisioner.restoreDatabase(id, dbName, dump.bytes)
+        DriverManager.getConnection(
+            "jdbc:postgresql://${inst.host}:${inst.port}/$dbName",
+            user,
+            password,
+        ).use { conn ->
+            conn.createStatement().use { st ->
+                st.executeQuery("SELECT note FROM fixtures WHERE id = 1").use { rs ->
+                    assertTrue(rs.next())
+                    assertEquals("known-fixture", rs.getString(1))
+                }
+            }
+        }
     }
 
     private fun dockerAvailable(): Boolean =

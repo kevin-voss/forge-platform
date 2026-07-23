@@ -298,5 +298,26 @@ class ManagedDbAttachTest {
 
         override fun deleteDatabase(id: UUID) = error("unused")
         override fun deleteCredential(id: UUID) = error("unused")
+
+        override fun createBackup(databaseId: UUID, status: DbBackupStatus, id: UUID) = error("unused")
+        override fun findBackupById(id: UUID): DbBackup? = null
+        override fun listBackups(databaseId: UUID): List<DbBackup> = emptyList()
+        override fun updateBackup(
+            id: UUID,
+            status: DbBackupStatus,
+            location: String?,
+            checksum: String?,
+            sizeBytes: Long?,
+            statusReason: String?,
+            completedAt: Instant?,
+        ) = error("unused")
+
+        override fun updateBackupRestore(
+            id: UUID,
+            restoreStatus: DbRestoreStatus,
+            restoreTargetDatabaseId: UUID?,
+            restoreStatusReason: String?,
+            restoreCompletedAt: Instant?,
+        ) = error("unused")
     }
 }

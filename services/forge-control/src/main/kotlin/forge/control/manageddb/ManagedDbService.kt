@@ -25,6 +25,9 @@ class ManagedDbService(
     private val secrets: ManagedDbSecretsClient,
     private val applications: ApplicationRepository? = null,
     private val defaultEnvVar: String = "DATABASE_URL",
+    private val backupRunner: BackupRunner? = null,
+    private val restoreRunner: RestoreRunner? = null,
+    private val archives: ArchiveStore? = null,
     private val log: JsonLog? = null,
     private val telemetry: Telemetry = Telemetry.current(),
 ) : AttachmentEnvSource {
@@ -457,6 +460,163 @@ class ManagedDbService(
                 mapOf("field" to "endpointRef"),
             )
         }
+    }
+
+    /**
+     * Start an on-demand backup. Returns immediately with status `running`;
+     * [BackupRunner] transitions to succeeded|failed.
+     */
+    fun createBackup(databaseId: UUID, projectId: UUID): DbBackup {
+        val database = requireDatabaseInProject(databaseId, projectId)
+        if (database.status != DbDatabaseStatus.Available) {
+            throw ApiException.Conflict(
+                "database is not available",
+                mapOf("databaseId" to databaseId.toString(), "status" to database.status.wire),
+            )
+        }
+        val runner = backupRunner
+            ?: throw ApiException.ServiceUnavailable("backup runner not configured")
+        val created = store.createBackup(databaseId, status = DbBackupStatus.Running)
+        runner.enqueue(created.id)
+        log?.info(
+            "managed db backup accepted",
+            "backup_id" to created.id,
+            "database_id" to databaseId,
+            "project_id" to projectId,
+        )
+        return created
+    }
+
+    fun listBackups(databaseId: UUID, projectId: UUID): List<DbBackup> {
+        requireDatabaseInProject(databaseId, projectId)
+        return store.listBackups(databaseId)
+    }
+
+    fun getBackup(databaseId: UUID, backupId: UUID, projectId: UUID): DbBackup {
+        requireDatabaseInProject(databaseId, projectId)
+        val backup = store.findBackupById(backupId)
+            ?: throw ApiException.NotFound(
+                "backup not found",
+                mapOf("id" to backupId.toString()),
+            )
+        if (backup.databaseId != databaseId) {
+            throw ApiException.NotFound(
+                "backup not found",
+                mapOf("id" to backupId.toString()),
+            )
+        }
+        return backup
+    }
+
+    fun getBackupForProject(backupId: UUID, projectId: UUID): DbBackup {
+        val backup = store.findBackupById(backupId)
+            ?: throw ApiException.NotFound(
+                "backup not found",
+                mapOf("id" to backupId.toString()),
+            )
+        requireDatabaseInProject(backup.databaseId, projectId)
+        return backup
+    }
+
+    /**
+     * Restore [backupId] into [targetDatabaseId]. Verifies project scope and
+     * checksum synchronously when possible; async runner completes restore.
+     */
+    fun restoreBackup(
+        backupId: UUID,
+        targetDatabaseIdRaw: String?,
+        projectId: UUID,
+    ): RestoreBackupResponse {
+        val backup = getBackupForProject(backupId, projectId)
+        if (backup.status != DbBackupStatus.Succeeded) {
+            throw ApiException.Conflict(
+                "backup is not succeeded",
+                mapOf("backupId" to backupId.toString(), "status" to backup.status.wire),
+            )
+        }
+        val targetDatabaseId = parseUuid(targetDatabaseIdRaw, "targetDatabaseId")
+        val target = requireDatabaseInProject(targetDatabaseId, projectId)
+        if (target.status != DbDatabaseStatus.Available) {
+            throw ApiException.Conflict(
+                "target database is not available",
+                mapOf("targetDatabaseId" to targetDatabaseId.toString(), "status" to target.status.wire),
+            )
+        }
+        // Preflight integrity check so corrupt archives fail with integrity_error (not 202).
+        val location = backup.location
+            ?: throw ApiException.Conflict(
+                "backup has no archive location",
+                mapOf("backupId" to backupId.toString()),
+            )
+        val expected = backup.checksum
+            ?: throw ApiException.Conflict(
+                "backup has no checksum",
+                mapOf("backupId" to backupId.toString()),
+            )
+        val archiveStore = archives
+            ?: throw ApiException.ServiceUnavailable("archive store not configured")
+        val sourceInstance = getInstance(
+            store.findDatabaseById(backup.databaseId)!!.instanceId,
+        )
+        val bytes = try {
+            archiveStore.get(sourceInstance.projectId, location)
+        } catch (e: Exception) {
+            throw ApiException.BadRequest(
+                "failed to read backup archive: ${e.message}",
+                mapOf("backupId" to backupId.toString()),
+            )
+        } ?: throw ApiException.BadRequest(
+            "backup archive missing",
+            mapOf("backupId" to backupId.toString()),
+            code = "integrity_error",
+        )
+        if (!BackupChecksum.verify(bytes, expected)) {
+            throw ApiException.BadRequest(
+                "checksum mismatch for backup archive",
+                mapOf("backupId" to backupId.toString()),
+                code = "integrity_error",
+            )
+        }
+        val runner = restoreRunner
+            ?: throw ApiException.ServiceUnavailable("restore runner not configured")
+        store.updateBackupRestore(
+            backupId,
+            restoreStatus = DbRestoreStatus.Running,
+            restoreTargetDatabaseId = targetDatabaseId,
+        )
+        runner.enqueue(backupId, targetDatabaseId)
+        log?.info(
+            "managed db restore accepted",
+            "backup_id" to backupId,
+            "target_database_id" to targetDatabaseId,
+            "project_id" to projectId,
+        )
+        return RestoreBackupResponse(
+            backupId = backupId.toString(),
+            targetDatabaseId = targetDatabaseId.toString(),
+            status = DbRestoreStatus.Running.wire,
+        )
+    }
+
+    private fun requireDatabaseInProject(databaseId: UUID, projectId: UUID): DbDatabase {
+        relationships.requireProject(projectId)
+        val database = store.findDatabaseById(databaseId)
+            ?: throw ApiException.NotFound(
+                "database not found",
+                mapOf("id" to databaseId.toString()),
+            )
+        val instance = store.findInstanceById(database.instanceId)
+            ?: throw ApiException.NotFound(
+                "database not found",
+                mapOf("id" to databaseId.toString()),
+            )
+        if (instance.projectId != projectId) {
+            throw ApiException.NotFound(
+                "database not found",
+                mapOf("id" to databaseId.toString()),
+            )
+        }
+        return database
     }
 
     private fun rememberLocalEndpoint(instanceId: UUID, result: ProvisionResult) {

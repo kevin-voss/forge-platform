@@ -1,6 +1,7 @@
 package forge.control.manageddb
 
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /** Result of a provisioner operation (endpoint refs never equal Control's JDBC URL). */
 data class ProvisionResult(
@@ -41,8 +42,18 @@ interface Provisioner {
         password: String,
     ): ProvisionResult
 
-    fun backup(databaseId: UUID): ProvisionResult
-    fun restore(databaseId: UUID, backupId: UUID): ProvisionResult
+    /**
+     * Capture a consistent dump of [databaseName] on [instanceId]
+     * (`pg_dump` / equivalent). Never targets Control's own database.
+     */
+    fun dumpDatabase(instanceId: UUID, databaseName: String): DumpArchive
+
+    /**
+     * Restore [archive] into [databaseName] on [instanceId]
+     * (`pg_restore` / equivalent). Caller verifies checksum before invoke.
+     */
+    fun restoreDatabase(instanceId: UUID, databaseName: String, archive: ByteArray)
+
     fun rotateCredential(credentialId: UUID): ProvisionResult
 }
 
@@ -104,17 +115,34 @@ class FakeProvisioner(
         )
     }
 
-    override fun backup(databaseId: UUID): ProvisionResult {
-        val endpoint = "fake://managed-db/backup/$databaseId"
+    private val dumps = ConcurrentHashMap<String, ByteArray>()
+
+    override fun dumpDatabase(instanceId: UUID, databaseName: String): DumpArchive {
+        val endpoint = "fake://managed-db/$instanceId/db/$databaseName"
         isolation.assertNotControlDatabase(endpoint)
-        return ProvisionResult(endpointRef = endpoint, detail = "fake-backup")
+        val key = "$instanceId/$databaseName"
+        val payload = dumps[key] ?: "FAKE_DUMP:$key:fixture-v1".toByteArray(Charsets.UTF_8)
+        val checksum = BackupChecksum.sha256Hex(payload)
+        return DumpArchive(bytes = payload, checksum = checksum, sizeBytes = payload.size.toLong())
     }
 
-    override fun restore(databaseId: UUID, backupId: UUID): ProvisionResult {
-        val endpoint = "fake://managed-db/restore/$databaseId/$backupId"
+    override fun restoreDatabase(instanceId: UUID, databaseName: String, archive: ByteArray) {
+        val endpoint = "fake://managed-db/$instanceId/db/$databaseName"
         isolation.assertNotControlDatabase(endpoint)
-        return ProvisionResult(endpointRef = endpoint, detail = "fake-restore")
+        if (archive.isEmpty()) {
+            throw ProvisionerException("fake restore refused empty archive")
+        }
+        dumps["$instanceId/$databaseName"] = archive
     }
+
+    /** Test helper: seed in-memory fixture bytes that dump will capture. */
+    fun seedDump(instanceId: UUID, databaseName: String, payload: ByteArray) {
+        dumps["$instanceId/$databaseName"] = payload
+    }
+
+    /** Test helper: read last restored/seeded payload. */
+    fun currentDump(instanceId: UUID, databaseName: String): ByteArray? =
+        dumps["$instanceId/$databaseName"]
 
     override fun rotateCredential(credentialId: UUID): ProvisionResult {
         val endpoint = "fake://managed-db/rotate/$credentialId"
