@@ -62,8 +62,12 @@ mod tests {
             pool: None,
             key_provider: None,
             master_key_id: "m1".into(),
+            aead_alg: crate::crypto::AeadAlg::Aes256Gcm,
+            max_value_bytes: 65536,
             ready: Arc::new(AtomicBool::new(ready)),
             data_keys_total: Arc::new(AtomicU64::new(0)),
+            secrets_total: Arc::new(AtomicU64::new(0)),
+            secret_access_total: Arc::new(AtomicU64::new(0)),
             crypto_ok: ready,
             crypto_error: if ready {
                 None

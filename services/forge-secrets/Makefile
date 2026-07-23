@@ -31,6 +31,8 @@ dev: ensure-db
 	FORGE_SECRETS_DB_URL=$${FORGE_SECRETS_DB_URL:-postgres://forge:forge@127.0.0.1:5001/forge_secrets} \
 	FORGE_SECRETS_MASTER_KEY=$${FORGE_SECRETS_MASTER_KEY:-$(LOCAL_MASTER_KEY)} \
 	FORGE_SECRETS_MASTER_KEY_ID=$${FORGE_SECRETS_MASTER_KEY_ID:-m1} \
+	FORGE_SECRETS_AEAD_ALG=$${FORGE_SECRETS_AEAD_ALG:-aes-256-gcm} \
+	FORGE_SECRETS_MAX_VALUE_BYTES=$${FORGE_SECRETS_MAX_VALUE_BYTES:-65536} \
 	cargo run
 
 build:
@@ -73,6 +75,26 @@ test-integration: run
 			"http://127.0.0.1:$(HOST_PORT)/v1/projects/$${PROJ}/data-keys"); \
 		test "$$code" = "200"; \
 		python3 -c 'import json; d=json.load(open("/tmp/forge-secrets-idempotent.json")); assert d["created"] is False'
+	@# 10.02 — encrypted store, versioning, metadata (no plaintext in list), :access reveal.
+	@P="prj_10_02_$$(date +%s)"; E=production; \
+		curl -sf -X PUT "http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/secrets/DATABASE_PASSWORD" \
+			-H 'content-type: application/json' -d '{"value":"s3cret"}' \
+			| python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["name"]=="DATABASE_PASSWORD"; assert d["version"]==1'; \
+		curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/secrets" \
+			| python3 -c 'import sys,json; d=json.load(sys.stdin); assert isinstance(d,list) and len(d)>=1; assert "value" not in d[0]; assert d[0]["name"]=="DATABASE_PASSWORD"'; \
+		curl -sf -X PUT "http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/secrets/DATABASE_PASSWORD" \
+			-H 'content-type: application/json' -d '{"value":"rotated"}' \
+			| python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["version"]==2'; \
+		curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/secrets/DATABASE_PASSWORD" \
+			| python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["current_version"]==2; assert len(d["versions"])==2; assert "value" not in d'; \
+		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/secrets/DATABASE_PASSWORD:access" \
+			| python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["value"]=="rotated"; assert d["version"]==2'; \
+		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/secrets/DATABASE_PASSWORD:access?version=1" \
+			| python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["value"]=="s3cret"; assert d["version"]==1'; \
+		hex=$$($(COMPOSE) exec -T postgres psql -U forge -d forge_secrets -tAc \
+			"SELECT encode(ciphertext,'hex') FROM secrets WHERE project_id='$${P}' AND name='DATABASE_PASSWORD' AND version=1"); \
+		echo "$$hex" | grep -Eiq '733363726574' && exit 1 || true; \
+		echo "$${P}" > /tmp/forge-secrets-int-secret-project
 	@# Missing master key → ready non-200; data-key ops refused.
 	@$(COMPOSE) stop $(SERVICE) >/dev/null
 	@docker rm -f forge-secrets-nokey >/dev/null 2>&1 || true
@@ -102,8 +124,12 @@ test-integration: run
 	@$(MAKE) wait
 	@! $(COMPOSE) logs $(SERVICE) 2>&1 | grep -E 'bG9jYWwtZGV2LWZvcmdl|local-dev-forge-secrets-key'
 	@grep -q '4104' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@# OpenAPI skeleton declares the three contract paths.
-	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-secrets.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p'
+	@# OpenAPI declares health + secret set/list/metadata/access; list schema has no value.
+	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-secrets.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "operationId: setSecret" in p and "operationId: listSecrets" in p and "operationId: getSecretMetadata" in p and "operationId: accessSecret" in p; assert "secrets/{name}:access" in p; i=p.index("SecretListItem:"); j=p.index("SecretVersion:", i); assert "value:" not in p[i:j]'
+	@FORGE_SECRETS_DB_URL=$${FORGE_SECRETS_DB_URL:-postgres://forge:forge@127.0.0.1:5001/forge_secrets} \
+		FORGE_SECRETS_MASTER_KEY=$${FORGE_SECRETS_MASTER_KEY:-$(LOCAL_MASTER_KEY)} \
+		FORGE_SECRETS_MASTER_KEY_ID=$${FORGE_SECRETS_MASTER_KEY_ID:-m1} \
+		cargo test --test secrets_test -- --ignored --nocapture
 	@cid="$$($(COMPOSE) ps -q $(SERVICE))"; \
 		test -n "$$cid"; \
 		docker stop -t 15 "$$cid" >/dev/null; \
@@ -111,7 +137,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (health, identity, data-key wrap/persist/restart, missing-key refusal, OpenAPI, SIGTERM)."
+	@echo "Integration checks passed (health, identity, data-key, encrypted secrets/versioning/metadata/access, OpenAPI, SIGTERM)."
 
 lint:
 	@cargo fmt --check

@@ -1,3 +1,4 @@
+use crate::crypto::aead_alg::AeadAlg;
 use std::env;
 use std::time::Duration;
 
@@ -14,6 +15,8 @@ pub struct Config {
     pub master_key_id: String,
     /// Present when `FORGE_SECRETS_MASTER_KEY` is set (may still be invalid length/base64).
     pub master_key_b64: Option<String>,
+    pub aead_alg: AeadAlg,
+    pub max_value_bytes: usize,
 }
 
 impl Config {
@@ -67,6 +70,17 @@ impl Config {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
 
+        let aead_raw = env::var("FORGE_SECRETS_AEAD_ALG").unwrap_or_else(|_| "aes-256-gcm".into());
+        let aead_alg = AeadAlg::parse(&aead_raw)?;
+
+        let max_raw = env::var("FORGE_SECRETS_MAX_VALUE_BYTES").unwrap_or_else(|_| "65536".into());
+        let max_value_bytes: usize = max_raw.trim().parse().map_err(|_| {
+            format!("FORGE_SECRETS_MAX_VALUE_BYTES must be a positive integer, got {max_raw:?}")
+        })?;
+        if max_value_bytes == 0 {
+            return Err("FORGE_SECRETS_MAX_VALUE_BYTES must be > 0".into());
+        }
+
         Ok(Self {
             port,
             service_name,
@@ -77,6 +91,8 @@ impl Config {
             db_url,
             master_key_id,
             master_key_b64,
+            aead_alg,
+            max_value_bytes,
         })
     }
 }
@@ -113,6 +129,8 @@ mod tests {
             "FORGE_SECRETS_DB_URL",
             "FORGE_SECRETS_MASTER_KEY",
             "FORGE_SECRETS_MASTER_KEY_ID",
+            "FORGE_SECRETS_AEAD_ALG",
+            "FORGE_SECRETS_MAX_VALUE_BYTES",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()

@@ -132,3 +132,11 @@ pub async fn count_project_data_keys(pool: &PgPool) -> Result<i64, String> {
         .map_err(|e| format!("count project_data_keys: {e}"))?;
     Ok(row.get::<i64, _>("c"))
 }
+
+pub async fn count_secrets(pool: &PgPool) -> Result<i64, String> {
+    let row = sqlx::query("SELECT COUNT(*)::bigint AS c FROM secrets")
+        .fetch_one(pool)
+        .await
+        .map_err(|e| format!("count secrets: {e}"))?;
+    Ok(row.get::<i64, _>("c"))
+}

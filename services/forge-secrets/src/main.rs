@@ -1,11 +1,6 @@
-mod config;
-mod crypto;
-mod db;
-mod routes;
-mod state;
-
-use config::Config;
-use state::bootstrap;
+use forge_secrets::config::Config;
+use forge_secrets::routes;
+use forge_secrets::state::bootstrap;
 use std::net::SocketAddr;
 use tokio::signal;
 use tracing::{info, warn};
@@ -32,6 +27,8 @@ async fn run() -> Result<(), String> {
         env = %cfg.env,
         master_key_id = %cfg.master_key_id,
         master_key_configured = cfg.master_key_b64.is_some(),
+        aead_alg = cfg.aead_alg.as_str(),
+        max_value_bytes = cfg.max_value_bytes,
         shutdown_grace_seconds = cfg.shutdown_grace.as_secs(),
         "starting forge-secrets"
     );
@@ -50,6 +47,7 @@ async fn run() -> Result<(), String> {
         .merge(routes::health::router())
         .merge(routes::identity::router())
         .merge(routes::data_keys::router())
+        .merge(secrets_routes())
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], cfg.port));
@@ -67,6 +65,10 @@ async fn run() -> Result<(), String> {
 
     info!("shutdown complete");
     Ok(())
+}
+
+fn secrets_routes() -> axum::Router<forge_secrets::state::AppState> {
+    forge_secrets::secrets::routes::router()
 }
 
 fn init_tracing(cfg: &Config) {

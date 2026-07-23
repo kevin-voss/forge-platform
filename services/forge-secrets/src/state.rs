@@ -1,3 +1,5 @@
+use crate::crypto::aead_alg::AeadAlg;
+use crate::crypto::data_key::DataKey;
 use crate::crypto::{
     generate_data_key, unwrap_data_key, wrap_data_key, EnvMasterKeyProvider, KeyProvider,
 };
@@ -8,7 +10,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::{error, info, warn};
 
-/// Shared application state for health and data-key bootstrap APIs.
+/// Shared application state for health, data-key, and secret APIs.
 #[derive(Clone)]
 pub struct AppState {
     pub service_name: String,
@@ -17,10 +19,16 @@ pub struct AppState {
     pub pool: Option<PgPool>,
     pub key_provider: Option<Arc<dyn KeyProvider>>,
     pub master_key_id: String,
+    pub aead_alg: AeadAlg,
+    pub max_value_bytes: usize,
     /// Gauge-like: 1 when ready (DB + valid master key + self-check).
     pub ready: Arc<AtomicBool>,
     /// Counter of persisted project data keys (best-effort).
     pub data_keys_total: Arc<AtomicU64>,
+    /// Counter of stored secret versions (best-effort).
+    pub secrets_total: Arc<AtomicU64>,
+    /// Counter of successful `:access` reveals.
+    pub secret_access_total: Arc<AtomicU64>,
     pub crypto_ok: bool,
     pub crypto_error: Option<String>,
 }
@@ -83,6 +91,18 @@ impl AppState {
             master_key_id: provider.master_key_id().to_string(),
         };
         Ok((row, true))
+    }
+
+    /// Ensure + unwrap the project data key in memory (caller must not persist plaintext).
+    pub async fn unwrap_project_data_key(
+        &self,
+        project_id: &str,
+    ) -> Result<(DataKey, i32), EnsureError> {
+        let (row, _) = self.ensure_project_data_key(project_id).await?;
+        let provider = self.key_provider.as_ref().ok_or(EnsureError::NotReady)?;
+        let key = unwrap_data_key(provider.master_key(), &row.wrapped_key)
+            .map_err(EnsureError::Crypto)?;
+        Ok((key, row.key_version))
     }
 
     /// Load wrapped key and unwrap in memory (discard plaintext) to verify durability.
@@ -165,9 +185,13 @@ pub async fn bootstrap(cfg: &crate::config::Config) -> AppState {
     };
 
     let data_keys_total = Arc::new(AtomicU64::new(0));
+    let secrets_total = Arc::new(AtomicU64::new(0));
     if let Some(pool) = &pool {
         if let Ok(count) = db::count_project_data_keys(pool).await {
             data_keys_total.store(count as u64, Ordering::Relaxed);
+        }
+        if let Ok(count) = db::count_secrets(pool).await {
+            secrets_total.store(count as u64, Ordering::Relaxed);
         }
     }
 
@@ -178,8 +202,12 @@ pub async fn bootstrap(cfg: &crate::config::Config) -> AppState {
         pool,
         key_provider,
         master_key_id,
+        aead_alg: cfg.aead_alg,
+        max_value_bytes: cfg.max_value_bytes,
         ready: Arc::new(AtomicBool::new(false)),
         data_keys_total,
+        secrets_total,
+        secret_access_total: Arc::new(AtomicU64::new(0)),
         crypto_ok,
         crypto_error,
     };
@@ -187,6 +215,8 @@ pub async fn bootstrap(cfg: &crate::config::Config) -> AppState {
     info!(
         forge_secrets_ready = state.is_ready() as u8,
         forge_data_keys_total = state.data_keys_total.load(Ordering::Relaxed),
+        forge_secrets_total = state.secrets_total.load(Ordering::Relaxed),
+        aead_alg = state.aead_alg.as_str(),
         "readiness state initialized"
     );
     state
