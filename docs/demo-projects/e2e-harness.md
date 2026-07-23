@@ -107,6 +107,23 @@ Products are reached through the Gateway on `127.0.0.1:4000` using **Host-based 
 
 `curl` preflights use explicit `-H "Host: ..."` against `http://127.0.0.1:4000`.
 
+### 50.03 outcome — Gateway host-with-port matching
+
+**Confirmed: Gateway matches Host ignoring `:4000`.** `forge-gateway` normalizes the request
+host via `net.SplitHostPort` before route lookup (`services/forge-gateway/internal/routes/match.go`
+→ `normalizeHost`; covered by `TestMatchStripsHostPort`). Browser URLs of the form
+`http://*.localhost:4000` therefore work **directly** — no host-rewrite proxy is required for the
+default local Gateway.
+
+Harness helpers (epic 50.03):
+
+* `tests/e2e/harness/platform.ts` — `preflight()` runs `make dev` when infra is down, then waits
+  on the same endpoints as root `make wait` (via `scripts/wait-for-service.sh`); failures raise a
+  single blocker stub for 50.04.
+* `tests/e2e/harness/gateway.ts` — `fetchWithHost` / `preflightHosts` / `productBaseURL` /
+  `verifyHostPortMatching`; `startHostRewriteProxy` remains available as the harness-only
+  fallback if a future Gateway regression stops stripping the port.
+
 ## 6. Product vs platform assertions
 
 Every spec separates two assertion kinds so failures are correctly attributed:
