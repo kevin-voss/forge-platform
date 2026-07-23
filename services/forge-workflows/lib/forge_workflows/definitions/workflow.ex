@@ -28,7 +28,9 @@ defmodule ForgeWorkflows.Definitions.Workflow do
           optional(:else) => String.t(),
           optional(:succeed_on_attempt) => pos_integer(),
           optional(:agent) => String.t(),
-          optional(:input) => map()
+          optional(:input) => map(),
+          optional(:prompt) => String.t(),
+          optional(:on_deny) => String.t()
         }
 
   @type t :: %__MODULE__{
@@ -38,7 +40,7 @@ defmodule ForgeWorkflows.Definitions.Workflow do
           trigger: trigger() | nil
         }
 
-  @allowed_types ~w(log noop task delay timeout parallel conditional retry agent)
+  @allowed_types ~w(log noop task delay timeout parallel conditional retry agent approval)
 
   @spec from_map(map()) :: {:ok, t()} | {:error, String.t()}
   def from_map(raw) when is_map(raw) do
@@ -98,6 +100,8 @@ defmodule ForgeWorkflows.Definitions.Workflow do
          {:ok, succeed_on} <- optional_pos_int(step, "succeed_on_attempt"),
          {:ok, agent} <- optional_string(step, "agent"),
          {:ok, input} <- optional_map(step, "input"),
+         {:ok, prompt} <- optional_string(step, "prompt"),
+         {:ok, on_deny} <- optional_string(step, "on_deny"),
          {:ok, branches} <- parse_branches(step, idx),
          :ok <-
            validate_typed_fields(
@@ -109,6 +113,7 @@ defmodule ForgeWorkflows.Definitions.Workflow do
              branches,
              timeout_ms,
              agent,
+             prompt,
              idx
            ) do
       base = %{id: id, type: type}
@@ -126,6 +131,8 @@ defmodule ForgeWorkflows.Definitions.Workflow do
         |> maybe_put(:succeed_on_attempt, succeed_on)
         |> maybe_put(:agent, agent)
         |> maybe_put(:input, input)
+        |> maybe_put(:prompt, prompt)
+        |> maybe_put(:on_deny, on_deny)
         |> maybe_put(:branches, branches)
 
       {:ok, base}
@@ -198,7 +205,7 @@ defmodule ForgeWorkflows.Definitions.Workflow do
 
   defp parse_branch(_, idx, _), do: {:error, "step #{idx} branch must be a map or string id"}
 
-  defp validate_typed_fields("delay", delay_ms, _, _, _, _, _, _, idx) do
+  defp validate_typed_fields("delay", delay_ms, _, _, _, _, _, _, _, idx) do
     if is_integer(delay_ms) and delay_ms >= 0 do
       :ok
     else
@@ -206,7 +213,7 @@ defmodule ForgeWorkflows.Definitions.Workflow do
     end
   end
 
-  defp validate_typed_fields("conditional", _, when_expr, then_id, else_id, _, _, _, idx) do
+  defp validate_typed_fields("conditional", _, when_expr, then_id, else_id, _, _, _, _, idx) do
     cond do
       not is_binary(when_expr) or when_expr == "" ->
         {:error, "step #{idx} type conditional requires when"}
@@ -222,7 +229,7 @@ defmodule ForgeWorkflows.Definitions.Workflow do
     end
   end
 
-  defp validate_typed_fields("parallel", _, _, _, _, branches, _, _, idx) do
+  defp validate_typed_fields("parallel", _, _, _, _, branches, _, _, _, idx) do
     if is_list(branches) and branches != [] do
       :ok
     else
@@ -230,7 +237,7 @@ defmodule ForgeWorkflows.Definitions.Workflow do
     end
   end
 
-  defp validate_typed_fields("timeout", _, _, _, _, _, timeout_ms, _, idx) do
+  defp validate_typed_fields("timeout", _, _, _, _, _, timeout_ms, _, _, idx) do
     if is_integer(timeout_ms) and timeout_ms >= 1 do
       :ok
     else
@@ -238,7 +245,7 @@ defmodule ForgeWorkflows.Definitions.Workflow do
     end
   end
 
-  defp validate_typed_fields("agent", _, _, _, _, _, _, agent, idx) do
+  defp validate_typed_fields("agent", _, _, _, _, _, _, agent, _, idx) do
     if is_binary(agent) and agent != "" do
       :ok
     else
@@ -246,7 +253,15 @@ defmodule ForgeWorkflows.Definitions.Workflow do
     end
   end
 
-  defp validate_typed_fields(_, _, _, _, _, _, _, _, _), do: :ok
+  defp validate_typed_fields("approval", _, _, _, _, _, _, _, prompt, idx) do
+    if is_binary(prompt) and prompt != "" do
+      :ok
+    else
+      {:error, "step #{idx} type approval requires prompt"}
+    end
+  end
+
+  defp validate_typed_fields(_, _, _, _, _, _, _, _, _, _), do: :ok
 
   defp validate_references(steps) do
     ids = MapSet.new(Enum.map(steps, & &1.id))
@@ -263,6 +278,19 @@ defmodule ForgeWorkflows.Definitions.Workflow do
 
             true ->
               {:cont, :ok}
+          end
+
+        "approval" ->
+          case Map.get(step, :on_deny) do
+            nil ->
+              {:cont, :ok}
+
+            target ->
+              if MapSet.member?(ids, target) do
+                {:cont, :ok}
+              else
+                {:halt, {:error, "approval #{step.id} on_deny #{inspect(target)} not found"}}
+              end
           end
 
         "parallel" ->
@@ -315,7 +343,7 @@ defmodule ForgeWorkflows.Definitions.Workflow do
   defp validate_type(type, idx),
     do:
       {:error,
-       "step #{idx} type #{inspect(type)} not allowed (log|noop|task|delay|timeout|parallel|conditional|retry|agent)"}
+       "step #{idx} type #{inspect(type)} not allowed (log|noop|task|delay|timeout|parallel|conditional|retry|agent|approval)"}
 
   defp require_string(map, key) do
     case Map.get(map, key) || Map.get(map, String.to_atom(key)) do

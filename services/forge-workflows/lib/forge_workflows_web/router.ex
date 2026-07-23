@@ -7,6 +7,7 @@ defmodule ForgeWorkflowsWeb.Router do
   alias ForgeWorkflows.Health
   alias ForgeWorkflows.Runs
   alias ForgeWorkflows.Triggers
+  alias ForgeWorkflowsWeb.ApprovalsController
 
   plug ForgeWorkflowsWeb.RequestId
   plug :match
@@ -61,6 +62,8 @@ defmodule ForgeWorkflowsWeb.Router do
               |> maybe_put("else", Map.get(step, :else))
               |> maybe_put("agent", Map.get(step, :agent))
               |> maybe_put("input", Map.get(step, :input))
+              |> maybe_put("prompt", Map.get(step, :prompt))
+              |> maybe_put("on_deny", Map.get(step, :on_deny))
               |> maybe_put(
                 "branches",
                 case Map.get(step, :branches) do
@@ -189,6 +192,10 @@ defmodule ForgeWorkflowsWeb.Router do
     end
   end
 
+  get "/v1/runs/:id/approvals" do
+    ApprovalsController.list_for_run(conn, id)
+  end
+
   get "/v1/runs/:id" do
     with {:ok, project_id} <- project_id(conn) do
       case Runs.get_run(id, project_id) do
@@ -218,6 +225,22 @@ defmodule ForgeWorkflowsWeb.Router do
           "code" => "project_required"
         })
     end
+  end
+
+  get "/v1/approvals" do
+    ApprovalsController.list_project(conn)
+  end
+
+  get "/v1/approvals/:id" do
+    ApprovalsController.get(conn, id)
+  end
+
+  post "/v1/approvals/:id/approve" do
+    ApprovalsController.approve(conn, id)
+  end
+
+  post "/v1/approvals/:id/deny" do
+    ApprovalsController.deny(conn, id)
   end
 
   match _ do

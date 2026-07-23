@@ -65,6 +65,9 @@ defmodule ForgeWorkflows.Engine.StepExecutor do
       "delay" ->
         {:ok, %{"delayed" => true}}
 
+      "approval" ->
+        {:error, "approval must be executed by the engine"}
+
       "parallel" ->
         {:error, "parallel must be executed by the engine"}
 

@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 111`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 112`**.
 
 ## Epics
 
@@ -24,7 +24,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [13](epics/13-forge-storage.md) | Forge Storage | Complete | 7/7 steps; demo 13 object-storage acceptance gate passed |
 | [14](epics/14-forge-models.md) | Forge Models | Complete | 7/7 steps; demo 14 model-serving acceptance gate passed |
 | [15](epics/15-forge-agents.md) | Forge Agents | Complete | 8/8 steps; demo 15 agent-runtime acceptance gate passed |
-| [16](epics/16-forge-workflows.md) | Forge Workflows | In progress | 4/7 steps; event triggers + agent steps |
+| [16](epics/16-forge-workflows.md) | Forge Workflows | In progress | 5/7 steps; durable human approvals across restarts |
 | [17](epics/17-forge-memory.md) | Forge Memory | Planning | 6 steps |
 | [18](epics/18-managed-postgresql.md) | Managed PostgreSQL | Planning | 6 steps |
 | [19](epics/19-full-platform-demo.md) | Full platform demo | Planning | 6 steps; capstone |
@@ -144,7 +144,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **108** | [Definitions + durable run state](steps/16-forge-workflows/16.02-definitions-durable-state.md) | Complete |  | YAML defs; Ecto runs/steps; resume + `(run_id,step_id)` idempotency |
 | **109** | [Step primitives](steps/16-forge-workflows/16.03-step-primitives.md) | Complete |  | retry/delay/timeout/parallel/conditional; durable wake_at scheduler |
 | **110** | [Event triggers + agent steps](steps/16-forge-workflows/16.04-event-triggers-agent-steps.md) | Complete |  | Durable Events consumer + event_dedup; agent step + fake/live client; `/v1/triggers/test` |
-| **111** | [Human approval across restarts](steps/16-forge-workflows/16.05-human-approval-restarts.md) | Not started |  |  |
+| **111** | [Human approval across restarts](steps/16-forge-workflows/16.05-human-approval-restarts.md) | Complete |  | `approval` step + ApprovalStore; awaiting_approval survives restart; approve/deny/expire |
 | **112** | [Compensation/rollback via Control](steps/16-forge-workflows/16.06-compensation-rollback.md) | Not started |  |  |
 | **113** | [Demo `16-agent-workflow` + gate](steps/16-forge-workflows/16.07-demo-and-gate.md) | Not started |  |  |
 | **114** | [Skeleton + persistence](steps/17-forge-memory/17.01-skeleton-persistence.md) | Not started |  |  |

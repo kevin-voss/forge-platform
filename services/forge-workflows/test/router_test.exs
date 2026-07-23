@@ -28,7 +28,8 @@ defmodule ForgeWorkflowsWeb.RouterTest do
       agent_step_timeout_ms: 300_000,
       default_project_id: "proj-a",
       events_http_timeout_ms: 10_000,
-      agents_http_timeout_ms: 10_000
+      agents_http_timeout_ms: 10_000,
+      approval_ttl_seconds: 86_400
     }
 
     Application.put_env(:forge_workflows, :runtime_config, cfg)

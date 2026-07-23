@@ -67,7 +67,7 @@ test-integration: run
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"supervision"'
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"request_id":"integ-req-1"'
 	@grep -q '4302' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-workflows.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-workflows" in p; assert "elixir" in p; assert "/v1/workflows" in p; assert "/v1/runs" in p; assert "WorkflowRun" in p; assert "wake_at" in p; assert "RetryPolicy" in p; assert "parallel" in p; assert "/v1/triggers/test" in p; assert "TriggerConfig" in p; assert "agent" in p; assert "deployment.failed" in p'
+	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-workflows.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-workflows" in p; assert "elixir" in p; assert "/v1/workflows" in p; assert "/v1/runs" in p; assert "WorkflowRun" in p; assert "wake_at" in p; assert "RetryPolicy" in p; assert "parallel" in p; assert "/v1/triggers/test" in p; assert "TriggerConfig" in p; assert "agent" in p; assert "deployment.failed" in p; assert "approval" in p; assert "/v1/approvals" in p; assert "awaiting_approval" in p; assert "WorkflowApproval" in p'
 	@$(MAKE) -C $(ROOT_DIR) lint-openapi
 	@# List definitions
 	@curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/workflows" | python3 -c 'import sys,json; d=json.load(sys.stdin); names={w["name"] for w in d["workflows"]}; assert "fixture-log" in names'
@@ -176,6 +176,71 @@ test-integration: run
 			sleep 0.25; \
 		done; \
 		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="completed", d; steps={s["id"]:s for s in d["steps"]}; assert steps["diagnose"]["output"]["agent"]=="deployment-investigator"; assert steps["diagnose"]["output"]["input"]["deployment"]=="dep-agent-1"'
+	@# Approval parks; restart keeps awaiting; approve resumes without re-running before
+	@RID=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' -H 'content-type: application/json' \
+		-XPOST "http://127.0.0.1:$(HOST_PORT)/v1/workflows/fixture-approval/runs" \
+		-d '{"input":{"event":{"deployment_id":"dep-appr-1"}}}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])'); \
+		for i in $$(seq 1 40); do \
+			STATUS=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])'); \
+			if [ "$$STATUS" = "awaiting_approval" ]; then break; fi; \
+			sleep 0.25; \
+		done; \
+		BODY=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID"); \
+		echo "$$BODY" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="awaiting_approval", d; assert d.get("pending_approval",{}).get("status")=="pending"; assert "dep-appr-1" in (d["pending_approval"].get("prompt") or "")'; \
+		AID=$$(echo "$$BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["pending_approval"]["id"])'); \
+		$(COMPOSE) restart $(SERVICE) >/dev/null; \
+		$(MAKE) wait; \
+		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="awaiting_approval", d; steps={s["id"]:s for s in d["steps"]}; assert steps["before"]["status"]=="completed"; assert steps["before"]["attempt"]==1; assert steps["approve-rollback"]["status"]=="waiting"'; \
+		curl -sf -H 'X-Forge-Project: $(PROJECT)' -H 'X-Forge-Actor: alice' -XPOST "http://127.0.0.1:$(HOST_PORT)/v1/approvals/$$AID/approve" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="approved"; assert d["decided_by"]=="alice"'; \
+		for i in $$(seq 1 40); do \
+			STATUS=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])'); \
+			if [ "$$STATUS" = "completed" ] || [ "$$STATUS" = "failed" ]; then break; fi; \
+			sleep 0.25; \
+		done; \
+		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="completed", d; steps={s["id"]:s for s in d["steps"]}; assert steps["before"]["attempt"]==1; assert steps["approve-rollback"]["output"]["decision"]=="approved"; assert steps["after-approve"]["status"]=="completed"; assert steps["close"]["status"]=="skipped"'; \
+		CODE=$$(curl -s -o /tmp/forge-workflows-appr-term.json -w '%{http_code}' -H 'X-Forge-Project: $(PROJECT)' -XPOST "http://127.0.0.1:$(HOST_PORT)/v1/approvals/$$AID/approve"); \
+		test "$$CODE" = "409"
+	@# Deny follows on_deny (skips after-approve)
+	@RID=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' -H 'content-type: application/json' \
+		-XPOST "http://127.0.0.1:$(HOST_PORT)/v1/workflows/fixture-approval/runs" \
+		-d '{"input":{"event":{"deployment_id":"dep-deny-1"}}}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])'); \
+		for i in $$(seq 1 40); do \
+			STATUS=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])'); \
+			if [ "$$STATUS" = "awaiting_approval" ]; then break; fi; \
+			sleep 0.25; \
+		done; \
+		AID=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["pending_approval"]["id"])'); \
+		curl -sf -H 'X-Forge-Project: $(PROJECT)' -H 'X-Forge-Actor: bob' -H 'content-type: application/json' \
+			-XPOST "http://127.0.0.1:$(HOST_PORT)/v1/approvals/$$AID/deny" -d '{"reason":"not needed"}' \
+			| python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="denied"; assert d["decided_by"]=="bob"'; \
+		for i in $$(seq 1 40); do \
+			STATUS=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])'); \
+			if [ "$$STATUS" = "completed" ] || [ "$$STATUS" = "failed" ]; then break; fi; \
+			sleep 0.25; \
+		done; \
+		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="completed", d; steps={s["id"]:s for s in d["steps"]}; assert steps["after-approve"]["status"]=="skipped"; assert steps["close"]["status"]=="completed"'
+	@# Cross-project approval access → 404
+	@AID=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/approvals" | python3 -c 'import sys,json; print(json.load(sys.stdin)["approvals"][0]["id"])'); \
+		CODE=$$(curl -s -o /tmp/forge-workflows-appr-xproj.json -w '%{http_code}' -H 'X-Forge-Project: other-proj' "http://127.0.0.1:$(HOST_PORT)/v1/approvals/$$AID"); \
+		test "$$CODE" = "404"
+	@# Expiry via forced expires_at → on_deny path
+	@RID=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' -H 'content-type: application/json' \
+		-XPOST "http://127.0.0.1:$(HOST_PORT)/v1/workflows/fixture-approval/runs" \
+		-d '{"input":{"event":{"deployment_id":"dep-exp-1"}}}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])'); \
+		for i in $$(seq 1 40); do \
+			STATUS=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])'); \
+			if [ "$$STATUS" = "awaiting_approval" ]; then break; fi; \
+			sleep 0.25; \
+		done; \
+		AID=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["pending_approval"]["id"])'); \
+		docker exec forge-postgres psql -U forge -d forge_workflows -c "UPDATE workflow_approvals SET expires_at = NOW() - interval '1 second' WHERE id = '$$AID'" >/dev/null; \
+		for i in $$(seq 1 60); do \
+			STATUS=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])'); \
+			if [ "$$STATUS" = "completed" ] || [ "$$STATUS" = "failed" ]; then break; fi; \
+			sleep 0.5; \
+		done; \
+		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/approvals/$$AID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="expired", d'; \
+		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="completed", d; steps={s["id"]:s for s in d["steps"]}; assert steps["approve-rollback"]["output"]["decision"]=="expired"; assert steps["after-approve"]["status"]=="skipped"; assert steps["close"]["status"]=="completed"'
 	@# Invalid PORT fails startup.
 	@docker rm -f forge-workflows-bad-port >/dev/null 2>&1 || true
 	@if docker run --name forge-workflows-bad-port \
@@ -196,10 +261,10 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (definitions, durable runs, resume, retry/delay/parallel/conditional/timeout, event triggers, agent steps, project isolation, OpenAPI)."
+	@echo "Integration checks passed (definitions, durable runs, resume, retry/delay/parallel/conditional/timeout, event triggers, agent steps, durable approvals, project isolation, OpenAPI)."
 
 docker-run: run
 
 clean:
 	@rm -rf _build deps .elixir_ls
-	@rm -f /tmp/forge-workflows-bad-port.out /tmp/forge-workflows-xproj.json
+	@rm -f /tmp/forge-workflows-bad-port.out /tmp/forge-workflows-xproj.json /tmp/forge-workflows-appr-term.json /tmp/forge-workflows-appr-xproj.json

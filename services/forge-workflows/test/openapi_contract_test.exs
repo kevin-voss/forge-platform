@@ -30,6 +30,10 @@ defmodule ForgeWorkflows.OpenAPIContractTest do
       assert text =~ "deployment.failed"
       assert text =~ "agent"
       assert text =~ "TriggerConfig"
+      assert text =~ "approval"
+      assert text =~ "/v1/approvals"
+      assert text =~ "awaiting_approval"
+      assert text =~ "WorkflowApproval"
     end
   end
 

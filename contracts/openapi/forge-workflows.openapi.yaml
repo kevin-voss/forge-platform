@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Forge Workflows API
-  version: 0.4.0
+  version: 0.5.0
   description: |
     Durable workflow orchestration service (epic 16). Definitions load from YAML;
     runs and step state persist in Postgres and resume across restarts without
@@ -10,7 +10,8 @@ info:
     step/run timeouts, parallel fan-out/fan-in, and safe conditional branching.
     Event triggers (durable Events consumer + event_id dedupe) start mapped
     workflows; `agent` steps invoke Forge Agents runs and capture results.
-    Runs are project-scoped via `X-Forge-Project`.
+    Human `approval` steps durably park runs in `awaiting_approval` (survives
+    restarts) until approve/deny/expiry. Runs are project-scoped via `X-Forge-Project`.
 servers:
   - url: http://127.0.0.1:4302
     description: Local Compose (host port 4302)
@@ -156,7 +157,9 @@ paths:
       operationId: getRun
       summary: Get a run by id
       description: |
-        Returns run status and durable step history. Cross-project reads return 404.
+        Returns run status and durable step history. When status is
+        `awaiting_approval`, includes `pending_approval`. Cross-project reads
+        return 404.
       parameters:
         - $ref: "#/components/parameters/RunId"
         - $ref: "#/components/parameters/ForgeProject"
@@ -175,6 +178,151 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           description: Run not found in project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/runs/{id}/approvals:
+    get:
+      operationId: listRunApprovals
+      summary: List approvals for a run
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+        - $ref: "#/components/parameters/ForgeProject"
+      responses:
+        "200":
+          description: Approvals for the run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalList"
+        "400":
+          description: Missing project header
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Run not found in project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/approvals:
+    get:
+      operationId: listApprovals
+      summary: List approvals for a project
+      parameters:
+        - $ref: "#/components/parameters/ForgeProject"
+      responses:
+        "200":
+          description: Project-scoped approvals
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalList"
+        "400":
+          description: Missing project header
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/approvals/{id}:
+    get:
+      operationId: getApproval
+      summary: Get an approval by id
+      parameters:
+        - $ref: "#/components/parameters/ApprovalId"
+        - $ref: "#/components/parameters/ForgeProject"
+      responses:
+        "200":
+          description: Approval detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowApproval"
+        "400":
+          description: Missing project header
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Approval not found in project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/approvals/{id}/approve:
+    post:
+      operationId: approveApproval
+      summary: Approve a pending approval
+      description: |
+        Records `decided_by` from `X-Forge-Actor` (default `anonymous`) and
+        resumes the parked workflow run. Terminal approvals return 409.
+      parameters:
+        - $ref: "#/components/parameters/ApprovalId"
+        - $ref: "#/components/parameters/ForgeProject"
+        - $ref: "#/components/parameters/ForgeActor"
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowApproval"
+        "404":
+          description: Approval not found in project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Approval already decided
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/approvals/{id}/deny:
+    post:
+      operationId: denyApproval
+      summary: Deny a pending approval
+      description: |
+        Persists denial (optional `reason`), records actor, and resumes the run
+        along the step `on_deny` path (or fails the run when unset). Terminal
+        approvals return 409.
+      parameters:
+        - $ref: "#/components/parameters/ApprovalId"
+        - $ref: "#/components/parameters/ForgeProject"
+        - $ref: "#/components/parameters/ForgeActor"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DenyApprovalRequest"
+            example:
+              reason: rollback not needed
+      responses:
+        "200":
+          description: Denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowApproval"
+        "404":
+          description: Approval not found in project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Approval already decided
           content:
             application/json:
               schema:
@@ -250,6 +398,20 @@ components:
       schema:
         type: string
         format: uuid
+    ApprovalId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ForgeActor:
+      name: X-Forge-Actor
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Identity recorded as decided_by (defaults to anonymous)
 
   schemas:
     HealthStatus:
@@ -343,7 +505,7 @@ components:
           type: string
         type:
           type: string
-          enum: [log, noop, task, delay, timeout, parallel, conditional, retry, agent]
+          enum: [log, noop, task, delay, timeout, parallel, conditional, retry, agent, approval]
         message:
           type: string
         delay_ms:
@@ -375,6 +537,15 @@ components:
           description: |
             Agent input map. String values may use `${event.field}` templates
             resolved from the workflow run input.
+        prompt:
+          type: string
+          description: |
+            Human-readable approval prompt (required for type=approval).
+            Supports `${event.field}` templates from run input.
+        on_deny:
+          type: string
+          description: |
+            Step id to continue to when denied/expired. When omitted, the run fails.
         branches:
           type: array
           items:
@@ -511,13 +682,18 @@ components:
           type: string
         status:
           type: string
-          enum: [queued, running, completed, failed]
+          enum: [queued, running, awaiting_approval, completed, failed]
         input:
           type: object
           additionalProperties: true
         current_step:
           type: string
           nullable: true
+        pending_approval:
+          allOf:
+            - $ref: "#/components/schemas/WorkflowApproval"
+          nullable: true
+          description: Present when status is awaiting_approval
         result:
           type: object
           additionalProperties: true
@@ -537,6 +713,60 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/WorkflowRun"
+
+    WorkflowApproval:
+      type: object
+      required:
+        - id
+        - run_id
+        - step_id
+        - project_id
+        - status
+      properties:
+        id:
+          type: string
+          format: uuid
+        run_id:
+          type: string
+          format: uuid
+        step_id:
+          type: string
+        project_id:
+          type: string
+        prompt:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, denied, expired]
+        decided_by:
+          type: string
+        reason:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    ApprovalList:
+      type: object
+      required:
+        - approvals
+      properties:
+        approvals:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowApproval"
+
+    DenyApprovalRequest:
+      type: object
+      properties:
+        reason:
+          type: string
 
     Error:
       type: object

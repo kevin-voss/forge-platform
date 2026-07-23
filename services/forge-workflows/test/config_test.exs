@@ -92,6 +92,7 @@ defmodule ForgeWorkflows.ConfigTest do
     assert cfg.agents_mode == "fake"
     assert cfg.agent_poll_ms == 1_000
     assert cfg.agent_step_timeout_ms == 300_000
+    assert cfg.approval_ttl_seconds == 86_400
   end
 end
 

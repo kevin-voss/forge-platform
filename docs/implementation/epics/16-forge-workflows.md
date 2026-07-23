@@ -58,7 +58,7 @@ make demo DEMO=16
 | [16.02](../steps/16-forge-workflows/16.02-definitions-durable-state.md) | Definitions + durable run state | Complete | Depends on 16.01; resume across restart |
 | [16.03](../steps/16-forge-workflows/16.03-step-primitives.md) | Step primitives | Complete | retry/delay/timeout/parallel/conditional; durable wake_at |
 | [16.04](../steps/16-forge-workflows/16.04-event-triggers-agent-steps.md) | Event triggers + agent steps | Complete | Durable consumer + event_dedup; agent step + Agents client |
-| [16.05](../steps/16-forge-workflows/16.05-human-approval-restarts.md) | Human approval across restarts | Not started | Depends on 16.04 |
+| [16.05](../steps/16-forge-workflows/16.05-human-approval-restarts.md) | Human approval across restarts | Complete | Durable ApprovalStore; awaiting_approval + restart; approve/deny/expire |
 | [16.06](../steps/16-forge-workflows/16.06-compensation-rollback.md) | Compensation/rollback via Control | Not started | Depends on 16.05; Control/07 rollback |
 | [16.07](../steps/16-forge-workflows/16.07-demo-and-gate.md) | Demo `16-agent-workflow` + gate | Not started | Depends on 16.06 |
 
@@ -79,4 +79,4 @@ make demo DEMO=16
 
 ## Next step to implement
 
-**[16.05](../steps/16-forge-workflows/16.05-human-approval-restarts.md) — Human approval across restarts**.
+**[16.06](../steps/16-forge-workflows/16.06-compensation-rollback.md) — Compensation/rollback via Control**.

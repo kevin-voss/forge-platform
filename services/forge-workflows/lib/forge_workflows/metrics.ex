@@ -78,6 +78,26 @@ defmodule ForgeWorkflows.Metrics do
     :ok
   end
 
+  def inc_approval(status) when is_binary(status) do
+    ensure_table!()
+
+    :ets.update_counter(
+      @table,
+      {:workflow_approvals_total, status},
+      {2, 1},
+      {{:workflow_approvals_total, status}, 0}
+    )
+
+    :ok
+  end
+
+  def observe_approval_decision_ms(ms) when is_integer(ms) and ms >= 0 do
+    ensure_table!()
+    :ets.update_counter(@table, :workflow_approval_decision_count, {2, 1}, {:workflow_approval_decision_count, 0})
+    :ets.update_counter(@table, :workflow_approval_decision_ms_sum, {2, ms}, {:workflow_approval_decision_ms_sum, 0})
+    :ok
+  end
+
   def snapshot do
     ensure_table!()
 

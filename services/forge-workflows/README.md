@@ -2,13 +2,12 @@
 
 Elixir/OTP durable workflow orchestration service (epic 16). Host port **4302**.
 
-Step 16.04: event triggers + agent steps — durable Events consumer starts
-workflows mapped by event type (idempotent via `event_dedup`), and `agent`
-steps invoke Forge Agents (`POST /v1/agents/{name}/runs`) with poll-to-completion
-(including surfacing `awaiting_approval`). YAML definitions, Ecto/Postgres run +
-step state, per-run GenServers, boot resume, and a scheduler for durable
-`wake_at` timers. Workflow-level human approval and compensation land in later
-steps. Epic gate: `make demo DEMO=16` (`demos/16-agent-workflow`).
+Step 16.05: durable human `approval` steps — park a run in `awaiting_approval`
+with a persisted approval request that survives restart; `approve` resumes,
+`deny`/`expire` follow `on_deny` (or fail). Builds on event triggers + agent
+steps (16.04), YAML definitions, Ecto/Postgres run/step state, per-run
+GenServers, boot resume, and the durable `wake_at` scheduler. Compensation
+lands in 16.06. Epic gate: `make demo DEMO=16` (`demos/16-agent-workflow`).
 
 ## Local
 
@@ -32,9 +31,13 @@ curl -fsS localhost:4302/ | grep -q '"service":"forge-workflows"'
 
 BASE=localhost:4302; P='-H X-Forge-Project:proj-a'
 curl -fsS $BASE/v1/workflows
-curl -fsS $P -XPOST $BASE/v1/triggers/test -H 'content-type: application/json' \
-  -d '{"event":"deployment.failed","event_id":"evt-smoke-1","data":{"deployment_id":"dep-123","service_id":"svc-1","reason":"unhealthy","failed_at":"2026-07-23T09:00:00Z"}}'
-curl -fsS $P $BASE/v1/runs | grep -q dep-123 || true
+curl -fsS $P -XPOST $BASE/v1/workflows/fixture-approval/runs \
+  -H 'content-type: application/json' \
+  -d '{"input":{"event":{"deployment_id":"dep-1"}}}'
+# wait until status awaiting_approval, then:
+AID=$(curl -fsS $P $BASE/v1/approvals | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+docker compose restart forge-workflows
+curl -fsS $P -H 'X-Forge-Actor: alice' -XPOST $BASE/v1/approvals/$AID/approve
 ```
 
 OpenAPI (canonical): [`contracts/openapi/forge-workflows.openapi.yaml`](../../contracts/openapi/forge-workflows.openapi.yaml).
@@ -55,6 +58,7 @@ OpenAPI (canonical): [`contracts/openapi/forge-workflows.openapi.yaml`](../../co
 | `FORGE_WORKFLOWS_MAX_PARALLELISM` | `8` | Cap on parallel branch concurrency |
 | `FORGE_WORKFLOWS_DEFAULT_STEP_TIMEOUT` | `300000` | Default step timeout (ms) |
 | `FORGE_WORKFLOWS_SCHEDULER_TICK_MS` | `1000` | Durable timer poll interval |
+| `FORGE_WORKFLOWS_APPROVAL_TTL_SECONDS` | `86400` | Pending approval TTL before auto-expire |
 | `FORGE_EVENTS_URL` | `http://forge-events:4105` | Events HTTP API for durable consume |
 | `FORGE_WORKFLOWS_EVENTS_ENABLED` | `true` (when URL set) | Set `false` to disable consumer (triggers/test still works) |
 | `FORGE_AGENTS_URL` | `http://forge-agents:4301` | Agents HTTP API |
@@ -63,15 +67,14 @@ OpenAPI (canonical): [`contracts/openapi/forge-workflows.openapi.yaml`](../../co
 | `FORGE_WORKFLOWS_AGENT_STEP_TIMEOUT` | `300000` | Agent step poll deadline (ms) |
 | `FORGE_WORKFLOWS_DEFAULT_PROJECT` | `default` | Fallback project for triggers without header |
 
-## Architecture (16.04)
+## Architecture (16.05)
 
 ```text
 definitions/*.yaml → DefinitionLoader → %Workflow{trigger, steps}
-TriggerRegistry: event type → workflow(s)
-Events(deployment.failed) → EventConsumer (durable) → event_dedup → start run
-POST /v1/triggers/test → same path (synthetic event)
-agent step → AgentClient.start_run → poll GET /v1/runs/{id}
-           → capture result / surface awaiting_approval into step.output
+approval step → ApprovalStore(pending) + run awaiting_approval → RunServer parks
+POST /v1/approvals/{id}/approve|deny → decide + wake RunServer
+restart while awaiting → BootResumer → park again (no step repeat)
+ExpirySweeper → expired → on_deny path (or fail)
 
 ForgeWorkflows.Supervisor (rest_for_one)
 ├── ForgeWorkflows.Repo
@@ -80,27 +83,41 @@ ForgeWorkflows.Supervisor (rest_for_one)
 ├── ForgeWorkflows.Engine.RunSupervisor
 ├── ForgeWorkflows.Engine.BootResumer
 ├── ForgeWorkflows.Engine.Scheduler
+├── ForgeWorkflows.Approvals.ExpirySweeper
 ├── ForgeWorkflows.Events.Consumer
-└── Bandit → ForgeWorkflowsWeb.Router
+└── Bandit → ForgeWorkflowsWeb.Router (+ ApprovalsController)
 ```
 
 Idempotency: `(run_id, step_id)` for steps; `(event_id, workflow)` in `event_dedup`
-for triggers. Duplicate events do not start a second run.
+for triggers; `(run_id, step_id)` unique for approvals.
 
-### Definition schema (trigger + agent)
+### Definition schema (approval)
 
 ```yaml
-name: fixture-trigger
-trigger:
-  event: deployment.failed
+name: fixture-approval
 steps:
-  - id: diagnose
-    type: agent
-    agent: deployment-investigator
-    input: { deployment: "${event.deployment_id}" }
-    retry: { max_attempts: 3, backoff: exponential, base_ms: 200 }
+  - id: approve-rollback
+    type: approval
+    prompt: "Approve rollback of ${event.deployment_id}?"
+    on_deny: close
+  - id: after-approve
+    type: log
+    message: after-approve
+  - id: close
+    type: log
+    message: closed-denied
 ```
 
-Agent input supports `${event.<field>}` templates resolved from the run input
-(populated from the triggering event). Agent failures retry per step `retry`
-policy from 16.03, then fail the step.
+### Approval API
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/v1/approvals` | Project-scoped list |
+| `GET` | `/v1/approvals/{id}` | Detail; cross-project → `404` |
+| `GET` | `/v1/runs/{id}/approvals` | Approvals for a run |
+| `POST` | `/v1/approvals/{id}/approve` | Resume; `X-Forge-Actor` → `decided_by` |
+| `POST` | `/v1/approvals/{id}/deny` | Body `{reason}`; follows `on_deny` |
+| `GET` | `/v1/runs/{id}` | Includes `pending_approval` when parked |
+
+Terminal decide → `409`. Metrics: `workflow_approvals_total{status}`,
+decision latency sum/count.

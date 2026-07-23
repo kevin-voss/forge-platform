@@ -3,6 +3,7 @@ defmodule ForgeWorkflows.Application do
 
   use Application
 
+  alias ForgeWorkflows.Approvals.ExpirySweeper
   alias ForgeWorkflows.Definitions.Loader
   alias ForgeWorkflows.Engine.BootResumer
   alias ForgeWorkflows.Engine.RunSupervisor
@@ -63,6 +64,7 @@ defmodule ForgeWorkflows.Application do
             "RunSupervisor",
             "BootResumer",
             "Scheduler",
+            "ApprovalExpirySweeper",
             "EventConsumer",
             "Bandit"
           ],
@@ -70,7 +72,8 @@ defmodule ForgeWorkflows.Application do
           default_step_timeout_ms: cfg.default_step_timeout_ms,
           scheduler_tick_ms: cfg.scheduler_tick_ms,
           agent_poll_ms: cfg.agent_poll_ms,
-          agent_step_timeout_ms: cfg.agent_step_timeout_ms
+          agent_step_timeout_ms: cfg.agent_step_timeout_ms,
+          approval_ttl_seconds: cfg.approval_ttl_seconds
         })
 
         [
@@ -82,6 +85,7 @@ defmodule ForgeWorkflows.Application do
           RunSupervisor,
           BootResumer,
           Scheduler,
+          ExpirySweeper,
           {Consumer, enabled: cfg.events_enabled},
           {Bandit,
            plug: ForgeWorkflowsWeb.Router,

@@ -27,7 +27,8 @@ defmodule ForgeWorkflows.AgentStepTest do
       agent_step_timeout_ms: 5_000,
       default_project_id: "proj-a",
       events_http_timeout_ms: 1_000,
-      agents_http_timeout_ms: 1_000
+      agents_http_timeout_ms: 1_000,
+      approval_ttl_seconds: 86_400
     }
 
     Application.put_env(:forge_workflows, :runtime_config, cfg)

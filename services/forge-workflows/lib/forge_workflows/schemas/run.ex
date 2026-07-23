@@ -22,7 +22,7 @@ defmodule ForgeWorkflows.Schemas.Run do
     timestamps(inserted_at: :inserted_at, updated_at: :updated_at)
   end
 
-  @statuses ~w(queued running completed failed)
+  @statuses ~w(queued running awaiting_approval completed failed)
 
   def changeset(run, attrs) do
     run

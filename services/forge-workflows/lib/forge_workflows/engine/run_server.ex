@@ -3,11 +3,13 @@ defmodule ForgeWorkflows.Engine.RunServer do
 
   use GenServer, restart: :transient
 
+  alias ForgeWorkflows.Approvals.Store, as: ApprovalStore
   alias ForgeWorkflows.Definitions.Loader
   alias ForgeWorkflows.Engine.StepExecutor
   alias ForgeWorkflows.JsonLog
   alias ForgeWorkflows.Metrics
   alias ForgeWorkflows.Runs
+  alias ForgeWorkflows.Steps.Approval
   alias ForgeWorkflows.Steps.Conditional
   alias ForgeWorkflows.Steps.Delay
   alias ForgeWorkflows.Steps.Parallel
@@ -21,7 +23,7 @@ defmodule ForgeWorkflows.Engine.RunServer do
   def via(run_id), do: {:via, Registry, {ForgeWorkflows.RunRegistry, run_id}}
 
   @doc """
-  Wake a run that is waiting on a durable timer (delay or retry backoff).
+  Wake a run that is waiting on a durable timer (delay/retry) or human approval.
   """
   @spec wake(String.t(), String.t()) :: :ok
   def wake(run_id, step_id) when is_binary(run_id) and is_binary(step_id) do
@@ -169,6 +171,9 @@ defmodule ForgeWorkflows.Engine.RunServer do
           {:halt, :waiting}
         end
 
+      "approval" ->
+        handle_approval_wake(run_id, step_def, step, now)
+
       _ ->
         # Retry backoff wake — re-enter execute path with incremented attempt.
         case Runs.rebegin_after_wait(run_id, step_id(step_def)) do
@@ -192,6 +197,44 @@ defmodule ForgeWorkflows.Engine.RunServer do
     end
   end
 
+  defp handle_approval_wake(run_id, step_def, step, now) do
+    case ApprovalStore.get_by_run_step(run_id, step_id(step_def)) do
+      nil ->
+        _ = Runs.mark_run_failed(run_id, "approval missing for step #{step_id(step_def)}")
+        {:halt, {:error, :approval_missing}}
+
+      %{status: "pending"} = approval ->
+        if Delay.due?(approval.expires_at, now) do
+          case ApprovalStore.expire(approval) do
+            {:ok, expired} ->
+              workflow_steps = workflow_steps_for_run(run_id)
+              Approval.apply_decision(run_id, step_def, expired, workflow_steps)
+
+            {:error, reason} ->
+              _ = Runs.mark_run_failed(run_id, "approval expire failed: #{inspect(reason)}")
+              {:halt, {:error, reason}}
+          end
+        else
+          _ = Runs.mark_run_awaiting_approval(run_id, step_id(step_def))
+
+          if step.wake_at do
+            arm_local_timer(step.wake_at, now, step_id(step_def))
+          end
+
+          log("approval still pending; parked", run_id, %{
+            step_id: step_id(step_def),
+            approval_id: approval.id
+          })
+
+          {:halt, :waiting}
+        end
+
+      approval ->
+        workflow_steps = workflow_steps_for_run(run_id)
+        Approval.apply_decision(run_id, step_def, approval, workflow_steps)
+    end
+  end
+
   defp dispatch(run_id, step_def, step, by_id, input, project_id, cfg) do
     case step_def.type do
       "delay" ->
@@ -202,6 +245,22 @@ defmodule ForgeWorkflows.Engine.RunServer do
 
           {:error, reason} ->
             _ = Runs.mark_run_failed(run_id, "delay schedule failed: #{inspect(reason)}")
+            {:halt, {:error, reason}}
+        end
+
+      "approval" ->
+        ttl = Map.get(cfg, :approval_ttl_seconds, 86_400)
+
+        case Approval.park(run_id, step_def, project_id, input, ttl) do
+          {:ok, approval} ->
+            if approval.expires_at do
+              arm_local_timer(approval.expires_at, DateTime.utc_now(), step_def.id)
+            end
+
+            {:halt, :waiting}
+
+          {:error, reason} ->
+            _ = Runs.mark_run_failed(run_id, "approval park failed: #{inspect(reason)}")
             {:halt, {:error, reason}}
         end
 
@@ -339,8 +398,36 @@ defmodule ForgeWorkflows.Engine.RunServer do
 
   defp step_id(step_def), do: step_def.id
 
+  defp workflow_steps_for_run(run_id) do
+    case Runs.get_run_record(run_id) do
+      %{workflow: name} ->
+        case Loader.get(name) do
+          %{steps: steps} -> steps
+          _ -> []
+        end
+
+      _ ->
+        []
+    end
+  end
+
   defp runtime_limits do
     case Application.get_env(:forge_workflows, :runtime_config) do
+      %{
+        max_parallelism: max,
+        default_step_timeout_ms: timeout,
+        agent_poll_ms: poll,
+        agent_step_timeout_ms: agent_timeout,
+        approval_ttl_seconds: ttl
+      } ->
+        %{
+          max_parallelism: max,
+          default_step_timeout_ms: timeout,
+          agent_poll_ms: poll,
+          agent_step_timeout_ms: agent_timeout,
+          approval_ttl_seconds: ttl
+        }
+
       %{
         max_parallelism: max,
         default_step_timeout_ms: timeout,
@@ -351,7 +438,8 @@ defmodule ForgeWorkflows.Engine.RunServer do
           max_parallelism: max,
           default_step_timeout_ms: timeout,
           agent_poll_ms: poll,
-          agent_step_timeout_ms: agent_timeout
+          agent_step_timeout_ms: agent_timeout,
+          approval_ttl_seconds: 86_400
         }
 
       %{max_parallelism: max, default_step_timeout_ms: timeout} ->
@@ -359,7 +447,8 @@ defmodule ForgeWorkflows.Engine.RunServer do
           max_parallelism: max,
           default_step_timeout_ms: timeout,
           agent_poll_ms: 1_000,
-          agent_step_timeout_ms: 300_000
+          agent_step_timeout_ms: 300_000,
+          approval_ttl_seconds: 86_400
         }
 
       _ ->
@@ -367,7 +456,8 @@ defmodule ForgeWorkflows.Engine.RunServer do
           max_parallelism: 8,
           default_step_timeout_ms: 300_000,
           agent_poll_ms: 1_000,
-          agent_step_timeout_ms: 300_000
+          agent_step_timeout_ms: 300_000,
+          approval_ttl_seconds: 86_400
         }
     end
   end

@@ -21,7 +21,8 @@ defmodule ForgeWorkflows.Config do
     :agent_step_timeout_ms,
     :default_project_id,
     :events_http_timeout_ms,
-    :agents_http_timeout_ms
+    :agents_http_timeout_ms,
+    :approval_ttl_seconds
   ]
   defstruct [
     :port,
@@ -43,7 +44,8 @@ defmodule ForgeWorkflows.Config do
     :agent_step_timeout_ms,
     :default_project_id,
     :events_http_timeout_ms,
-    :agents_http_timeout_ms
+    :agents_http_timeout_ms,
+    :approval_ttl_seconds
   ]
 
   @type t :: %__MODULE__{
@@ -66,7 +68,8 @@ defmodule ForgeWorkflows.Config do
           agent_step_timeout_ms: pos_integer(),
           default_project_id: String.t(),
           events_http_timeout_ms: pos_integer(),
-          agents_http_timeout_ms: pos_integer()
+          agents_http_timeout_ms: pos_integer(),
+          approval_ttl_seconds: pos_integer()
         }
 
   @allowed_levels ~w(debug info warn error)
@@ -120,7 +123,9 @@ defmodule ForgeWorkflows.Config do
       events_http_timeout_ms:
         parse_pos_int!(System.get_env("FORGE_WORKFLOWS_EVENTS_HTTP_TIMEOUT_MS"), 10_000, 100, 120_000),
       agents_http_timeout_ms:
-        parse_pos_int!(System.get_env("FORGE_WORKFLOWS_AGENTS_HTTP_TIMEOUT_MS"), 10_000, 100, 120_000)
+        parse_pos_int!(System.get_env("FORGE_WORKFLOWS_AGENTS_HTTP_TIMEOUT_MS"), 10_000, 100, 120_000),
+      approval_ttl_seconds:
+        parse_pos_int!(System.get_env("FORGE_WORKFLOWS_APPROVAL_TTL_SECONDS"), 86_400, 1, 2_592_000)
     }
   end
 

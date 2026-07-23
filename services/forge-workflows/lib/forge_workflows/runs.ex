@@ -4,6 +4,7 @@ defmodule ForgeWorkflows.Runs do
   import Ecto.Query
 
   alias Ecto.Multi
+  alias ForgeWorkflows.Approvals.Store, as: ApprovalStore
   alias ForgeWorkflows.Definitions.Loader
   alias ForgeWorkflows.Engine.RunSupervisor
   alias ForgeWorkflows.Metrics
@@ -161,6 +162,30 @@ defmodule ForgeWorkflows.Runs do
              |> Repo.update() do
           {:ok, _} = ok ->
             Metrics.inc_run("running")
+            ok
+
+          other ->
+            other
+        end
+    end
+  end
+
+  @spec mark_run_awaiting_approval(String.t(), String.t() | nil) ::
+          {:ok, Run.t()} | {:error, term()}
+  def mark_run_awaiting_approval(run_id, current_step) do
+    case Repo.get(Run, run_id) do
+      nil ->
+        {:error, :not_found}
+
+      %Run{status: status} = run when status in @terminal ->
+        {:ok, run}
+
+      run ->
+        case run
+             |> Run.changeset(%{status: "awaiting_approval", current_step: current_step})
+             |> Repo.update() do
+          {:ok, _} = ok ->
+            Metrics.inc_run("awaiting_approval")
             ok
 
           other ->
@@ -395,6 +420,16 @@ defmodule ForgeWorkflows.Runs do
         |> maybe_put("parent_step_id", step.parent_step_id)
       end)
 
+    pending =
+      if run.status == "awaiting_approval" and is_binary(run.current_step) do
+        case ApprovalStore.get_by_run_step(run.id, run.current_step) do
+          nil -> nil
+          approval -> ApprovalStore.to_api(approval)
+        end
+      else
+        nil
+      end
+
     %{
       "run_id" => run.id,
       "workflow" => run.workflow,
@@ -406,6 +441,7 @@ defmodule ForgeWorkflows.Runs do
     |> maybe_put("result", run.result)
     |> maybe_put("error", run.error)
     |> maybe_put("current_step", run.current_step)
+    |> maybe_put("pending_approval", pending)
   end
 
   defp maybe_put(map, _key, nil), do: map
