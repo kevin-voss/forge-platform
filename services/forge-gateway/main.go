@@ -17,6 +17,7 @@ import (
 	"forge.local/services/forge-gateway/internal/config"
 	"forge.local/services/forge-gateway/internal/health"
 	"forge.local/services/forge-gateway/internal/middleware"
+	"forge.local/services/forge-gateway/internal/observability"
 	"forge.local/services/forge-gateway/internal/proxy"
 	"forge.local/services/forge-gateway/internal/routes"
 	gwync "forge.local/services/forge-gateway/internal/sync"
@@ -36,8 +37,17 @@ func run() error {
 	}
 
 	log := newLogger(cfg.ServiceName, cfg.LogLevel)
+	otelCfg := observability.LoadConfig(cfg.ServiceName, cfg.Env)
+	otelProvider := observability.Init(context.Background(), otelCfg)
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		otelProvider.Shutdown(shutdownCtx)
+	}()
 	log.Info("starting forge-gateway",
 		"port", cfg.Port,
+		"otel_enabled", otelCfg.Enabled,
+		"otel_endpoint", otelCfg.Endpoint,
 		"version", cfg.ServiceVersion,
 		"env", cfg.Env,
 		"auth_mode", cfg.AuthMode,
@@ -138,7 +148,9 @@ func run() error {
 	mux.Handle("/", proxyHandler)
 
 	var handler http.Handler = mux
+	// Request-ID dual-write (X-Forge-Request-ID + legacy) lives in observability middleware.
 	handler = middleware.RequestID(cfg.RequestIDHeader)(handler)
+	handler = observability.Middleware(otelProvider, log)(handler)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

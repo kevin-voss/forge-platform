@@ -37,9 +37,18 @@ class JsonLog(
             put("service", JsonPrimitive(service))
             put("message", JsonPrimitive(message))
             val correlation = LoggingContext.current()
+            // Normative snake_case (12.01/12.02) plus legacy camelCase for existing consumers.
+            put("request_id", JsonPrimitive(correlation.requestId))
             put("requestId", JsonPrimitive(correlation.requestId))
-            correlation.traceId?.let { put("traceId", JsonPrimitive(it)) }
-            correlation.spanId?.let { put("spanId", JsonPrimitive(it)) }
+            put("forge.service", JsonPrimitive(service))
+            correlation.traceId?.let {
+                put("trace_id", JsonPrimitive(it))
+                put("traceId", JsonPrimitive(it))
+            }
+            correlation.spanId?.let {
+                put("span_id", JsonPrimitive(it))
+                put("spanId", JsonPrimitive(it))
+            }
             for ((key, value) in fields) {
                 when (value) {
                     null -> put(key, JsonPrimitive("null"))

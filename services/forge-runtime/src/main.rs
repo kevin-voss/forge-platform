@@ -8,6 +8,7 @@ mod heartbeat_reporter;
 mod lifecycle;
 mod logs;
 mod node;
+mod observability;
 mod prober;
 mod routes;
 mod status;
@@ -44,9 +45,16 @@ async fn run() -> Result<(), String> {
     let cfg = Config::from_env()?;
     init_tracing(&cfg);
 
+    let node_id_hint = cfg.node_id.clone().unwrap_or_else(|| "pending".into());
+    let otel_cfg = observability::OtelConfig::from_env(&cfg.service_name, &cfg.env, &node_id_hint);
+    let otel = std::sync::Arc::new(observability::OtelHandle::init(&otel_cfg));
+    let otel_shutdown = std::sync::Arc::clone(&otel);
+
     info!(
         service = %cfg.service_name,
         port = cfg.port,
+        otel_enabled = otel_cfg.enabled,
+        otel_endpoint = %otel_cfg.endpoint,
         version = %cfg.service_version,
         env = %cfg.env,
         auth_mode = %cfg.auth_mode,
@@ -220,6 +228,7 @@ async fn run() -> Result<(), String> {
         deployment_locks,
     };
 
+    let otel_layer = std::sync::Arc::clone(&otel);
     let app = axum::Router::new()
         .merge(health_router())
         .merge(routes::node::router())
@@ -227,6 +236,10 @@ async fn run() -> Result<(), String> {
         .merge(routes::workloads::router())
         .merge(routes::status::router())
         .merge(routes::logs::router())
+        .layer(axum::middleware::from_fn(move |req, next| {
+            let handle = std::sync::Arc::clone(&otel_layer);
+            async move { observability::middleware(handle, req, next).await }
+        }))
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], cfg.port));
@@ -242,6 +255,7 @@ async fn run() -> Result<(), String> {
         .await
         .map_err(|e| format!("serve: {e}"))?;
 
+    otel_shutdown.shutdown();
     info!("shutdown complete");
     Ok(())
 }

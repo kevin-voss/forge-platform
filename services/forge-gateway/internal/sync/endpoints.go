@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"forge.local/services/forge-gateway/internal/observability"
 )
 
 // Endpoint is a normalized platform endpoint used to derive gateway routes.
@@ -297,6 +299,7 @@ func getJSON(ctx context.Context, client HTTPDoer, url string, dest any) error {
 		return err
 	}
 	req.Header.Set("Accept", "application/json")
+	observability.InjectHeaders(req)
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("GET %s: %w", url, err)

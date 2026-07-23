@@ -1,5 +1,6 @@
 package forge.control.reconcile
 
+import forge.control.observability.Otel
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -111,13 +112,13 @@ class HttpRuntimeClient(
 
     override fun findWorkload(runtimeDeploymentId: String): WorkloadHandle? {
         val base = runtimeUrl.trimEnd('/')
-        val request = HttpRequest.newBuilder()
+        val builder = HttpRequest.newBuilder()
             .uri(URI.create("$base/v1/workloads/${encodePath(runtimeDeploymentId)}"))
             .timeout(Duration.ofSeconds(3))
             .GET()
-            .build()
+        Otel.inject(builder)
         val response = try {
-            httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString())
         } catch (e: Exception) {
             throw RuntimeUnreachableException("runtime unreachable at $base: ${e.message}", e)
         }
@@ -170,13 +171,13 @@ class HttpRuntimeClient(
 
     override fun drainWorkload(runtimeDeploymentId: String) {
         val base = runtimeUrl.trimEnd('/')
-        val request = HttpRequest.newBuilder()
+        val builder = HttpRequest.newBuilder()
             .uri(URI.create("$base/v1/workloads/${encodePath(runtimeDeploymentId)}/drain"))
             .timeout(Duration.ofSeconds(5))
             .POST(HttpRequest.BodyPublishers.noBody())
-            .build()
+        Otel.inject(builder)
         val response = try {
-            httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString())
         } catch (e: Exception) {
             throw RuntimeUnreachableException("runtime unreachable at $base: ${e.message}", e)
         }
@@ -190,13 +191,13 @@ class HttpRuntimeClient(
 
     override fun stopWorkload(runtimeDeploymentId: String) {
         val base = runtimeUrl.trimEnd('/')
-        val request = HttpRequest.newBuilder()
+        val builder = HttpRequest.newBuilder()
             .uri(URI.create("$base/v1/workloads/${encodePath(runtimeDeploymentId)}"))
             .timeout(Duration.ofSeconds(30))
             .DELETE()
-            .build()
+        Otel.inject(builder)
         val response = try {
-            httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString())
         } catch (e: Exception) {
             throw RuntimeUnreachableException("runtime unreachable at $base: ${e.message}", e)
         }
@@ -247,14 +248,14 @@ class HttpRuntimeClient(
                 secrets_fingerprint = request.secretsFingerprint.takeIf { it.isNotBlank() },
             ),
         )
-        val httpRequest = HttpRequest.newBuilder()
+        val builder = HttpRequest.newBuilder()
             .uri(URI.create("$base/v1/workloads"))
             .timeout(Duration.ofSeconds(120))
             .header("content-type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(body))
-            .build()
+        Otel.inject(builder)
         val response = try {
-            httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString())
+            httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString())
         } catch (e: Exception) {
             throw RuntimeUnreachableException("runtime unreachable at $base: ${e.message}", e)
         }
@@ -269,13 +270,13 @@ class HttpRuntimeClient(
 
     private fun getNodeState(): NodeStateResponse {
         val base = runtimeUrl.trimEnd('/')
-        val request = HttpRequest.newBuilder()
+        val builder = HttpRequest.newBuilder()
             .uri(URI.create("$base/v1/node/state"))
             .timeout(Duration.ofSeconds(3))
             .GET()
-            .build()
+        Otel.inject(builder)
         val response = try {
-            httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString())
         } catch (e: Exception) {
             throw RuntimeUnreachableException("runtime unreachable at $base: ${e.message}", e)
         }

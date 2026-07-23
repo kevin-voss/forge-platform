@@ -93,8 +93,9 @@ make dev
 | `FORGE_SERVICE_NAME` | `forge-control` | |
 | `FORGE_SERVICE_VERSION` | `0.1.0` | |
 | `FORGE_LOG_LEVEL` | `info` | `debug\|info\|warn\|error` |
-| `FORGE_OTEL_ENABLED` | `true` | Set `false` for hermetic tests; keeps no-op tracing and metrics. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel-collector:4317` | OTLP/gRPC Collector endpoint. |
+| `FORGE_OTEL_ENABLED` | `true` | Set `false` to skip OTLP export (local spans/propagation remain). |
+| `FORGE_OTEL_EXPORTER_ENDPOINT` | `http://otel-collector:4317` | Preferred OTLP collector endpoint (12.02). |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | _(alias)_ | Used when `FORGE_OTEL_EXPORTER_ENDPOINT` is unset. |
 | `FORGE_ENV` | `development` | |
 | `FORGE_AUTH_MODE` | `enforce` | `enforce` (default) authenticates via Identity + enforces project roles; `dev` is an explicit insecure bypass (loud startup warning) |
 | `FORGE_IDENTITY_URL` | `http://forge-identity:4002` | Identity base URL for introspect + authz/check |
@@ -131,10 +132,12 @@ See `.env.example`.
 ## Observability
 
 Control writes JSON lines to stdout with `timestamp`, `level`, `service`,
-`message`, and `requestId`. Request logs generated while a trace is active also
-include matching `traceId` and `spanId`. With OTEL enabled, HTTP request and JDBC
-repository spans plus request count, duration, and error metrics are exported to
-the foundation Collector. Reconcile ticks emit `forge_reconcile_ticks_total` /
+`message`, plus normative `request_id` / `trace_id` / `span_id` (and legacy
+camelCase aliases). Inbound `traceparent` is extracted; outbound calls to
+Runtime/Gateway/Identity/Secrets inject `traceparent` and `X-Forge-Request-ID`.
+With OTEL export enabled, HTTP/JDBC spans and standard metrics
+(`forge_http_requests_total`, `forge_http_request_duration_seconds`,
+`forge_service_up`) go to the foundation Collector (fail-open if down). Reconcile ticks emit `forge_reconcile_ticks_total` /
 `forge_reconcile_plan_actions`, executed-action counter
 `forge_reconcile_actions_total{action=start|stop|recreate|…}`,
 `forge_rollout_step_total{step=…}`,

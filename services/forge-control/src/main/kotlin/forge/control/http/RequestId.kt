@@ -24,11 +24,14 @@ object RequestId {
 
 fun Application.installRequestId() {
     intercept(ApplicationCallPipeline.Setup) {
-        val requestId = call.request.headers["X-Request-Id"]
-            ?.takeIf { it.matches(Regex("""[A-Za-z0-9._-]{1,128}""")) }
+        val requestId = listOf("X-Forge-Request-ID", "X-Request-Id")
+            .firstNotNullOfOrNull { name ->
+                call.request.headers[name]?.takeIf { it.matches(Regex("""[A-Za-z0-9._-]{1,128}""")) }
+            }
             ?: "req_${UUID.randomUUID()}"
         call.attributes.put(requestIdKey, requestId)
         RequestId.set(requestId)
+        call.response.headers.append("X-Forge-Request-ID", requestId)
         call.response.headers.append("X-Request-Id", requestId)
         try {
             proceed()

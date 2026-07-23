@@ -1,5 +1,6 @@
 package forge.control.telemetry
 
+import forge.control.observability.Otel
 import io.opentelemetry.api.OpenTelemetry
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.common.Attributes
@@ -7,8 +8,10 @@ import io.opentelemetry.api.metrics.LongCounter
 import io.opentelemetry.api.metrics.DoubleHistogram
 import io.opentelemetry.api.metrics.ObservableLongGauge
 import io.opentelemetry.api.trace.Span
+import io.opentelemetry.api.trace.SpanKind
 import io.opentelemetry.api.trace.StatusCode
 import io.opentelemetry.api.trace.Tracer
+import io.opentelemetry.context.Context
 import io.opentelemetry.context.Scope
 import io.opentelemetry.exporter.otlp.metrics.OtlpGrpcMetricExporter
 import io.opentelemetry.exporter.otlp.trace.OtlpGrpcSpanExporter
@@ -25,6 +28,7 @@ data class TelemetryConfig(
     val enabled: Boolean,
     val serviceName: String,
     val otlpEndpoint: String,
+    val environment: String = "development",
 )
 
 /**
@@ -36,6 +40,9 @@ class Telemetry private constructor(
     private val requestCount: LongCounter,
     private val requestDuration: DoubleHistogram,
     private val errorCount: LongCounter,
+    private val forgeHttpRequests: LongCounter,
+    private val forgeHttpDuration: DoubleHistogram,
+    @Suppress("unused") private val forgeServiceUp: ObservableLongGauge,
     private val reconcileTicks: LongCounter,
     private val reconcilePlanActions: LongCounter,
     private val reconcileActions: LongCounter,
@@ -63,11 +70,30 @@ class Telemetry private constructor(
 
     fun startSpan(name: String): Span = tracer.spanBuilder(name).startSpan()
 
+    fun startServerSpan(parent: Context, name: String, method: String, path: String): Span =
+        tracer.spanBuilder(name)
+            .setParent(parent)
+            .setSpanKind(SpanKind.SERVER)
+            .setAttribute("http.request.method", method)
+            .setAttribute("url.path", path)
+            .setAttribute("forge.service", "forge-control")
+            .startSpan()
+
     fun recordRequest(status: Int, durationMs: Long) {
+        recordRequest("HTTP", status, durationMs)
+    }
+
+    fun recordRequest(method: String, status: Int, durationMs: Long) {
         val attributes = Attributes.of(AttributeKey.longKey("http.response.status_code"), status.toLong())
         requestCount.add(1, attributes)
         requestDuration.record(durationMs.toDouble(), attributes)
         if (status >= 400) errorCount.add(1, attributes)
+        val forgeAttrs = Attributes.of(
+            AttributeKey.stringKey("http_method"), method,
+            AttributeKey.stringKey("http_status_class"), Otel.statusClass(status),
+        )
+        forgeHttpRequests.add(1, forgeAttrs)
+        forgeHttpDuration.record(durationMs / 1000.0, forgeAttrs)
     }
 
     fun recordPlacement(strategy: String) {
@@ -220,23 +246,38 @@ class Telemetry private constructor(
         private fun create(config: TelemetryConfig): Telemetry {
             val resource = Resource.getDefault().merge(
                 Resource.create(
-                    Attributes.of(AttributeKey.stringKey("service.name"), config.serviceName),
+                    Attributes.builder()
+                        .put(AttributeKey.stringKey("service.name"), config.serviceName)
+                        .put(AttributeKey.stringKey("deployment.environment"), config.environment)
+                        .put(AttributeKey.stringKey("forge.service"), config.serviceName)
+                        .build(),
                 ),
             )
             val tracerProvider = SdkTracerProvider.builder()
                 .setResource(resource)
                 .addSpanProcessor(
                     BatchSpanProcessor.builder(
-                        OtlpGrpcSpanExporter.builder().setEndpoint(config.otlpEndpoint).build(),
-                    ).build(),
+                        OtlpGrpcSpanExporter.builder()
+                            .setEndpoint(config.otlpEndpoint)
+                            .setTimeout(2, TimeUnit.SECONDS)
+                            .build(),
+                    )
+                        .setScheduleDelay(2, TimeUnit.SECONDS)
+                        .setExporterTimeout(2, TimeUnit.SECONDS)
+                        .build(),
                 )
                 .build()
             val meterProvider = SdkMeterProvider.builder()
                 .setResource(resource)
                 .registerMetricReader(
                     PeriodicMetricReader.builder(
-                        OtlpGrpcMetricExporter.builder().setEndpoint(config.otlpEndpoint).build(),
-                    ).build(),
+                        OtlpGrpcMetricExporter.builder()
+                            .setEndpoint(config.otlpEndpoint)
+                            .setTimeout(2, TimeUnit.SECONDS)
+                            .build(),
+                    )
+                        .setInterval(15, TimeUnit.SECONDS)
+                        .build(),
                 )
                 .build()
             val sdk = OpenTelemetrySdk.builder()
@@ -246,7 +287,25 @@ class Telemetry private constructor(
             return fromOpenTelemetry(sdk, sdk)
         }
 
-        private fun disabled(): Telemetry = fromOpenTelemetry(OpenTelemetry.noop(), null)
+        /**
+         * No OTLP export, but a real in-process TracerProvider so W3C propagation
+         * and log correlation still produce valid trace/span ids (fail-open / tests).
+         */
+        private fun disabled(): Telemetry {
+            val resource = Resource.getDefault().merge(
+                Resource.create(
+                    Attributes.of(AttributeKey.stringKey("service.name"), "forge-control"),
+                ),
+            )
+            val tracerProvider = SdkTracerProvider.builder().setResource(resource).build()
+            val meterProvider = SdkMeterProvider.builder().setResource(resource).build()
+            val sdk = OpenTelemetrySdk.builder()
+                .setTracerProvider(tracerProvider)
+                .setMeterProvider(meterProvider)
+                .build()
+            // Pass sdk=null so [enabled] stays false (no remote export).
+            return fromOpenTelemetry(sdk, null)
+        }
 
         private fun fromOpenTelemetry(openTelemetry: OpenTelemetry, sdk: OpenTelemetrySdk?): Telemetry {
             val meter = openTelemetry.getMeter("forge.control")
@@ -256,11 +315,22 @@ class Telemetry private constructor(
                 .buildWithCallback { measurement ->
                     measurement.record(pendingValue.get())
                 }
+            val upValue = AtomicLong(1)
+            val serviceUp = meter.gaugeBuilder(Otel.METRIC_SERVICE_UP)
+                .ofLongs()
+                .buildWithCallback { measurement ->
+                    measurement.record(if (sdk != null) upValue.get() else 0)
+                }
             return Telemetry(
                 tracer = openTelemetry.getTracer("forge.control"),
                 requestCount = meter.counterBuilder("http.server.requests").build(),
                 requestDuration = meter.histogramBuilder("http.server.duration").setUnit("ms").build(),
                 errorCount = meter.counterBuilder("http.server.errors").build(),
+                forgeHttpRequests = meter.counterBuilder(Otel.METRIC_HTTP_REQUESTS).build(),
+                forgeHttpDuration = meter.histogramBuilder(Otel.METRIC_HTTP_DURATION)
+                    .setUnit("s")
+                    .build(),
+                forgeServiceUp = serviceUp,
                 reconcileTicks = meter.counterBuilder("forge_reconcile_ticks_total").build(),
                 reconcilePlanActions = meter.counterBuilder("forge_reconcile_plan_actions").build(),
                 reconcileActions = meter.counterBuilder("forge_reconcile_actions_total").build(),

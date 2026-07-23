@@ -52,6 +52,47 @@ func TestConstantsMatchDocumentedContract(t *testing.T) {
 	}
 }
 
+func TestInstrumentationChecklistPresent(t *testing.T) {
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getcwd: %v", err)
+	}
+	var path string
+	for {
+		p := filepath.Join(dir, "docs", "contracts", "instrumentation-checklist.md")
+		if _, err := os.Stat(p); err == nil {
+			path = p
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("instrumentation-checklist.md not found")
+		}
+		dir = parent
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := string(raw)
+	for _, want := range []string{
+		"forge_service_up",
+		"forge_http_requests_total",
+		"forge_http_request_duration_seconds",
+		"X-Forge-Request-ID",
+		"traceparent",
+		"FORGE_OTEL_EXPORTER_ENDPOINT",
+		"forge-control",
+		"forge-runtime",
+		"forge-gateway",
+		"forge-build",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("checklist missing %q", want)
+		}
+	}
+}
+
 func contractPath(t *testing.T) string {
 	t.Helper()
 	dir, err := os.Getwd()

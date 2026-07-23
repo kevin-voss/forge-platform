@@ -11,16 +11,20 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 class TelemetryTest {
     @Test
-    fun disabledTelemetryIsNoOp() {
+    fun disabledTelemetrySkipsRemoteExportButKeepsLocalSpans() {
         val telemetry = Telemetry.initialize(
             TelemetryConfig(false, "forge-control", "http://otel-collector:4317"),
         )
 
+        // enabled=false means no OTLP export; local spans remain valid for correlation.
         assertFalse(telemetry.enabled)
-        telemetry.inSpan("unit-test") { assertFalse(telemetry.startSpan("nested").spanContext.isValid) }
+        telemetry.inSpan("unit-test") {
+            assertTrue(telemetry.startSpan("nested").spanContext.isValid)
+        }
     }
 
     @Test
@@ -42,5 +46,6 @@ class TelemetryTest {
         assertEquals("forge-control", log["service"]?.jsonPrimitive?.content)
         assertEquals("test event", log["message"]?.jsonPrimitive?.content)
         assertEquals("req_test", log["requestId"]?.jsonPrimitive?.content)
+        assertEquals("req_test", log["request_id"]?.jsonPrimitive?.content)
     }
 }

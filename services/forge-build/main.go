@@ -20,6 +20,7 @@ import (
 	"forge.local/services/forge-build/internal/docker"
 	"forge.local/services/forge-build/internal/health"
 	"forge.local/services/forge-build/internal/jobs"
+	"forge.local/services/forge-build/internal/observability"
 	"forge.local/services/forge-build/internal/registry"
 	"forge.local/services/forge-build/internal/store"
 	"forge.local/services/forge-build/internal/workspace"
@@ -39,8 +40,17 @@ func run() error {
 	}
 
 	log := newLogger(cfg.ServiceName, cfg.LogLevel)
+	otelCfg := observability.LoadConfig(cfg.ServiceName, cfg.Env)
+	otelProvider := observability.Init(context.Background(), otelCfg)
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		otelProvider.Shutdown(shutdownCtx)
+	}()
 	log.Info("starting forge-build",
 		"port", cfg.Port,
+		"otel_enabled", otelCfg.Enabled,
+		"otel_endpoint", otelCfg.Endpoint,
 		"version", cfg.ServiceVersion,
 		"env", cfg.Env,
 		"auth_mode", cfg.AuthMode,
@@ -123,9 +133,12 @@ func run() error {
 	api.NewBuildHandlerWithDefaults(jobMgr, cfg.DefaultForgeYAML, cfg.AutoDeployDefault).Register(mux)
 	api.NewStatusHandler(jobMgr).Register(mux)
 
+	var handler http.Handler = mux
+	handler = observability.Middleware(otelProvider, log)(handler)
+
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

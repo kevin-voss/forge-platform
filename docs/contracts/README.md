@@ -69,5 +69,7 @@ Cross-service trace/request correlation headers, resource attributes, and log
 fields used by instrumentation and Forge Observe queries:
 
 * Human doc: [observability-correlation.md](observability-correlation.md)
+* Instrumentation checklist: [instrumentation-checklist.md](instrumentation-checklist.md)
 * Go constants: `services/forge-observe/internal/correlation`
 * OpenAPI (Observe skeleton): [`contracts/openapi/forge-observe.openapi.yaml`](../../contracts/openapi/forge-observe.openapi.yaml)
+* Verification notes: [`docs/testing/instrumentation.md`](../testing/instrumentation.md)

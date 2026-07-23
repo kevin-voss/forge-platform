@@ -43,11 +43,15 @@ func WriteManifestValidation(w http.ResponseWriter, err error) {
 }
 
 func ensureRequestID(w http.ResponseWriter) string {
-	requestID := w.Header().Get("X-Request-Id")
+	requestID := w.Header().Get("X-Forge-Request-ID")
+	if requestID == "" {
+		requestID = w.Header().Get("X-Request-Id")
+	}
 	if requestID == "" {
 		requestID = newRequestID()
-		w.Header().Set("X-Request-Id", requestID)
 	}
+	w.Header().Set("X-Forge-Request-ID", requestID)
+	w.Header().Set("X-Request-Id", requestID)
 	return requestID
 }
 

@@ -75,13 +75,13 @@ class HttpGatewayClient(
 ) : GatewayClient {
     override fun refreshRoutes(): ShiftResult {
         val base = gatewayUrl.trimEnd('/')
-        val request = HttpRequest.newBuilder()
+        val builder = HttpRequest.newBuilder()
             .uri(URI.create("$base/admin/routes/refresh"))
             .timeout(Duration.ofSeconds(5))
             .POST(HttpRequest.BodyPublishers.noBody())
-            .build()
+        forge.control.observability.Otel.inject(builder)
         val response = try {
-            httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString())
         } catch (e: Exception) {
             return ShiftResult(
                 outcome = ShiftOutcome.GatewayUnreachable,

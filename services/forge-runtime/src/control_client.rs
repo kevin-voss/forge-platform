@@ -1,3 +1,4 @@
+use crate::observability;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -146,9 +147,7 @@ impl ControlClient {
     async fn fetch_desired_contract(&self) -> Result<Vec<DesiredDeployment>, ControlError> {
         let url = self.desired_url();
         debug!(%url, "fetching desired deployments from control");
-        let resp = self
-            .http
-            .get(&url)
+        let resp = observability::inject_reqwest(self.http.get(&url))
             .send()
             .await
             .map_err(|e| ControlError::Unreachable(e.to_string()))?;
@@ -210,14 +209,15 @@ impl ControlClient {
         let body =
             serde_json::to_string(report).map_err(|e| ControlError::Decode(e.to_string()))?;
         debug!(%url, deployment_id, status = %report.status, "reporting status to control");
-        let resp = self
-            .http
-            .post(&url)
-            .header("content-type", "application/json")
-            .body(body)
-            .send()
-            .await
-            .map_err(|e| ControlError::Unreachable(e.to_string()))?;
+        let resp = observability::inject_reqwest(
+            self.http
+                .post(&url)
+                .header("content-type", "application/json")
+                .body(body),
+        )
+        .send()
+        .await
+        .map_err(|e| ControlError::Unreachable(e.to_string()))?;
         let status = resp.status();
         if status.is_success() || status.as_u16() == 204 {
             info!(
@@ -240,9 +240,7 @@ impl ControlClient {
     }
 
     async fn get_json<T: for<'de> Deserialize<'de>>(&self, url: &str) -> Result<T, ControlError> {
-        let resp = self
-            .http
-            .get(url)
+        let resp = observability::inject_reqwest(self.http.get(url))
             .send()
             .await
             .map_err(|e| ControlError::Unreachable(e.to_string()))?;

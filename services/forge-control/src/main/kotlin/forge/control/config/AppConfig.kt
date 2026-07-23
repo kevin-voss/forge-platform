@@ -391,7 +391,8 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         serviceVersion = env["FORGE_SERVICE_VERSION"]?.trim().orEmpty().ifEmpty { "0.1.0" },
         logLevel = level,
         otelEnabled = otelEnabled,
-        otlpEndpoint = env["OTEL_EXPORTER_OTLP_ENDPOINT"]?.trim().orEmpty()
+        otlpEndpoint = env["FORGE_OTEL_EXPORTER_ENDPOINT"]?.trim().orEmpty()
+            .ifEmpty { env["OTEL_EXPORTER_OTLP_ENDPOINT"]?.trim().orEmpty() }
             .ifEmpty { "http://otel-collector:4317" },
         env = env["FORGE_ENV"]?.trim().orEmpty().ifEmpty { "development" },
         authMode = env["FORGE_AUTH_MODE"]?.trim().orEmpty().ifEmpty { "enforce" },

@@ -146,15 +146,15 @@ class HttpIdentityClient(
     }
 
     private fun postJson(url: String, body: String): String {
-        val request = HttpRequest.newBuilder()
+        val builder = HttpRequest.newBuilder()
             .uri(URI.create(url))
             .timeout(requestTimeout)
             .header("content-type", "application/json")
             .header("accept", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(body))
-            .build()
+        forge.control.observability.Otel.inject(builder)
         val response = try {
-            httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString())
         } catch (e: Exception) {
             throw IdentityUnreachableException("identity unreachable: ${e.message}", e)
         }

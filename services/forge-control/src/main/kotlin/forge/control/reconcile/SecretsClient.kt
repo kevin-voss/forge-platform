@@ -59,6 +59,7 @@ class HttpSecretsClient(
         if (serviceAccountToken.isNotBlank()) {
             builder.header("Authorization", "Bearer $serviceAccountToken")
         }
+        forge.control.observability.Otel.inject(builder)
         val response = try {
             httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString())
         } catch (e: Exception) {

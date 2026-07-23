@@ -59,6 +59,8 @@ docker pull "$IMG"
 | `FORGE_SERVICE_VERSION` | `0.1.0` | |
 | `FORGE_LOG_LEVEL` | `info` | `debug\|info\|warn\|error` |
 | `FORGE_ENV` | `development` | |
+| `FORGE_OTEL_ENABLED` | `true` | OTLP export; fail-open if collector down. |
+| `FORGE_OTEL_EXPORTER_ENDPOINT` | `http://otel-collector:4317` | Collector endpoint (HTTP mapped from `:4317` as needed). |
 | `FORGE_AUTH_MODE` | `dev` | Auth enforcement deferred to epic 09. |
 | `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker Engine endpoint. |
 | `FORGE_BUILD_WORKSPACE_DIR` | `/workspace` | Absolute path for transient per-build clones. Must be writable. |

@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"forge.local/services/forge-build/internal/observability"
 )
 
 // RecordImageRequest is POST /v1/services/{serviceId}/image.
@@ -136,6 +138,7 @@ func (c *Client) postJSON(ctx context.Context, path, idempotencyKey string, body
 	if key := strings.TrimSpace(idempotencyKey); key != "" {
 		req.Header.Set("Idempotency-Key", key)
 	}
+	observability.InjectHeaders(req)
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {

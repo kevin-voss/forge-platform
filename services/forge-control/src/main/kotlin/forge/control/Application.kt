@@ -106,6 +106,7 @@ fun main() {
             enabled = cfg.otelEnabled,
             serviceName = cfg.serviceName,
             otlpEndpoint = cfg.otlpEndpoint,
+            environment = cfg.env,
         ),
     )
     val db = try {
@@ -523,10 +524,8 @@ fun Application.forgeControlModule(
             val started = System.currentTimeMillis()
             val method = call.request.httpMethod.value
             val path = call.request.path()
-            val span = telemetry.startSpan("HTTP $method")
-            span.setAttribute("http.request.method", method)
-            span.setAttribute("url.path", path)
-            val scope = span.makeCurrent()
+            val parent = forge.control.observability.Otel.extract(call.request.headers)
+            val (span, scope) = forge.control.observability.Otel.startServerSpan(parent, method, path)
             try {
                 proceed()
             } catch (error: Throwable) {
@@ -535,11 +534,9 @@ fun Application.forgeControlModule(
                 throw error
             } finally {
                 val status = call.response.status()?.value ?: 0
-                span.setAttribute("http.response.status_code", status.toLong())
-                if (status >= 500) span.setStatus(io.opentelemetry.api.trace.StatusCode.ERROR)
                 if (!path.startsWith("/health")) {
                     val durationMs = System.currentTimeMillis() - started
-                    telemetry.recordRequest(status, durationMs)
+                    telemetry.recordRequest(method, status, durationMs)
                     log.info(
                         "request",
                         "method" to method,
@@ -548,8 +545,7 @@ fun Application.forgeControlModule(
                         "duration_ms" to durationMs,
                     )
                 }
-                scope.close()
-                span.end()
+                forge.control.observability.Otel.finishSpan(span, scope, status)
             }
         }
     }

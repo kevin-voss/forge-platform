@@ -194,13 +194,18 @@ curl -sf -X PUT http://127.0.0.1:4000/admin/routes -H 'content-type: application
 
 ## Observability
 
-Structured JSON logs (`timestamp`, `level`, `service`, `message`). Proxied
-requests log `requestId`, matched route, chosen upstream, status, and duration.
-WebSocket/SSE open and close log duration, approximate bytes, and close reason
-(including `idle_timeout`). Timeouts log distinctly with upstream and elapsed
-time. Sync cycles log source, routes built, and added/removed host diffs.
-Upstream ready↔unready transitions log the reason (`sync` / `probe` / `passive`).
-Sync failures retain the last-good table.
+OTLP traces/metrics export to the collector (`FORGE_OTEL_ENABLED`,
+`FORGE_OTEL_EXPORTER_ENDPOINT`; fail-open). Middleware extracts/injects
+`traceparent`, mints `X-Forge-Request-ID` (dual-writes legacy `X-Request-Id`),
+and emits `forge_http_*` / `forge_service_up` with bounded labels.
+
+Structured JSON logs (`timestamp`, `level`, `service`, `message`) include
+`request_id`, `trace_id`, and `span_id` on proxied requests. WebSocket/SSE open
+and close log duration, approximate bytes, and close reason (including
+`idle_timeout`). Timeouts log distinctly with upstream and elapsed time. Sync
+cycles log source, routes built, and added/removed host diffs. Upstream
+ready↔unready transitions log the reason (`sync` / `probe` / `passive`). Sync
+failures retain the last-good table.
 
 ## Development
 
