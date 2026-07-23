@@ -6,6 +6,9 @@ pub const MIGRATION_0001: &str = include_str!("../../migrations/0001_init.sql");
 /// Add `storage_path` for streamed object payloads (source: `migrations/0002_storage_path.sql`).
 pub const MIGRATION_0002: &str = include_str!("../../migrations/0002_storage_path.sql");
 
+/// Content-addressed blob refcounts (source: `migrations/0003_sha_refcount.sql`).
+pub const MIGRATION_0003: &str = include_str!("../../migrations/0003_sha_refcount.sql");
+
 /// Apply all migrations to an open connection.
 pub fn apply(conn: &rusqlite::Connection) -> Result<(), String> {
     conn.execute_batch(
@@ -39,6 +42,9 @@ pub fn apply(conn: &rusqlite::Connection) -> Result<(), String> {
             .map_err(|e| format!("migration 0002: {e}"))?;
     }
 
+    conn.execute_batch(MIGRATION_0003)
+        .map_err(|e| format!("migration 0003: {e}"))?;
+
     Ok(())
 }
 
@@ -48,17 +54,17 @@ mod tests {
     use rusqlite::Connection;
 
     #[test]
-    fn migration_creates_tables_and_storage_path() {
+    fn migration_creates_tables_storage_path_and_blobs() {
         let conn = Connection::open_in_memory().unwrap();
         apply(&conn).expect("migrate");
         let n: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('buckets','objects')",
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('buckets','objects','blobs')",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(n, 2);
+        assert_eq!(n, 3);
         let has: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('objects') WHERE name = 'storage_path'",

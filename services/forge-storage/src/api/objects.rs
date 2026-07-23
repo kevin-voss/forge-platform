@@ -1,7 +1,9 @@
-//! Streamed object upload / download / HEAD handlers (13.03).
+//! Streamed object upload / download / HEAD with SHA-256 + Range (13.03 / 13.04).
 
 use crate::api::validate::{validate_bucket_name, validate_object_key};
-use crate::backend::{BackendError, LocalFsBackend};
+use crate::backend::BackendError;
+use crate::config::VerifyOnRead;
+use crate::http::range::{parse_bytes_range, unsatisfiable_content_range, RangeError};
 use crate::meta::{MetaError, ObjectMeta};
 use crate::project::ProjectContext;
 use crate::state::AppState;
@@ -16,6 +18,7 @@ use futures_util::StreamExt;
 use std::io;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
+use tokio::io::AsyncReadExt;
 use tokio_util::io::ReaderStream;
 use tracing::{info, warn};
 
@@ -79,6 +82,19 @@ fn backend_err(err: BackendError) -> Response {
             format!("object exceeds max size of {max_bytes} bytes"),
             "too_large",
         ),
+        BackendError::ChecksumMismatch { expected, actual } => err_json(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!("checksum mismatch: expected {expected}, got {actual}"),
+            "checksum_mismatch",
+        ),
+        BackendError::Integrity(msg) => {
+            warn!(error = %msg, "storage integrity error");
+            err_json(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "object integrity check failed",
+                "integrity_error",
+            )
+        }
         BackendError::Io(msg) => {
             warn!(error = %msg, "object I/O error");
             err_json(
@@ -207,13 +223,13 @@ async fn put_object(
         return unavailable_meta();
     };
 
-    let bucket_row = match meta.get_bucket(&project.project_id, &bucket) {
-        Ok(b) => b,
+    match meta.get_bucket(&project.project_id, &bucket) {
+        Ok(_) => {}
         Err(MetaError::NotFound) => {
             return err_json(StatusCode::NOT_FOUND, "bucket not found", "not_found");
         }
         Err(err) => return meta_err(err),
-    };
+    }
 
     let content_type = headers
         .get(header::CONTENT_TYPE)
@@ -223,34 +239,43 @@ async fn put_object(
         .unwrap_or("application/octet-stream")
         .to_string();
 
-    let storage_path =
-        match LocalFsBackend::interim_storage_path(&project.project_id, &bucket_row.id, &key) {
-            Ok(p) => p,
-            Err(err) => return backend_err(err),
-        };
+    let expected_sha = headers
+        .get("x-expected-sha256")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
 
     let mut reader = BodyReader::new(body);
-    let size = match state
+    let put = match state
         .backend
-        .put_stream(
-            &storage_path,
+        .put_stream_hashed(
             &mut reader,
             state.stream_buffer_bytes,
             state.max_object_bytes,
+            expected_sha,
         )
         .await
     {
-        Ok(n) => n,
-        Err(err) => return backend_err(err),
+        Ok(v) => v,
+        Err(err) => {
+            if matches!(err, BackendError::Integrity(_)) {
+                state
+                    .metrics
+                    .storage_integrity_errors_total
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            return backend_err(err);
+        }
     };
 
     let (object, created) = match meta.upsert_object(
         &project.project_id,
         &bucket,
         &key,
-        size as i64,
+        put.size_bytes as i64,
         Some(&content_type),
-        &storage_path,
+        &put.storage_path,
+        &put.sha256,
     ) {
         Ok(v) => v,
         Err(err) => return meta_err(err),
@@ -259,7 +284,7 @@ async fn put_object(
     state
         .metrics
         .storage_upload_bytes_total
-        .fetch_add(size, Ordering::Relaxed);
+        .fetch_add(put.size_bytes, Ordering::Relaxed);
     state
         .metrics
         .storage_uploads_total
@@ -268,13 +293,21 @@ async fn put_object(
         .metrics
         .storage_objects_total
         .fetch_add(if created { 1 } else { 0 }, Ordering::Relaxed);
+    if put.dedup_hit {
+        state
+            .metrics
+            .storage_dedup_hits_total
+            .fetch_add(1, Ordering::Relaxed);
+    }
 
     let duration_ms = started.elapsed().as_millis() as u64;
     info!(
         project_id = %project.project_id,
         bucket = %bucket,
         key = %key,
-        size_bytes = size,
+        size_bytes = put.size_bytes,
+        sha256 = %put.sha256,
+        dedup_hit = put.dedup_hit,
         duration_ms,
         request_id = %rid,
         created,
@@ -298,7 +331,7 @@ async fn get_object(
     let started = Instant::now();
     let rid = request_id(&headers);
     match load_object_meta(&state, &project.project_id, &bucket, &raw_key) {
-        Ok(object) => stream_download(state, object, rid, started, true).await,
+        Ok(object) => stream_download(state, object, headers, rid, started, true).await,
         Err(resp) => resp,
     }
 }
@@ -307,9 +340,13 @@ async fn head_object(
     State(state): State<AppState>,
     Extension(project): Extension<ProjectContext>,
     Path((bucket, raw_key)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> Response {
     match load_object_meta(&state, &project.project_id, &bucket, &raw_key) {
-        Ok(object) => metadata_headers(&object),
+        Ok(object) => {
+            let started = Instant::now();
+            stream_download(state, object, headers, "-".into(), started, false).await
+        }
         Err(resp) => resp,
     }
 }
@@ -347,54 +384,143 @@ fn load_object_meta(
     }
 }
 
-fn metadata_headers(object: &ObjectMeta) -> Response {
-    let mut builder = Response::builder().status(StatusCode::OK);
-    let headers = builder.headers_mut().unwrap();
-    let content_type = object
-        .content_type
-        .as_deref()
-        .unwrap_or("application/octet-stream");
-    if let Ok(v) = HeaderValue::from_str(content_type) {
-        headers.insert(header::CONTENT_TYPE, v);
-    }
+fn insert_integrity_headers(headers: &mut HeaderMap, object: &ObjectMeta) {
     headers.insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from_str(&object.size_bytes.to_string())
-            .unwrap_or(HeaderValue::from_static("0")),
+        header::ACCEPT_RANGES,
+        HeaderValue::from_static("bytes"),
     );
-    builder.body(Body::empty()).unwrap()
+    if let Some(sha) = object.sha256.as_deref() {
+        if let Ok(v) = HeaderValue::from_str(&format!("\"{sha}\"")) {
+            headers.insert(header::ETAG, v);
+        }
+        if let Ok(v) = HeaderValue::from_str(sha) {
+            headers.insert(
+                header::HeaderName::from_static("x-content-sha256"),
+                v,
+            );
+        }
+    }
 }
 
 async fn stream_download(
     state: AppState,
     object: ObjectMeta,
+    req_headers: HeaderMap,
     rid: String,
     started: Instant,
     include_body: bool,
 ) -> Response {
-    if !include_body {
-        return metadata_headers(&object);
-    }
-
-    let (file, len) = match state.backend.open_object(&object.storage_path).await {
-        Ok(v) => v,
-        Err(err) => return backend_err(err),
-    };
-
-    // Prefer metadata size; on-disk length used as a sanity fallback.
     let size = if object.size_bytes >= 0 {
         object.size_bytes as u64
     } else {
-        len
+        match state.backend.open_object(&object.storage_path).await {
+            Ok((_, len)) => len,
+            Err(err) => return backend_err(err),
+        }
     };
 
-    let stream = ReaderStream::with_capacity(file, state.stream_buffer_bytes);
+    if state.verify_on_read == VerifyOnRead::Full {
+        if let Some(sha) = object.sha256.as_deref() {
+            if let Err(err) = state
+                .backend
+                .verify_object_sha256(&object.storage_path, sha, state.stream_buffer_bytes)
+                .await
+            {
+                state
+                    .metrics
+                    .storage_integrity_errors_total
+                    .fetch_add(1, Ordering::Relaxed);
+                return backend_err(err);
+            }
+        }
+    }
+
+    let range_header = req_headers
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok());
+
+    let (status, start, length, content_range) = if let Some(raw) = range_header {
+        match parse_bytes_range(raw, size) {
+            Ok(r) => {
+                state
+                    .metrics
+                    .storage_range_requests_total
+                    .fetch_add(1, Ordering::Relaxed);
+                (
+                    StatusCode::PARTIAL_CONTENT,
+                    r.start,
+                    r.len(),
+                    Some(r.content_range_header(size)),
+                )
+            }
+            Err(RangeError::Unsatisfiable) => {
+                let mut builder = Response::builder().status(StatusCode::RANGE_NOT_SATISFIABLE);
+                let headers = builder.headers_mut().unwrap();
+                insert_integrity_headers(headers, &object);
+                headers.insert(
+                    header::CONTENT_RANGE,
+                    HeaderValue::from_str(&unsatisfiable_content_range(size))
+                        .unwrap_or(HeaderValue::from_static("bytes */0")),
+                );
+                return builder.body(Body::empty()).unwrap();
+            }
+            Err(RangeError::Invalid) => {
+                // Ignore malformed Range (RFC 7233: servers MAY ignore).
+                (StatusCode::OK, 0u64, size, None)
+            }
+        }
+    } else {
+        (StatusCode::OK, 0u64, size, None)
+    };
+
+    // HEAD: headers only (still honor Range status semantics via Content-Length / Content-Range).
+    if !include_body {
+        let mut builder = Response::builder().status(status);
+        let headers = builder.headers_mut().unwrap();
+        let content_type = object
+            .content_type
+            .as_deref()
+            .unwrap_or("application/octet-stream");
+        if let Ok(v) = HeaderValue::from_str(content_type) {
+            headers.insert(header::CONTENT_TYPE, v);
+        }
+        headers.insert(
+            header::CONTENT_LENGTH,
+            HeaderValue::from_str(&length.to_string()).unwrap_or(HeaderValue::from_static("0")),
+        );
+        insert_integrity_headers(headers, &object);
+        if let Some(cr) = content_range.as_deref() {
+            if let Ok(v) = HeaderValue::from_str(cr) {
+                headers.insert(header::CONTENT_RANGE, v);
+            }
+        }
+        return builder.body(Body::empty()).unwrap();
+    }
+
+    let file = if status == StatusCode::PARTIAL_CONTENT {
+        match state
+            .backend
+            .open_object_range(&object.storage_path, start, length)
+            .await
+        {
+            Ok((f, _)) => f,
+            Err(err) => return backend_err(err),
+        }
+    } else {
+        match state.backend.open_object(&object.storage_path).await {
+            Ok((f, _)) => f,
+            Err(err) => return backend_err(err),
+        }
+    };
+
+    let limited = file.take(length);
+    let stream = ReaderStream::with_capacity(limited, state.stream_buffer_bytes);
     let body = Body::from_stream(stream);
 
     state
         .metrics
         .storage_download_bytes_total
-        .fetch_add(size, Ordering::Relaxed);
+        .fetch_add(length, Ordering::Relaxed);
     state
         .metrics
         .storage_downloads_total
@@ -405,7 +531,8 @@ async fn stream_download(
         project_id = %object.project_id,
         bucket_id = %object.bucket_id,
         key = %object.key,
-        size_bytes = size,
+        size_bytes = length,
+        range = content_range.as_deref().unwrap_or("-"),
         duration_ms,
         request_id = %rid,
         "object downloaded"
@@ -415,10 +542,18 @@ async fn stream_download(
         .content_type
         .as_deref()
         .unwrap_or("application/octet-stream");
-    Response::builder()
-        .status(StatusCode::OK)
+    let mut builder = Response::builder()
+        .status(status)
         .header(header::CONTENT_TYPE, content_type)
-        .header(header::CONTENT_LENGTH, size)
-        .body(body)
-        .unwrap()
+        .header(header::CONTENT_LENGTH, length);
+    {
+        let headers = builder.headers_mut().unwrap();
+        insert_integrity_headers(headers, &object);
+        if let Some(cr) = content_range.as_deref() {
+            if let Ok(v) = HeaderValue::from_str(cr) {
+                headers.insert(header::CONTENT_RANGE, v);
+            }
+        }
+    }
+    builder.body(body).unwrap()
 }

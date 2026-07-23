@@ -248,6 +248,8 @@ impl MetadataStore {
 
     /// Upsert object metadata after a successful streamed upload.
     /// Returns `(meta, created)` where `created` is true when the key was new.
+    ///
+    /// Maintains `blobs.refcount` for content-addressed SHA-256 blobs.
     pub fn upsert_object(
         &self,
         project_id: &str,
@@ -256,10 +258,15 @@ impl MetadataStore {
         size_bytes: i64,
         content_type: Option<&str>,
         storage_path: &str,
+        sha256: &str,
     ) -> Result<(ObjectMeta, bool), MetaError> {
         let project_id = require_project(project_id)?;
         if storage_path.trim().is_empty() {
             return Err(MetaError::Invalid("storage_path is required".into()));
+        }
+        let sha256 = sha256.trim().to_ascii_lowercase();
+        if sha256.len() != 64 || !sha256.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(MetaError::Invalid("sha256 must be 64 hex characters".into()));
         }
         let bucket = self.get_bucket(project_id, bucket_name)?;
         let existing = self
@@ -279,17 +286,23 @@ impl MetadataStore {
             .map(|o| o.created_at.clone())
             .unwrap_or_else(now_rfc3339);
         let updated_at = now_rfc3339();
-        let sha256 = existing.as_ref().and_then(|o| o.sha256.clone());
+        let old_sha = existing.as_ref().and_then(|o| o.sha256.clone());
         let conn = self
             .conn
             .lock()
             .map_err(|_| MetaError::Internal("lock".into()))?;
-        conn.execute(
+
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|e| MetaError::Internal(format!("begin tx: {e}")))?;
+
+        tx.execute(
             "INSERT INTO objects \
              (id, project_id, bucket_id, key, size_bytes, sha256, content_type, storage_path, created_at, updated_at) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(project_id, bucket_id, key) DO UPDATE SET
                size_bytes = excluded.size_bytes,
+               sha256 = excluded.sha256,
                content_type = excluded.content_type,
                storage_path = excluded.storage_path,
                updated_at = excluded.updated_at",
@@ -307,6 +320,30 @@ impl MetadataStore {
             ],
         )
         .map_err(|e| MetaError::Internal(format!("upsert object: {e}")))?;
+
+        // Adjust blob refcounts when the key's content hash changes.
+        let same_hash = old_sha.as_deref() == Some(sha256.as_str());
+        if !same_hash {
+            if let Some(old) = old_sha.as_deref() {
+                tx.execute(
+                    "UPDATE blobs SET refcount = refcount - 1 WHERE sha256 = ?1 AND refcount > 0",
+                    params![old],
+                )
+                .map_err(|e| MetaError::Internal(format!("decrement blob: {e}")))?;
+            }
+            tx.execute(
+                "INSERT INTO blobs (sha256, size_bytes, refcount) VALUES (?1, ?2, 1)
+                 ON CONFLICT(sha256) DO UPDATE SET
+                   refcount = refcount + 1,
+                   size_bytes = excluded.size_bytes",
+                params![sha256, size_bytes],
+            )
+            .map_err(|e| MetaError::Internal(format!("increment blob: {e}")))?;
+        }
+
+        tx.commit()
+            .map_err(|e| MetaError::Internal(format!("commit: {e}")))?;
+
         Ok((
             ObjectMeta {
                 id,
@@ -314,7 +351,7 @@ impl MetadataStore {
                 bucket_id: bucket.id,
                 key: key.to_string(),
                 size_bytes,
-                sha256,
+                sha256: Some(sha256),
                 content_type: content_type.map(str::to_string),
                 storage_path: storage_path.to_string(),
                 created_at,
@@ -322,6 +359,24 @@ impl MetadataStore {
             },
             created,
         ))
+    }
+
+    /// Current refcount for a content-addressed blob (0 when absent).
+    pub fn blob_refcount(&self, sha256: &str) -> Result<i64, MetaError> {
+        let sha256 = sha256.trim().to_ascii_lowercase();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| MetaError::Internal("lock".into()))?;
+        let n: Option<i64> = conn
+            .query_row(
+                "SELECT refcount FROM blobs WHERE sha256 = ?1",
+                params![sha256],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| MetaError::Internal(format!("blob refcount: {e}")))?;
+        Ok(n.unwrap_or(0))
     }
 
     pub fn get_object(
@@ -481,6 +536,8 @@ mod tests {
     fn upsert_object_creates_and_overwrites() {
         with_store(|s| {
             s.create_bucket("proj-a", "artifacts").unwrap();
+            let hash_a = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            let hash_b = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
             let (first, created) = s
                 .upsert_object(
                     "proj-a",
@@ -488,13 +545,15 @@ mod tests {
                     "file.txt",
                     11,
                     Some("text/plain"),
-                    "proj-a/bucket/abc",
+                    "aa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    hash_a,
                 )
                 .unwrap();
             assert!(created);
             assert_eq!(first.size_bytes, 11);
             assert_eq!(first.content_type.as_deref(), Some("text/plain"));
-            assert_eq!(first.storage_path, "proj-a/bucket/abc");
+            assert_eq!(first.sha256.as_deref(), Some(hash_a));
+            assert_eq!(s.blob_refcount(hash_a).unwrap(), 1);
 
             let (second, created) = s
                 .upsert_object(
@@ -503,17 +562,35 @@ mod tests {
                     "file.txt",
                     22,
                     Some("application/octet-stream"),
-                    "proj-a/bucket/abc",
+                    "bb/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    hash_b,
                 )
                 .unwrap();
             assert!(!created);
             assert_eq!(second.id, first.id);
             assert_eq!(second.created_at, first.created_at);
             assert_eq!(second.size_bytes, 22);
+            assert_eq!(second.sha256.as_deref(), Some(hash_b));
             assert_eq!(
                 second.content_type.as_deref(),
                 Some("application/octet-stream")
             );
+            assert_eq!(s.blob_refcount(hash_a).unwrap(), 0);
+            assert_eq!(s.blob_refcount(hash_b).unwrap(), 1);
+        });
+    }
+
+    #[test]
+    fn upsert_identical_content_increments_refcount() {
+        with_store(|s| {
+            s.create_bucket("proj-a", "artifacts").unwrap();
+            let hash = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+            let path = "cc/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+            s.upsert_object("proj-a", "artifacts", "a.bin", 3, None, path, hash)
+                .unwrap();
+            s.upsert_object("proj-a", "artifacts", "b.bin", 3, None, path, hash)
+                .unwrap();
+            assert_eq!(s.blob_refcount(hash).unwrap(), 2);
         });
     }
 }

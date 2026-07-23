@@ -23,6 +23,34 @@ impl AuthMode {
     }
 }
 
+/// On-read integrity verification mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerifyOnRead {
+    Off,
+    Full,
+}
+
+impl VerifyOnRead {
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "" | "off" | "false" | "0" => Ok(Self::Off),
+            "full" | "on" | "true" | "1" => Ok(Self::Full),
+            other => Err(format!(
+                "FORGE_STORAGE_VERIFY_ON_READ must be off|full, got {other:?}"
+            )),
+        }
+    }
+}
+
+impl fmt::Display for VerifyOnRead {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Off => write!(f, "off"),
+            Self::Full => write!(f, "full"),
+        }
+    }
+}
+
 impl fmt::Display for AuthMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -53,6 +81,8 @@ pub struct Config {
     pub stream_buffer_bytes: usize,
     /// Optional hard cap on object size; `None` means unlimited (quotas in 13.06).
     pub max_object_bytes: Option<u64>,
+    /// Re-hash on-disk blobs during GET when `full` (default `off`).
+    pub verify_on_read: VerifyOnRead,
 }
 
 impl Config {
@@ -162,6 +192,10 @@ impl Config {
             Err(_) => None,
         };
 
+        let verify_on_read = VerifyOnRead::parse(
+            &env::var("FORGE_STORAGE_VERIFY_ON_READ").unwrap_or_else(|_| "off".into()),
+        )?;
+
         Ok(Self {
             port,
             service_name,
@@ -179,6 +213,7 @@ impl Config {
             ready_retry_max,
             stream_buffer_bytes,
             max_object_bytes,
+            verify_on_read,
         })
     }
 }
@@ -237,6 +272,7 @@ mod tests {
             "FORGE_STORAGE_READY_RETRY_MAX_MS",
             "FORGE_STORAGE_STREAM_BUFFER_BYTES",
             "FORGE_STORAGE_MAX_OBJECT_BYTES",
+            "FORGE_STORAGE_VERIFY_ON_READ",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()
@@ -276,6 +312,7 @@ mod tests {
             assert_eq!(cfg.log_level, "info");
             assert_eq!(cfg.stream_buffer_bytes, DEFAULT_STREAM_BUFFER_BYTES);
             assert_eq!(cfg.max_object_bytes, None);
+            assert_eq!(cfg.verify_on_read, VerifyOnRead::Off);
         });
     }
 

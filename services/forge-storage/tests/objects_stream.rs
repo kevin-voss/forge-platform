@@ -3,7 +3,7 @@
 use bytes::Bytes;
 use forge_storage::app;
 use forge_storage::backend::{LocalFsBackend, StorageBackend, DEFAULT_STREAM_BUFFER_BYTES};
-use forge_storage::config::AuthMode;
+use forge_storage::config::{AuthMode, VerifyOnRead};
 use forge_storage::meta::MetadataStore;
 use forge_storage::state::{AppState, StorageMetrics};
 use futures_util::stream;
@@ -34,6 +34,7 @@ async fn test_app() -> (tempfile::TempDir, axum::Router, Arc<LocalFsBackend>) {
         meta_path,
         stream_buffer_bytes: 4096, // small buffer to exercise chunking
         max_object_bytes: None,
+        verify_on_read: VerifyOnRead::Off,
     };
     (dir, app(state), backend)
 }

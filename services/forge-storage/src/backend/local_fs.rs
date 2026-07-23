@@ -1,10 +1,11 @@
-use super::{BackendError, StorageBackend};
+use super::{BackendError, PutStreamResult, StorageBackend};
+use crate::integrity::{content_addressed_path, normalize_sha256};
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tracing::{error, info};
 use uuid::Uuid;
 
@@ -100,10 +101,36 @@ impl LocalFsBackend {
         Ok(dest)
     }
 
-    /// Stream `reader` to a temp file, fsync, then atomically rename into `objects/`.
+    /// Stream `reader` to a temp file while hashing, then place under content-addressed path.
     ///
     /// Uses a fixed-size buffer (`buffer_size`). On any failure the temp file is removed and
     /// the destination (if any) is left unchanged — readers never observe a partial object.
+    /// When the blob already exists, the temp file is discarded (natural dedup).
+    pub async fn put_stream_hashed<R: AsyncRead + Unpin>(
+        &self,
+        reader: &mut R,
+        buffer_size: usize,
+        max_bytes: Option<u64>,
+        expected_sha256: Option<&str>,
+    ) -> Result<PutStreamResult, BackendError> {
+        let buffer_size = buffer_size.max(1);
+        let tmp_dir = self.tmp_dir();
+        tokio::fs::create_dir_all(&tmp_dir)
+            .await
+            .map_err(|e| BackendError::Io(format!("create tmp dir: {e}")))?;
+        let tmp_path = tmp_dir.join(Uuid::new_v4().to_string());
+
+        let result = self
+            .write_temp_hash_and_place(&tmp_path, reader, buffer_size, max_bytes, expected_sha256)
+            .await;
+
+        if result.is_err() {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+        }
+        result
+    }
+
+    /// Legacy helper used by unit tests: stream to an explicit relative `storage_path`.
     pub async fn put_stream<R: AsyncRead + Unpin>(
         &self,
         storage_path: &str,
@@ -125,9 +152,21 @@ impl LocalFsBackend {
             .map_err(|e| BackendError::Io(format!("create tmp dir: {e}")))?;
         let tmp_path = tmp_dir.join(Uuid::new_v4().to_string());
 
-        let result = self
-            .write_temp_then_rename(&tmp_path, &dest, reader, buffer_size, max_bytes)
-            .await;
+        let result = async {
+            let (written, _hash) = self
+                .write_temp_hashed(&tmp_path, reader, buffer_size, max_bytes)
+                .await?;
+            tokio::fs::rename(&tmp_path, &dest)
+                .await
+                .map_err(|e| BackendError::Io(format!("atomic rename: {e}")))?;
+            if let Some(parent) = dest.parent() {
+                if let Ok(dir) = tokio::fs::File::open(parent).await {
+                    let _ = dir.sync_all().await;
+                }
+            }
+            Ok(written)
+        }
+        .await;
 
         if result.is_err() {
             let _ = tokio::fs::remove_file(&tmp_path).await;
@@ -135,14 +174,75 @@ impl LocalFsBackend {
         result
     }
 
-    async fn write_temp_then_rename<R: AsyncRead + Unpin>(
+    async fn write_temp_hash_and_place<R: AsyncRead + Unpin>(
         &self,
         tmp_path: &Path,
-        dest: &Path,
         reader: &mut R,
         buffer_size: usize,
         max_bytes: Option<u64>,
-    ) -> Result<u64, BackendError> {
+        expected_sha256: Option<&str>,
+    ) -> Result<PutStreamResult, BackendError> {
+        let (written, sha256) = self
+            .write_temp_hashed(tmp_path, reader, buffer_size, max_bytes)
+            .await?;
+
+        if let Some(expected_raw) = expected_sha256 {
+            let Some(expected) = normalize_sha256(expected_raw) else {
+                return Err(BackendError::ChecksumMismatch {
+                    expected: expected_raw.trim().to_string(),
+                    actual: sha256,
+                });
+            };
+            if expected != sha256 {
+                return Err(BackendError::ChecksumMismatch {
+                    expected,
+                    actual: sha256,
+                });
+            }
+        }
+
+        let storage_path = content_addressed_path(&sha256)
+            .map_err(|e| BackendError::Io(format!("content path: {e}")))?;
+        let dest = self.resolve_object_path(&storage_path)?;
+        if let Some(parent) = dest.parent() {
+            tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                BackendError::Io(format!("create object parent {}: {e}", parent.display()))
+            })?;
+        }
+
+        let dedup_hit = tokio::fs::try_exists(&dest)
+            .await
+            .map_err(|e| BackendError::Io(format!("stat dest: {e}")))?;
+        if dedup_hit {
+            let _ = tokio::fs::remove_file(tmp_path).await;
+            info!(sha256 = %sha256, storage_path = %storage_path, "storage dedup hit");
+        } else {
+            tokio::fs::rename(tmp_path, &dest)
+                .await
+                .map_err(|e| BackendError::Io(format!("atomic rename: {e}")))?;
+            if let Some(parent) = dest.parent() {
+                if let Ok(dir) = tokio::fs::File::open(parent).await {
+                    let _ = dir.sync_all().await;
+                }
+            }
+            info!(sha256 = %sha256, storage_path = %storage_path, "storage dedup miss");
+        }
+
+        Ok(PutStreamResult {
+            size_bytes: written,
+            sha256,
+            storage_path,
+            dedup_hit,
+        })
+    }
+
+    async fn write_temp_hashed<R: AsyncRead + Unpin>(
+        &self,
+        tmp_path: &Path,
+        reader: &mut R,
+        buffer_size: usize,
+        max_bytes: Option<u64>,
+    ) -> Result<(u64, String), BackendError> {
         let mut opts = tokio::fs::OpenOptions::new();
         opts.create_new(true).write(true);
         #[cfg(unix)]
@@ -162,6 +262,7 @@ impl LocalFsBackend {
                 .map_err(|e| BackendError::Io(format!("chmod temp: {e}")))?;
         }
 
+        let mut hasher = Sha256::new();
         let mut buf = vec![0u8; buffer_size];
         let mut written: u64 = 0;
         loop {
@@ -178,6 +279,7 @@ impl LocalFsBackend {
                     return Err(BackendError::TooLarge { max_bytes: max });
                 }
             }
+            hasher.update(&buf[..n]);
             file.write_all(&buf[..n])
                 .await
                 .map_err(|e| BackendError::Io(format!("write temp: {e}")))?;
@@ -191,18 +293,7 @@ impl LocalFsBackend {
             .map_err(|e| BackendError::Io(format!("fsync temp: {e}")))?;
         drop(file);
 
-        tokio::fs::rename(tmp_path, dest)
-            .await
-            .map_err(|e| BackendError::Io(format!("atomic rename: {e}")))?;
-
-        // Best-effort fsync of parent directory for durability of the directory entry.
-        if let Some(parent) = dest.parent() {
-            if let Ok(dir) = tokio::fs::File::open(parent).await {
-                let _ = dir.sync_all().await;
-            }
-        }
-
-        Ok(written)
+        Ok((written, hex::encode(hasher.finalize())))
     }
 
     /// Open a stored object for streamed download.
@@ -223,6 +314,62 @@ impl LocalFsBackend {
             }
         })?;
         Ok((file, meta.len()))
+    }
+
+    /// Open a stored object positioned at `start` for a ranged download of `length` bytes.
+    pub async fn open_object_range(
+        &self,
+        storage_path: &str,
+        start: u64,
+        length: u64,
+    ) -> Result<(tokio::fs::File, u64), BackendError> {
+        let (mut file, len) = self.open_object(storage_path).await?;
+        if start >= len || length == 0 || start.saturating_add(length) > len {
+            return Err(BackendError::Io(format!(
+                "range out of bounds: start={start} length={length} size={len}"
+            )));
+        }
+        file.seek(std::io::SeekFrom::Start(start))
+            .await
+            .map_err(|e| BackendError::Io(format!("seek: {e}")))?;
+        Ok((file, length))
+    }
+
+    /// Re-hash the on-disk blob and compare to `expected_sha256`.
+    pub async fn verify_object_sha256(
+        &self,
+        storage_path: &str,
+        expected_sha256: &str,
+        buffer_size: usize,
+    ) -> Result<(), BackendError> {
+        let expected = normalize_sha256(expected_sha256).ok_or_else(|| {
+            BackendError::Integrity(format!("invalid expected sha256 {expected_sha256:?}"))
+        })?;
+        let (mut file, _len) = self.open_object(storage_path).await?;
+        let mut hasher = Sha256::new();
+        let mut buf = vec![0u8; buffer_size.max(1)];
+        loop {
+            let n = file
+                .read(&mut buf)
+                .await
+                .map_err(|e| BackendError::Io(format!("read for verify: {e}")))?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+        }
+        let actual = hex::encode(hasher.finalize());
+        if actual != expected {
+            return Err(BackendError::Integrity(format!(
+                "on-disk sha256 mismatch: expected {expected}, got {actual}"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Absolute filesystem path for a relative `storage_path` (tests / corruption helpers).
+    pub fn absolute_object_path(&self, storage_path: &str) -> Result<PathBuf, BackendError> {
+        self.resolve_object_path(storage_path)
     }
 
     /// Count files currently in `meta/tmp` (for tests / cleanup verification).

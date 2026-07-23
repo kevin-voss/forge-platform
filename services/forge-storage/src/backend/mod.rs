@@ -30,19 +30,37 @@ pub enum BackendError {
     Io(String),
     /// Upload exceeded configured max object size.
     TooLarge { max_bytes: u64 },
+    /// Client `X-Expected-SHA256` did not match the streamed content.
+    ChecksumMismatch { expected: String, actual: String },
+    /// On-disk blob failed SHA-256 verification.
+    Integrity(String),
 }
 
 impl std::fmt::Display for BackendError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Fatal(msg) | Self::Unavailable(msg) | Self::NotFound(msg) | Self::Io(msg) => {
-                write!(f, "{msg}")
-            }
+            Self::Fatal(msg)
+            | Self::Unavailable(msg)
+            | Self::NotFound(msg)
+            | Self::Io(msg)
+            | Self::Integrity(msg) => write!(f, "{msg}"),
             Self::TooLarge { max_bytes } => {
                 write!(f, "object exceeds max size of {max_bytes} bytes")
             }
+            Self::ChecksumMismatch { expected, actual } => {
+                write!(f, "checksum mismatch: expected {expected}, got {actual}")
+            }
         }
     }
+}
+
+/// Result of a content-addressed streamed upload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PutStreamResult {
+    pub size_bytes: u64,
+    pub sha256: String,
+    pub storage_path: String,
+    pub dedup_hit: bool,
 }
 
 impl std::error::Error for BackendError {}

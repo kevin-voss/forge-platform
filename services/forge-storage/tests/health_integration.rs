@@ -1,6 +1,6 @@
 use forge_storage::app;
 use forge_storage::backend::{LocalFsBackend, StorageBackend};
-use forge_storage::config::AuthMode;
+use forge_storage::config::{AuthMode, VerifyOnRead};
 use forge_storage::meta::MetadataStore;
 use forge_storage::state::{AppState, StorageMetrics};
 use http_body_util::BodyExt;
@@ -49,6 +49,7 @@ async fn ready_200_with_temp_writable_root() {
         meta_path,
         stream_buffer_bytes: forge_storage::backend::DEFAULT_STREAM_BUFFER_BYTES,
         max_object_bytes: None,
+        verify_on_read: VerifyOnRead::Off,
     };
     let app = app(state);
     let (status, body) = get(app, "/health/ready").await;
@@ -79,6 +80,7 @@ async fn ready_503_with_read_only_root() {
         meta_path: root.join("meta").join("index.db"),
         stream_buffer_bytes: forge_storage::backend::DEFAULT_STREAM_BUFFER_BYTES,
         max_object_bytes: None,
+        verify_on_read: VerifyOnRead::Off,
     };
     let app = app(state);
     let (status, body) = get(app, "/health/ready").await;

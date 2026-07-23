@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 88`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 89`**.
 
 ## Epics
 
@@ -121,7 +121,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **85** | [Skeleton + local FS backend](steps/13-forge-storage/13.01-skeleton-local-fs-backend.md) | Complete |  | Rust/Axum on `4107`, `LocalFsBackend`, Compose volume `forge-storage-data` |
 | **86** | [Buckets + metadata + project isolation](steps/13-forge-storage/13.02-buckets-metadata-project-isolation.md) | Complete |  | SQLite `meta/index.db`; bucket CRUD; `X-Forge-Project` / Identity isolation |
 | **87** | [Streamed upload/download](steps/13-forge-storage/13.03-streamed-upload-download.md) | Complete |  | Streamed PUT/GET/HEAD; temp→atomic rename; bounded buffer |
-| **88** | [SHA-256 + range requests](steps/13-forge-storage/13.04-sha256-range-requests.md) | Not started |  |  |
+| **88** | [SHA-256 + range requests](steps/13-forge-storage/13.04-sha256-range-requests.md) | Complete |  | Content-addressed SHA-256; ETag; Range 206/416; verify-on-read |
 | **89** | [Signed tokens + expiry](steps/13-forge-storage/13.05-signed-tokens-expiry.md) | Not started |  |  |
 | **90** | [Quotas + delete + restart durability](steps/13-forge-storage/13.06-quotas-delete-durability.md) | Not started |  |  |
 | **91** | [Demo `13-object-storage` + gate](steps/13-forge-storage/13.07-demo-and-gate.md) | Not started |  |  |

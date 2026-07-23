@@ -1,5 +1,5 @@
 use crate::backend::{BackendError, LocalFsBackend, StorageBackend};
-use crate::config::{AuthMode, Config};
+use crate::config::{AuthMode, Config, VerifyOnRead};
 use crate::identity::{HttpIdentityClient, IdentityClient};
 use crate::meta::MetadataStore;
 use std::path::PathBuf;
@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
-/// Counters for storage observability (13.02 / 13.03).
+/// Counters for storage observability (13.02 / 13.03 / 13.04).
 #[derive(Debug, Default)]
 pub struct StorageMetrics {
     pub buckets_created: AtomicU64,
@@ -18,6 +18,9 @@ pub struct StorageMetrics {
     pub storage_download_bytes_total: AtomicU64,
     pub storage_uploads_total: AtomicU64,
     pub storage_downloads_total: AtomicU64,
+    pub storage_dedup_hits_total: AtomicU64,
+    pub storage_integrity_errors_total: AtomicU64,
+    pub storage_range_requests_total: AtomicU64,
 }
 
 impl StorageMetrics {
@@ -41,6 +44,7 @@ pub struct AppState {
     pub meta_path: PathBuf,
     pub stream_buffer_bytes: usize,
     pub max_object_bytes: Option<u64>,
+    pub verify_on_read: VerifyOnRead,
 }
 
 impl AppState {
@@ -118,6 +122,7 @@ pub async fn bootstrap(cfg: &Config) -> Result<AppState, String> {
                 meta_path: cfg.meta_path.clone(),
                 stream_buffer_bytes: cfg.stream_buffer_bytes,
                 max_object_bytes: cfg.max_object_bytes,
+                verify_on_read: cfg.verify_on_read,
             };
             info!(
                 storage_root = %state.backend.root().display(),
@@ -148,6 +153,7 @@ pub async fn bootstrap(cfg: &Config) -> Result<AppState, String> {
                 meta_path: cfg.meta_path.clone(),
                 stream_buffer_bytes: cfg.stream_buffer_bytes,
                 max_object_bytes: cfg.max_object_bytes,
+                verify_on_read: cfg.verify_on_read,
             })
         }
         Err(err) => {

@@ -3,7 +3,7 @@
 use forge_storage::api::validate::{validate_bucket_name, validate_object_key};
 use forge_storage::app;
 use forge_storage::backend::{LocalFsBackend, StorageBackend};
-use forge_storage::config::AuthMode;
+use forge_storage::config::{AuthMode, VerifyOnRead};
 use forge_storage::meta::MetadataStore;
 use forge_storage::state::{AppState, StorageMetrics};
 use http_body_util::BodyExt;
@@ -33,6 +33,7 @@ async fn test_app(auth_mode: AuthMode) -> (tempfile::TempDir, axum::Router) {
         meta_path,
         stream_buffer_bytes: forge_storage::backend::DEFAULT_STREAM_BUFFER_BYTES,
         max_object_bytes: None,
+        verify_on_read: VerifyOnRead::Off,
     };
     (dir, app(state))
 }
@@ -168,6 +169,7 @@ async fn delete_non_empty_returns_409() {
         meta_path,
         stream_buffer_bytes: forge_storage::backend::DEFAULT_STREAM_BUFFER_BYTES,
         max_object_bytes: None,
+        verify_on_read: VerifyOnRead::Off,
     };
     let app = app(state);
     let (status, body) = request(

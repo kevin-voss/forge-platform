@@ -1,12 +1,13 @@
 openapi: 3.0.3
 info:
   title: Forge Storage API
-  version: 0.3.0
+  version: 0.4.0
   description: |
     Platform object storage service (epic 13). Health/identity from 13.01;
     project-scoped bucket APIs and metadata index from 13.02; streamed object
-    upload/download from 13.03. Integrity (SHA-256), range requests, signed
-    tokens, and quotas arrive in later steps.
+    upload/download from 13.03; SHA-256 integrity, content-addressed layout,
+    and HTTP byte-range requests from 13.04. Signed tokens and quotas arrive
+    in later steps.
 servers:
   - url: http://127.0.0.1:4107
     description: Local Compose (host port 4107)
@@ -210,13 +211,15 @@ paths:
       operationId: putObject
       summary: Stream-upload an object
       description: |
-        Streams the request body to a temporary file, fsyncs, then atomically
-        renames into the objects layout. Last write wins for a given key.
-        Memory use is bounded by `FORGE_STORAGE_STREAM_BUFFER_BYTES` (default 64 KiB).
+        Streams the request body to a temporary file while computing SHA-256,
+        fsyncs, then places the blob under the content-addressed path
+        `objects/<aa>/<sha256>` (dedup when the blob already exists). Optional
+        `X-Expected-SHA256` rejects mismatches with 422 without storing the object.
       parameters:
         - $ref: "#/components/parameters/ForgeProjectHeader"
         - $ref: "#/components/parameters/BucketName"
         - $ref: "#/components/parameters/ObjectKey"
+        - $ref: "#/components/parameters/ExpectedSha256"
       requestBody:
         required: true
         content:
@@ -265,19 +268,32 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "422":
+          description: Client `X-Expected-SHA256` did not match streamed content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: "checksum mismatch: expected …, got …"
+                code: checksum_mismatch
     get:
       operationId: getObject
       summary: Stream-download an object
       description: |
-        Streams object bytes from the local filesystem with `Content-Type` and
-        `Content-Length`. Cross-project addresses return 404 (no existence leak).
+        Streams object bytes from the local filesystem. Returns `ETag` /
+        `X-Content-SHA256` and `Accept-Ranges: bytes`. Supports a single
+        `Range: bytes=` request (`206 Partial Content`). When
+        `FORGE_STORAGE_VERIFY_ON_READ=full`, re-hashes the on-disk blob and
+        returns `500` with `integrity_error` on mismatch.
       parameters:
         - $ref: "#/components/parameters/ForgeProjectHeader"
         - $ref: "#/components/parameters/BucketName"
         - $ref: "#/components/parameters/ObjectKey"
+        - $ref: "#/components/parameters/Range"
       responses:
         "200":
-          description: Object bytes
+          description: Full object bytes
           headers:
             Content-Type:
               schema:
@@ -288,12 +304,55 @@ paths:
                 type: integer
                 format: int64
               description: Object size in bytes
+            ETag:
+              schema:
+                type: string
+              description: Quoted SHA-256 hex digest
+              example: '"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"'
+            X-Content-SHA256:
+              schema:
+                type: string
+              description: Lowercase SHA-256 hex digest
+            Accept-Ranges:
+              schema:
+                type: string
+                enum: [bytes]
           content:
             application/octet-stream:
               schema:
                 type: string
                 format: binary
             "*/*":
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: Partial content for a satisfiable Range
+          headers:
+            Content-Type:
+              schema:
+                type: string
+            Content-Length:
+              schema:
+                type: integer
+                format: int64
+              description: Length of the returned range
+            Content-Range:
+              schema:
+                type: string
+              example: bytes 0-1023/5000
+            ETag:
+              schema:
+                type: string
+            X-Content-SHA256:
+              schema:
+                type: string
+            Accept-Ranges:
+              schema:
+                type: string
+                enum: [bytes]
+          content:
+            application/octet-stream:
               schema:
                 type: string
                 format: binary
@@ -309,14 +368,38 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "416":
+          description: Range Not Satisfiable
+          headers:
+            Content-Range:
+              schema:
+                type: string
+              example: bytes */5000
+              description: Unsatisfiable range marker with total size
+            Accept-Ranges:
+              schema:
+                type: string
+                enum: [bytes]
+        "500":
+          description: On-disk integrity failure (verify-on-read)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: object integrity check failed
+                code: integrity_error
     head:
       operationId: headObject
       summary: Object metadata headers
-      description: Returns `Content-Type` and `Content-Length` without a body.
+      description: |
+        Returns `Content-Type`, `Content-Length`, `ETag`, `X-Content-SHA256`,
+        and `Accept-Ranges` without a body.
       parameters:
         - $ref: "#/components/parameters/ForgeProjectHeader"
         - $ref: "#/components/parameters/BucketName"
         - $ref: "#/components/parameters/ObjectKey"
+        - $ref: "#/components/parameters/Range"
       responses:
         "200":
           description: Object exists
@@ -328,6 +411,33 @@ paths:
               schema:
                 type: integer
                 format: int64
+            ETag:
+              schema:
+                type: string
+            X-Content-SHA256:
+              schema:
+                type: string
+            Accept-Ranges:
+              schema:
+                type: string
+                enum: [bytes]
+        "206":
+          description: Range metadata without body
+          headers:
+            Content-Length:
+              schema:
+                type: integer
+                format: int64
+            Content-Range:
+              schema:
+                type: string
+            ETag:
+              schema:
+                type: string
+            Accept-Ranges:
+              schema:
+                type: string
+                enum: [bytes]
         "401":
           description: Missing/invalid bearer token (enforce mode)
           content:
@@ -340,6 +450,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "416":
+          description: Range Not Satisfiable
+          headers:
+            Content-Range:
+              schema:
+                type: string
 
 components:
   parameters:
@@ -377,6 +493,27 @@ components:
         minLength: 1
         maxLength: 1024
         example: path/to/object.bin
+    ExpectedSha256:
+      name: X-Expected-SHA256
+      in: header
+      required: false
+      description: |
+        Optional client-declared SHA-256 (64 hex chars). When present, the
+        server rejects the upload with 422 if the streamed content hash differs.
+      schema:
+        type: string
+        pattern: '^[0-9a-fA-F]{64}$'
+        example: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+    Range:
+      name: Range
+      in: header
+      required: false
+      description: |
+        Single byte range (`bytes=start-end`, `bytes=start-`, or `bytes=-suffix`).
+        Multi-range requests are not supported.
+      schema:
+        type: string
+        example: bytes=0-1023
 
   schemas:
     HealthStatus:
@@ -456,6 +593,7 @@ components:
         - bucket_id
         - key
         - size_bytes
+        - sha256
         - storage_path
         - created_at
         - updated_at
@@ -478,16 +616,16 @@ components:
           example: 1024
         sha256:
           type: string
-          nullable: true
-          description: Populated in 13.04
+          description: Lowercase SHA-256 hex digest of object bytes
+          example: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
         content_type:
           type: string
           nullable: true
           example: application/octet-stream
         storage_path:
           type: string
-          description: Relative path under objects/ (interim layout until 13.04)
-          example: proj-a/550e8400-e29b-41d4-a716-446655440000/ab12...
+          description: Relative content-addressed path under objects/ (`<aa>/<sha256>`)
+          example: 2c/2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
         created_at:
           type: string
           format: date-time
@@ -504,6 +642,16 @@ components:
         code:
           type: string
           example: not_found
+          enum:
+            - not_found
+            - conflict
+            - invalid
+            - invalid_key
+            - too_large
+            - checksum_mismatch
+            - integrity_error
+            - unavailable
+            - internal
         object_count:
           type: integer
           description: Present when deleting a non-empty bucket

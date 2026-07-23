@@ -100,6 +100,7 @@ mod tests {
             meta_path: PathBuf::from("/tmp/unused-meta.db"),
             stream_buffer_bytes: crate::backend::DEFAULT_STREAM_BUFFER_BYTES,
             max_object_bytes: None,
+            verify_on_read: crate::config::VerifyOnRead::Off,
         }
     }
 
