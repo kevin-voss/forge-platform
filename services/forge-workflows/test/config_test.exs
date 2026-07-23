@@ -10,8 +10,14 @@ defmodule ForgeWorkflows.ConfigTest do
       "FORGE_SERVICE_VERSION" => System.get_env("FORGE_SERVICE_VERSION"),
       "FORGE_LOG_LEVEL" => System.get_env("FORGE_LOG_LEVEL"),
       "FORGE_ENV" => System.get_env("FORGE_ENV"),
-      "FORGE_SHUTDOWN_GRACE_SECONDS" => System.get_env("FORGE_SHUTDOWN_GRACE_SECONDS")
+      "FORGE_SHUTDOWN_GRACE_SECONDS" => System.get_env("FORGE_SHUTDOWN_GRACE_SECONDS"),
+      "FORGE_WORKFLOWS_DATABASE_URL" => System.get_env("FORGE_WORKFLOWS_DATABASE_URL"),
+      "FORGE_WORKFLOWS_DEFS_DIR" => System.get_env("FORGE_WORKFLOWS_DEFS_DIR")
     }
+
+    defs = Path.expand("../definitions", __DIR__)
+    System.put_env("FORGE_WORKFLOWS_DEFS_DIR", defs)
+    System.put_env("FORGE_WORKFLOWS_DATABASE_URL", "postgres://forge:forge@localhost:5432/forge_workflows")
 
     on_exit(fn ->
       Enum.each(original, fn {key, value} ->
@@ -31,6 +37,15 @@ defmodule ForgeWorkflows.ConfigTest do
     System.put_env("FORGE_LOG_LEVEL", "info")
 
     assert_raise ArgumentError, ~r/PORT is required/, fn ->
+      Config.load!()
+    end
+  end
+
+  test "requires DATABASE_URL" do
+    System.put_env("PORT", "8080")
+    System.delete_env("FORGE_WORKFLOWS_DATABASE_URL")
+
+    assert_raise ArgumentError, ~r/FORGE_WORKFLOWS_DATABASE_URL is required/, fn ->
       Config.load!()
     end
   end
@@ -67,5 +82,7 @@ defmodule ForgeWorkflows.ConfigTest do
     assert cfg.log_level == "info"
     assert cfg.env == "development"
     assert cfg.shutdown_grace_ms == 10_000
+    assert String.contains?(cfg.database_url, "forge_workflows")
+    assert File.dir?(cfg.defs_dir)
   end
 end

@@ -28,7 +28,11 @@ defmodule ForgeWorkflows.MixProject do
     [
       {:bandit, "~> 1.6"},
       {:plug, "~> 1.16"},
-      {:jason, "~> 1.4"}
+      {:jason, "~> 1.4"},
+      {:ecto_sql, "~> 3.12"},
+      {:postgrex, ">= 0.0.0"},
+      {:yaml_elixir, "~> 2.9"}
     ]
   end
+
 end

@@ -4,6 +4,7 @@ defmodule ForgeWorkflowsWeb.RouterTest do
   import Plug.Conn
 
   alias ForgeWorkflows.Config
+  alias ForgeWorkflows.Definitions.Loader
   alias ForgeWorkflowsWeb.Router
 
   setup do
@@ -13,11 +14,17 @@ defmodule ForgeWorkflowsWeb.RouterTest do
       service_version: "0.1.0",
       log_level: "error",
       env: "test",
-      shutdown_grace_ms: 10_000
+      shutdown_grace_ms: 10_000,
+      database_url: "postgres://forge:forge@localhost:5432/forge_workflows",
+      defs_dir: Path.expand("../definitions", __DIR__)
     }
 
     Application.put_env(:forge_workflows, :runtime_config, cfg)
     Application.put_env(:forge_workflows, :started_at, System.monotonic_time(:second) - 2)
+
+    if File.dir?(cfg.defs_dir) do
+      Loader.put_definitions(Loader.load_dir!(cfg.defs_dir))
+    end
 
     on_exit(fn ->
       Application.delete_env(:forge_workflows, :runtime_config)
@@ -49,6 +56,23 @@ defmodule ForgeWorkflowsWeb.RouterTest do
     assert body["version"] == "0.1.0"
     assert is_number(body["uptime_seconds"])
     assert body["uptime_seconds"] >= 2
+  end
+
+  test "lists workflows" do
+    conn = conn(:get, "/v1/workflows") |> Router.call([])
+    assert conn.status == 200
+    body = Jason.decode!(conn.resp_body)
+    names = Enum.map(body["workflows"], & &1["name"])
+    assert "fixture-log" in names
+  end
+
+  test "run endpoints require project header" do
+    conn = conn(:post, "/v1/workflows/fixture-log/runs", Jason.encode!(%{input: %{}}))
+           |> put_req_header("content-type", "application/json")
+           |> Router.call([])
+
+    assert conn.status == 400
+    assert Jason.decode!(conn.resp_body)["code"] == "project_required"
   end
 
   test "echoes X-Request-ID" do

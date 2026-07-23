@@ -1,11 +1,12 @@
 openapi: 3.0.3
 info:
   title: Forge Workflows API
-  version: 0.1.0
+  version: 0.2.0
   description: |
-    Durable workflow orchestration service (epic 16). Health/identity from 16.01;
-    definitions, step primitives, triggers, approvals, and compensation land in
-    later steps.
+    Durable workflow orchestration service (epic 16). Definitions load from YAML;
+    runs and step state persist in Postgres and resume across restarts without
+    re-executing completed steps (idempotency key: run_id + step_id).
+    Runs are project-scoped via `X-Forge-Project`.
 servers:
   - url: http://127.0.0.1:4302
     description: Local Compose (host port 4302)
@@ -31,8 +32,8 @@ paths:
       operationId: getHealthReady
       summary: Readiness probe
       description: |
-        Returns 200 when the OTP supervision tree is up (16.01). Later steps
-        also require the durable store to be reachable.
+        Returns 200 when the OTP supervision tree is up and the durable Postgres
+        store is reachable.
       responses:
         "200":
           description: Ready to receive traffic
@@ -72,7 +73,133 @@ paths:
                 version: 0.1.0
                 uptime_seconds: 12
 
+  /v1/workflows:
+    get:
+      operationId: listWorkflows
+      summary: List workflow definitions
+      description: Returns loaded YAML workflow definitions (name + ordered steps).
+      responses:
+        "200":
+          description: Definition list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowList"
+
+  /v1/workflows/{name}/runs:
+    post:
+      operationId: startWorkflowRun
+      summary: Start a workflow run
+      description: |
+        Creates a durable run in `queued`/`running` state and returns 202.
+        Requires `X-Forge-Project`.
+      parameters:
+        - $ref: "#/components/parameters/WorkflowName"
+        - $ref: "#/components/parameters/ForgeProject"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartRunRequest"
+            example:
+              input: {}
+      responses:
+        "202":
+          description: Run accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartRunResponse"
+              example:
+                run_id: 0193f0c2-6c5a-7b8e-9f01-23456789abcd
+                status: running
+        "400":
+          description: Missing project header or invalid body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Workflow definition not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/runs:
+    get:
+      operationId: listRuns
+      summary: List runs for a project
+      parameters:
+        - $ref: "#/components/parameters/ForgeProject"
+      responses:
+        "200":
+          description: Project-scoped runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunList"
+        "400":
+          description: Missing project header
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/runs/{id}:
+    get:
+      operationId: getRun
+      summary: Get a run by id
+      description: |
+        Returns run status and durable step history. Cross-project reads return 404.
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+        - $ref: "#/components/parameters/ForgeProject"
+      responses:
+        "200":
+          description: Run detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowRun"
+        "400":
+          description: Missing project header
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Run not found in project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
+  parameters:
+    ForgeProject:
+      name: X-Forge-Project
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Project scope for run isolation
+    WorkflowName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Workflow definition name
+    RunId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
   schemas:
     HealthStatus:
       type: object
@@ -106,3 +233,143 @@ components:
         uptime_seconds:
           type: number
           example: 12
+
+    StartRunRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          additionalProperties: true
+          description: Opaque workflow input map
+
+    StartRunResponse:
+      type: object
+      required:
+        - run_id
+        - status
+      properties:
+        run_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          example: running
+
+    WorkflowStepDef:
+      type: object
+      required:
+        - id
+        - type
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [log, noop]
+        message:
+          type: string
+        delay_ms:
+          type: integer
+          minimum: 0
+
+    WorkflowDefinition:
+      type: object
+      required:
+        - name
+        - steps
+      properties:
+        name:
+          type: string
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowStepDef"
+
+    WorkflowList:
+      type: object
+      required:
+        - workflows
+      properties:
+        workflows:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowDefinition"
+
+    WorkflowStep:
+      type: object
+      required:
+        - id
+        - type
+        - status
+      properties:
+        id:
+          type: string
+          description: Step id from the definition (idempotency key with run_id)
+        type:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, completed, failed, skipped]
+        attempt:
+          type: integer
+          minimum: 0
+        output:
+          type: object
+          additionalProperties: true
+        error:
+          type: string
+
+    WorkflowRun:
+      type: object
+      required:
+        - run_id
+        - workflow
+        - project_id
+        - status
+        - steps
+      properties:
+        run_id:
+          type: string
+          format: uuid
+        workflow:
+          type: string
+        project_id:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, completed, failed]
+        input:
+          type: object
+          additionalProperties: true
+        current_step:
+          type: string
+          nullable: true
+        result:
+          type: object
+          additionalProperties: true
+        error:
+          type: string
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowStep"
+
+    RunList:
+      type: object
+      required:
+        - runs
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowRun"
+
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+        code:
+          type: string

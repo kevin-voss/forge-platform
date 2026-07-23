@@ -3,7 +3,7 @@ defmodule ForgeWorkflows.OpenAPIContractTest do
 
   @openapi_name "forge-workflows.openapi.yaml"
 
-  test "OpenAPI declares three health/identity paths and no engine surface" do
+  test "OpenAPI declares health, workflows, and run endpoints" do
     path = resolve_openapi()
 
     if path == nil do
@@ -17,8 +17,10 @@ defmodule ForgeWorkflows.OpenAPIContractTest do
       assert text =~ "\n  /:"
       assert text =~ "forge-workflows"
       assert text =~ "elixir"
-      refute text =~ "/v1/workflows"
-      refute text =~ "/v1/runs"
+      assert text =~ "/v1/workflows"
+      assert text =~ "/v1/runs"
+      assert text =~ "WorkflowRun"
+      assert text =~ "WorkflowStep"
     end
   end
 

@@ -1,0 +1,11 @@
+name: fixture-log
+steps:
+  - id: log-start
+    type: log
+    message: "fixture-log starting"
+  - id: hold
+    type: log
+    message: "fixture-log hold"
+    delay_ms: 0
+  - id: noop-end
+    type: noop

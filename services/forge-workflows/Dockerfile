@@ -20,10 +20,12 @@ RUN mix deps.get --only prod \
 	&& mix deps.compile
 
 COPY lib lib
+COPY priv priv
+COPY definitions definitions
 COPY test test
-# Unit tests need test deps (ExUnit is stdlib); compile app and run tests before release.
+# Unit tests need test deps (ExUnit is stdlib); DB/integration tests run via Makefile.
 RUN MIX_ENV=test mix deps.get \
-	&& MIX_ENV=test mix test \
+	&& MIX_ENV=test mix test --exclude integration --exclude db \
 	&& MIX_ENV=prod mix compile \
 	&& MIX_ENV=prod mix release
 
@@ -37,7 +39,8 @@ ENV LANG=C.UTF-8 \
 	FORGE_SERVICE_VERSION=0.1.0 \
 	FORGE_LOG_LEVEL=info \
 	FORGE_ENV=development \
-	FORGE_SHUTDOWN_GRACE_SECONDS=10
+	FORGE_SHUTDOWN_GRACE_SECONDS=10 \
+	FORGE_WORKFLOWS_DEFS_DIR=/app/definitions
 
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends openssl ca-certificates libncurses6 locales curl \
@@ -46,6 +49,7 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY --from=build --chown=appuser:appuser /app/_build/prod/rel/forge_workflows ./
+COPY --from=build --chown=appuser:appuser /app/definitions /app/definitions
 
 USER appuser:appuser
 EXPOSE 8080

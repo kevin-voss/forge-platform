@@ -628,6 +628,11 @@ services:
       FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-info}
       FORGE_ENV: ${FORGE_ENV:-development}
       FORGE_SHUTDOWN_GRACE_SECONDS: ${FORGE_SHUTDOWN_GRACE_SECONDS:-10}
+      FORGE_WORKFLOWS_DATABASE_URL: ${FORGE_WORKFLOWS_DATABASE_URL:-postgres://forge:forge@postgres:5432/forge_workflows}
+      FORGE_WORKFLOWS_DEFS_DIR: ${FORGE_WORKFLOWS_DEFS_DIR:-/app/definitions}
+    depends_on:
+      postgres:
+        condition: service_healthy
     stop_grace_period: 15s
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health/live | grep -q live"]
@@ -635,6 +640,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+
 
   forge-storage:
     build:
