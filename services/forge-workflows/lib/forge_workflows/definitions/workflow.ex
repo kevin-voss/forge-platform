@@ -30,7 +30,8 @@ defmodule ForgeWorkflows.Definitions.Workflow do
           optional(:agent) => String.t(),
           optional(:input) => map(),
           optional(:prompt) => String.t(),
-          optional(:on_deny) => String.t()
+          optional(:on_deny) => String.t(),
+          optional(:compensate) => String.t()
         }
 
   @type t :: %__MODULE__{
@@ -102,6 +103,7 @@ defmodule ForgeWorkflows.Definitions.Workflow do
          {:ok, input} <- optional_map(step, "input"),
          {:ok, prompt} <- optional_string(step, "prompt"),
          {:ok, on_deny} <- optional_string(step, "on_deny"),
+         {:ok, compensate} <- optional_string(step, "compensate"),
          {:ok, branches} <- parse_branches(step, idx),
          :ok <-
            validate_typed_fields(
@@ -133,6 +135,7 @@ defmodule ForgeWorkflows.Definitions.Workflow do
         |> maybe_put(:input, input)
         |> maybe_put(:prompt, prompt)
         |> maybe_put(:on_deny, on_deny)
+        |> maybe_put(:compensate, compensate)
         |> maybe_put(:branches, branches)
 
       {:ok, base}

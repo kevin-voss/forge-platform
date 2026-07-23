@@ -214,15 +214,44 @@ defmodule ForgeWorkflows.Runs do
     end
   end
 
-  @spec mark_run_failed(String.t(), String.t()) :: {:ok, Run.t()} | {:error, term()}
-  def mark_run_failed(run_id, error) when is_binary(error) do
+  @spec mark_run_compensating(String.t()) :: {:ok, Run.t()} | {:error, term()}
+  def mark_run_compensating(run_id) when is_binary(run_id) do
+    case Repo.get(Run, run_id) do
+      nil ->
+        {:error, :not_found}
+
+      %Run{status: status} = run when status in @terminal ->
+        {:ok, run}
+
+      run ->
+        case run
+             |> Run.changeset(%{status: "compensating", current_step: "__compensation__"})
+             |> Repo.update() do
+          {:ok, _} = ok ->
+            Metrics.inc_run("compensating")
+            ok
+
+          other ->
+            other
+        end
+    end
+  end
+
+  @spec mark_run_failed(String.t(), String.t(), map() | nil) :: {:ok, Run.t()} | {:error, term()}
+  def mark_run_failed(run_id, error, result \\ nil)
+
+  def mark_run_failed(run_id, error, result) when is_binary(error) do
     case Repo.get(Run, run_id) do
       nil ->
         {:error, :not_found}
 
       run ->
+        attrs =
+          %{status: "failed", error: error}
+          |> then(fn a -> if is_map(result), do: Map.put(a, :result, result), else: a end)
+
         case run
-             |> Run.changeset(%{status: "failed", error: error})
+             |> Run.changeset(attrs)
              |> Repo.update() do
           {:ok, _} = ok ->
             Metrics.inc_run("failed")

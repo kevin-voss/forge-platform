@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Forge Workflows API
-  version: 0.5.0
+  version: 0.6.0
   description: |
     Durable workflow orchestration service (epic 16). Definitions load from YAML;
     runs and step state persist in Postgres and resume across restarts without
@@ -11,7 +11,12 @@ info:
     Event triggers (durable Events consumer + event_id dedupe) start mapped
     workflows; `agent` steps invoke Forge Agents runs and capture results.
     Human `approval` steps durably park runs in `awaiting_approval` (survives
-    restarts) until approve/deny/expiry. Runs are project-scoped via `X-Forge-Project`.
+    restarts) until approve/deny/expiry. Steps may declare `compensate` actions
+    recorded in a saga log; on failure or an explicit `rollback` action (typically
+    after approval), compensators run in reverse order (idempotent), including
+    `control.rollback_deployment` via the Control reconcile/PATCH APIs. Run
+    results include `rolled_back` and an optional `report_ref`. Runs are
+    project-scoped via `X-Forge-Project`.
 servers:
   - url: http://127.0.0.1:4302
     description: Local Compose (host port 4302)
@@ -514,7 +519,16 @@ components:
           description: For type=delay, durable wake_at timer; for log/noop short in-process sleep
         action:
           type: string
-          description: Task action (noop|fail|fail_until|sleep)
+          description: |
+            Task action: noop|fail|fail_until|sleep|control.apply|
+            control.rollback_deployment|rollback|report.store
+        compensate:
+          type: string
+          description: |
+            Compensator action recorded in the saga log when this forward step
+            completes (e.g. `control.rollback_deployment`). Executed in reverse
+            order on failure or explicit `rollback`.
+          example: control.rollback_deployment
         timeout_ms:
           type: integer
           minimum: 1
@@ -682,7 +696,7 @@ components:
           type: string
         status:
           type: string
-          enum: [queued, running, awaiting_approval, completed, failed]
+          enum: [queued, running, awaiting_approval, compensating, completed, failed]
         input:
           type: object
           additionalProperties: true
@@ -695,14 +709,66 @@ components:
           nullable: true
           description: Present when status is awaiting_approval
         result:
-          type: object
-          additionalProperties: true
+          allOf:
+            - $ref: "#/components/schemas/WorkflowRunResult"
+          nullable: true
+          description: |
+            Terminal run payload. On success/failure after compensation includes
+            `rolled_back` and optional `report_ref`.
         error:
           type: string
         steps:
           type: array
           items:
             $ref: "#/components/schemas/WorkflowStep"
+
+    WorkflowRunResult:
+      type: object
+      additionalProperties: true
+      properties:
+        ok:
+          type: boolean
+        rolled_back:
+          type: boolean
+          description: True when one or more saga compensators completed
+        report_ref:
+          type: string
+          description: Inline or Storage URI for the final compensation/report artifact
+          example: inline://workflow-report/0193f0c2-6c5a-7b8e-9f01-23456789abcd
+        report:
+          type: object
+          additionalProperties: true
+          description: Final report body (saga outcomes, deployment id, trigger)
+        saga:
+          type: array
+          items:
+            $ref: "#/components/schemas/SagaLogEntry"
+        failure:
+          type: string
+
+    SagaLogEntry:
+      type: object
+      required:
+        - step_id
+        - compensator
+        - status
+      properties:
+        step_id:
+          type: string
+        compensator:
+          type: string
+          example: control.rollback_deployment
+        status:
+          type: string
+          enum: [pending, running, compensated, failed]
+        args:
+          type: object
+          additionalProperties: true
+        result:
+          type: object
+          additionalProperties: true
+        error:
+          type: string
 
     RunList:
       type: object

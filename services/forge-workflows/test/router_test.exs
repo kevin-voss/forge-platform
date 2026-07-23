@@ -29,7 +29,11 @@ defmodule ForgeWorkflowsWeb.RouterTest do
       default_project_id: "proj-a",
       events_http_timeout_ms: 10_000,
       agents_http_timeout_ms: 10_000,
-      approval_ttl_seconds: 86_400
+      approval_ttl_seconds: 86_400,
+      control_url: "http://forge-control:4001",
+      control_mode: "fake",
+      control_http_timeout_ms: 10_000,
+      report_bucket: nil
     }
 
     Application.put_env(:forge_workflows, :runtime_config, cfg)

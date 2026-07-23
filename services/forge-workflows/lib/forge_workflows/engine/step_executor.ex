@@ -2,7 +2,9 @@ defmodule ForgeWorkflows.Engine.StepExecutor do
   @moduledoc false
 
   alias ForgeWorkflows.JsonLog
+  alias ForgeWorkflows.Saga.Compensator
   alias ForgeWorkflows.Steps.Agent
+  alias ForgeWorkflows.Steps.Report
   alias ForgeWorkflows.Steps.Timeout
 
   @spec execute(map(), map(), keyword()) :: {:ok, map()} | {:error, String.t()}
@@ -36,13 +38,13 @@ defmodule ForgeWorkflows.Engine.StepExecutor do
         {:ok, %{"ok" => true, "action" => step_def[:action] || step_def["action"] || "noop"}}
 
       "task" ->
-        execute_action(step_def, run_input, attempt)
+        execute_action(step_def, run_input, attempt, opts)
 
       "timeout" ->
-        execute_action(step_def, run_input, attempt)
+        execute_action(step_def, run_input, attempt, opts)
 
       "retry" ->
-        execute_action(step_def, run_input, attempt)
+        execute_action(step_def, run_input, attempt, opts)
 
       "agent" ->
         Agent.execute(step_def, run_input,
@@ -79,8 +81,11 @@ defmodule ForgeWorkflows.Engine.StepExecutor do
     end
   end
 
-  defp execute_action(step_def, _run_input, attempt) do
+  defp execute_action(step_def, run_input, attempt, opts) do
     action = step_def[:action] || step_def["action"] || "noop"
+    project_id = Keyword.get(opts, :project_id) || "default"
+    run_id = Keyword.get(opts, :run_id)
+    args = step_def[:input] || step_def["input"] || %{}
 
     case action do
       "noop" ->
@@ -103,6 +108,28 @@ defmodule ForgeWorkflows.Engine.StepExecutor do
         ms = step_def[:delay_ms] || step_def["delay_ms"] || 1_000
         Process.sleep(ms)
         {:ok, %{"ok" => true, "action" => "sleep", "slept_ms" => ms}}
+
+      "control.apply" ->
+        Compensator.execute_action("control.apply", args, project_id, run_input)
+
+      "control.rollback_deployment" ->
+        Compensator.execute_action("control.rollback_deployment", args, project_id, run_input)
+
+      "rollback" ->
+        # Explicit saga rollback trigger (typically after approval).
+        {:ok, %{"action" => "rollback", "trigger_compensation" => true}}
+
+      "report.store" ->
+        if is_binary(run_id) do
+          Report.store(run_id, run_input,
+            rolled_back: Keyword.get(opts, :rolled_back, false),
+            project_id: project_id,
+            trigger: "report.store",
+            saga: Keyword.get(opts, :saga)
+          )
+        else
+          {:error, "report.store requires run_id"}
+        end
 
       other ->
         {:error, "unsupported action: #{inspect(other)}"}

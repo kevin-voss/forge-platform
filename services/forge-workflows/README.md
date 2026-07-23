@@ -2,12 +2,14 @@
 
 Elixir/OTP durable workflow orchestration service (epic 16). Host port **4302**.
 
-Step 16.05: durable human `approval` steps — park a run in `awaiting_approval`
-with a persisted approval request that survives restart; `approve` resumes,
-`deny`/`expire` follow `on_deny` (or fail). Builds on event triggers + agent
-steps (16.04), YAML definitions, Ecto/Postgres run/step state, per-run
-GenServers, boot resume, and the durable `wake_at` scheduler. Compensation
-lands in 16.06. Epic gate: `make demo DEMO=16` (`demos/16-agent-workflow`).
+Step 16.06: saga-style compensation — forward steps may declare `compensate`
+actions recorded in `workflow_saga_log`; on step failure or an explicit
+`rollback` action (typically after human approval), compensators run in reverse
+order (idempotent), including `control.rollback_deployment` via a Control client
+(fake or live PATCH to last healthy image). Final reports store `rolled_back`
++ `report_ref` on the run. Builds on durable approvals (16.05), event triggers +
+agent steps, YAML definitions, and the durable scheduler. Epic gate:
+`make demo DEMO=16` (`demos/16-agent-workflow`).
 
 ## Local
 
@@ -30,14 +32,11 @@ curl -fsS localhost:4302/health/ready
 curl -fsS localhost:4302/ | grep -q '"service":"forge-workflows"'
 
 BASE=localhost:4302; P='-H X-Forge-Project:proj-a'
-curl -fsS $BASE/v1/workflows
-curl -fsS $P -XPOST $BASE/v1/workflows/fixture-approval/runs \
+curl -fsS $P -XPOST $BASE/v1/workflows/fixture-compensation-approve/runs \
   -H 'content-type: application/json' \
   -d '{"input":{"event":{"deployment_id":"dep-1"}}}'
-# wait until status awaiting_approval, then:
-AID=$(curl -fsS $P $BASE/v1/approvals | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-docker compose restart forge-workflows
-curl -fsS $P -H 'X-Forge-Actor: alice' -XPOST $BASE/v1/approvals/$AID/approve
+# wait until awaiting_approval, approve, then:
+curl -fsS $P $BASE/v1/runs | grep -o '"rolled_back":true' | head -1
 ```
 
 OpenAPI (canonical): [`contracts/openapi/forge-workflows.openapi.yaml`](../../contracts/openapi/forge-workflows.openapi.yaml).
@@ -66,15 +65,18 @@ OpenAPI (canonical): [`contracts/openapi/forge-workflows.openapi.yaml`](../../co
 | `FORGE_WORKFLOWS_AGENT_POLL_MS` | `1000` | Agent run poll interval |
 | `FORGE_WORKFLOWS_AGENT_STEP_TIMEOUT` | `300000` | Agent step poll deadline (ms) |
 | `FORGE_WORKFLOWS_DEFAULT_PROJECT` | `default` | Fallback project for triggers without header |
+| `FORGE_CONTROL_URL` | `http://forge-control:4001` | Control API for apply/rollback |
+| `FORGE_WORKFLOWS_CONTROL_MODE` | `fake` | `fake\|live\|fail` |
+| `FORGE_WORKFLOWS_CONTROL_HTTP_TIMEOUT_MS` | `10000` | Control HTTP timeout |
+| `FORGE_WORKFLOWS_REPORT_BUCKET` | (empty) | Optional Storage bucket for report refs |
 
-## Architecture (16.05)
+## Architecture (16.06)
 
 ```text
-definitions/*.yaml → DefinitionLoader → %Workflow{trigger, steps}
-approval step → ApprovalStore(pending) + run awaiting_approval → RunServer parks
-POST /v1/approvals/{id}/approve|deny → decide + wake RunServer
-restart while awaiting → BootResumer → park again (no step repeat)
-ExpirySweeper → expired → on_deny path (or fail)
+forward step done + compensate: → saga_log(pending)
+failure OR action:rollback → status=compensating → reverse compensators (idempotent)
+control.rollback_deployment → ControlClient (GET reconcile lastHealthyImage + PATCH)
+report.store → run.result {rolled_back, report_ref}
 
 ForgeWorkflows.Supervisor (rest_for_one)
 ├── ForgeWorkflows.Repo
@@ -88,36 +90,40 @@ ForgeWorkflows.Supervisor (rest_for_one)
 └── Bandit → ForgeWorkflowsWeb.Router (+ ApprovalsController)
 ```
 
-Idempotency: `(run_id, step_id)` for steps; `(event_id, workflow)` in `event_dedup`
-for triggers; `(run_id, step_id)` unique for approvals.
+Idempotency: `(run_id, step_id)` for steps and saga log entries; compensators
+claim `pending|running` → `compensated` so crash mid-rollback resumes without
+double-acting completed entries.
 
-### Definition schema (approval)
+### Definition schema (compensation)
 
 ```yaml
-name: fixture-approval
+name: fixture-compensation-approve
 steps:
+  - id: apply-change
+    type: task
+    action: control.apply
+    compensate: control.rollback_deployment
   - id: approve-rollback
     type: approval
     prompt: "Approve rollback of ${event.deployment_id}?"
     on_deny: close
-  - id: after-approve
-    type: log
-    message: after-approve
+  - id: do-rollback
+    type: task
+    action: rollback
+  - id: finalize
+    type: task
+    action: report.store
   - id: close
     type: log
     message: closed-denied
 ```
 
-### Approval API
+### Control client
 
-| Method | Path | Notes |
-|---|---|---|
-| `GET` | `/v1/approvals` | Project-scoped list |
-| `GET` | `/v1/approvals/{id}` | Detail; cross-project → `404` |
-| `GET` | `/v1/runs/{id}/approvals` | Approvals for a run |
-| `POST` | `/v1/approvals/{id}/approve` | Resume; `X-Forge-Actor` → `decided_by` |
-| `POST` | `/v1/approvals/{id}/deny` | Body `{reason}`; follows `on_deny` |
-| `GET` | `/v1/runs/{id}` | Includes `pending_approval` when parked |
+| Mode | Behavior |
+|---|---|
+| `fake` | In-process ETS; records apply/rollback calls (CI default) |
+| `live` | `GET /v1/deployments/{id}/reconcile` → `PATCH` with `lastHealthyImage` |
+| `fail` | All Control calls error |
 
-Terminal decide → `409`. Metrics: `workflow_approvals_total{status}`,
-decision latency sum/count.
+Metrics: `workflow_compensations_total{status}`, `workflow_rollbacks_total{result}`.

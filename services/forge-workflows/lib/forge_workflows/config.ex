@@ -22,7 +22,11 @@ defmodule ForgeWorkflows.Config do
     :default_project_id,
     :events_http_timeout_ms,
     :agents_http_timeout_ms,
-    :approval_ttl_seconds
+    :approval_ttl_seconds,
+    :control_url,
+    :control_mode,
+    :control_http_timeout_ms,
+    :report_bucket
   ]
   defstruct [
     :port,
@@ -45,7 +49,11 @@ defmodule ForgeWorkflows.Config do
     :default_project_id,
     :events_http_timeout_ms,
     :agents_http_timeout_ms,
-    :approval_ttl_seconds
+    :approval_ttl_seconds,
+    :control_url,
+    :control_mode,
+    :control_http_timeout_ms,
+    :report_bucket
   ]
 
   @type t :: %__MODULE__{
@@ -69,11 +77,16 @@ defmodule ForgeWorkflows.Config do
           default_project_id: String.t(),
           events_http_timeout_ms: pos_integer(),
           agents_http_timeout_ms: pos_integer(),
-          approval_ttl_seconds: pos_integer()
+          approval_ttl_seconds: pos_integer(),
+          control_url: String.t(),
+          control_mode: String.t(),
+          control_http_timeout_ms: pos_integer(),
+          report_bucket: String.t() | nil
         }
 
   @allowed_levels ~w(debug info warn error)
   @allowed_agents_modes ~w(fake live fail awaiting)
+  @allowed_control_modes ~w(fake live fail)
 
   @spec load!() :: t()
   def load! do
@@ -85,6 +98,8 @@ defmodule ForgeWorkflows.Config do
     events_url = blank_default(System.get_env("FORGE_EVENTS_URL"), "http://forge-events:4105")
     agents_url = blank_default(System.get_env("FORGE_AGENTS_URL"), "http://forge-agents:4301")
     agents_mode = normalize_agents_mode!(System.get_env("FORGE_WORKFLOWS_AGENTS_MODE"))
+    control_url = blank_default(System.get_env("FORGE_CONTROL_URL"), "http://forge-control:4001")
+    control_mode = normalize_control_mode!(System.get_env("FORGE_WORKFLOWS_CONTROL_MODE"))
 
     %__MODULE__{
       port: port,
@@ -125,7 +140,12 @@ defmodule ForgeWorkflows.Config do
       agents_http_timeout_ms:
         parse_pos_int!(System.get_env("FORGE_WORKFLOWS_AGENTS_HTTP_TIMEOUT_MS"), 10_000, 100, 120_000),
       approval_ttl_seconds:
-        parse_pos_int!(System.get_env("FORGE_WORKFLOWS_APPROVAL_TTL_SECONDS"), 86_400, 1, 2_592_000)
+        parse_pos_int!(System.get_env("FORGE_WORKFLOWS_APPROVAL_TTL_SECONDS"), 86_400, 1, 2_592_000),
+      control_url: control_url,
+      control_mode: control_mode,
+      control_http_timeout_ms:
+        parse_pos_int!(System.get_env("FORGE_WORKFLOWS_CONTROL_HTTP_TIMEOUT_MS"), 10_000, 100, 120_000),
+      report_bucket: blank_or_nil(System.get_env("FORGE_WORKFLOWS_REPORT_BUCKET"))
     }
   end
 
@@ -203,6 +223,24 @@ defmodule ForgeWorkflows.Config do
             "FORGE_WORKFLOWS_AGENTS_MODE must be fake|live|fail|awaiting, got #{inspect(raw)}"
     end
   end
+
+  defp normalize_control_mode!(nil), do: "fake"
+  defp normalize_control_mode!(""), do: "fake"
+
+  defp normalize_control_mode!(raw) do
+    mode = String.downcase(String.trim(raw))
+
+    if mode in @allowed_control_modes do
+      mode
+    else
+      raise ArgumentError,
+            "FORGE_WORKFLOWS_CONTROL_MODE must be fake|live|fail, got #{inspect(raw)}"
+    end
+  end
+
+  defp blank_or_nil(nil), do: nil
+  defp blank_or_nil(""), do: nil
+  defp blank_or_nil(value), do: String.trim(value)
 
   defp require_database_url!(nil),
     do: raise(ArgumentError, "FORGE_WORKFLOWS_DATABASE_URL is required")

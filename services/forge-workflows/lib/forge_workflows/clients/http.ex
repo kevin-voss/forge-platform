@@ -4,7 +4,8 @@ defmodule ForgeWorkflows.Clients.Http do
   @spec request(atom(), String.t(), [{String.t(), String.t()}], binary() | nil, pos_integer()) ::
           {:ok, pos_integer(), binary()} | {:error, term()}
   def request(method, url, headers, body, timeout_ms)
-      when method in [:get, :post, :put, :delete] and is_binary(url) and is_integer(timeout_ms) do
+      when method in [:get, :post, :put, :patch, :delete] and is_binary(url) and
+             is_integer(timeout_ms) do
     _ = Application.ensure_all_started(:inets)
     _ = Application.ensure_all_started(:ssl)
 
@@ -23,14 +24,20 @@ defmodule ForgeWorkflows.Clients.Http do
         {:get, _} ->
           {url_char, hdrs}
 
-        {m, nil} when m in [:post, :put, :delete] ->
+        {m, nil} when m in [:post, :put, :patch, :delete] ->
           {url_char, hdrs, ~c"application/json", ""}
 
-        {m, bin} when m in [:post, :put, :delete] and is_binary(bin) ->
+        {m, bin} when m in [:post, :put, :patch, :delete] and is_binary(bin) ->
           {url_char, hdrs, ~c"application/json", bin}
       end
 
-    case :httpc.request(method, req, http_opts, opts) do
+    http_method =
+      case method do
+        :patch -> :patch
+        other -> other
+      end
+
+    case :httpc.request(http_method, req, http_opts, opts) do
       {:ok, {{_, status, _}, _resp_headers, resp_body}} when is_binary(resp_body) ->
         {:ok, status, resp_body}
 

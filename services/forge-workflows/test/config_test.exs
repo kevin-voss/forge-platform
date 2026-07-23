@@ -93,6 +93,10 @@ defmodule ForgeWorkflows.ConfigTest do
     assert cfg.agent_poll_ms == 1_000
     assert cfg.agent_step_timeout_ms == 300_000
     assert cfg.approval_ttl_seconds == 86_400
+    assert cfg.control_url == "http://forge-control:4001"
+    assert cfg.control_mode == "fake"
+    assert cfg.control_http_timeout_ms == 10_000
+    assert cfg.report_bucket == nil
   end
 end
 

@@ -98,6 +98,32 @@ defmodule ForgeWorkflows.Metrics do
     :ok
   end
 
+  def inc_compensation(status) when is_binary(status) do
+    ensure_table!()
+
+    :ets.update_counter(
+      @table,
+      {:workflow_compensations_total, status},
+      {2, 1},
+      {{:workflow_compensations_total, status}, 0}
+    )
+
+    :ok
+  end
+
+  def inc_rollback(result) when is_binary(result) do
+    ensure_table!()
+
+    :ets.update_counter(
+      @table,
+      {:workflow_rollbacks_total, result},
+      {2, 1},
+      {{:workflow_rollbacks_total, result}, 0}
+    )
+
+    :ok
+  end
+
   def snapshot do
     ensure_table!()
 

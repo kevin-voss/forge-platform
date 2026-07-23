@@ -67,7 +67,7 @@ test-integration: run
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"supervision"'
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"request_id":"integ-req-1"'
 	@grep -q '4302' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-workflows.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-workflows" in p; assert "elixir" in p; assert "/v1/workflows" in p; assert "/v1/runs" in p; assert "WorkflowRun" in p; assert "wake_at" in p; assert "RetryPolicy" in p; assert "parallel" in p; assert "/v1/triggers/test" in p; assert "TriggerConfig" in p; assert "agent" in p; assert "deployment.failed" in p; assert "approval" in p; assert "/v1/approvals" in p; assert "awaiting_approval" in p; assert "WorkflowApproval" in p'
+	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-workflows.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-workflows" in p; assert "elixir" in p; assert "/v1/workflows" in p; assert "/v1/runs" in p; assert "WorkflowRun" in p; assert "wake_at" in p; assert "RetryPolicy" in p; assert "parallel" in p; assert "/v1/triggers/test" in p; assert "TriggerConfig" in p; assert "agent" in p; assert "deployment.failed" in p; assert "approval" in p; assert "/v1/approvals" in p; assert "awaiting_approval" in p; assert "WorkflowApproval" in p; assert "compensate" in p; assert "rolled_back" in p; assert "report_ref" in p; assert "compensating" in p; assert "control.rollback_deployment" in p'
 	@$(MAKE) -C $(ROOT_DIR) lint-openapi
 	@# List definitions
 	@curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/workflows" | python3 -c 'import sys,json; d=json.load(sys.stdin); names={w["name"] for w in d["workflows"]}; assert "fixture-log" in names'
@@ -241,6 +241,70 @@ test-integration: run
 		done; \
 		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/approvals/$$AID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="expired", d'; \
 		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="completed", d; steps={s["id"]:s for s in d["steps"]}; assert steps["approve-rollback"]["output"]["decision"]=="expired"; assert steps["after-approve"]["status"]=="skipped"; assert steps["close"]["status"]=="completed"'
+	@# Auto-compensation on forward failure (reverse order; Control rollback recorded)
+	@RID=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' -H 'content-type: application/json' \
+		-XPOST "http://127.0.0.1:$(HOST_PORT)/v1/workflows/fixture-compensation-fail/runs" \
+		-d '{"input":{"event":{"deployment_id":"dep-comp-fail-1"}}}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])'); \
+		for i in $$(seq 1 60); do \
+			STATUS=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])'); \
+			if [ "$$STATUS" = "failed" ] || [ "$$STATUS" = "completed" ]; then break; fi; \
+			sleep 0.25; \
+		done; \
+		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="failed", d; assert d.get("result",{}).get("rolled_back") is True, d; saga=d["result"].get("report",{}).get("saga") or d["result"].get("saga") or []; by={e["step_id"]:e for e in saga}; assert by["apply-a"]["status"]=="compensated"; assert by["apply-b"]["status"]=="compensated"; assert by["apply-b"]["compensator"]=="control.rollback_deployment"'; \
+		$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q 'control.rollback_deployment' || \
+			$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q 'compensation finished'
+	@# Compensator failure recorded; remaining compensators still attempted
+	@RID=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' -H 'content-type: application/json' \
+		-XPOST "http://127.0.0.1:$(HOST_PORT)/v1/workflows/fixture-compensation-partial/runs" \
+		-d '{"input":{"event":{"deployment_id":"dep-comp-partial-1"}}}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])'); \
+		for i in $$(seq 1 60); do \
+			STATUS=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])'); \
+			if [ "$$STATUS" = "failed" ] || [ "$$STATUS" = "completed" ]; then break; fi; \
+			sleep 0.25; \
+		done; \
+		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="failed", d; saga=d["result"].get("report",{}).get("saga") or d["result"].get("saga") or []; by={e["step_id"]:e for e in saga}; assert by["apply-ok"]["status"]=="compensated"; assert by["apply-bad"]["status"]=="failed"; assert by["apply-last"]["status"]=="compensated"'
+	@# Approved rollback → compensators + report.store with rolled_back=true
+	@RID=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' -H 'content-type: application/json' \
+		-XPOST "http://127.0.0.1:$(HOST_PORT)/v1/workflows/fixture-compensation-approve/runs" \
+		-d '{"input":{"event":{"deployment_id":"dep-comp-appr-1"}}}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])'); \
+		for i in $$(seq 1 40); do \
+			STATUS=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])'); \
+			if [ "$$STATUS" = "awaiting_approval" ]; then break; fi; \
+			sleep 0.25; \
+		done; \
+		AID=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["pending_approval"]["id"])'); \
+		curl -sf -H 'X-Forge-Project: $(PROJECT)' -H 'X-Forge-Actor: alice' -XPOST "http://127.0.0.1:$(HOST_PORT)/v1/approvals/$$AID/approve" >/dev/null; \
+		for i in $$(seq 1 60); do \
+			STATUS=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])'); \
+			if [ "$$STATUS" = "completed" ] || [ "$$STATUS" = "failed" ]; then break; fi; \
+			sleep 0.25; \
+		done; \
+		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="completed", d; assert d.get("result",{}).get("rolled_back") is True, d; assert d["result"].get("report_ref"), d; steps={s["id"]:s for s in d["steps"]}; assert steps["do-rollback"]["status"]=="completed"; assert steps["finalize"]["status"]=="completed"; assert steps["finalize"]["output"]["rolled_back"] is True'
+	@# Crash mid-compensation → resume remaining compensators exactly once
+	@RID=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' -H 'content-type: application/json' \
+		-XPOST "http://127.0.0.1:$(HOST_PORT)/v1/workflows/fixture-compensation-fail/runs" \
+		-d '{"input":{"event":{"deployment_id":"dep-comp-crash-1"}}}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])'); \
+		for i in $$(seq 1 60); do \
+			STATUS=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])'); \
+			if [ "$$STATUS" = "failed" ]; then break; fi; \
+			sleep 0.25; \
+		done; \
+		docker exec forge-postgres psql -U forge -d forge_workflows -v ON_ERROR_STOP=1 -c "\
+			UPDATE workflow_saga_log SET status='pending', result=NULL, error=NULL, updated_at=NOW() \
+			WHERE run_id='$$RID' AND step_id='apply-a'; \
+			UPDATE workflow_saga_log SET status='compensated', updated_at=NOW() \
+			WHERE run_id='$$RID' AND step_id='apply-b'; \
+			UPDATE workflow_runs SET status='compensating', current_step='__compensation__', result=NULL, error=NULL, updated_at=NOW() \
+			WHERE id='$$RID'; \
+		" >/dev/null; \
+		$(COMPOSE) restart $(SERVICE) >/dev/null; \
+		$(MAKE) wait; \
+		for i in $$(seq 1 60); do \
+			STATUS=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])'); \
+			if [ "$$STATUS" = "failed" ] || [ "$$STATUS" = "completed" ]; then break; fi; \
+			sleep 0.5; \
+		done; \
+		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="failed", d; assert d.get("result",{}).get("rolled_back") is True, d; saga=d["result"].get("report",{}).get("saga") or d["result"].get("saga") or []; by={e["step_id"]:e for e in saga}; assert by["apply-a"]["status"]=="compensated"; assert by["apply-b"]["status"]=="compensated"; assert all(e["status"]!="pending" for e in saga)'
 	@# Invalid PORT fails startup.
 	@docker rm -f forge-workflows-bad-port >/dev/null 2>&1 || true
 	@if docker run --name forge-workflows-bad-port \
@@ -261,7 +325,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (definitions, durable runs, resume, retry/delay/parallel/conditional/timeout, event triggers, agent steps, durable approvals, project isolation, OpenAPI)."
+	@echo "Integration checks passed (definitions, durable runs, resume, retry/delay/parallel/conditional/timeout, event triggers, agent steps, durable approvals, saga compensation/rollback, project isolation, OpenAPI)."
 
 docker-run: run
 

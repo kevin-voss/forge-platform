@@ -34,6 +34,11 @@ defmodule ForgeWorkflows.OpenAPIContractTest do
       assert text =~ "/v1/approvals"
       assert text =~ "awaiting_approval"
       assert text =~ "WorkflowApproval"
+      assert text =~ "compensate"
+      assert text =~ "rolled_back"
+      assert text =~ "report_ref"
+      assert text =~ "compensating"
+      assert text =~ "control.rollback_deployment"
     end
   end
 

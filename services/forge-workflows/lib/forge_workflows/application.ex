@@ -40,6 +40,14 @@ defmodule ForgeWorkflows.Application do
           )
         end
 
+        if cfg.control_mode != "live" do
+          Application.put_env(
+            :forge_workflows,
+            :control_client,
+            ForgeWorkflows.Clients.ControlClient.Default
+          )
+        end
+
         if not cfg.events_enabled do
           Application.put_env(
             :forge_workflows,
@@ -57,6 +65,7 @@ defmodule ForgeWorkflows.Application do
           triggers: length(ForgeWorkflows.Triggers.Registry.event_types()),
           events_enabled: cfg.events_enabled,
           agents_mode: cfg.agents_mode,
+          control_mode: cfg.control_mode,
           supervision: [
             "Repo",
             "Migrator",
@@ -73,7 +82,8 @@ defmodule ForgeWorkflows.Application do
           scheduler_tick_ms: cfg.scheduler_tick_ms,
           agent_poll_ms: cfg.agent_poll_ms,
           agent_step_timeout_ms: cfg.agent_step_timeout_ms,
-          approval_ttl_seconds: cfg.approval_ttl_seconds
+          approval_ttl_seconds: cfg.approval_ttl_seconds,
+          report_bucket: cfg.report_bucket
         })
 
         [

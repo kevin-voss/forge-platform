@@ -1,0 +1,17 @@
+name: fixture-compensation-partial
+steps:
+  - id: apply-ok
+    type: task
+    action: control.apply
+    compensate: noop.compensate_ok
+  - id: apply-bad
+    type: task
+    action: control.apply
+    compensate: fail.compensate
+  - id: apply-last
+    type: task
+    action: control.apply
+    compensate: noop.compensate_last
+  - id: boom
+    type: task
+    action: fail

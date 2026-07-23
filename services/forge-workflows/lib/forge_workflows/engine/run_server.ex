@@ -9,10 +9,13 @@ defmodule ForgeWorkflows.Engine.RunServer do
   alias ForgeWorkflows.JsonLog
   alias ForgeWorkflows.Metrics
   alias ForgeWorkflows.Runs
+  alias ForgeWorkflows.Saga.Compensator
+  alias ForgeWorkflows.Saga.Log, as: SagaLog
   alias ForgeWorkflows.Steps.Approval
   alias ForgeWorkflows.Steps.Conditional
   alias ForgeWorkflows.Steps.Delay
   alias ForgeWorkflows.Steps.Parallel
+  alias ForgeWorkflows.Steps.Report
   alias ForgeWorkflows.Steps.Retry
   alias ForgeWorkflows.Steps.Timeout
 
@@ -77,6 +80,12 @@ defmodule ForgeWorkflows.Engine.RunServer do
       %{status: status} when status in ["completed", "failed"] ->
         :done
 
+      %{status: "compensating"} = run ->
+        case finish_compensation(run_id, run.input || %{}, run.project_id, "resume") do
+          {:ok, _} -> :done
+          {:error, reason} -> {:error, reason}
+        end
+
       run ->
         case Loader.get(run.workflow) do
           nil ->
@@ -116,9 +125,9 @@ defmodule ForgeWorkflows.Engine.RunServer do
     end)
     |> case do
       :continue ->
-        result = %{"ok" => true}
+        result = final_run_result(run_id)
         _ = Runs.mark_run_completed(run_id, result)
-        log("run completed", run_id, %{status: "completed"})
+        log("run completed", run_id, %{status: "completed", rolled_back: result["rolled_back"]})
         :done
 
       :waiting ->
@@ -128,6 +137,28 @@ defmodule ForgeWorkflows.Engine.RunServer do
         {:error, reason}
     end
   end
+
+  defp final_run_result(run_id) do
+    saga = SagaLog.list_for_run(run_id)
+    rolled_back = Enum.any?(saga, &(&1.status == "compensated"))
+
+    report =
+      case Runs.get_step(run_id, "finalize") do
+        %{output: %{"report_ref" => _} = output} -> output
+        _ -> nil
+      end
+
+    %{
+      "ok" => true,
+      "rolled_back" => rolled_back
+    }
+    |> maybe_put_result("report", report)
+    |> maybe_put_result("report_ref", report && report["report_ref"])
+    |> maybe_put_result("saga", if(saga != [], do: SagaLog.to_api(saga)))
+  end
+
+  defp maybe_put_result(map, _key, nil), do: map
+  defp maybe_put_result(map, key, value), do: Map.put(map, key, value)
 
   defp handle_step(run_id, step_def, by_id, input, project_id, cfg) do
     step_id = step_def.id
@@ -313,30 +344,111 @@ defmodule ForgeWorkflows.Engine.RunServer do
   end
 
   defp execute_actionable(run_id, step_def, step, input, project_id, cfg) do
-    case StepExecutor.execute(step_def, input,
-           attempt: step.attempt,
-           timeout_ms: cfg.default_step_timeout_ms,
-           project_id: project_id,
-           agent_poll_ms: cfg.agent_poll_ms,
-           agent_step_timeout_ms: cfg.agent_step_timeout_ms
-         ) do
-      {:ok, output} ->
-        case Runs.complete_step(run_id, step_def.id, output) do
-          {:ok, _} ->
-            log("step completed", run_id, %{step_id: step_def.id, status: "completed"})
-            {:cont, :continue}
+    action = step_def[:action] || step_def["action"]
 
-          {:error, reason} ->
-            _ = Runs.mark_run_failed(run_id, "failed to persist step: #{inspect(reason)}")
-            {:halt, {:error, reason}}
-        end
+    if action == "rollback" do
+      execute_explicit_rollback(run_id, step_def, input, project_id)
+    else
+      case StepExecutor.execute(step_def, input,
+             attempt: step.attempt,
+             timeout_ms: cfg.default_step_timeout_ms,
+             project_id: project_id,
+             run_id: run_id,
+             agent_poll_ms: cfg.agent_poll_ms,
+             agent_step_timeout_ms: cfg.agent_step_timeout_ms,
+             rolled_back: run_rolled_back?(run_id)
+           ) do
+        {:ok, output} ->
+          complete_forward_step(run_id, step_def, output, input)
 
-      {:error, reason} ->
-        handle_failure(run_id, step_def, step, reason)
+        {:error, reason} ->
+          handle_failure(run_id, step_def, step, reason, input, project_id)
+      end
     end
   end
 
-  defp handle_failure(run_id, step_def, step, reason) do
+  defp execute_explicit_rollback(run_id, step_def, input, project_id) do
+    _ = Runs.mark_run_compensating(run_id)
+
+    case Compensator.run(run_id,
+           project_id: project_id,
+           input: input,
+           trigger: "approved_rollback"
+         ) do
+      {:ok, report} ->
+        output = %{
+          "action" => "rollback",
+          "rolled_back" => report["rolled_back"] == true,
+          "report_ref" => report["report_ref"],
+          "saga" => report["saga"]
+        }
+
+        case Runs.complete_step(run_id, step_def.id, output) do
+          {:ok, _} ->
+            _ = Runs.mark_run_running(run_id, step_def.id)
+            log("approved rollback compensated", run_id, %{step_id: step_def.id})
+            {:cont, :continue}
+
+          {:error, reason} ->
+            {:halt, {:error, reason}}
+        end
+
+      {:error, report} ->
+        result = Report.build_run_result(report, false)
+        _ = Runs.fail_step(run_id, step_def.id, "compensation failed")
+        _ = Runs.mark_run_failed(run_id, "compensation failed", result)
+        {:halt, {:error, "compensation failed"}}
+    end
+  end
+
+  defp complete_forward_step(run_id, step_def, output, input) do
+    case Runs.complete_step(run_id, step_def.id, output) do
+      {:ok, _} ->
+        _ = maybe_record_compensator(run_id, step_def, output, input)
+        log("step completed", run_id, %{step_id: step_def.id, status: "completed"})
+        {:cont, :continue}
+
+      {:error, reason} ->
+        _ = Runs.mark_run_failed(run_id, "failed to persist step: #{inspect(reason)}")
+        {:halt, {:error, reason}}
+    end
+  end
+
+  defp maybe_record_compensator(run_id, step_def, output, input) do
+    case step_def[:compensate] || step_def["compensate"] do
+      compensator when is_binary(compensator) and compensator != "" ->
+        args = %{
+          "deployment_id" =>
+            Map.get(output, "deployment_id") ||
+              get_in(input, ["event", "deployment_id"]) ||
+              Map.get(input, "deployment_id"),
+          "forward_output" => output
+        }
+
+        case SagaLog.record(run_id, step_def.id, compensator, args) do
+          {:ok, _} ->
+            log("saga compensator recorded", run_id, %{
+              step_id: step_def.id,
+              compensator: compensator
+            })
+
+            :ok
+
+          {:error, reason} ->
+            log("saga record failed", run_id, %{
+              step_id: step_def.id,
+              error: inspect(reason)
+            })
+
+            :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp handle_failure(run_id, step_def, step, reason, input, project_id) do
     policy = Map.get(step_def, :retry)
 
     case policy && Retry.schedule(policy, step.attempt) do
@@ -365,10 +477,49 @@ defmodule ForgeWorkflows.Engine.RunServer do
       _ ->
         fail_reason = if reason == "timeout", do: "timeout", else: reason
         _ = Runs.fail_step(run_id, step_def.id, fail_reason)
-        _ = Runs.mark_run_failed(run_id, fail_reason)
         log("step failed", run_id, %{step_id: step_def.id, status: "failed", error: fail_reason})
-        {:halt, {:error, fail_reason}}
+
+        if SagaLog.list_for_run(run_id) != [] do
+          _ = Runs.mark_run_compensating(run_id)
+
+          case finish_compensation(run_id, input, project_id, "auto_failure", fail_reason) do
+            {:ok, _} -> {:halt, {:error, fail_reason}}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+        else
+          _ = Runs.mark_run_failed(run_id, fail_reason)
+          {:halt, {:error, fail_reason}}
+        end
     end
+  end
+
+  defp finish_compensation(run_id, input, project_id, trigger, fail_reason \\ nil) do
+    case Compensator.run(run_id, project_id: project_id, input: input, trigger: trigger) do
+      {:ok, report} ->
+        result =
+          Report.build_run_result(report, false)
+          |> Map.put("failure", fail_reason || trigger)
+
+        error = fail_reason || "compensated"
+        _ = Runs.mark_run_failed(run_id, error, result)
+        log("compensation complete; run failed", run_id, %{trigger: trigger, rolled_back: true})
+        {:ok, report}
+
+      {:error, report} ->
+        result =
+          Report.build_run_result(report, false)
+          |> Map.put("failure", fail_reason || trigger)
+
+        error = fail_reason || "compensation failed"
+        _ = Runs.mark_run_failed(run_id, error, result)
+        log("compensation incomplete; run failed", run_id, %{trigger: trigger})
+        {:error, error}
+    end
+  end
+
+  defp run_rolled_back?(run_id) do
+    SagaLog.list_for_run(run_id)
+    |> Enum.any?(&(&1.status == "compensated"))
   end
 
   defp resolve_branches(step_def, by_id) do

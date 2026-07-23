@@ -1,0 +1,13 @@
+name: fixture-compensation-fail
+steps:
+  - id: apply-a
+    type: task
+    action: control.apply
+    compensate: noop.compensate_a
+  - id: apply-b
+    type: task
+    action: control.apply
+    compensate: control.rollback_deployment
+  - id: boom
+    type: task
+    action: fail
