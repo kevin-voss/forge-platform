@@ -4,10 +4,12 @@ import forge.control.repo.instant
 import forge.control.repo.runSql
 import forge.control.repo.uuid
 import forge.control.repo.withConnection
+import forge.control.scheduler.model.PlacementAffinity
 import forge.control.scheduler.model.PlacementTrace
 import forge.control.scheduler.model.PlatformSpec
 import forge.control.scheduler.model.ResourceBundle
 import forge.control.scheduler.model.Toleration
+import forge.control.scheduler.model.TopologySpreadConstraint
 import forge.control.scheduler.model.UnschedulableReasonEntry
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
@@ -44,6 +46,9 @@ data class Placement(
     val nodeSelector: Map<String, String>? = null,
     val tolerations: List<Toleration> = emptyList(),
     val platform: PlatformSpec? = null,
+    val affinity: PlacementAffinity? = null,
+    val topologySpreadConstraints: List<TopologySpreadConstraint> = emptyList(),
+    val workloadLabels: Map<String, String> = emptyMap(),
 ) {
     val unschedulableReasons: List<UnschedulableReasonEntry>
         get() = trace?.filters
@@ -68,6 +73,12 @@ interface PlacementStore {
 
     /** Node ids that already host a placed replica of [serviceId]. */
     fun nodeIdsWithPlacedService(serviceId: String): Set<String>
+
+    /** All placed replicas (any service). */
+    fun listPlaced(): List<Placement>
+
+    /** Placed replicas for [serviceId]. */
+    fun listPlacedByService(serviceId: String): List<Placement>
 
     fun listPendingFifo(limit: Int = 1000): List<Placement>
 
@@ -107,10 +118,12 @@ class JdbcPlacementStore(
                     id, deployment_id, replica_index, node_id, strategy, reason, created_at,
                     status, anti_affinity, slots, service_id, rescheduled_from_node,
                     requests_json, limits_json, trace_json,
-                    node_selector_json, tolerations_json, platform_json
+                    node_selector_json, tolerations_json, platform_json,
+                    affinity_json, topology_spread_json
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb
+                    ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb,
+                    ?::jsonb, ?::jsonb
                 )
                 ON CONFLICT (deployment_id, replica_index)
                     WHERE status IN ('placed', 'pending')
@@ -149,6 +162,16 @@ class JdbcPlacementStore(
                     ),
                 )
                 ps.setString(18, placement.platform?.let { placementJson.encodeToString(it) })
+                ps.setString(19, placement.affinity?.let { placementJson.encodeToString(it) })
+                ps.setString(
+                    20,
+                    placement.topologySpreadConstraints.takeIf { it.isNotEmpty() }?.let {
+                        placementJson.encodeToString(
+                            ListSerializer(TopologySpreadConstraint.serializer()),
+                            it,
+                        )
+                    },
+                )
                 ps.executeUpdate()
             }
             find(conn, placement.deploymentId, placement.replicaIndex)
@@ -168,7 +191,8 @@ class JdbcPlacementStore(
                     SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
                            status, anti_affinity, slots, service_id, rescheduled_from_node,
                            requests_json, limits_json, trace_json,
-                           node_selector_json, tolerations_json, platform_json
+                           node_selector_json, tolerations_json, platform_json,
+                           affinity_json, topology_spread_json
                     FROM placements
                     WHERE deployment_id = ?
                     """.trimIndent(),
@@ -227,6 +251,33 @@ class JdbcPlacementStore(
         }
     }
 
+    override fun listPlaced(): List<Placement> = runSql {
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
+                       status, anti_affinity, slots, service_id, rescheduled_from_node,
+                       requests_json, limits_json, trace_json,
+                       node_selector_json, tolerations_json, platform_json,
+                           affinity_json, topology_spread_json
+                FROM placements
+                WHERE status = 'placed'
+                  AND node_id IS NOT NULL
+                ORDER BY created_at ASC, replica_index ASC
+                """.trimIndent(),
+            ).use { ps ->
+                ps.executeQuery().use { rs ->
+                    buildList {
+                        while (rs.next()) add(readPlacement(rs))
+                    }
+                }
+            }
+        }
+    }
+
+    override fun listPlacedByService(serviceId: String): List<Placement> =
+        listPlaced().filter { it.serviceId == serviceId }
+
     override fun listPendingFifo(limit: Int): List<Placement> = runSql {
         dataSource.withConnection { conn ->
             conn.prepareStatement(
@@ -234,7 +285,8 @@ class JdbcPlacementStore(
                 SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
                        status, anti_affinity, slots, service_id, rescheduled_from_node,
                        requests_json, limits_json, trace_json,
-                       node_selector_json, tolerations_json, platform_json
+                       node_selector_json, tolerations_json, platform_json,
+                           affinity_json, topology_spread_json
                 FROM placements
                 WHERE status = 'pending'
                 ORDER BY created_at ASC, replica_index ASC
@@ -299,7 +351,8 @@ class JdbcPlacementStore(
                 SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
                        status, anti_affinity, slots, service_id, rescheduled_from_node,
                        requests_json, limits_json, trace_json,
-                       node_selector_json, tolerations_json, platform_json
+                       node_selector_json, tolerations_json, platform_json,
+                           affinity_json, topology_spread_json
                 FROM placements
                 WHERE id = ?
                 ORDER BY created_at DESC
@@ -323,7 +376,8 @@ class JdbcPlacementStore(
                     SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
                            status, anti_affinity, slots, service_id, rescheduled_from_node,
                            requests_json, limits_json, trace_json,
-                           node_selector_json, tolerations_json, platform_json
+                           node_selector_json, tolerations_json, platform_json,
+                           affinity_json, topology_spread_json
                     FROM placements
                     WHERE node_id = ?
                     """.trimIndent(),
@@ -367,7 +421,8 @@ class JdbcPlacementStore(
                 SELECT l.id, l.deployment_id, l.replica_index, l.node_id, l.strategy, l.reason,
                        l.created_at, l.status, l.anti_affinity, l.slots, l.service_id,
                        l.rescheduled_from_node, l.requests_json, l.limits_json, l.trace_json,
-                       l.node_selector_json, l.tolerations_json, l.platform_json
+                       l.node_selector_json, l.tolerations_json, l.platform_json,
+                       l.affinity_json, l.topology_spread_json
                 FROM placements l
                 WHERE l.status = 'lost'
                   AND NOT EXISTS (
@@ -408,7 +463,8 @@ class JdbcPlacementStore(
                 SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
                        status, anti_affinity, slots, service_id, rescheduled_from_node,
                        requests_json, limits_json, trace_json,
-                       node_selector_json, tolerations_json, platform_json
+                       node_selector_json, tolerations_json, platform_json,
+                           affinity_json, topology_spread_json
                 FROM placements
                 WHERE deployment_id = ? AND replica_index = ?
                 """.trimIndent(),
@@ -437,6 +493,8 @@ class JdbcPlacementStore(
         val selectorRaw = runCatching { rs.getString("node_selector_json") }.getOrNull()
         val tolerationsRaw = runCatching { rs.getString("tolerations_json") }.getOrNull()
         val platformRaw = runCatching { rs.getString("platform_json") }.getOrNull()
+        val affinityRaw = runCatching { rs.getString("affinity_json") }.getOrNull()
+        val spreadRaw = runCatching { rs.getString("topology_spread_json") }.getOrNull()
         return Placement(
             id = rs.getString("id"),
             deploymentId = rs.uuid("deployment_id"),
@@ -456,6 +514,8 @@ class JdbcPlacementStore(
             nodeSelector = decodeSelector(selectorRaw),
             tolerations = decodeTolerations(tolerationsRaw),
             platform = decodePlatform(platformRaw),
+            affinity = decodeAffinity(affinityRaw),
+            topologySpreadConstraints = decodeSpread(spreadRaw),
         )
     }
 
@@ -496,6 +556,23 @@ class JdbcPlacementStore(
             placementJson.decodeFromString(PlatformSpec.serializer(), raw)
         }.getOrNull()
     }
+
+    private fun decodeAffinity(raw: String?): PlacementAffinity? {
+        if (raw.isNullOrBlank() || raw == "{}") return null
+        return runCatching {
+            placementJson.decodeFromString(PlacementAffinity.serializer(), raw)
+        }.getOrNull()
+    }
+
+    private fun decodeSpread(raw: String?): List<TopologySpreadConstraint> {
+        if (raw.isNullOrBlank() || raw == "[]") return emptyList()
+        return runCatching {
+            placementJson.decodeFromString(
+                ListSerializer(TopologySpreadConstraint.serializer()),
+                raw,
+            )
+        }.getOrDefault(emptyList())
+    }
 }
 
 /** In-memory store for unit tests. */
@@ -535,6 +612,16 @@ class InMemoryPlacementStore : PlacementStore {
                     !it.nodeId.isNullOrBlank()
             }
             .mapNotNullTo(mutableSetOf()) { it.nodeId }
+
+    override fun listPlaced(): List<Placement> =
+        rows.values
+            .filter {
+                it.status == PendingQueue.STATUS_PLACED && !it.nodeId.isNullOrBlank()
+            }
+            .sortedWith(compareBy({ it.createdAt }, { it.replicaIndex }))
+
+    override fun listPlacedByService(serviceId: String): List<Placement> =
+        listPlaced().filter { it.serviceId == serviceId }
 
     override fun listPendingFifo(limit: Int): List<Placement> =
         rows.values

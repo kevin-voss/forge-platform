@@ -61,8 +61,12 @@ pub struct Config {
     pub node_labels: std::collections::HashMap<String, String>,
     /// Operator taints `key=value:Effect,...` (`FORGE_NODE_TAINTS`).
     pub node_taints: Vec<NodeTaintConfig>,
-    /// Optional provider label value (`FORGE_NODE_PROVIDER`).
+    /// Optional provider label value (`FORGE_NODE_PROVIDER`, default `docker`).
     pub node_provider: Option<String>,
+    /// Topology zone (`FORGE_NODE_ZONE`, default `default`).
+    pub node_zone: String,
+    /// Topology region (`FORGE_NODE_REGION`, default `default`).
+    pub node_region: String,
     /// Optional NodePool id (`FORGE_NODE_POOL_ID`).
     pub node_pool_id: Option<String>,
     /// Single-use bootstrap token for join handshake (`FORGE_NODE_BOOTSTRAP_TOKEN`).
@@ -373,7 +377,10 @@ impl Config {
         let node_provider = env::var("FORGE_NODE_PROVIDER")
             .ok()
             .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
+            .filter(|s| !s.is_empty())
+            .or_else(|| Some("docker".to_string()));
+        let node_zone = non_empty_env("FORGE_NODE_ZONE", "default");
+        let node_region = non_empty_env("FORGE_NODE_REGION", "default");
         let node_pool_id = env::var("FORGE_NODE_POOL_ID")
             .ok()
             .map(|s| s.trim().to_string())
@@ -586,6 +593,8 @@ impl Config {
             node_labels,
             node_taints,
             node_provider,
+            node_zone,
+            node_region,
             node_pool_id,
             bootstrap_token,
             key_dir,

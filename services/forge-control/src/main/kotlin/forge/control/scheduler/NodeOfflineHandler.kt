@@ -184,6 +184,8 @@ class NodeOfflineHandler(
             placement = PlacementSpec(
                 nodeSelector = lost.nodeSelector.orEmpty(),
                 tolerations = lost.tolerations,
+                affinity = lost.affinity,
+                topologySpreadConstraints = lost.topologySpreadConstraints,
             ),
             platform = lost.platform,
         )

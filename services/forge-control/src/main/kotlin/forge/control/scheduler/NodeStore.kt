@@ -16,28 +16,39 @@ import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import javax.sql.DataSource
 
-/** Optional scheduling identity supplied at node registration (25.02). */
+/** Optional scheduling identity supplied at node registration (25.02 / 25.03). */
 data class NodeSchedulingFacts(
     val agentLabels: Map<String, String> = emptyMap(),
     val poolLabels: Map<String, String> = emptyMap(),
     val taints: List<NodeTaint> = emptyList(),
     val architecture: String = "amd64",
     val os: String = "linux",
-    val provider: String = "unknown",
+    val provider: String = "docker",
+    val zone: String = "default",
+    val region: String = "default",
 ) {
-    /** True when the agent sent no operator labels/taints (safe to preserve prior). */
+    /** True when the agent sent no operator labels/taints/topology (safe to preserve prior). */
     fun lacksOperatorIdentity(): Boolean =
-        agentLabels.isEmpty() && poolLabels.isEmpty() && taints.isEmpty()
+        agentLabels.isEmpty() &&
+            poolLabels.isEmpty() &&
+            taints.isEmpty() &&
+            zone == "default" &&
+            region == "default" &&
+            (provider == "docker" || provider == "unknown")
 
     fun withPreservedOperatorIdentity(node: FleetNode): NodeSchedulingFacts =
         copy(
             agentLabels = node.labels.filterKeys { !it.startsWith("forge.dev/") },
             taints = node.taints,
-            provider = if (provider == "unknown") {
-                node.labels[NodeLabelMerger.LABEL_PROVIDER] ?: "unknown"
+            provider = if (provider == "unknown" || provider == "docker") {
+                node.provider.ifBlank {
+                    node.labels[NodeLabelMerger.LABEL_PROVIDER] ?: "docker"
+                }
             } else {
                 provider
             },
+            zone = if (zone == "default") node.zone.ifBlank { "default" } else zone,
+            region = if (region == "default") node.region.ifBlank { "default" } else region,
         )
 }
 
@@ -77,6 +88,9 @@ data class FleetNode(
     val taints: List<NodeTaint> = emptyList(),
     val architecture: String = "amd64",
     val os: String = "linux",
+    val zone: String = "default",
+    val region: String = "default",
+    val provider: String = "docker",
 ) {
     val keyRevoked: Boolean get() = keyRevokedAt != null
 }
@@ -177,11 +191,16 @@ class JdbcNodeStore(
             }
             val arch = effective.architecture.ifBlank { "amd64" }
             val os = effective.os.ifBlank { "linux" }
+            val zone = effective.zone.ifBlank { "default" }
+            val region = effective.region.ifBlank { "default" }
+            val provider = effective.provider.ifBlank { "docker" }.let {
+                if (it == "unknown") "docker" else it
+            }
             val merged = NodeLabelMerger.merge(
                 nodeId = id,
                 architecture = arch,
                 os = os,
-                provider = effective.provider,
+                provider = provider,
                 poolLabels = effective.poolLabels,
                 agentLabels = effective.agentLabels,
             )
@@ -197,8 +216,9 @@ class JdbcNodeStore(
                 """
                 INSERT INTO nodes (
                     id, address, capacity_json, allocation_json, status, last_heartbeat_at, registered_at,
-                    allocatable_json, reserved_json, labels_json, taints_json, architecture, os
-                ) VALUES (?, ?, ?::jsonb, '{}'::jsonb, 'online', ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?)
+                    allocatable_json, reserved_json, labels_json, taints_json, architecture, os,
+                    zone, region, provider
+                ) VALUES (?, ?, ?::jsonb, '{}'::jsonb, 'online', ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?, ?, ?, ?)
                 ON CONFLICT (id) DO UPDATE SET
                     address = EXCLUDED.address,
                     capacity_json = EXCLUDED.capacity_json,
@@ -209,7 +229,10 @@ class JdbcNodeStore(
                     labels_json = EXCLUDED.labels_json,
                     taints_json = EXCLUDED.taints_json,
                     architecture = EXCLUDED.architecture,
-                    os = EXCLUDED.os
+                    os = EXCLUDED.os,
+                    zone = EXCLUDED.zone,
+                    region = EXCLUDED.region,
+                    provider = EXCLUDED.provider
                 """.trimIndent(),
             ).use { ps ->
                 ps.setString(1, id)
@@ -223,6 +246,9 @@ class JdbcNodeStore(
                 ps.setString(9, taintsJson)
                 ps.setString(10, arch)
                 ps.setString(11, os)
+                ps.setString(12, zone)
+                ps.setString(13, region)
+                ps.setString(14, provider)
                 ps.executeUpdate()
             }
             find(conn, id) ?: error("node missing after register")
@@ -257,11 +283,16 @@ class JdbcNodeStore(
             }
             val arch = effective.architecture.ifBlank { "amd64" }
             val os = effective.os.ifBlank { "linux" }
+            val zone = effective.zone.ifBlank { "default" }
+            val region = effective.region.ifBlank { "default" }
+            val provider = effective.provider.ifBlank { "docker" }.let {
+                if (it == "unknown") "docker" else it
+            }
             val merged = NodeLabelMerger.merge(
                 nodeId = id,
                 architecture = arch,
                 os = os,
-                provider = effective.provider,
+                provider = provider,
                 poolLabels = effective.poolLabels,
                 agentLabels = effective.agentLabels,
             )
@@ -279,12 +310,13 @@ class JdbcNodeStore(
                     id, address, capacity_json, allocation_json, status,
                     last_heartbeat_at, registered_at,
                     wireguard_public_key, network_cidr, network_gateway, joined_at, key_revoked_at,
-                    allocatable_json, reserved_json, labels_json, taints_json, architecture, os
+                    allocatable_json, reserved_json, labels_json, taints_json, architecture, os,
+                    zone, region, provider
                 ) VALUES (
                     ?, ?, ?::jsonb, '{}'::jsonb, ?,
                     ?, ?,
                     ?, ?::cidr, ?::inet, ?, NULL,
-                    ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?
+                    ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?, ?, ?, ?
                 )
                 ON CONFLICT (id) DO UPDATE SET
                     address = EXCLUDED.address,
@@ -304,7 +336,10 @@ class JdbcNodeStore(
                     labels_json = EXCLUDED.labels_json,
                     taints_json = EXCLUDED.taints_json,
                     architecture = EXCLUDED.architecture,
-                    os = EXCLUDED.os
+                    os = EXCLUDED.os,
+                    zone = EXCLUDED.zone,
+                    region = EXCLUDED.region,
+                    provider = EXCLUDED.provider
                 """.trimIndent(),
             ).use { ps ->
                 ps.setString(1, id)
@@ -327,7 +362,10 @@ class JdbcNodeStore(
                 ps.setString(14, taintsJson)
                 ps.setString(15, arch)
                 ps.setString(16, os)
-                ps.setBoolean(17, clearKeyRevocation)
+                ps.setString(17, zone)
+                ps.setString(18, region)
+                ps.setString(19, provider)
+                ps.setBoolean(20, clearKeyRevocation)
                 ps.executeUpdate()
             }
             find(conn, id) ?: error("node missing after join register")
@@ -408,7 +446,7 @@ class JdbcNodeStore(
                        last_heartbeat_at, registered_at,
                        wireguard_public_key, network_cidr::text, network_gateway::text,
                        joined_at, key_revoked_at, allocatable_json, reserved_json,
-                       labels_json, taints_json, architecture, os
+                       labels_json, taints_json, architecture, os, zone, region, provider
                 FROM nodes
                 ORDER BY id
                 """.trimIndent(),
@@ -571,7 +609,7 @@ class JdbcNodeStore(
                    last_heartbeat_at, registered_at,
                    wireguard_public_key, network_cidr::text, network_gateway::text,
                    joined_at, key_revoked_at, allocatable_json, reserved_json,
-                   labels_json, taints_json, architecture, os
+                   labels_json, taints_json, architecture, os, zone, region, provider
             FROM nodes
             WHERE id = ?
             """.trimIndent(),
@@ -606,6 +644,12 @@ class JdbcNodeStore(
             ?.takeIf { it.isNotBlank() } ?: "amd64"
         val os = runCatching { rs.getString("os") }.getOrNull()
             ?.takeIf { it.isNotBlank() } ?: "linux"
+        val zone = runCatching { rs.getString("zone") }.getOrNull()
+            ?.takeIf { it.isNotBlank() } ?: "default"
+        val region = runCatching { rs.getString("region") }.getOrNull()
+            ?.takeIf { it.isNotBlank() } ?: "default"
+        val provider = runCatching { rs.getString("provider") }.getOrNull()
+            ?.takeIf { it.isNotBlank() } ?: "docker"
         return FleetNode(
             id = rs.getString("id"),
             address = rs.getString("address"),
@@ -629,6 +673,9 @@ class JdbcNodeStore(
             taints = decodeTaints(taintsRaw),
             architecture = architecture,
             os = os,
+            zone = zone,
+            region = region,
+            provider = provider,
         )
     }
 }
@@ -655,11 +702,16 @@ class InMemoryNodeStore(
         }
         val arch = effective.architecture.ifBlank { "amd64" }
         val os = effective.os.ifBlank { "linux" }
+        val zone = effective.zone.ifBlank { "default" }
+        val region = effective.region.ifBlank { "default" }
+        val provider = effective.provider.ifBlank { "docker" }.let {
+            if (it == "unknown") "docker" else it
+        }
         val merged = NodeLabelMerger.merge(
             nodeId = id,
             architecture = arch,
             os = os,
-            provider = effective.provider,
+            provider = provider,
             poolLabels = effective.poolLabels,
             agentLabels = effective.agentLabels,
         )
@@ -682,6 +734,9 @@ class InMemoryNodeStore(
             taints = effective.taints,
             architecture = arch,
             os = os,
+            zone = zone,
+            region = region,
+            provider = provider,
         )
         rows[id] = node
         return node
@@ -709,11 +764,16 @@ class InMemoryNodeStore(
         }
         val arch = effectiveFacts.architecture.ifBlank { "amd64" }
         val os = effectiveFacts.os.ifBlank { "linux" }
+        val zone = effectiveFacts.zone.ifBlank { "default" }
+        val region = effectiveFacts.region.ifBlank { "default" }
+        val provider = effectiveFacts.provider.ifBlank { "docker" }.let {
+            if (it == "unknown") "docker" else it
+        }
         val merged = NodeLabelMerger.merge(
             nodeId = id,
             architecture = arch,
             os = os,
-            provider = effectiveFacts.provider,
+            provider = provider,
             poolLabels = effectiveFacts.poolLabels,
             agentLabels = effectiveFacts.agentLabels,
         )
@@ -736,6 +796,9 @@ class InMemoryNodeStore(
             taints = effectiveFacts.taints,
             architecture = arch,
             os = os,
+            zone = zone,
+            region = region,
+            provider = provider,
         )
         rows[id] = node
         return node

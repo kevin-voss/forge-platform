@@ -1,9 +1,11 @@
 package forge.control.scheduler
 
 import forge.control.scheduler.model.AntiAffinity
+import forge.control.scheduler.model.NodeTopology
 import forge.control.scheduler.model.PlacementDecision
 import forge.control.scheduler.model.PlacementRequest
 import forge.control.scheduler.model.PlacementTrace
+import forge.control.scheduler.model.PlacementTraceScore
 import forge.control.scheduler.model.UnschedulableReasons
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.trace.Span
@@ -18,6 +20,9 @@ class FirstFitScheduler(
     private val antiAffinity: AntiAffinityFilter = AntiAffinityFilter.noop(),
     private val onSoftFallback: (() -> Unit)? = null,
     private val strictNodeSelector: Boolean = false,
+    private val workloadAffinity: WorkloadAffinityFilter = WorkloadAffinityFilter.noop(),
+    private val topologySpread: TopologySpreadFilter = TopologySpreadFilter.noop(),
+    private val placedReplicas: () -> List<Placement> = { emptyList() },
 ) : Scheduler {
     override fun place(request: PlacementRequest): PlacementDecision =
         CapacityAwarePlacement.place(
@@ -30,6 +35,11 @@ class FirstFitScheduler(
             pick = { candidates -> candidates.first() },
             reasonFor = { chosen, freeBefore -> "first-fit: ${chosen.id} free=$freeBefore" },
             strictNodeSelector = strictNodeSelector,
+            workloadAffinity = workloadAffinity,
+            topologySpread = topologySpread,
+            placedReplicas = placedReplicas,
+            scoreBase = { 0.0 },
+            useScorePick = false,
         )
 
     companion object {
@@ -37,7 +47,7 @@ class FirstFitScheduler(
     }
 }
 
-/** Shared capacity + anti-affinity placement loop for strategy schedulers. */
+/** Shared capacity + affinity + topology-spread placement loop for strategy schedulers. */
 internal object CapacityAwarePlacement {
     fun place(
         nodes: NodeStore,
@@ -49,6 +59,11 @@ internal object CapacityAwarePlacement {
         pick: (List<FleetNode>) -> FleetNode,
         reasonFor: (FleetNode, Int) -> String,
         strictNodeSelector: Boolean = false,
+        workloadAffinity: WorkloadAffinityFilter = WorkloadAffinityFilter.noop(),
+        topologySpread: TopologySpreadFilter = TopologySpreadFilter.noop(),
+        placedReplicas: () -> List<Placement> = { emptyList() },
+        scoreBase: (FleetNode) -> Double = { PlacementCapacity.freeSlots(it).toDouble() },
+        useScorePick: Boolean = true,
     ): PlacementDecision {
         val resolved = RequirementsResolver.resolve(request.requirements)
         val reserveReqs = resolved.toResourceRequirements()
@@ -88,7 +103,32 @@ internal object CapacityAwarePlacement {
             )
             trace = trace.withFilter("taints", taintResult.eliminated)
 
-            val filtered = taintResult.candidates
+            val affinity = request.placement.affinity
+            val requiredTerms = AntiAffinityFilter.expandRequired(
+                antiAffinity = request.antiAffinity,
+                serviceId = request.serviceId,
+                explicit = affinity?.requiredTerms().orEmpty(),
+            )
+            val preferredTerms = AntiAffinityFilter.expandPreferred(
+                antiAffinity = request.antiAffinity,
+                serviceId = request.serviceId,
+                explicit = affinity?.preferredTerms().orEmpty(),
+            )
+
+            val affinityResult = workloadAffinity.filter(taintResult.candidates, requiredTerms)
+            trace = trace.withFilter("workload_affinity", affinityResult.eliminated)
+
+            val spreadResult = topologySpread.filter(
+                candidates = affinityResult.candidates,
+                serviceId = request.serviceId,
+                constraints = request.placement.topologySpreadConstraints,
+                hardOnly = true,
+            )
+            trace = trace
+                .withFilter("topology_spread", spreadResult.eliminated)
+                .withSpreadRelaxed(spreadResult.spreadRelaxed)
+
+            val filtered = spreadResult.candidates
             Span.current().setAttribute(
                 AttributeKey.longKey("candidates"),
                 filtered.size.toLong(),
@@ -98,6 +138,15 @@ internal object CapacityAwarePlacement {
                 AttributeKey.stringArrayKey("filters_applied"),
                 trace.filterNames(),
             )
+            val topologyKeys = request.placement.topologySpreadConstraints
+                .map { it.topologyKey }
+                .distinct()
+            if (topologyKeys.isNotEmpty()) {
+                Span.current().setAttribute(
+                    AttributeKey.stringArrayKey("topology_keys_evaluated"),
+                    topologyKeys,
+                )
+            }
             resolved.cpuMillis?.let {
                 Span.current().setAttribute(AttributeKey.longKey("requested_cpu_millis"), it.toLong())
             }
@@ -121,17 +170,32 @@ internal object CapacityAwarePlacement {
                         !request.platform.isEmpty() ->
                         PlatformFilter.REASON
                     taintResult.candidates.isEmpty() -> TaintTolerationFilter.REASON
+                    affinityResult.candidates.isEmpty() && requiredTerms.isNotEmpty() ->
+                        if (request.antiAffinity == AntiAffinity.Hard &&
+                            (affinity == null || affinity.isEmpty())
+                        ) {
+                            "anti-affinity: no distinct node for service"
+                        } else {
+                            WorkloadAffinityFilter.REASON
+                        }
+                    spreadResult.candidates.isEmpty() &&
+                        request.placement.topologySpreadConstraints.isNotEmpty() ->
+                        TopologySpreadFilter.REASON
                     else -> UnschedulableReasons.summarize(
                         capacityEliminated +
                             selectorResult.eliminated +
                             platformResult.eliminated +
-                            taintResult.eliminated,
+                            taintResult.eliminated +
+                            affinityResult.eliminated +
+                            spreadResult.eliminated,
                     )
                 }
                 val allEliminated = capacityEliminated +
                     selectorResult.eliminated +
                     platformResult.eliminated +
-                    taintResult.eliminated
+                    taintResult.eliminated +
+                    affinityResult.eliminated +
+                    spreadResult.eliminated
                 return PlacementDecision.NoNodeAvailable(
                     reason = reason,
                     unschedulableReasons = allEliminated,
@@ -139,37 +203,100 @@ internal object CapacityAwarePlacement {
                 )
             }
 
-            val preferred = antiAffinity.filterPreferred(request.serviceId, filtered)
+            // Preserve 08.04 soft anti-affinity narrowing when no explicit topology fields.
+            val legacySoftOnly =
+                request.antiAffinity == AntiAffinity.Soft &&
+                    (affinity == null || affinity.isEmpty()) &&
+                    request.placement.topologySpreadConstraints.isEmpty()
+            val preferredNodes = if (legacySoftOnly) {
+                antiAffinity.filterPreferred(request.serviceId, filtered)
+            } else {
+                filtered
+            }
             val candidates = when {
-                preferred.isNotEmpty() -> preferred
-                request.antiAffinity == AntiAffinity.Hard -> {
-                    return PlacementDecision.NoNodeAvailable(
-                        reason = "anti-affinity: no distinct node for service",
-                        unschedulableReasons = capacityEliminated,
-                        trace = trace,
-                    )
-                }
-                else -> {
+                preferredNodes.isNotEmpty() -> preferredNodes
+                legacySoftOnly -> {
                     if (!softFallbackUsed) {
                         onSoftFallback?.invoke()
                         softFallbackUsed = true
                     }
                     filtered
                 }
+                else -> filtered
             }
 
-            val chosen = pick(candidates)
+            val placedAll = placedReplicas()
+            val scores = candidates.map { node ->
+                val base = scoreBase(node)
+                val spread = SpreadScorer.score(
+                    node = node,
+                    serviceId = request.serviceId,
+                    constraints = request.placement.topologySpreadConstraints,
+                    nodesById = nodes::find,
+                    placedForService = { sid -> placedAll.filter { it.serviceId == sid } },
+                )
+                val soft = SoftAffinityScorer.score(
+                    node = node,
+                    preferred = preferredTerms,
+                    nodesById = nodes::find,
+                    placed = { placedAll },
+                )
+                val total = base + spread + soft
+                PlacementTraceScore(
+                    nodeId = node.id,
+                    score = total,
+                    detail = "base=$base spread=$spread soft=$soft",
+                )
+            }
+            if (scores.isNotEmpty()) {
+                trace = trace.withScores(scores.sortedBy { it.nodeId })
+            }
+
+            val scorePick = useScorePick ||
+                request.placement.topologySpreadConstraints.isNotEmpty() ||
+                preferredTerms.isNotEmpty()
+            val chosen = if (scorePick) {
+                val winner = scores
+                    .sortedWith(
+                        compareByDescending<PlacementTraceScore> { it.score }
+                            .thenBy { it.nodeId },
+                    )
+                    .first()
+                candidates.first { it.id == winner.nodeId }
+            } else {
+                pick(candidates)
+            }
+
             val freeBefore = PlacementCapacity.freeSlots(chosen)
             if (!reservation.tryReserve(chosen.id, reserveReqs)) {
                 excluded.add(chosen.id)
                 continue
             }
             Span.current().setAttribute(AttributeKey.stringKey("node"), chosen.id)
+            if (!request.serviceId.isNullOrBlank()) {
+                val servicePlaced = placedAll.filter { it.serviceId == request.serviceId }
+                val nodeIds = (servicePlaced.mapNotNull { it.nodeId } + chosen.id).toSet()
+                val zones = nodeIds.mapNotNull { nodes.find(it)?.zone }.toSet()
+                Span.current().setAttribute(
+                    AttributeKey.longKey("distinct_nodes_used"),
+                    nodeIds.size.toLong(),
+                )
+                Span.current().setAttribute(
+                    AttributeKey.longKey("distinct_zones_used"),
+                    zones.size.toLong(),
+                )
+            }
             return PlacementDecision.Assigned(
                 nodeId = chosen.id,
                 strategy = strategy,
                 reason = reasonFor(chosen, freeBefore),
                 trace = trace,
+                topology = NodeTopology(
+                    node = chosen.id,
+                    zone = chosen.zone,
+                    region = chosen.region,
+                    provider = chosen.provider,
+                ),
             )
         }
     }

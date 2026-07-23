@@ -25,6 +25,7 @@ data class PlacementTrace(
     val strategy: String? = null,
     val filters: List<PlacementTraceFilter> = emptyList(),
     val scores: List<PlacementTraceScore> = emptyList(),
+    @SerialName("spread_relaxed") val spreadRelaxed: Boolean = false,
 ) {
     fun withCapacityFilter(eliminated: List<UnschedulableReasonEntry>): PlacementTrace =
         withFilter("capacity", eliminated)
@@ -35,6 +36,11 @@ data class PlacementTrace(
         )
 
     fun withStrategy(strategy: String): PlacementTrace = copy(strategy = strategy)
+
+    fun withScores(scores: List<PlacementTraceScore>): PlacementTrace = copy(scores = scores)
+
+    fun withSpreadRelaxed(relaxed: Boolean): PlacementTrace =
+        copy(spreadRelaxed = spreadRelaxed || relaxed)
 
     fun filterNames(): List<String> = filters.map { it.name }
 }

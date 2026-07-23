@@ -6,9 +6,12 @@ import forge.control.scheduler.LimitsNarrowerThanRequestsException
 import forge.control.scheduler.PlaceResult
 import forge.control.scheduler.PlacementService
 import forge.control.scheduler.RequirementsResolver
+import forge.control.scheduler.NodeStore
 import forge.control.scheduler.model.AntiAffinity
+import forge.control.scheduler.model.NodeTopology
 import forge.control.scheduler.model.PlacementSpec
 import forge.control.scheduler.model.ResourceRequirements
+import forge.control.scheduler.model.WhenUnsatisfiable
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -18,7 +21,10 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import java.util.UUID
 
-fun Route.placementRoutes(placements: PlacementService) {
+fun Route.placementRoutes(
+    placements: PlacementService,
+    nodes: NodeStore? = null,
+) {
     route("/v1/placements") {
         post {
             val body = call.receive<CreatePlacementRequest>()
@@ -67,9 +73,21 @@ fun Route.placementRoutes(placements: PlacementService) {
                 )
             }
 
+            val topologySpread = try {
+                body.placement?.resolvedTopologySpread().orEmpty().onEach {
+                    WhenUnsatisfiable.parse(it.whenUnsatisfiable)
+                }
+            } catch (e: IllegalArgumentException) {
+                throw ApiException.BadRequest(
+                    e.message ?: "invalid topologySpreadConstraints",
+                    mapOf("field" to "placement.topologySpreadConstraints"),
+                )
+            }
             val placementSpec = PlacementSpec(
                 nodeSelector = body.placement?.resolvedNodeSelector().orEmpty(),
                 tolerations = body.placement?.resolvedTolerations().orEmpty(),
+                affinity = body.placement?.affinity,
+                topologySpreadConstraints = topologySpread,
             )
             val result = try {
                 placements.placeAndPersist(
@@ -103,12 +121,12 @@ fun Route.placementRoutes(placements: PlacementService) {
                 is PlaceResult.Pending ->
                     call.respond(
                         if (result.created) HttpStatusCode.Accepted else HttpStatusCode.OK,
-                        result.placement.toResponse(),
+                        result.placement.toResponse(topologyOf(result.placement.nodeId, nodes)),
                     )
                 is PlaceResult.Ok ->
                     call.respond(
                         if (result.created) HttpStatusCode.Created else HttpStatusCode.OK,
-                        result.placement.toResponse(),
+                        result.placement.toResponse(topologyOf(result.placement.nodeId, nodes)),
                     )
             }
         }
@@ -130,11 +148,19 @@ fun Route.placementRoutes(placements: PlacementService) {
                         mapOf("field" to "deployment"),
                     )
                 }
-                call.respond(placements.listPending().map { it.toResponse() })
+                call.respond(
+                    placements.listPending().map {
+                        it.toResponse(topologyOf(it.nodeId, nodes))
+                    },
+                )
                 return@get
             }
             val deploymentId = parseDeploymentId(deploymentRaw)
-            call.respond(placements.list(deploymentId, status).map { it.toResponse() })
+            call.respond(
+                placements.list(deploymentId, status).map {
+                    it.toResponse(topologyOf(it.nodeId, nodes))
+                },
+            )
         }
         get("/{id}") {
             val id = call.parameters["id"]?.trim().orEmpty()
@@ -149,9 +175,20 @@ fun Route.placementRoutes(placements: PlacementService) {
                     "placement not found",
                     mapOf("placement_id" to id),
                 )
-            call.respond(placement.toResponse())
+            call.respond(placement.toResponse(topologyOf(placement.nodeId, nodes)))
         }
     }
+}
+
+private fun topologyOf(nodeId: String?, nodes: NodeStore?): NodeTopology? {
+    if (nodeId.isNullOrBlank() || nodes == null) return null
+    val node = nodes.find(nodeId) ?: return null
+    return NodeTopology(
+        node = node.id,
+        zone = node.zone,
+        region = node.region,
+        provider = node.provider,
+    )
 }
 
 private fun parseDeploymentId(raw: String?): UUID {

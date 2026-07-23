@@ -47,6 +47,10 @@ class PlacementOpenApiContractTest {
         assertTrue(yaml.contains("nodeSelector") || yaml.contains("PlacementConstraints"))
         assertTrue(yaml.contains("tolerations") || yaml.contains("Toleration"))
         assertTrue(yaml.contains("platform") || yaml.contains("PlatformSpec"))
+        assertTrue(yaml.contains("topologySpreadConstraints") || yaml.contains("TopologySpreadConstraint"))
+        assertTrue(yaml.contains("affinity") || yaml.contains("PlacementAffinity"))
+        assertTrue(yaml.contains("trace") && (yaml.contains("scores") || yaml.contains("PlacementTrace")))
+        assertTrue(yaml.contains("zone") && yaml.contains("region") && yaml.contains("provider"))
     }
 
     @Test

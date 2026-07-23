@@ -21,6 +21,8 @@ data class RegisterNodeRequest(
     val architecture: String? = null,
     val os: String? = null,
     val provider: String? = null,
+    val zone: String? = null,
+    val region: String? = null,
     @SerialName("pool_id") val poolId: String? = null,
 )
 
@@ -81,6 +83,9 @@ data class NodeResponse(
     val taints: List<NodeTaint> = emptyList(),
     val architecture: String = "amd64",
     val os: String = "linux",
+    val zone: String = "default",
+    val region: String = "default",
+    val provider: String = "docker",
 )
 
 fun NodeCapacityDto.toModel(): NodeCapacity? {
@@ -144,6 +149,9 @@ fun FleetNode.toResponse(peers: List<PeerInfo> = emptyList()): NodeResponse {
         taints = taints,
         architecture = architecture,
         os = os,
+        zone = zone,
+        region = region,
+        provider = provider,
     )
 }
 

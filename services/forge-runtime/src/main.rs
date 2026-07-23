@@ -237,6 +237,8 @@ async fn run() -> Result<(), String> {
             node::host_architecture(),
             node::host_os(),
             cfg.node_pool_id.clone(),
+            Some(cfg.node_zone.clone()),
+            Some(cfg.node_region.clone()),
         ) {
             Ok(reporter) => {
                 info!(

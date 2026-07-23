@@ -1,5 +1,6 @@
 package forge.control.scheduler
 
+import forge.control.scheduler.model.WhenUnsatisfiable
 import forge.control.telemetry.Telemetry
 
 /**
@@ -26,27 +27,42 @@ object SchedulerFactory {
         placementStore: PlacementStore? = null,
         telemetry: Telemetry = Telemetry.current(),
         strictNodeSelector: Boolean = false,
+        topologySpreadDefault: WhenUnsatisfiable = WhenUnsatisfiable.DoNotSchedule,
     ): Scheduler {
         if (!schedulerEnabled) {
             return SingleNodeScheduler(nodeId = null)
         }
         val antiAffinity = placementStore?.let { AntiAffinityFilter(it) }
             ?: AntiAffinityFilter.noop()
+        val workloadAffinity = placementStore?.let { WorkloadAffinityFilter(nodeStore, it) }
+            ?: WorkloadAffinityFilter.noop()
+        val topologySpread = placementStore?.let {
+            TopologySpreadFilter(nodeStore, it, topologySpreadDefault)
+        } ?: TopologySpreadFilter.noop()
+        val placedReplicas: () -> List<Placement> = {
+            placementStore?.listPlaced().orEmpty()
+        }
         val onSoftFallback: () -> Unit = { telemetry.recordAntiAffinityFallback() }
         return when (strategy) {
             STRATEGY_FIRST_FIT -> FirstFitScheduler(
-                nodeStore,
-                reservation,
-                antiAffinity,
-                onSoftFallback,
-                strictNodeSelector,
+                nodes = nodeStore,
+                reservation = reservation,
+                antiAffinity = antiAffinity,
+                onSoftFallback = onSoftFallback,
+                strictNodeSelector = strictNodeSelector,
+                workloadAffinity = workloadAffinity,
+                topologySpread = topologySpread,
+                placedReplicas = placedReplicas,
             )
             STRATEGY_LEAST_ALLOCATED -> LeastAllocatedScheduler(
-                nodeStore,
-                reservation,
-                antiAffinity,
-                onSoftFallback,
-                strictNodeSelector,
+                nodes = nodeStore,
+                reservation = reservation,
+                antiAffinity = antiAffinity,
+                onSoftFallback = onSoftFallback,
+                strictNodeSelector = strictNodeSelector,
+                workloadAffinity = workloadAffinity,
+                topologySpread = topologySpread,
+                placedReplicas = placedReplicas,
             )
             STRATEGY_SINGLE_NODE -> SingleNodeScheduler(
                 availableNodes = {

@@ -11,6 +11,8 @@ enum class UnschedulableReasonCode {
     NoNodeMatchesSelector,
     PlatformMismatch,
     TaintNotTolerated,
+    AffinityUnsatisfiable,
+    TopologySpreadUnsatisfiable,
     ;
 
     fun wire(): String = name

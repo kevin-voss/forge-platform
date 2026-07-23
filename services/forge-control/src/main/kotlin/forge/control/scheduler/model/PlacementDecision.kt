@@ -10,6 +10,7 @@ sealed class PlacementDecision {
         val strategy: String,
         val reason: String,
         val trace: PlacementTrace? = null,
+        val topology: NodeTopology? = null,
     ) : PlacementDecision() {
         init {
             require(nodeId.isNotBlank()) { "nodeId must not be blank" }

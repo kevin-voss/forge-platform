@@ -30,9 +30,12 @@ class AntiAffinityTest {
         placements: InMemoryPlacementStore,
     ): LeastAllocatedScheduler =
         LeastAllocatedScheduler(
-            nodes,
-            reservation,
-            AntiAffinityFilter(placements),
+            nodes = nodes,
+            reservation = reservation,
+            antiAffinity = AntiAffinityFilter(placements),
+            workloadAffinity = WorkloadAffinityFilter(nodes, placements),
+            topologySpread = TopologySpreadFilter(nodes, placements),
+            placedReplicas = { placements.listPlaced() },
         )
 
     @Test

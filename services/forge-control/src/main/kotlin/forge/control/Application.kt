@@ -304,6 +304,9 @@ fun main() {
         placementStore = placementStore,
         telemetry = telemetry,
         strictNodeSelector = cfg.strictNodeSelector,
+        topologySpreadDefault = forge.control.scheduler.model.WhenUnsatisfiable.parse(
+            cfg.topologySpreadDefault,
+        ),
     )
     val pendingQueue = if (cfg.schedulerEnabled) {
         PendingQueue(store = placementStore, maxLen = cfg.queueMaxLen)
@@ -736,11 +739,11 @@ fun Application.forgeControlModule(
             if (deploymentStore != null && history != null) {
                 historyRoutes(deploymentStore, history)
             }
+            val nodeStore = services.nodeStore
             val placementService = services.placementService
             if (placementService != null) {
-                placementRoutes(placementService)
+                placementRoutes(placementService, nodeStore)
             }
-            val nodeStore = services.nodeStore
             if (nodeStore != null) {
                 nodeFleetRoutes(nodeStore)
                 nodeRegistrationRoutes(

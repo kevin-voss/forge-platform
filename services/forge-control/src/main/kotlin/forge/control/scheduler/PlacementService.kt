@@ -128,6 +128,8 @@ class PlacementService(
                         nodeSelector = placement.nodeSelector.takeIf { it.isNotEmpty() },
                         tolerations = placement.tolerations,
                         platform = platform,
+                        affinity = placement.affinity,
+                        topologySpreadConstraints = placement.topologySpreadConstraints,
                     )
                     telemetry.setPlacementsPending(queue.count())
                     log.info(
@@ -138,6 +140,10 @@ class PlacementService(
                         "placement_id" to pending.id,
                         "anti_affinity" to affinity.wire(),
                         "requested" to resolvedReqs.requests.toString(),
+                        "affinity_required_matched" to
+                            (placement.affinity?.requiredTerms()?.isNotEmpty() == true),
+                        "spread_constraints_checked" to
+                            placement.topologySpreadConstraints.size,
                     )
                     PlaceResult.Pending(pending, created = true)
                 } catch (e: QueueFullException) {
@@ -173,6 +179,8 @@ class PlacementService(
                         nodeSelector = placement.nodeSelector.takeIf { it.isNotEmpty() },
                         tolerations = placement.tolerations,
                         platform = platform,
+                        affinity = placement.affinity,
+                        topologySpreadConstraints = placement.topologySpreadConstraints,
                     ),
                 )
                 log.info(
@@ -186,6 +194,15 @@ class PlacementService(
                     "status" to placement.status,
                     "requested" to resolvedReqs.requests.toString(),
                     "chosen_node" to decision.nodeId,
+                    "affinity_required_matched" to
+                        (placement.affinity?.requiredTerms()?.isNotEmpty() == true),
+                    "spread_constraints_checked" to
+                        placement.topologySpreadConstraints.size,
+                    "chosen_topology" to (
+                        decision.topology?.let {
+                            "node=${it.node} zone=${it.zone} region=${it.region} provider=${it.provider}"
+                        } ?: ""
+                        ),
                 )
                 telemetry.recordPlacement(placement.strategy)
                 telemetry.recordPlacementDecision(placement.strategy, placement.nodeId ?: "")

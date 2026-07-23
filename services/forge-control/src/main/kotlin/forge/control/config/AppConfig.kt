@@ -56,6 +56,8 @@ data class AppConfig(
     /** Default bootstrap token TTL (seconds). */
     val bootstrapTokenTtlSeconds: Long = 900,
     val antiAffinityDefault: String = "soft",
+    /** Default whenUnsatisfiable for topology spread constraints. */
+    val topologySpreadDefault: String = "DoNotSchedule",
     val queueRetryMs: Long = 2_000,
     val queueMaxLen: Int = 1000,
     /** Millicores represented by one abstract slot when only slots are requested. */
@@ -440,6 +442,13 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
             "FORGE_ANTI_AFFINITY_DEFAULT must be soft|hard, got '$antiAffinityDefault'",
         )
     }
+    val topologySpreadDefault = env["FORGE_TOPOLOGY_SPREAD_DEFAULT"]?.trim().orEmpty()
+        .ifEmpty { "DoNotSchedule" }
+    if (topologySpreadDefault !in setOf("DoNotSchedule", "ScheduleAnyway")) {
+        throw IllegalArgumentException(
+            "FORGE_TOPOLOGY_SPREAD_DEFAULT must be DoNotSchedule|ScheduleAnyway, got '$topologySpreadDefault'",
+        )
+    }
 
     val queueRetryRaw = env["FORGE_QUEUE_RETRY_MS"]?.trim().orEmpty()
         .ifEmpty { env["FORGE_RECONCILE_INTERVAL_MS"]?.trim().orEmpty().ifEmpty { "2000" } }
@@ -717,6 +726,7 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         networkName = networkName,
         bootstrapTokenTtlSeconds = bootstrapTokenTtlSeconds,
         antiAffinityDefault = antiAffinityDefault,
+        topologySpreadDefault = topologySpreadDefault,
         queueRetryMs = queueRetryMs,
         queueMaxLen = queueMaxLen,
         slotCpuMillis = slotCpuMillis,

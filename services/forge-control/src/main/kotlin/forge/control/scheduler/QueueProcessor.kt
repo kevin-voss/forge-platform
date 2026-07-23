@@ -102,6 +102,8 @@ class QueueProcessor(
             placement = PlacementSpec(
                 nodeSelector = pending.nodeSelector.orEmpty(),
                 tolerations = pending.tolerations,
+                affinity = pending.affinity,
+                topologySpreadConstraints = pending.topologySpreadConstraints,
             ),
             platform = pending.platform,
         )

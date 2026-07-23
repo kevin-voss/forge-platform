@@ -222,7 +222,9 @@ private fun RegisterNodeRequest.toSchedulingFacts(): NodeSchedulingFacts {
     val nodeOs = os?.trim()?.takeIf { it.isNotEmpty() } ?: "linux"
     val providerLabel = provider?.trim()?.takeIf { it.isNotEmpty() }
         ?: labels?.get(NodeLabelMerger.LABEL_PROVIDER)
-        ?: "unknown"
+        ?: "docker"
+    val zoneLabel = zone?.trim()?.takeIf { it.isNotEmpty() } ?: "default"
+    val regionLabel = region?.trim()?.takeIf { it.isNotEmpty() } ?: "default"
     val agentLabels = labels.orEmpty().filterKeys { it.isNotBlank() }
     val parsedTaints = taints.orEmpty().mapNotNull { taint ->
         val key = taint.key.trim()
@@ -236,7 +238,9 @@ private fun RegisterNodeRequest.toSchedulingFacts(): NodeSchedulingFacts {
         taints = parsedTaints,
         architecture = arch,
         os = nodeOs.lowercase(),
-        provider = providerLabel,
+        provider = if (providerLabel == "unknown") "docker" else providerLabel,
+        zone = zoneLabel,
+        region = regionLabel,
     )
 }
 

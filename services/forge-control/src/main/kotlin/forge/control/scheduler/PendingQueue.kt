@@ -1,10 +1,12 @@
 package forge.control.scheduler
 
 import forge.control.scheduler.model.AntiAffinity
+import forge.control.scheduler.model.PlacementAffinity
 import forge.control.scheduler.model.PlacementTrace
 import forge.control.scheduler.model.PlatformSpec
 import forge.control.scheduler.model.ResourceBundle
 import forge.control.scheduler.model.Toleration
+import forge.control.scheduler.model.TopologySpreadConstraint
 import java.time.Instant
 import java.util.UUID
 
@@ -46,6 +48,8 @@ class PendingQueue(
         nodeSelector: Map<String, String>? = null,
         tolerations: List<Toleration> = emptyList(),
         platform: PlatformSpec? = null,
+        affinity: PlacementAffinity? = null,
+        topologySpreadConstraints: List<TopologySpreadConstraint> = emptyList(),
     ): Placement {
         store.find(deploymentId, replicaIndex)?.let { return it }
         if (store.countPending() >= maxLen) {
@@ -71,6 +75,8 @@ class PendingQueue(
                 nodeSelector = nodeSelector,
                 tolerations = tolerations,
                 platform = platform,
+                affinity = affinity,
+                topologySpreadConstraints = topologySpreadConstraints,
             ),
         )
     }

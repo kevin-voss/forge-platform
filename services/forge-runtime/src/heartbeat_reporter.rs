@@ -47,6 +47,10 @@ struct RegisterBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    zone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    region: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pool_id: Option<String>,
 }
 
@@ -75,6 +79,8 @@ pub struct HeartbeatReporter {
     architecture: String,
     os: String,
     provider: Option<String>,
+    zone: Option<String>,
+    region: Option<String>,
     pool_id: Option<String>,
     docker: Arc<dyn DockerEngine>,
     http: reqwest::Client,
@@ -102,6 +108,8 @@ impl HeartbeatReporter {
             crate::node::host_architecture(),
             crate::node::host_os(),
             None,
+            Some("default".into()),
+            Some("default".into()),
         )
     }
 
@@ -120,6 +128,8 @@ impl HeartbeatReporter {
         architecture: String,
         os: String,
         pool_id: Option<String>,
+        zone: Option<String>,
+        region: Option<String>,
     ) -> Result<Self, String> {
         let base_url = control_url.into().trim().trim_end_matches('/').to_string();
         if base_url.is_empty() {
@@ -148,6 +158,8 @@ impl HeartbeatReporter {
             architecture,
             os,
             provider,
+            zone,
+            region,
             pool_id,
             docker,
             http,
@@ -174,6 +186,8 @@ impl HeartbeatReporter {
             architecture: Some(self.architecture.clone()),
             os: Some(self.os.clone()),
             provider: self.provider.clone(),
+            zone: self.zone.clone(),
+            region: self.region.clone(),
             pool_id: self.pool_id.clone(),
         };
         let payload =

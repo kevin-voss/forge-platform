@@ -1,10 +1,13 @@
 package forge.control.scheduler.api
 
 import forge.control.scheduler.Placement
+import forge.control.scheduler.model.NodeTopology
+import forge.control.scheduler.model.PlacementAffinity
 import forge.control.scheduler.model.PlacementTrace
 import forge.control.scheduler.model.PlatformSpec
 import forge.control.scheduler.model.ResourceBundle
 import forge.control.scheduler.model.Toleration
+import forge.control.scheduler.model.TopologySpreadConstraint
 import forge.control.scheduler.model.UnschedulableReasonEntry
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -25,11 +28,16 @@ data class PlacementConstraintsDto(
     val nodeSelector: Map<String, String>? = null,
     @SerialName("node_selector") val nodeSelectorSnake: Map<String, String>? = null,
     val tolerations: List<Toleration>? = null,
+    val affinity: PlacementAffinity? = null,
+    val topologySpreadConstraints: List<TopologySpreadConstraint>? = null,
 ) {
     fun resolvedNodeSelector(): Map<String, String> =
         nodeSelector ?: nodeSelectorSnake ?: emptyMap()
 
     fun resolvedTolerations(): List<Toleration> = tolerations.orEmpty()
+
+    fun resolvedTopologySpread(): List<TopologySpreadConstraint> =
+        topologySpreadConstraints.orEmpty()
 }
 
 @Serializable
@@ -58,9 +66,10 @@ data class PlacementResponse(
     @SerialName("unschedulable_reasons") val unschedulableReasons: List<UnschedulableReasonEntry>? = null,
     val placement: PlacementConstraintsDto? = null,
     val platform: PlatformSpec? = null,
+    val topology: NodeTopology? = null,
 )
 
-fun Placement.toResponse(): PlacementResponse =
+fun Placement.toResponse(topology: NodeTopology? = null): PlacementResponse =
     PlacementResponse(
         placementId = id,
         deploymentId = deploymentId.toString(),
@@ -77,13 +86,21 @@ fun Placement.toResponse(): PlacementResponse =
         limits = limits,
         trace = trace,
         unschedulableReasons = unschedulableReasons.takeIf { it.isNotEmpty() },
-        placement = if (!nodeSelector.isNullOrEmpty() || tolerations.isNotEmpty()) {
+        placement = if (
+            !nodeSelector.isNullOrEmpty() ||
+            tolerations.isNotEmpty() ||
+            affinity != null ||
+            topologySpreadConstraints.isNotEmpty()
+        ) {
             PlacementConstraintsDto(
                 nodeSelector = nodeSelector,
                 tolerations = tolerations.takeIf { it.isNotEmpty() },
+                affinity = affinity,
+                topologySpreadConstraints = topologySpreadConstraints.takeIf { it.isNotEmpty() },
             )
         } else {
             null
         },
         platform = platform,
+        topology = topology,
     )

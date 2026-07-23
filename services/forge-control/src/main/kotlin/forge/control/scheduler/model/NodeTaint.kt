@@ -89,4 +89,6 @@ data class PlatformSpec(
 data class PlacementSpec(
     val nodeSelector: Map<String, String> = emptyMap(),
     val tolerations: List<Toleration> = emptyList(),
+    val affinity: PlacementAffinity? = null,
+    val topologySpreadConstraints: List<TopologySpreadConstraint> = emptyList(),
 )

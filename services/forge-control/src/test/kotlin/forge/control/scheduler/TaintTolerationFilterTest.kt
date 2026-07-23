@@ -133,6 +133,16 @@ class TaintTolerationFilterTest {
         )
         assertEquals("node-a", assertIs<PlacementDecision.Assigned>(decision).nodeId)
         val filters = decision.trace!!.filterNames()
-        assertEquals(listOf("capacity", "node_selector", "platform", "taints"), filters)
+        assertEquals(
+            listOf(
+                "capacity",
+                "node_selector",
+                "platform",
+                "taints",
+                "workload_affinity",
+                "topology_spread",
+            ),
+            filters,
+        )
     }
 }

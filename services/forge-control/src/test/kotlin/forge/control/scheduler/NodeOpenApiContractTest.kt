@@ -43,6 +43,9 @@ class NodeOpenApiContractTest {
         assertTrue(yaml.contains("labels"))
         assertTrue(yaml.contains("taints") || yaml.contains("NodeTaint"))
         assertTrue(yaml.contains("architecture"))
+        assertTrue(yaml.contains("zone"))
+        assertTrue(yaml.contains("region"))
+        assertTrue(yaml.contains("provider"))
         assertTrue(yaml.contains("NodeTaint") || yaml.contains("NoSchedule"))
     }
 
