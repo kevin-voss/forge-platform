@@ -1,4 +1,4 @@
-"""Contract tests for forge-agents OpenAPI (agent registry schemas)."""
+"""Contract tests for forge-agents OpenAPI (agent + tool registry schemas)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 from fastapi.testclient import TestClient
+from jsonschema import Draft202012Validator
 
 
 def _repo_openapi() -> Path:
@@ -33,7 +34,7 @@ def _repo_openapi() -> Path:
 OPENAPI = _repo_openapi()
 
 
-def test_openapi_documents_agent_schema() -> None:
+def test_openapi_documents_agent_and_tool_schemas() -> None:
     if not OPENAPI.is_file():
         pytest.skip(f"canonical OpenAPI not in build context ({OPENAPI})")
     doc = yaml.safe_load(OPENAPI.read_text(encoding="utf-8"))
@@ -43,6 +44,7 @@ def test_openapi_documents_agent_schema() -> None:
     assert "/" in paths
     assert "/v1/agents" in paths
     assert "/v1/agents/{name}" in paths
+    assert "/v1/tools" in paths
     # Runs surface lands in 15.04+
     assert "/v1/runs" not in paths
 
@@ -51,11 +53,16 @@ def test_openapi_documents_agent_schema() -> None:
     get_op = paths["/v1/agents/{name}"]["get"]
     assert "200" in get_op["responses"]
     assert "404" in get_op["responses"]
+    tools_op = paths["/v1/tools"]["get"]
+    assert "200" in tools_op["responses"]
 
     schemas = doc["components"]["schemas"]
     assert "Agent" in schemas
     assert "AgentListResponse" in schemas
     assert "AgentLimits" in schemas
+    assert "Tool" in schemas
+    assert "ToolListResponse" in schemas
+    assert "ToolInvokeDenialReason" in schemas
     assert "ErrorBody" in schemas
     agent = schemas["Agent"]
     assert set(agent["required"]) >= {
@@ -69,6 +76,22 @@ def test_openapi_documents_agent_schema() -> None:
     assert set(limits["required"]) >= {"max_steps", "timeout_seconds"}
     assert limits["properties"]["max_steps"]["maximum"] == 100
     assert limits["properties"]["timeout_seconds"]["maximum"] == 3600
+
+    tool = schemas["Tool"]
+    assert set(tool["required"]) >= {
+        "name",
+        "input_schema",
+        "output_schema",
+        "destructive",
+        "required_permissions",
+    }
+    reasons = set(schemas["ToolInvokeDenialReason"]["enum"])
+    assert reasons == {
+        "unknown_tool",
+        "not_declared",
+        "permission_denied",
+        "invalid_arguments",
+    }
 
 
 def test_list_and_get_responses_match_schema(client: TestClient) -> None:
@@ -93,6 +116,23 @@ def test_list_and_get_responses_match_schema(client: TestClient) -> None:
     err = missing.json()
     assert err["code"] == "agent_not_found"
     assert "error" in err
+
+    tools = client.get("/v1/tools")
+    assert tools.status_code == 200
+    tool_body = tools.json()
+    assert isinstance(tool_body.get("tools"), list)
+    assert tool_body["tools"], "expected fake tools"
+    for tool in tool_body["tools"]:
+        for key in (
+            "name",
+            "input_schema",
+            "output_schema",
+            "destructive",
+            "required_permissions",
+        ):
+            assert key in tool
+        Draft202012Validator.check_schema(tool["input_schema"])
+        Draft202012Validator.check_schema(tool["output_schema"])
 
 
 def test_live_ready_identity_match_contract(client: TestClient) -> None:

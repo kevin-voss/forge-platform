@@ -4,8 +4,11 @@ info:
   version: 0.1.0
   description: |
     Platform agent runtime service (epic 15). Health/identity from 15.01;
-    agent registry + YAML definitions from 15.02. Tools, run engine, approval,
-    and CLI land in later steps.
+    agent registry + YAML definitions from 15.02; tool registry + per-call
+    permission checks from 15.03. Run engine, approval, and CLI land in later steps.
+
+    Internal tool invocation (used by the run engine) rejects with reasons:
+    `unknown_tool`, `not_declared`, `permission_denied`, `invalid_arguments`.
 servers:
   - url: http://127.0.0.1:4301
     description: Local Compose (host port 4301)
@@ -128,6 +131,39 @@ paths:
                 error: "agent not found: nope"
                 code: agent_not_found
 
+  /v1/tools:
+    get:
+      operationId: listTools
+      summary: List registered tools
+      description: |
+        Returns tools from the in-process registry (`FORGE_AGENTS_TOOLS_MODE`).
+        Each entry includes JSON Schema input/output, `destructive` flag, and
+        `required_permissions` checked before every invocation.
+      responses:
+        "200":
+          description: Tool registry listing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolListResponse"
+              example:
+                tools:
+                  - name: echo.ping
+                    input_schema:
+                      type: object
+                      properties:
+                        message:
+                          type: string
+                      required: [message]
+                    output_schema:
+                      type: object
+                      properties:
+                        echo:
+                          type: string
+                      required: [echo]
+                    destructive: false
+                    required_permissions: [project:read]
+
 components:
   parameters:
     AgentName:
@@ -217,14 +253,14 @@ components:
           items:
             type: string
             pattern: "^[a-z][a-z0-9_-]*(\\.[a-z][a-z0-9_-]*)+$"
-          description: Declared tool ids (existence enforced in 15.03)
+          description: Declared tool ids (must exist in the tool registry to invoke)
           example: [echo.ping]
         permissions:
           type: array
           items:
             type: string
             pattern: "^[a-z][a-z0-9_-]*:[a-z][a-z0-9_-]*$"
-          description: Declared permission scopes checked per tool call (15.03)
+          description: Declared permission scopes checked per tool call
           example: [project:read]
         limits:
           $ref: "#/components/schemas/AgentLimits"
@@ -240,6 +276,63 @@ components:
           items:
             $ref: "#/components/schemas/Agent"
 
+    JsonSchema:
+      type: object
+      description: JSON Schema (Draft 2020-12) document
+      additionalProperties: true
+
+    Tool:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - input_schema
+        - output_schema
+        - destructive
+        - required_permissions
+      properties:
+        name:
+          type: string
+          pattern: "^[a-z][a-z0-9_-]*(\\.[a-z][a-z0-9_-]*)+$"
+          example: echo.ping
+        input_schema:
+          $ref: "#/components/schemas/JsonSchema"
+        output_schema:
+          $ref: "#/components/schemas/JsonSchema"
+        destructive:
+          type: boolean
+          description: When true, human approval is required before execute (15.06)
+          example: false
+        required_permissions:
+          type: array
+          items:
+            type: string
+            pattern: "^[a-z][a-z0-9_-]*:[a-z][a-z0-9_-]*$"
+          description: Permissions that must be present on the run scope
+          example: [project:read]
+
+    ToolListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - tools
+      properties:
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tool"
+
+    ToolInvokeDenialReason:
+      type: string
+      description: |
+        Internal invocation rejection reasons (run engine / ToolInvoker).
+        Distinct codes: unknown_tool (hallucination) vs not_declared (overreach).
+      enum:
+        - unknown_tool
+        - not_declared
+        - permission_denied
+        - invalid_arguments
+
     ErrorBody:
       type: object
       additionalProperties: false
@@ -251,4 +344,7 @@ components:
           type: string
         code:
           type: string
+          description: |
+            Machine-readable error code. Agent lookup uses `agent_not_found`.
+            Tool invocation denials use ToolInvokeDenialReason values.
           example: agent_not_found

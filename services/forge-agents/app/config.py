@@ -32,6 +32,11 @@ class Settings(BaseSettings):
         alias="FORGE_AGENTS_DEFS_DIR",
         description="Directory of agent YAML definitions; empty uses packaged agents/",
     )
+    forge_agents_tools_mode: Literal["fake", "live"] = Field(
+        default="fake",
+        alias="FORGE_AGENTS_TOOLS_MODE",
+        description="Tool backend mode: fake stubs (CI default) or live adapters (15.05)",
+    )
     forge_service_name: str = Field(default="forge-agents", alias="FORGE_SERVICE_NAME")
     forge_service_version: str = Field(default="0.1.0", alias="FORGE_SERVICE_VERSION")
     forge_env: str = Field(default="development", alias="FORGE_ENV")
@@ -71,6 +76,13 @@ class Settings(BaseSettings):
             return ""
         if isinstance(value, str):
             return value.strip()
+        return value
+
+    @field_validator("forge_agents_tools_mode", mode="before")
+    @classmethod
+    def normalize_tools_mode(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().lower()
         return value
 
     @field_validator("forge_service_name", "forge_service_version", "forge_env", mode="before")

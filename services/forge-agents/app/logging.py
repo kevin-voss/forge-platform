@@ -55,6 +55,15 @@ class JsonLogFormatter(logging.Formatter):
             "agents_registry_size",
             "agent_names",
             "agents_defs_dir",
+            "tools_registry_size",
+            "tool_names",
+            "tools_mode",
+            "tool",
+            "decision",
+            "reason",
+            "agent",
+            "project_id",
+            "missing_permissions",
         ):
             if hasattr(record, key):
                 value = getattr(record, key)

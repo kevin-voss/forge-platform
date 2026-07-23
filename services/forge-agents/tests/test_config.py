@@ -17,6 +17,21 @@ def test_parses_valid_env(clean_env: pytest.MonkeyPatch) -> None:
     assert settings.forge_log_level == "info"
     assert settings.forge_models_url == "http://forge-models:4300"
     assert settings.forge_service_name == "forge-agents"
+    assert settings.forge_agents_tools_mode == "fake"
+
+
+def test_accepts_tools_mode_live(clean_env: pytest.MonkeyPatch) -> None:
+    clean_env.setenv("PORT", "4301")
+    clean_env.setenv("FORGE_AGENTS_TOOLS_MODE", "LIVE")
+    settings = get_settings()
+    assert settings.forge_agents_tools_mode == "live"
+
+
+def test_rejects_bad_tools_mode(clean_env: pytest.MonkeyPatch) -> None:
+    clean_env.setenv("PORT", "4301")
+    clean_env.setenv("FORGE_AGENTS_TOOLS_MODE", "hybrid")
+    with pytest.raises(ValidationError):
+        Settings()  # type: ignore[call-arg]
 
 
 def test_defaults_models_url(clean_env: pytest.MonkeyPatch) -> None:

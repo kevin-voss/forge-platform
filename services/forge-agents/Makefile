@@ -20,6 +20,7 @@ dev: sync
 	FORGE_ENV=$${FORGE_ENV:-development} \
 	FORGE_MODELS_URL=$${FORGE_MODELS_URL:-http://127.0.0.1:4300} \
 	FORGE_AGENTS_DEFS_DIR=$${FORGE_AGENTS_DEFS_DIR:-} \
+	FORGE_AGENTS_TOOLS_MODE=$${FORGE_AGENTS_TOOLS_MODE:-fake} \
 	FORGE_SHUTDOWN_GRACE_SECONDS=$${FORGE_SHUTDOWN_GRACE_SECONDS:-10} \
 	uv run python -m app.main
 
@@ -47,14 +48,18 @@ test-integration: run
 	@# Agent registry (15.02)
 	@curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/agents" | grep -q 'fixture-echo'
 	@code="$$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$(HOST_PORT)/v1/agents/nope")"; test "$$code" = "404"
+	@# Tool registry (15.03)
+	@curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/tools" | grep -q '"required_permissions"'
+	@curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/tools" | grep -q 'echo.ping'
 	@# Structured JSON logs + request IDs
 	@curl -sf -H 'X-Request-ID: integ-req-1' "http://127.0.0.1:$(HOST_PORT)/health/live" >/dev/null
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"service":"forge-agents"'
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"message":"starting forge-agents"'
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"request_id":"integ-req-1"'
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"agents_registry_size"'
+	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"tools_registry_size"'
 	@grep -q '4301' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-agents.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-agents" in p; assert "/v1/agents" in p; assert "Agent" in p; assert "agent_not_found" in p'
+	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-agents.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-agents" in p; assert "/v1/agents" in p; assert "Agent" in p; assert "agent_not_found" in p; assert "/v1/tools" in p; assert "ToolInvokeDenialReason" in p; assert "unknown_tool" in p'
 	@# Invalid MODELS_URL fails process startup (ephemeral container).
 	@docker rm -f forge-agents-bad-url >/dev/null 2>&1 || true
 	@if docker run --name forge-agents-bad-url \
@@ -103,7 +108,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (health, identity, agent registry, JSON logs/request IDs, OpenAPI, bad URL/PORT/YAML, SIGTERM)."
+	@echo "Integration checks passed (health, identity, agent/tool registry, JSON logs/request IDs, OpenAPI, bad URL/PORT/YAML, SIGTERM)."
 
 lint: sync
 	uv run ruff check app tests
