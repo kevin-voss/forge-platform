@@ -1,0 +1,104 @@
+openapi: 3.0.3
+info:
+  title: Forge Memory API
+  version: 0.1.0
+  description: |
+    Platform semantic vector-memory service (epic 17). Health/identity and durable
+    persistence root from 17.01; collections, upsert, and nearest-neighbor search
+    in later steps.
+servers:
+  - url: http://127.0.0.1:4303
+    description: Local Compose (host port 4303)
+
+paths:
+  /health/live:
+    get:
+      operationId: getHealthLive
+      summary: Liveness probe
+      description: Returns 200 when the process is alive.
+      responses:
+        "200":
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: live
+
+  /health/ready:
+    get:
+      operationId: getHealthReady
+      summary: Readiness probe
+      description: |
+        Returns 200 when `FORGE_MEMORY_ROOT` exists, contains `vectors/` and
+        `meta/`, is writable, and is not world-writable; 503 otherwise.
+      responses:
+        "200":
+          description: Ready to receive traffic
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: ready
+        "503":
+          description: Not ready (memory root missing, unwritable, or security check failed)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: not_ready
+
+  /:
+    get:
+      operationId: getIdentity
+      summary: Service identity
+      description: |
+        Returns JSON identity for the running service. Required fields match the
+        epic-01 runtime contract: service, language, status.
+      responses:
+        "200":
+          description: Identity payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Identity"
+              example:
+                service: forge-memory
+                language: rust
+                status: running
+                version: 0.1.0
+                uptime_seconds: 12.5
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: live
+
+    Identity:
+      type: object
+      required: [service, language, status, version]
+      properties:
+        service:
+          type: string
+          example: forge-memory
+        language:
+          type: string
+          example: rust
+        status:
+          type: string
+          example: running
+        version:
+          type: string
+          example: 0.1.0
+        uptime_seconds:
+          type: number
+          format: double
+          example: 12.5

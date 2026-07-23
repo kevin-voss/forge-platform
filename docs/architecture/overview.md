@@ -30,6 +30,7 @@ Platform control-plane services are added as later **epics**, each planned into 
 | Forge Models | Python (FastAPI) | 4300 | Model-serving skeleton (`FORGE_MODELS_BACKEND=fake\|local`); inference in later epic-14 steps |
 | Forge Agents | Python (FastAPI) | 4301 | Agent runtime skeleton; registry/tools/run engine in later epic-15 steps |
 | Forge Workflows | Elixir (OTP/Bandit) | 4302 | Durable YAML workflows + Postgres run/step state with resume-on-boot |
+| Forge Memory | Rust (Axum) | 4303 | Vector-memory skeleton; durable `FORGE_MEMORY_ROOT` (`vectors/` + `meta/`); collections/search in later epic-17 steps |
 
 ## Where this is heading
 
