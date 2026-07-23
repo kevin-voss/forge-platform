@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func newLogger(serviceName, level string) *slog.Logger {
+func newLogger(serviceName, level string, sensitive []string) *slog.Logger {
 	var min slog.Level
 	switch strings.ToLower(level) {
 	case "debug":
@@ -21,8 +21,11 @@ func newLogger(serviceName, level string) *slog.Logger {
 	}
 
 	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level:       min,
-		ReplaceAttr: replaceLogAttr,
+		Level: min,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			a = replaceLogAttr(groups, a)
+			return maskAttr(a, sensitive)
+		},
 	})
 	return slog.New(handler).With("service", serviceName)
 }
@@ -51,4 +54,43 @@ func replaceLogAttr(_ []string, a slog.Attr) slog.Attr {
 	default:
 		return a
 	}
+}
+
+func maskAttr(a slog.Attr, sensitive []string) slog.Attr {
+	if len(sensitive) == 0 {
+		return a
+	}
+	switch a.Value.Kind() {
+	case slog.KindString:
+		masked := maskString(a.Value.String(), sensitive)
+		if masked != a.Value.String() {
+			return slog.String(a.Key, masked)
+		}
+	case slog.KindAny:
+		if s, ok := a.Value.Any().(string); ok {
+			masked := maskString(s, sensitive)
+			if masked != s {
+				return slog.String(a.Key, masked)
+			}
+		}
+	}
+	return a
+}
+
+func maskString(s string, sensitive []string) string {
+	out := s
+	for _, secret := range sensitive {
+		if secret == "" {
+			continue
+		}
+		if strings.Contains(out, secret) {
+			out = strings.ReplaceAll(out, secret, "***")
+		}
+	}
+	return out
+}
+
+// MaskLogLine replaces known secret substrings in a log line (for tests / deploy asserts).
+func MaskLogLine(line string, sensitive []string) string {
+	return maskString(line, sensitive)
 }

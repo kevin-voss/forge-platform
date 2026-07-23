@@ -4,7 +4,10 @@ FROM python:3.13.5-slim-bookworm
 
 WORKDIR /app
 
-COPY config.py jsonlog.py classify.py server.py main.py test_server.py ./
+COPY config.py jsonlog.py classify.py server.py main.py test_server.py otel_export.py ./
+
+ENV FORGE_OTEL_ENABLED=true \
+	FORGE_OTEL_EXPORTER_ENDPOINT=http://host.docker.internal:4318
 
 RUN python -m unittest -v test_server.py \
 	&& useradd --create-home --uid 10001 --shell /usr/sbin/nologin appuser \

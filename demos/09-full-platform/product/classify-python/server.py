@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from classify import classify_text
 from config import Config
 from jsonlog import Logger
+from otel_export import export_span
 
 
 class ContractHandler(BaseHTTPRequestHandler):
@@ -21,6 +22,17 @@ class ContractHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A003
         return
+
+    def _emit_span(self, path: str, status: int) -> None:
+        if path in {"/health/live", "/health/ready"}:
+            return
+        export_span(
+            service_name=self.cfg.service_name,
+            span_name=f"HTTP {self.command}",
+            traceparent=self.headers.get("traceparent"),
+            status_code=status,
+            path=path,
+        )
 
     def do_GET(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
@@ -75,12 +87,14 @@ class ContractHandler(BaseHTTPRequestHandler):
         )
 
     def _write_json(self, status: int, payload: dict[str, Any]) -> None:
+        path = urlparse(self.path).path
         body = (json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+        self._emit_span(path, status)
 
 
 def make_server(cfg: Config, log: Logger) -> ThreadingHTTPServer:

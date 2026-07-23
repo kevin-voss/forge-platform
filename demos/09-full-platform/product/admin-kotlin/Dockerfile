@@ -26,6 +26,8 @@ ENV PORT=8080 \
 	FORGE_SERVICE_NAME=incident-admin \
 	FORGE_SERVICE_VERSION=0.1.0 \
 	FORGE_LOG_LEVEL=info \
-	FORGE_ENV=development
+	FORGE_ENV=development \
+	FORGE_OTEL_ENABLED=true \
+	FORGE_OTEL_EXPORTER_ENDPOINT=http://host.docker.internal:4318
 
 ENTRYPOINT ["java", "-jar", "/app/incident-admin.jar"]

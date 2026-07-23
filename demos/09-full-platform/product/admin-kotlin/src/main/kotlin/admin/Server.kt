@@ -2,13 +2,18 @@ package admin
 
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationCallPipeline
+import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.request.httpMethod
+import io.ktor.server.request.path
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.get
 import io.ktor.server.routing.put
 import io.ktor.server.routing.routing
+import io.ktor.util.AttributeKey
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -39,6 +44,8 @@ data class AdminConfig(
     val retentionDays: Int = 30,
 )
 
+private val statusAttr = AttributeKey<Int>("responseStatus")
+
 fun Application.configureContractRoutes(
     cfg: Config,
     startedAtMs: AtomicLong = AtomicLong(System.currentTimeMillis()),
@@ -53,15 +60,38 @@ fun Application.configureContractRoutes(
         )
     }
 
+    intercept(ApplicationCallPipeline.Monitoring) {
+        try {
+            proceed()
+        } finally {
+            val path = call.request.path()
+            if (path != "/health/live" && path != "/health/ready") {
+                val status = call.attributes.getOrNull(statusAttr)
+                    ?: call.response.status()?.value
+                    ?: 200
+                OtlpHttp.exportSpan(
+                    serviceName = cfg.serviceName,
+                    spanName = "HTTP ${call.request.httpMethod.value}",
+                    traceparent = call.request.headers["traceparent"],
+                    statusCode = status,
+                    path = path,
+                )
+            }
+        }
+    }
+
     routing {
         get("/health/live") {
+            call.attributes.put(statusAttr, 200)
             call.respond(HealthResponse(status = "ok"))
         }
         get("/health/ready") {
+            call.attributes.put(statusAttr, 200)
             call.respond(HealthResponse(status = "ok"))
         }
         get("/") {
             val uptime = max(0.0, (System.currentTimeMillis() - startedAtMs.get()) / 1000.0)
+            call.attributes.put(statusAttr, 200)
             call.respond(
                 IdentityResponse(
                     service = cfg.serviceName,
@@ -73,11 +103,13 @@ fun Application.configureContractRoutes(
             )
         }
         get("/admin/config") {
+            call.attributes.put(statusAttr, 200)
             call.respond(adminConfig.get())
         }
         put("/admin/config") {
             val updated = call.receive<AdminConfig>()
             adminConfig.set(updated)
+            call.attributes.put(statusAttr, 200)
             call.respond(updated)
         }
     }

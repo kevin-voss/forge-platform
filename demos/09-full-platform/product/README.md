@@ -1,8 +1,8 @@
 # Capstone product (incident management)
 
 Polyglot sample product for epic `19` / `demos/09-full-platform`. Local Compose smoke
-lives here; the platform deploy path (Build→Runtime→Gateway→Events) is driven from
-the parent folder via `../deploy.sh` (step **19.02**). Identity/Secrets/Observe/DB
+lives here; the platform deploy path (Build→Runtime→Gateway + foundations) is driven
+from the parent folder via `../deploy.sh` (steps **19.02–19.03**). Models/Agents/Memory
 and the north-star recovery scenario arrive in later `19.xx` steps.
 
 ## Services
@@ -31,9 +31,13 @@ After `../deploy.sh`, services are reachable via Gateway (see `../routes.md`).
 
 ```text
 incident-api
-  POST   /incidents              create incident (in-memory)
+  POST   /incidents              create incident (Postgres when DATABASE_URL set)
   GET    /incidents              list
   GET    /incidents/{id}         get by id
+  GET    /db-status              DATABASE_URL presence (never plaintext)
+  GET    /secret-status          injected secret/config presence
+  POST   /artifacts              store artifact in Forge Storage
+  GET    /artifacts/{key}        fetch artifact
 
 incident-admin
   GET    /admin/config           read admin config

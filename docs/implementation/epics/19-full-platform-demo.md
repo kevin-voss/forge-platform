@@ -70,7 +70,7 @@ One command starts the entire demo; one command runs the acceptance suite provin
 |---|---|---|---|
 | [19.01](../steps/19-full-platform-demo/19.01-polyglot-product-scaffold.md) | Polyglot sample product | Complete | Go/Kotlin/Rust/Python/Elixir services under `product/` |
 | [19.02](../steps/19-full-platform-demo/19.02-deploy-path.md) | Deploy path: Build→Runtime→Gateway→Events | Complete | Capstone compose/deploy.sh; Gateway routes; incident.created |
-| [19.03](../steps/19-full-platform-demo/19.03-identity-secrets-observe-storage-db.md) | Identity, Secrets, Observe, Storage, managed DB | Not started | Depends on 19.02 |
+| [19.03](../steps/19-full-platform-demo/19.03-identity-secrets-observe-storage-db.md) | Identity, Secrets, Observe, Storage, managed DB | Complete | Identity roles; Secrets+DB inject; Storage; Observe product trace |
 | [19.04](../steps/19-full-platform-demo/19.04-models-agents-memory.md) | Models + Agents + Memory for diagnosis | Not started | Depends on 19.03 |
 | [19.05](../steps/19-full-platform-demo/19.05-failure-injection-workflow.md) | Failure injection + Workflows approval/rollback | Not started | Depends on 19.04 |
 | [19.06](../steps/19-full-platform-demo/19.06-acceptance-suite-and-gate.md) | `demos/09-full-platform` acceptance suite + docs | Not started | Depends on 19.05; north-star gate |
@@ -92,4 +92,4 @@ One command starts the entire demo; one command runs the acceptance suite provin
 
 ## Next step to implement
 
-**[19.03](../steps/19-full-platform-demo/19.03-identity-secrets-observe-storage-db.md) — Identity, Secrets, Observe, Storage, managed DB** (depends on 19.02).
+**[19.04](../steps/19-full-platform-demo/19.04-models-agents-memory.md) — Models + Agents + Memory for diagnosis** (depends on 19.03).

@@ -24,8 +24,24 @@ func run() error {
 		return err
 	}
 
-	log := newLogger(cfg.ServiceName, cfg.LogLevel)
-	srv := newServer(cfg, log)
+	log := newLogger(cfg.ServiceName, cfg.LogLevel, cfg.sensitiveValues())
+
+	store, err := openStore(cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = store.Close() }()
+
+	ctx := context.Background()
+	if err := store.Migrate(ctx); err != nil {
+		return fmt.Errorf("migrate: %w", err)
+	}
+	log.Info("store ready", "backend", store.Backend(), "DATABASE_URL_present", cfg.DatabaseURL != "")
+
+	otelHandle := initOTEL(ctx, cfg, log)
+	defer otelHandle.Shutdown(context.Background())
+
+	srv := newServer(cfg, log, store, otelHandle)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -35,7 +51,13 @@ func run() error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Info("listening", "port", cfg.Port, "version", cfg.ServiceVersion, "env", cfg.Env)
+		log.Info("listening",
+			"port", cfg.Port,
+			"version", cfg.ServiceVersion,
+			"env", cfg.Env,
+			"auth", cfg.ProductAuth,
+			"otel", cfg.OTELEnabled,
+		)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 			return
@@ -53,10 +75,10 @@ func run() error {
 		log.Info("shutdown signal received", "signal", sig.String())
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := httpServer.Shutdown(ctx); err != nil {
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}
 	log.Info("shutdown complete")
