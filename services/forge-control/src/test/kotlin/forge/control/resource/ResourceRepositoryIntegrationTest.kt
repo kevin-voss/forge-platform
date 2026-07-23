@@ -115,6 +115,7 @@ class ResourceRepositoryIntegrationTest {
                             "created_at",
                             "updated_at",
                             "deleted_at",
+                            "deletion_timestamp",
                         ),
                         columns,
                     )

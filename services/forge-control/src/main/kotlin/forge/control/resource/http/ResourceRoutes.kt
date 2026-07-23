@@ -6,6 +6,7 @@ import forge.control.logging.JsonLog
 import forge.control.repo.IdempotencyStore
 import forge.control.repo.RepositoryException
 import forge.control.resource.CursorCodec
+import forge.control.resource.Finalizers
 import forge.control.resource.GenerationPolicy
 import forge.control.resource.JsonPatch
 import forge.control.resource.KindDescriptor
@@ -14,9 +15,11 @@ import forge.control.resource.LabelSelectorParser
 import forge.control.resource.LabelValidator
 import forge.control.resource.MergePatch
 import forge.control.resource.NewResourceRow
+import forge.control.resource.OwnerRefs
 import forge.control.resource.ResourceEnvelopeResponse
 import forge.control.resource.ResourceListQuery
 import forge.control.resource.ResourceRepository
+import forge.control.resource.ResourceRow
 import forge.control.resource.ResourceScope
 import forge.control.resource.ResourceVersionGuard
 import forge.control.resource.ResourceWriteRequest
@@ -27,6 +30,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.contentType
+import io.ktor.server.request.header
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
@@ -292,6 +296,7 @@ private fun Route.itemRoutes(
             LabelValidator.validate(labels, annotations)
             val ownerRefs = body.metadata?.ownerRefs ?: existing.ownerRefs
             val finalizers = body.metadata?.finalizers ?: existing.finalizers
+            validateOwnerRefs(resources, existing, ownerRefs)
             val bump = GenerationPolicy.shouldBumpGeneration(existing.spec, body.spec)
             val updated = try {
                 resources.replace(
@@ -350,18 +355,54 @@ private fun Route.itemRoutes(
             val name = call.parameters["name"]
                 ?: throw ApiException.BadRequest("name is required", mapOf("field" to "name"))
             val existing = requireExisting(resources, kind, scope, name)
-            val deleted = resources.softDelete(existing.id)
-            logWrite(
-                log,
-                telemetry,
-                kind.kind,
-                name,
-                scope,
-                "delete",
-                existing.resourceVersion,
-                deleted.resourceVersion,
+            enforceDeleteConfirmation(call, kind, name)
+            applyCascadePolicy(
+                resources = resources,
+                kinds = kinds,
+                parent = existing,
+                cascade = call.request.queryParameters["cascade"]?.trim()?.lowercase(),
             )
-            call.respond(HttpStatusCode.NoContent)
+            if (existing.deletionTimestamp != null) {
+                // Idempotent re-DELETE while terminating.
+                if (Finalizers.isEmpty(existing.finalizers)) {
+                    val deleted = resources.softDelete(existing.id)
+                    logWrite(
+                        log, telemetry, kind.kind, name, scope,
+                        "delete", existing.resourceVersion, deleted.resourceVersion,
+                    )
+                    call.respond(HttpStatusCode.NoContent)
+                } else {
+                    log?.info(
+                        "resource.deletion_blocked",
+                        "resource_id" to existing.id,
+                        "kind" to kind.kind,
+                        "finalizers" to Finalizers.asStrings(existing.finalizers).joinToString(","),
+                    )
+                    call.respond(existing.toResponse())
+                }
+                return@delete
+            }
+            if (Finalizers.isEmpty(existing.finalizers)) {
+                val deleted = resources.softDelete(existing.id)
+                logWrite(
+                    log, telemetry, kind.kind, name, scope,
+                    "delete", existing.resourceVersion, deleted.resourceVersion,
+                )
+                call.respond(HttpStatusCode.NoContent)
+            } else {
+                val terminating = resources.markTerminating(existing.id)
+                log?.info(
+                    "resource.deletion_blocked",
+                    "resource_id" to terminating.id,
+                    "kind" to kind.kind,
+                    "finalizers" to Finalizers.asStrings(terminating.finalizers).joinToString(","),
+                )
+                logWrite(
+                    log, telemetry, kind.kind, name, scope,
+                    "terminate", existing.resourceVersion, terminating.resourceVersion,
+                )
+                call.respond(terminating.toResponse())
+            }
         }
     }
 }
@@ -466,10 +507,31 @@ private fun createResource(
     val labels = body.metadata?.labels ?: JsonObject(emptyMap())
     val annotations = body.metadata?.annotations ?: JsonObject(emptyMap())
     LabelValidator.validate(labels, annotations)
+    val ownerRefs = body.metadata?.ownerRefs ?: JsonArray(emptyList())
+    val provisional = ResourceRow(
+        id = Ulid.next(kind.idPrefix),
+        kind = kind.kind,
+        apiVersion = apiVersion,
+        organization = organization,
+        project = scope.project,
+        environment = scope.environment,
+        name = name,
+        generation = 1,
+        resourceVersion = 0,
+        labels = labels,
+        annotations = annotations,
+        spec = body.spec,
+        status = JsonObject(emptyMap()),
+        ownerRefs = ownerRefs,
+        finalizers = body.metadata?.finalizers ?: JsonArray(emptyList()),
+        createdAt = java.time.Instant.EPOCH,
+        updatedAt = java.time.Instant.EPOCH,
+    )
+    validateOwnerRefs(resources, provisional, ownerRefs)
     return try {
         resources.insert(
             NewResourceRow(
-                id = Ulid.next(kind.idPrefix),
+                id = provisional.id,
                 kind = kind.kind,
                 apiVersion = apiVersion,
                 organization = organization,
@@ -479,14 +541,99 @@ private fun createResource(
                 labels = labels,
                 annotations = annotations,
                 spec = body.spec,
-                ownerRefs = body.metadata?.ownerRefs ?: JsonArray(emptyList()),
-                finalizers = body.metadata?.finalizers ?: JsonArray(emptyList()),
+                ownerRefs = ownerRefs,
+                finalizers = provisional.finalizers,
             ),
         )
     } catch (e: RepositoryException.Conflict) {
         throw ApiException.Conflict(e.message ?: "resource already exists", code = "conflict")
     } catch (e: RepositoryException.ConstraintViolation) {
         throw ApiException.BadRequest(e.message ?: "constraint violation")
+    }
+}
+
+internal fun validateOwnerRefs(
+    resources: ResourceRepository,
+    subject: ResourceRow,
+    ownerRefs: JsonArray,
+) {
+    if (ownerRefs.isEmpty()) return
+    OwnerRefs.validate(subject, ownerRefs) { id -> resources.findById(id) }
+}
+
+internal fun enforceDeleteConfirmation(
+    call: ApplicationCall,
+    kind: KindDescriptor,
+    name: String,
+) {
+    if (!kind.requiresDeleteConfirmation) return
+    val confirmation = call.request.header("X-Forge-Delete-Confirmation")?.trim().orEmpty()
+    if (confirmation != name) {
+        throw ApiException.Conflict(
+            "delete confirmation required: send X-Forge-Delete-Confirmation with the resource name",
+            details = mapOf(
+                "kind" to kind.kind,
+                "name" to name,
+                "header" to "X-Forge-Delete-Confirmation",
+            ),
+            code = "delete_confirmation_required",
+        )
+    }
+}
+
+/**
+ * Default: reject when owned dependents exist (`owned_resources_exist`).
+ * `cascade=orphan` clears child owner refs; `cascade=foreground` marks cascade-allowed
+ * children Terminating (kinds with [KindDescriptor.allowsCascade]=false block).
+ */
+internal fun applyCascadePolicy(
+    resources: ResourceRepository,
+    kinds: KindRegistry,
+    parent: ResourceRow,
+    cascade: String?,
+) {
+    val children = resources.findOwnedBy(parent.id)
+    if (children.isEmpty()) return
+    when (cascade) {
+        null, "" -> throw ApiException.Conflict(
+            "resource has owned dependents; pass cascade=orphan or cascade=foreground",
+            details = mapOf(
+                "resourceId" to parent.id,
+                "ownedCount" to children.size.toString(),
+            ),
+            code = "owned_resources_exist",
+        )
+        "orphan" -> resources.clearOwnerRefsTo(parent.id)
+        "foreground" -> {
+            val blocked = children.filter { child ->
+                val childKind = kinds.get(child.kind)
+                childKind == null || !childKind.allowsCascade
+            }
+            if (blocked.isNotEmpty()) {
+                throw ApiException.Conflict(
+                    "owned dependents do not allow cascade deletion",
+                    details = mapOf(
+                        "resourceId" to parent.id,
+                        "blockedKinds" to blocked.map { it.kind }.distinct().joinToString(","),
+                    ),
+                    code = "owned_resources_exist",
+                )
+            }
+            for (child in children) {
+                if (child.deletionTimestamp == null) {
+                    if (Finalizers.isEmpty(child.finalizers)) {
+                        resources.softDelete(child.id)
+                    } else {
+                        resources.markTerminating(child.id)
+                    }
+                }
+            }
+        }
+        else -> throw ApiException.BadRequest(
+            "cascade must be orphan or foreground",
+            details = mapOf("field" to "cascade"),
+            code = "invalid_request",
+        )
     }
 }
 

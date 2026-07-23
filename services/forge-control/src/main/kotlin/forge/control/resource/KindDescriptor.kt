@@ -4,8 +4,11 @@ package forge.control.resource
  * Compile-time registration entry for a resource kind.
  *
  * [parentKind] is reserved for nested address shapes (e.g. Service under Application)
- * and is unused until step 20.07. [requiresDeleteConfirmation] and
- * [enforceScopeUniqueness] are activated by later steps in this epic.
+ * and is unused until step 20.07. [enforceScopeUniqueness] is activated in 20.07.
+ *
+ * [requiresDeleteConfirmation] — DELETE needs `X-Forge-Delete-Confirmation: <name>`.
+ * [allowsCascade] — when a parent is deleted with `?cascade=foreground`, children of
+ * this kind may be marked Terminating; default false (never silent cascade).
  */
 data class KindDescriptor(
     val kind: String,
@@ -16,6 +19,7 @@ data class KindDescriptor(
     val owningController: String,
     val idPrefix: String,
     val requiresDeleteConfirmation: Boolean = false,
+    val allowsCascade: Boolean = false,
     val enforceScopeUniqueness: Boolean = true,
 ) {
     init {

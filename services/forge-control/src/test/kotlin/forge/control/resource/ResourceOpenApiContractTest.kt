@@ -47,6 +47,11 @@ class ResourceOpenApiContractTest {
         assertTrue(yaml.contains("resource_version_too_old"))
         assertTrue(yaml.contains("x-watch-resources") || yaml.contains("watchResources"))
         assertTrue(yaml.contains("text/event-stream"))
+        assertTrue(yaml.contains("/finalizers"))
+        assertTrue(yaml.contains("FinalizerPatch:") || yaml.contains("x-patch-resource-finalizers"))
+        assertTrue(yaml.contains("X-Forge-Delete-Confirmation"))
+        assertTrue(yaml.contains("delete_confirmation_required") || yaml.contains("owned_resources_exist"))
+        assertTrue(yaml.contains("owner_reference_cycle") || yaml.contains("OwnerRef:"))
     }
 
     @Test

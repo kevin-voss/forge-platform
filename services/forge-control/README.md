@@ -33,7 +33,7 @@ attached databases return `409` until detached. Cross-project backup/restore
 returns `404`. Product DBs are isolated from Control's own JDBC connection;
 plaintext URLs never appear in Control logs or API responses.
 
-A declarative resource API (`20.01`–`20.05`) stores Kubernetes-style envelopes
+A declarative resource API (`20.01`–`20.06`) stores Kubernetes-style envelopes
 (`apiVersion`/`kind`/`metadata`/`spec`/`status`) in `control.resources` and
 exposes one generic CRUD + list surface dispatched by `{plural}` + scope
 (`Cluster` / `Project` / `Environment`). Writes use `resourceVersion` optimistic
@@ -45,9 +45,14 @@ matched-set high-water mark for `GET /v1/watch/{plural}?since=` (`20.05`).
 Mutations append one durable row to `control.resource_events` in the same
 transaction; watch streams replay retained events then live-tail over SSE
 (`text/event-stream`), returning `410 resource_version_too_old` when `since` is
-below the retention window. Kill switch: `FORGE_RESOURCE_API_ENABLED` (default
-`true`). A temporary `Widget` fixture kind exercises the routes until product
-kinds land in `20.07`.
+below the retention window. Deletes with finalizers enter `Terminating`
+(`deletion_timestamp` + `MODIFIED`); `PATCH …/finalizers` lets the owning
+controller clear entries until the terminal `DELETED`. Owner references are
+validated (same-or-wider scope, cycle rejection); stateful kinds may require
+`X-Forge-Delete-Confirmation`, and cascade defaults to reject owned dependents
+(`?cascade=orphan|foreground`). Kill switch: `FORGE_RESOURCE_API_ENABLED`
+(default `true`). Temporary `Widget` / `Vault` fixture kinds exercise the routes
+until product kinds land in `20.07`.
 
 A reconciliation controller (`07.01`–`07.05`) periodically diffs desired vs
 actual replica state, converges via Runtime, performs rolling updates, and on

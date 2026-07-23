@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 137`** (epic 20; current roadmap 1–131 complete).
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 138`** (epic 20; current roadmap 1–131 complete).
 
 ## Epics
 
@@ -215,7 +215,7 @@ next implementable step is still the one named at the top of this file. Plan:
 | **134** | [Generation tracking, status subresource, conditions](steps/20-declarative-resource-api/20.03-generation-status-and-conditions.md) | Complete |  | `/status` subresource; generation bump on spec change; Condition merge + derivePhase |
 | **135** | [Labels, annotations, filtering, pagination](steps/20-declarative-resource-api/20.04-labels-selectors-and-listing.md) | Complete |  | `labelSelector`, phase/namePrefix filters, cursor pagination, list `resourceVersion` |
 | **136** | [Watch API + resource events](steps/20-declarative-resource-api/20.05-watch-api-and-resource-events.md) | Complete |  | SSE watch, durable `resource_events`, replay + live tail, `410 resource_version_too_old` |
-| **137** | [Owner references, finalizers, terminating deletion](steps/20-declarative-resource-api/20.06-ownership-finalizers-and-deletion.md) | Not started |  | |
+| **137** | [Owner references, finalizers, terminating deletion](steps/20-declarative-resource-api/20.06-ownership-finalizers-and-deletion.md) | Complete |  | Owner refs + cycles; finalizer PATCH; Terminating delete; delete confirmation; cascade orphan/foreground |
 | **138** | [Compatibility facade for shipped APIs + `forge apply`](steps/20-declarative-resource-api/20.07-compat-facade-and-forge-apply.md) | Not started |  | |
 | **139** | [Demo `20-declarative-resources` + epic gate](steps/20-declarative-resource-api/20.08-demo-20-declarative-resources.md) | Not started |  | |
 | **140**–**145** | Epic 21 — Forge Discovery (`21.01`–`21.06`) | Not started |  | |

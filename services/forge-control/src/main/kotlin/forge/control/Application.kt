@@ -80,6 +80,7 @@ import forge.control.resource.JdbcResourceRepository
 import forge.control.resource.KindDescriptor
 import forge.control.resource.KindRegistry
 import forge.control.resource.ResourceScope
+import forge.control.resource.http.finalizerRoutes
 import forge.control.resource.http.resourceRoutes
 import forge.control.resource.http.statusRoutes
 import forge.control.resource.http.watchRoutes
@@ -711,6 +712,14 @@ fun Application.forgeControlModule(
                         log = log,
                         telemetry = telemetry,
                     )
+                    finalizerRoutes(
+                        resources = resources,
+                        kinds = kinds,
+                        defaultOrganization = cfg.resourceDefaultOrganization,
+                        controllerHeaderEnforced = cfg.statusControllerHeaderEnforced,
+                        log = log,
+                        telemetry = telemetry,
+                    )
                     val resourceEvents = services.resourceEvents
                     if (resourceEvents != null) {
                         watchRoutes(
@@ -745,6 +754,20 @@ fun buildKindRegistry(): KindRegistry =
                 schemaVersion = 1,
                 owningController = "widget-controller",
                 idPrefix = "wgt",
+                allowsCascade = true,
+            ),
+        )
+        // Stateful fixture for delete-confirmation / non-cascade coverage (20.06).
+        registry.register(
+            KindDescriptor(
+                kind = "Vault",
+                plural = "vaults",
+                scope = ResourceScope.Environment,
+                schemaVersion = 1,
+                owningController = "vault-controller",
+                idPrefix = "vlt",
+                requiresDeleteConfirmation = true,
+                allowsCascade = false,
             ),
         )
     }

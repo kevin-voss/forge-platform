@@ -849,4 +849,180 @@ class ResourceApiIntegrationTest {
         assertEquals(HttpStatusCode.Gone, gone.status)
         assertEquals("resource_version_too_old", gone.body<ErrorEnvelope>().error.code)
     }
+
+    @Test
+    @Order(15)
+    fun deleteWithFinalizersLeavesTerminatingUntilLastFinalizerRemoved() = withApp {
+        val client = jsonClient()
+        val name = "fin-${UUID.randomUUID().toString().take(8)}"
+        val created = client.post(basePath()) {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put("apiVersion", JsonPrimitive("forge.dev/v1"))
+                    put("kind", JsonPrimitive("Widget"))
+                    put(
+                        "metadata",
+                        buildJsonObject {
+                            put("name", JsonPrimitive(name))
+                            put(
+                                "finalizers",
+                                buildJsonArray {
+                                    add(JsonPrimitive("widget.forge.dev/finalizer"))
+                                },
+                            )
+                        },
+                    )
+                    put("spec", buildJsonObject { put("size", JsonPrimitive("s")) })
+                },
+            )
+        }.body<ResourceEnvelopeResponse>()
+
+        val del = client.delete("${basePath()}/$name")
+        assertEquals(HttpStatusCode.OK, del.status)
+        val terminating = del.body<ResourceEnvelopeResponse>()
+        assertEquals("Terminating", terminating.status["phase"]!!.jsonPrimitive.content)
+        assertTrue(terminating.metadata.deletionTimestamp != null)
+        assertEquals(listOf("widget.forge.dev/finalizer"), terminating.metadata.finalizers.map { it.jsonPrimitive.content })
+
+        val stillVisible = client.get("${basePath()}/$name")
+        assertEquals(HttpStatusCode.OK, stillVisible.status)
+        assertTrue(
+            eventTypesForResource(created.metadata.id).contains("MODIFIED"),
+            "terminating delete must emit MODIFIED, not DELETED yet",
+        )
+        assertTrue(!eventTypesForResource(created.metadata.id).contains("DELETED"))
+
+        val forbidden = client.patch("${basePath()}/$name/finalizers") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put(
+                        "remove",
+                        buildJsonArray { add(JsonPrimitive("widget.forge.dev/finalizer")) },
+                    )
+                },
+            )
+        }
+        assertEquals(HttpStatusCode.Forbidden, forbidden.status)
+        assertEquals("forbidden_finalizer", forbidden.body<ErrorEnvelope>().error.code)
+
+        val cleared = client.patch("${basePath()}/$name/finalizers") {
+            header("X-Forge-Controller", "widget-controller")
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put(
+                        "remove",
+                        buildJsonArray { add(JsonPrimitive("widget.forge.dev/finalizer")) },
+                    )
+                },
+            )
+        }
+        assertEquals(HttpStatusCode.NoContent, cleared.status)
+        assertEquals(HttpStatusCode.NotFound, client.get("${basePath()}/$name").status)
+        assertTrue(eventTypesForResource(created.metadata.id).contains("DELETED"))
+    }
+
+    @Test
+    @Order(16)
+    fun protectedKindRequiresDeleteConfirmation() = withApp {
+        val client = jsonClient()
+        val name = "vault-${UUID.randomUUID().toString().take(8)}"
+        val path = "/v1/projects/$project/environments/$environment/vaults"
+        client.post(path) {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put("apiVersion", JsonPrimitive("forge.dev/v1"))
+                    put("kind", JsonPrimitive("Vault"))
+                    put("metadata", buildJsonObject { put("name", JsonPrimitive(name)) })
+                    put("spec", buildJsonObject { put("engine", JsonPrimitive("kv")) })
+                },
+            )
+        }
+        val denied = client.delete("$path/$name")
+        assertEquals(HttpStatusCode.Conflict, denied.status)
+        assertEquals("delete_confirmation_required", denied.body<ErrorEnvelope>().error.code)
+
+        val ok = client.delete("$path/$name") {
+            header("X-Forge-Delete-Confirmation", name)
+        }
+        assertEquals(HttpStatusCode.NoContent, ok.status)
+        assertEquals(HttpStatusCode.NotFound, client.get("$path/$name").status)
+    }
+
+    @Test
+    @Order(17)
+    fun ownerReferenceCycleIsRejected() = withApp {
+        val client = jsonClient()
+        val parentName = "own-p-${UUID.randomUUID().toString().take(8)}"
+        val childName = "own-c-${UUID.randomUUID().toString().take(8)}"
+        val parent = client.post(basePath()) {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put("apiVersion", JsonPrimitive("forge.dev/v1"))
+                    put("kind", JsonPrimitive("Widget"))
+                    put("metadata", buildJsonObject { put("name", JsonPrimitive(parentName)) })
+                    put("spec", buildJsonObject { put("size", JsonPrimitive("p")) })
+                },
+            )
+        }.body<ResourceEnvelopeResponse>()
+        val child = client.post(basePath()) {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put("apiVersion", JsonPrimitive("forge.dev/v1"))
+                    put("kind", JsonPrimitive("Widget"))
+                    put(
+                        "metadata",
+                        buildJsonObject {
+                            put("name", JsonPrimitive(childName))
+                            put(
+                                "ownerRefs",
+                                buildJsonArray {
+                                    add(
+                                        buildJsonObject {
+                                            put("kind", JsonPrimitive("Widget"))
+                                            put("id", JsonPrimitive(parent.metadata.id))
+                                        },
+                                    )
+                                },
+                            )
+                        },
+                    )
+                    put("spec", buildJsonObject { put("size", JsonPrimitive("c")) })
+                },
+            )
+        }.body<ResourceEnvelopeResponse>()
+
+        val cycle = client.put("${basePath()}/$parentName") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put(
+                        "metadata",
+                        buildJsonObject {
+                            put("resourceVersion", JsonPrimitive(parent.metadata.resourceVersion))
+                            put(
+                                "ownerRefs",
+                                buildJsonArray {
+                                    add(
+                                        buildJsonObject {
+                                            put("kind", JsonPrimitive("Widget"))
+                                            put("id", JsonPrimitive(child.metadata.id))
+                                        },
+                                    )
+                                },
+                            )
+                        },
+                    )
+                    put("spec", buildJsonObject { put("size", JsonPrimitive("p")) })
+                },
+            )
+        }
+        assertEquals(HttpStatusCode.BadRequest, cycle.status)
+        assertEquals("owner_reference_cycle", cycle.body<ErrorEnvelope>().error.code)
+    }
 }
