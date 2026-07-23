@@ -1,0 +1,81 @@
+services:
+  api-go:
+    build:
+      context: ./api-go
+    image: forge/incident-api:local
+    container_name: incident-api
+    ports:
+      - "4211:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: incident-api
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: info
+      FORGE_ENV: development
+    stop_grace_period: 10s
+    restart: "no"
+
+  admin-kotlin:
+    build:
+      context: ./admin-kotlin
+    image: forge/incident-admin:local
+    container_name: incident-admin
+    ports:
+      - "4212:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: incident-admin
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: info
+      FORGE_ENV: development
+    stop_grace_period: 10s
+    restart: "no"
+
+  log-worker-rust:
+    build:
+      context: ./log-worker-rust
+    image: forge/incident-log-worker:local
+    container_name: incident-log-worker
+    ports:
+      - "4213:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: incident-log-worker
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: info
+      FORGE_ENV: development
+    stop_grace_period: 10s
+    restart: "no"
+
+  classify-python:
+    build:
+      context: ./classify-python
+    image: forge/incident-classify:local
+    container_name: incident-classify
+    ports:
+      - "4214:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: incident-classify
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: info
+      FORGE_ENV: development
+    stop_grace_period: 10s
+    restart: "no"
+
+  notify-elixir:
+    build:
+      context: ./notify-elixir
+    image: forge/incident-notify:local
+    container_name: incident-notify
+    ports:
+      - "4215:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: incident-notify
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: info
+      FORGE_ENV: development
+      RELEASE_DISTRIBUTION: none
+    stop_grace_period: 10s
+    restart: "no"

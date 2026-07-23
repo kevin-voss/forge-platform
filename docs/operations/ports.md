@@ -91,3 +91,15 @@ Reserved host ports for `demos/01-container-runtime` (five-language runtime cont
 | Rust | 4203 |
 | Python | 4204 |
 | Elixir | 4205 |
+
+## Demo allocations (epic 19 product)
+
+Reserved host ports for `demos/09-full-platform/product` (polyglot incident-management product):
+
+| Product service | Host port |
+|---|---:|
+| `incident-api` (Go) | 4211 |
+| `incident-admin` (Kotlin) | 4212 |
+| `incident-log-worker` (Rust) | 4213 |
+| `incident-classify` (Python) | 4214 |
+| `incident-notify` (Elixir) | 4215 |

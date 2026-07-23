@@ -1,0 +1,6 @@
+service:
+  name: incident-admin
+  port: 8080
+build:
+  dockerfile: Dockerfile
+  context: .

@@ -1,0 +1,7 @@
+/_build/
+/deps/
+/doc/
+/.elixir_ls/
+*.beam
+erl_crash.dump
+.DS_Store

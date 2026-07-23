@@ -1,0 +1,6 @@
+service:
+  name: incident-notify
+  port: 8080
+build:
+  dockerfile: Dockerfile
+  context: .

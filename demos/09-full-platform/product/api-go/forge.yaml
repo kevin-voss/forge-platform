@@ -1,0 +1,6 @@
+service:
+  name: incident-api
+  port: 8080
+build:
+  dockerfile: Dockerfile
+  context: .

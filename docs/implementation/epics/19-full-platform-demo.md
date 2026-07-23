@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning
+In progress
 
 ## Goal
 
@@ -68,7 +68,7 @@ One command starts the entire demo; one command runs the acceptance suite provin
 
 | Step | Title | Status | Notes |
 |---|---|---|---|
-| [19.01](../steps/19-full-platform-demo/19.01-polyglot-product-scaffold.md) | Polyglot sample product | Not started | Go/Kotlin/Rust/Python/Elixir services |
+| [19.01](../steps/19-full-platform-demo/19.01-polyglot-product-scaffold.md) | Polyglot sample product | Complete | Go/Kotlin/Rust/Python/Elixir services under `product/` |
 | [19.02](../steps/19-full-platform-demo/19.02-deploy-path.md) | Deploy path: Build→Runtime→Gateway→Events | Not started | Depends on 19.01 |
 | [19.03](../steps/19-full-platform-demo/19.03-identity-secrets-observe-storage-db.md) | Identity, Secrets, Observe, Storage, managed DB | Not started | Depends on 19.02 |
 | [19.04](../steps/19-full-platform-demo/19.04-models-agents-memory.md) | Models + Agents + Memory for diagnosis | Not started | Depends on 19.03 |
@@ -92,4 +92,4 @@ One command starts the entire demo; one command runs the acceptance suite provin
 
 ## Next step to implement
 
-**[19.01](../steps/19-full-platform-demo/19.01-polyglot-product-scaffold.md) — Polyglot sample product** (scaffold the five product services against the runtime contract; no platform integration yet).
+**[19.02](../steps/19-full-platform-demo/19.02-deploy-path.md) — Deploy path: Build→Runtime→Gateway→Events** (depend on 19.01 product scaffold).
