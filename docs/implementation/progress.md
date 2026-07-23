@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 68`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 69`**.
 
 ## Epics
 
@@ -18,7 +18,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [07](epics/07-deployment-reconciliation.md) | Deployment reconciliation | Complete | 6/6 steps complete; demo 07 rolling-deployment acceptance gate passed |
 | [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | Complete | 6/6 steps complete; demo 08 multi-node acceptance gate passed |
 | [09](epics/09-forge-identity.md) | Forge Identity | Complete | 8/8 steps complete; demo 09 platform-identity acceptance gate passed; default auth enforce |
-| [10](epics/10-forge-secrets.md) | Forge Secrets | In progress | 2/7 steps; encrypted store + versioning + metadata APIs |
+| [10](epics/10-forge-secrets.md) | Forge Secrets | In progress | 5/7 steps; CLI secret/config commands |
 | [11](epics/11-forge-events.md) | Forge Events | Planning | 7 steps |
 | [12](epics/12-forge-observe.md) | Forge Observe | Planning | 7 steps |
 | [13](epics/13-forge-storage.md) | Forge Storage | Planning | 7 steps |
@@ -101,7 +101,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **65** | [Encrypted store + key versioning + metadata APIs](steps/10-forge-secrets/10.02-encrypted-store-key-versioning-metadata.md) | Complete |  | AEAD ciphertext+nonce; versions; list/metadata; `:access` reveal |
 | **66** | [Config vs secrets APIs; project isolation](steps/10-forge-secrets/10.03-config-vs-secrets-and-project-isolation.md) | Complete |  | Config CRUD (values returned); SecretsAuth + Identity; project isolation 401/403 |
 | **67** | [Runtime injection at deploy](steps/10-forge-secrets/10.04-runtime-injection-at-deploy.md) | Complete |  | Bindings + resolve env bundle; Control injects at StartReplica; fingerprint redeploy; Runtime masks env |
-| **68** | [CLI `forge secret` / `forge config`](steps/10-forge-secrets/10.05-cli-secret-and-config.md) | Not started |  |  |
+| **68** | [CLI `forge secret` / `forge config`](steps/10-forge-secrets/10.05-cli-secret-and-config.md) | Complete |  | `forge secret set/list/rotate` + `forge config set/show`; SecretsClient; no-echo/stdin/file |
 | **69** | [Access audit + log masking](steps/10-forge-secrets/10.06-access-audit-and-log-masking.md) | Not started |  |  |
 | **70** | [Demo `10-secrets` + epic gate](steps/10-forge-secrets/10.07-demo-10-secrets.md) | Not started |  |  |
 | **71** | [Skeleton + NATS wiring](steps/11-forge-events/11.01-skeleton-and-nats-wiring.md) | Not started |  |  |

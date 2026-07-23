@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"forge.local/tools/forge-cli/internal/auth"
+	sharedclient "forge.local/tools/forge-cli/internal/client"
 	"forge.local/tools/forge-cli/internal/config"
 	"forge.local/tools/forge-cli/internal/control"
 	"forge.local/tools/forge-cli/internal/identity"
@@ -62,11 +63,23 @@ func ExitCode(err error) int {
 		}
 	}
 
+	var secretsError *sharedclient.SecretsAPIError
+	if errors.As(err, &secretsError) {
+		switch secretsError.Status {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return Auth
+		case http.StatusNotFound:
+			return NotFound
+		case http.StatusConflict:
+			return Conflict
+		}
+	}
+
 	var networkError net.Error
 	if errors.As(err, &networkError) && (networkError.Timeout() || control.IsNetworkError(err)) {
 		return Timeout
 	}
-	if control.IsNetworkError(err) || identity.IsNetworkError(err) {
+	if control.IsNetworkError(err) || identity.IsNetworkError(err) || sharedclient.IsSecretsNetworkError(err) {
 		return Timeout
 	}
 	return Generic

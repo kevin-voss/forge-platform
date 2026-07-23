@@ -21,6 +21,8 @@ import (
 type State struct {
 	Endpoint string
 	Profile  string
+	Project  string
+	Env      string
 	Output   string
 	Timeout  string
 	Verbose  bool
@@ -38,15 +40,15 @@ func NewRootCommand(version string) *cobra.Command {
 		Short:         "Forge platform command-line client",
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if err := state.validateGlobals(cmd); err != nil {
 				return err
 			}
 			state.Interaction = interactive.Detect(state.NoInput, os.Stdin, os.Getenv)
-			if cmd.Parent() != nil && cmd.Parent().Name() == "config" {
+			if cmd.Name() == "completion" {
 				return nil
 			}
-			if cmd.Name() == "completion" {
+			if isCLIProfileConfigCommand(cmd, args) {
 				return nil
 			}
 			return state.resolve()
@@ -54,6 +56,8 @@ func NewRootCommand(version string) *cobra.Command {
 	}
 	root.PersistentFlags().StringVar(&state.Endpoint, "endpoint", "", "Control endpoint URL")
 	root.PersistentFlags().StringVar(&state.Profile, "profile", "", "named configuration profile")
+	root.PersistentFlags().StringVar(&state.Project, "project", "", "project id for secrets/config commands")
+	root.PersistentFlags().StringVar(&state.Env, "env", "", "environment name for secrets/config (default: production or FORGE_ENV)")
 	root.PersistentFlags().StringVar(&state.Output, "output", "table", "output format: table or json")
 	root.PersistentFlags().StringVar(&state.Timeout, "timeout", "30s", "HTTP request timeout")
 	root.PersistentFlags().BoolVar(&state.Verbose, "verbose", false, "print diagnostics to stderr")
@@ -73,8 +77,31 @@ func NewRootCommand(version string) *cobra.Command {
 		newApplicationCommand(state),
 		newServiceCommand(state),
 		newDeploymentCommand(state),
+		newSecretCommand(state),
 	)
 	return root
+}
+
+// isCLIProfileConfigCommand reports profile-management config subcommands that
+// must not require a resolved Control endpoint (first-time setup).
+func isCLIProfileConfigCommand(cmd *cobra.Command, args []string) bool {
+	if cmd.Parent() == nil || cmd.Parent().Name() != "config" {
+		return false
+	}
+	switch cmd.Name() {
+	case "get", "list", "use":
+		return true
+	case "set":
+		// Platform config: forge config set NAME=VALUE
+		if len(args) == 1 && strings.Contains(args[0], "=") {
+			return false
+		}
+		return true
+	case "show":
+		return false
+	default:
+		return true
+	}
 }
 
 func (s *State) validateGlobals(cmd *cobra.Command) error {

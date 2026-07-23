@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"forge.local/tools/forge-cli/internal/auth"
+	sharedclient "forge.local/tools/forge-cli/internal/client"
 	"forge.local/tools/forge-cli/internal/config"
 	"forge.local/tools/forge-cli/internal/control"
 )
@@ -25,6 +26,9 @@ func TestExitCodeTaxonomy(t *testing.T) {
 		{name: "conflict", err: &control.APIError{Status: http.StatusConflict}, want: Conflict},
 		{name: "unauthorized", err: &control.APIError{Status: http.StatusUnauthorized}, want: Auth},
 		{name: "forbidden", err: &control.APIError{Status: http.StatusForbidden}, want: Auth},
+		{name: "secrets unauthorized", err: &sharedclient.SecretsAPIError{Status: http.StatusUnauthorized}, want: Auth},
+		{name: "secrets forbidden", err: &sharedclient.SecretsAPIError{Status: http.StatusForbidden}, want: Auth},
+		{name: "secrets not found", err: &sharedclient.SecretsAPIError{Status: http.StatusNotFound}, want: NotFound},
 		{name: "auth local", err: &auth.Error{Message: "session expired, run forge login"}, want: Auth},
 		{name: "deadline", err: fmt.Errorf("request Control: %w", context.DeadlineExceeded), want: Timeout},
 	}

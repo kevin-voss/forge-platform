@@ -1,9 +1,9 @@
 # Forge CLI
 
-`forge` is the Go command-line client for Forge Control. It manages CLI-side
-endpoint profiles, authenticates via Forge Identity (`forge login`), and creates
-and reads projects, environments, applications, services, and desired
-deployments through the Control HTTP API.
+`forge` is the Go command-line client for the Forge platform. It manages CLI-side
+endpoint profiles, authenticates via Forge Identity (`forge login`), talks to
+Forge Control for projects/environments/apps/services/deployments, and manages
+project secrets and non-secret configuration through Forge Secrets.
 
 ## Build and test
 
@@ -36,15 +36,19 @@ profile file, then the built-in local endpoint `http://127.0.0.1:4001`.
 ```text
 --endpoint URL       Control endpoint URL
 --profile NAME       Named configuration profile
+--project ID         Project id (secrets/config commands)
+--env NAME           Environment name (secrets/config; default production)
 --output table|json  Output format (default: table)
 --timeout DURATION   HTTP timeout (default: 30s)
 --verbose            Emit resolved configuration diagnostics to stderr
 --no-input           Fail instead of prompting for input
 ```
 
-`FORGE_ENDPOINT`, `FORGE_PROFILE`, `FORGE_OUTPUT`, and `FORGE_TIMEOUT` provide
-environment defaults. Command-line flags take precedence over their
-corresponding environment variables.
+`FORGE_ENDPOINT`, `FORGE_PROFILE`, `FORGE_PROJECT`, `FORGE_ENV`, `FORGE_OUTPUT`,
+`FORGE_TIMEOUT`, and `FORGE_SECRETS_URL` provide environment defaults.
+Command-line flags take precedence over their corresponding environment
+variables. Secrets commands default to `http://127.0.0.1:4104` when
+`FORGE_SECRETS_URL` is unset.
 
 ## Authentication
 
@@ -156,3 +160,23 @@ UUID v4 by default; scripts can reuse a value with `--idempotency-key`.
 
 Control errors are printed to stderr with their `requestId` and result in the
 documented non-zero exit status.
+
+## Secrets and project config
+
+Authenticated calls to Forge Secrets (login token). Secret values are never
+echoed by the CLI and never appear in `secret list` output.
+
+```bash
+export FORGE_SECRETS_URL=http://127.0.0.1:4104
+forge --project prj_1 --env production secret set DATABASE_PASSWORD --from-stdin <<<'pw1'
+forge --project prj_1 --env production secret list --json
+forge --project prj_1 --env production secret rotate DATABASE_PASSWORD --from-stdin <<<'pw2'
+forge --project prj_1 --env production config set FEATURE_X=true
+forge --project prj_1 --env production config show
+```
+
+`secret set` / `secret rotate` accept a no-echo prompt (interactive),
+`--from-stdin`, or `--from-file`. `--json` (or `--output json`) emits machine
+readable metadata only for secrets. `config show` displays non-secret values.
+`forge config set endpoint …` continues to manage CLI profiles; `NAME=VALUE`
+assignments target project config in Secrets.

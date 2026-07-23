@@ -7,6 +7,7 @@ import (
 	"io"
 	"text/tabwriter"
 
+	sharedclient "forge.local/tools/forge-cli/internal/client"
 	"forge.local/tools/forge-cli/internal/control"
 )
 
@@ -61,6 +62,22 @@ func Write(writer io.Writer, format string, value any) error {
 				deployment.DesiredReplicas,
 				deployment.Status,
 			)
+		}
+	case sharedclient.SetSecretResponse:
+		fmt.Fprintln(table, "NAME\tVERSION")
+		fmt.Fprintf(table, "%s\t%d\n", value.Name, value.Version)
+	case []sharedclient.SecretListItem:
+		fmt.Fprintln(table, "NAME\tVERSION\tUPDATED")
+		for _, item := range value {
+			fmt.Fprintf(table, "%s\t%d\t%s\n", item.Name, item.Version, item.UpdatedAt)
+		}
+	case sharedclient.ConfigListItem:
+		fmt.Fprintln(table, "NAME\tVALUE\tUPDATED")
+		fmt.Fprintf(table, "%s\t%s\t%s\n", value.Name, value.Value, value.UpdatedAt)
+	case []sharedclient.ConfigListItem:
+		fmt.Fprintln(table, "NAME\tVALUE\tUPDATED")
+		for _, item := range value {
+			fmt.Fprintf(table, "%s\t%s\t%s\n", item.Name, item.Value, item.UpdatedAt)
 		}
 	default:
 		return fmt.Errorf("unsupported table output type %T", value)

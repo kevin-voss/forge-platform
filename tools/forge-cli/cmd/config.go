@@ -3,23 +3,28 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
+	"strings"
 
 	forgeconfig "forge.local/tools/forge-cli/internal/config"
 
 	"github.com/spf13/cobra"
 )
 
+var configNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 func newConfigCommand(state *State) *cobra.Command {
 	configCommand := &cobra.Command{
 		Use:   "config",
-		Short: "Manage Forge CLI profiles",
+		Short: "Manage CLI profiles and project configuration",
 	}
 	configCommand.AddCommand(
 		newConfigSetCommand(state),
 		newConfigGetCommand(state),
 		newConfigListCommand(state),
 		newConfigUseCommand(state),
+		newConfigShowCommand(state),
 	)
 	return configCommand
 }
@@ -47,13 +52,23 @@ func selectedProfile(state *State, file forgeconfig.File) string {
 }
 
 func newConfigSetCommand(state *State) *cobra.Command {
-	return &cobra.Command{
-		Use:   "set endpoint <url>",
-		Short: "Set a profile endpoint",
-		Args:  cobra.ExactArgs(2),
+	var asJSON bool
+	command := &cobra.Command{
+		Use:   "set <endpoint <url>|NAME=VALUE>",
+		Short: "Set a CLI profile endpoint or a project config value",
+		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 && strings.Contains(args[0], "=") {
+				if asJSON {
+					state.Output = "json"
+				}
+				return setPlatformConfig(state, cmd, args[0])
+			}
+			if len(args) != 2 {
+				return &forgeconfig.UsageError{Message: "usage: forge config set endpoint <url> or forge config set NAME=VALUE"}
+			}
 			if args[0] != "endpoint" {
-				return &forgeconfig.UsageError{Message: fmt.Sprintf("unknown config key %q: only endpoint is supported", args[0])}
+				return &forgeconfig.UsageError{Message: fmt.Sprintf("unknown config key %q: only endpoint is supported for CLI profiles (use NAME=VALUE for project config)", args[0])}
 			}
 			if err := forgeconfig.ValidateEndpoint(args[1]); err != nil {
 				return err
@@ -74,6 +89,60 @@ func newConfigSetCommand(state *State) *cobra.Command {
 			return nil
 		},
 	}
+	command.Flags().BoolVar(&asJSON, "json", false, "emit JSON output (project config only)")
+	return command
+}
+
+func setPlatformConfig(state *State, cmd *cobra.Command, assignment string) error {
+	name, value, ok := strings.Cut(assignment, "=")
+	if !ok || name == "" {
+		return &forgeconfig.UsageError{Message: "config assignment must be NAME=VALUE"}
+	}
+	if !configNamePattern.MatchString(name) {
+		return &forgeconfig.UsageError{Message: "config name must match [A-Za-z_][A-Za-z0-9_]*"}
+	}
+	client, projectID, environment, err := state.secretsClient(cmd)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := state.requestContext(cmd)
+	defer cancel()
+	result, err := client.SetConfig(ctx, projectID, environment, name, value)
+	if err != nil {
+		return err
+	}
+	if state.Output == "json" {
+		return state.render(cmd, result)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "set config %s=%s\n", result.Name, result.Value)
+	return nil
+}
+
+func newConfigShowCommand(state *State) *cobra.Command {
+	var asJSON bool
+	command := &cobra.Command{
+		Use:   "show",
+		Short: "Show project/environment configuration values",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if asJSON {
+				state.Output = "json"
+			}
+			client, projectID, environment, err := state.secretsClient(cmd)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := state.requestContext(cmd)
+			defer cancel()
+			items, err := client.ListConfig(ctx, projectID, environment)
+			if err != nil {
+				return err
+			}
+			return state.render(cmd, items)
+		},
+	}
+	command.Flags().BoolVar(&asJSON, "json", false, "emit JSON output")
+	return command
 }
 
 func newConfigGetCommand(state *State) *cobra.Command {

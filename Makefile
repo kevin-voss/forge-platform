@@ -15,7 +15,7 @@ SHUTDOWN_CONTAINER ?=
 SHUTDOWN_TIMEOUT ?= 10s
 
 .PHONY: help setup env-check infra-up infra-down dev stop restart status logs \
-	build test test-unit test-integration test-e2e test-infrastructure \
+	build build-cli test test-unit test-integration test-e2e test-infrastructure \
 	contract-validate \
 	lint format clean reset demo service-test service-run wait
 
@@ -30,6 +30,7 @@ help:
 	@echo "  make status                Show Compose and health status"
 	@echo "  make logs                  Tail Compose logs"
 	@echo "  make build                 Build workspace artifacts (noop in step 00)"
+	@echo "  make build-cli             Build the forge CLI binary (tools/forge-cli)"
 	@echo "  make test                  Run all available test suites"
 	@echo "  make test-unit             Run unit/contract-validator tests"
 	@echo "  make test-infrastructure   Verify local infrastructure health"
@@ -101,6 +102,9 @@ wait:
 
 build:
 	@echo "No service builds in Step 00."
+
+build-cli:
+	@$(MAKE) -C tools/forge-cli build
 
 test: test-unit test-infrastructure
 	@echo "All available tests passed."
