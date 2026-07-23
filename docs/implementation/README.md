@@ -78,13 +78,13 @@ Update [`progress.md`](progress.md) after planning and after each step completes
 | [12-forge-observe](epics/12-forge-observe.md) | In progress | `12.01`–`12.07` |
 | [13-forge-storage](epics/13-forge-storage.md) | Complete | `13.01`–`13.07`; demo 13 gate |
 | [14-forge-models](epics/14-forge-models.md) | Complete | `14.01`–`14.07`; demo 14 gate |
-| [15-forge-agents](epics/15-forge-agents.md) | Planning | `15.01`–`15.08` |
+| [15-forge-agents](epics/15-forge-agents.md) | Complete | `15.01`–`15.08`; demo 15 gate |
 | [16-forge-workflows](epics/16-forge-workflows.md) | Planning | `16.01`–`16.07` |
 | [17-forge-memory](epics/17-forge-memory.md) | Planning | `17.01`–`17.06` |
 | [18-managed-postgresql](epics/18-managed-postgresql.md) | Planning | `18.01`–`18.06` |
 | [19-full-platform-demo](epics/19-full-platform-demo.md) | Planning | `19.01`–`19.06` |
 
-**Next:** `N = 101` via [`IMPLEMENT_STEP.md`](IMPLEMENT_STEP.md) — lookup in [`STEPS.md`](STEPS.md).
+**Next:** `N = 107` via [`IMPLEMENT_STEP.md`](IMPLEMENT_STEP.md) — lookup in [`STEPS.md`](STEPS.md).
 
 Queue: [`STEPS.md`](STEPS.md) (`N = 1` … `N = 131`). Catalog: [`MASTER_PLAN.md`](MASTER_PLAN.md).
 

@@ -6,8 +6,8 @@ Skeleton (15.01), agent registry (15.02), tool registry with per-call
 permission checks (15.03), bounded run engine with audit history (15.04),
 platform tools (15.05), human approval for destructive tools (15.06), and
 seed agents plus `forge agent` CLI (15.07). Fake tool mode
-(`FORGE_AGENTS_TOOLS_MODE=fake`) is the CI default. The epic gate
-(`make demo DEMO=15`) arrives in 15.08.
+(`FORGE_AGENTS_TOOLS_MODE=fake`) is the CI default. Epic gate:
+`make demo DEMO=15` (`demos/15-agent-runtime`).
 
 ## Local
 

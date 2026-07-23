@@ -150,3 +150,42 @@ def test_cancel_transitions_to_cancelled(tmp_path: Path) -> None:
             engine.store.close()
 
     asyncio.run(_run())
+
+
+def test_plan_context_drives_multi_step_script(tmp_path: Path) -> None:
+    async def _run() -> None:
+        engine = _engine(tmp_path, max_steps=6, timeout_seconds=30)
+        try:
+            run = await engine.start(
+                StartRunRequest(
+                    agent_name="fixture-echo",
+                    project_id="proj-a",
+                    run_input="ignored",
+                    context={
+                        "dry_run": True,
+                        "plan": [
+                            {
+                                "kind": "tool_call",
+                                "tool": "echo.ping",
+                                "args": {"message": "step-a"},
+                            },
+                            {
+                                "kind": "tool_call",
+                                "tool": "echo.ping",
+                                "args": {"message": "step-b"},
+                            },
+                            {"kind": "final", "text": "done-via-plan"},
+                        ],
+                    },
+                )
+            )
+            body = await _wait_terminal(engine, run.id)
+            assert body["status"] == "succeeded"
+            assert body["result"] == "done-via-plan"
+            tool_steps = [s for s in body["steps"] if s["type"] == "tool"]
+            assert [s["args"]["message"] for s in tool_steps] == ["step-a", "step-b"]
+        finally:
+            await engine.aclose()
+            engine.store.close()
+
+    asyncio.run(_run())

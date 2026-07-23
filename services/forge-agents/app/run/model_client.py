@@ -72,6 +72,11 @@ class FakeModelClient:
         if delay > 0:
             await asyncio.sleep(delay)
 
+        # Explicit scripted plan for multi-step CI demos (index by prior model steps).
+        planned = _decision_from_plan(context, history)
+        if planned is not None:
+            return planned
+
         force_loop = bool(context.get("force_loop"))
         tool_obs = [h for h in history if h.get("type") == "tool"]
 
@@ -163,6 +168,45 @@ class HttpModelClient:
     async def aclose(self) -> None:
         if self._owns_client:
             await self._client.aclose()
+
+
+def _decision_from_plan(
+    context: dict[str, Any],
+    history: list[dict[str, Any]],
+) -> ModelDecision | None:
+    """Return the next decision from context['plan'] when present.
+
+    Each plan entry is a dict with kind tool_call|final (same shape as ModelDecision).
+    Index advances by the number of prior model steps already recorded in history.
+    """
+    plan = context.get("plan")
+    if not isinstance(plan, list) or not plan:
+        return None
+    idx = len([h for h in history if h.get("type") == "model"])
+    if idx >= len(plan):
+        return None
+    item = plan[idx]
+    if not isinstance(item, dict):
+        return None
+    kind = str(item.get("kind") or item.get("type") or "").strip()
+    if kind == "tool_call":
+        tool = item.get("tool")
+        if not isinstance(tool, str) or not tool.strip():
+            return None
+        args = item.get("args") if isinstance(item.get("args"), dict) else {}
+        return ModelDecision(
+            kind="tool_call",
+            tool=tool.strip(),
+            args=dict(args),
+            raw=f"fake:plan:{idx}",
+        )
+    if kind == "final":
+        return ModelDecision(
+            kind="final",
+            text=str(item.get("text") or ""),
+            raw=f"fake:plan:{idx}",
+        )
+    return None
 
 
 def _pick_tool(agent: AgentDefinition, context: dict[str, Any]) -> str:

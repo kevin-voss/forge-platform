@@ -1,0 +1,7 @@
+{
+  "deployment_id": "dep-failing",
+  "status": "degraded",
+  "ready": false,
+  "image": "registry.local/demo:broken",
+  "desired_replicas": 1
+}
