@@ -28,6 +28,8 @@ type WorkloadView struct {
 	ResourceVersion string
 	DesiredReplicas int
 	HasDesired      bool
+	Phase           string
+	Progressing     bool
 	Raw             map[string]any
 }
 
@@ -208,7 +210,42 @@ func parseWorkload(body []byte) (WorkloadView, error) {
 			}
 		}
 	}
+	if status, ok := env["status"].(map[string]any); ok {
+		view.Phase = asString(status["phase"])
+		view.Progressing = isProgressingPhase(view.Phase)
+		if !view.Progressing {
+			if conds, ok := status["conditions"].([]any); ok {
+				for _, raw := range conds {
+					cond, ok := raw.(map[string]any)
+					if !ok {
+						continue
+					}
+					ctype := strings.ToLower(asString(cond["type"]))
+					cstatus := strings.ToLower(asString(cond["status"]))
+					if (ctype == "progressing" || ctype == "rolling") && (cstatus == "true" || cstatus == "unknown") {
+						view.Progressing = true
+						break
+					}
+				}
+			}
+		}
+		if !view.Progressing {
+			lifecycle := strings.ToLower(asString(status["status"]))
+			if lifecycle == "deploying" || lifecycle == "rolling" {
+				view.Progressing = true
+			}
+		}
+	}
 	return view, nil
+}
+
+func isProgressingPhase(phase string) bool {
+	switch strings.ToLower(strings.TrimSpace(phase)) {
+	case "progressing", "deploying", "rolling", "updating":
+		return true
+	default:
+		return false
+	}
 }
 
 func asString(v any) string {

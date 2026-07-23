@@ -124,7 +124,7 @@ Phase 4 — scale-down
 | [24.02](../steps/24-forge-autoscaler/24.02-workload-cpu-memory-autoscaling.md) | 161 | CPU/memory workload autoscaling | Complete | Utilization math, dampening, Application actuation via resource API |
 | [24.03](../steps/24-forge-autoscaler/24.03-request-rate-and-latency-autoscaling.md) | 162 | Request-rate, latency, error-rate autoscaling | Complete | Gateway-sourced metrics + Observe latency/error; scale-up-only guardrails |
 | [24.04](../steps/24-forge-autoscaler/24.04-worker-queue-depth-autoscaling.md) | 163 | Worker autoscaling from queue signals | Complete | Events-sourced today, Queue-sourced later; scale-to-low, drain-safe shutdown |
-| [24.05](../steps/24-forge-autoscaler/24.05-scheduled-scaling-and-overrides.md) | 164 | Scheduled scaling, manual override, safety fallbacks | Not started | Cron + timezone, override precedence, deployment freeze, metric-outage hold |
+| [24.05](../steps/24-forge-autoscaler/24.05-scheduled-scaling-and-overrides.md) | 164 | Scheduled scaling, manual override, safety fallbacks | Complete | Cron + timezone, override precedence, deployment freeze, metric-outage hold |
 | [24.06](../steps/24-forge-autoscaler/24.06-node-autoscaling-scale-up.md) | 165 | Node autoscaling — scale up | Not started | Pending demand → NodePool selection → Infrastructure creates node |
 | [24.07](../steps/24-forge-autoscaler/24.07-scale-down-draining-and-safeguards.md) | 166 | Scale down, draining, safeguards | Not started | Drain candidate scoring, disruption budgets, stateful-primary exclusion |
 | [24.08](../steps/24-forge-autoscaler/24.08-demo-24-autoscaling.md) | 167 | Demo `24-autoscaling` + epic gate | Not started | All four phases; 20,000-job worker variant; epic acceptance gate |
@@ -149,4 +149,4 @@ Phase 4 — scale-down
 
 ## Next step to implement
 
-**[24.05](../steps/24-forge-autoscaler/24.05-scheduled-scaling-and-overrides.md) — Scheduled scaling, manual override, safety fallbacks**.
+**[24.06](../steps/24-forge-autoscaler/24.06-node-autoscaling-scale-up.md) — Node autoscaling — scale up**.

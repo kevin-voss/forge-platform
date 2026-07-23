@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"forge.local/services/forge-autoscaler/internal/schedule"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -237,7 +239,53 @@ func (s *Store) PatchSpec(ctx context.Context, project, env, name string, expect
 	if _, ok := patchRaw["schedules"]; ok {
 		merged.Schedules = patch.Schedules
 	}
+	if _, ok := patchRaw["metricOutageFallback"]; ok {
+		merged.MetricOutageFallback = patch.MetricOutageFallback
+	}
+	if _, ok := patchRaw["deploymentFreeze"]; ok {
+		merged.DeploymentFreeze = patch.DeploymentFreeze
+	}
 	return s.ReplaceSpec(ctx, project, env, name, expectedRV, merged)
+}
+
+// SetManualOverride writes status.manualOverride with optimistic concurrency.
+func (s *Store) SetManualOverride(ctx context.Context, project, env, name string, expectedRV int64, override ManualOverride) (Envelope, error) {
+	row, err := s.Get(ctx, project, env, name)
+	if err != nil {
+		return Envelope{}, err
+	}
+	if row.ResourceVersion != expectedRV {
+		return Envelope{}, fmt.Errorf("%w: expected %d current %d", ErrConflict, expectedRV, row.ResourceVersion)
+	}
+	status := row.Status
+	status.ManualOverride = &override
+	replicas := override.Replicas
+	AppendAudit(&status, AuditEntry{
+		Type:      "override.created",
+		Message:   override.Reason,
+		Actor:     override.CreatedBy,
+		Replicas:  &replicas,
+		ExpiresAt: override.ExpiresAt,
+	})
+	return s.ReplaceStatus(ctx, project, env, name, expectedRV, status)
+}
+
+// ClearManualOverride removes status.manualOverride.
+func (s *Store) ClearManualOverride(ctx context.Context, project, env, name string, expectedRV int64, reason string) (Envelope, error) {
+	row, err := s.Get(ctx, project, env, name)
+	if err != nil {
+		return Envelope{}, err
+	}
+	if row.ResourceVersion != expectedRV {
+		return Envelope{}, fmt.Errorf("%w: expected %d current %d", ErrConflict, expectedRV, row.ResourceVersion)
+	}
+	status := row.Status
+	status.ManualOverride = nil
+	AppendAudit(&status, AuditEntry{
+		Type:    "override.cleared",
+		Message: reason,
+	})
+	return s.ReplaceStatus(ctx, project, env, name, expectedRV, status)
 }
 
 // ReplaceStatus replaces status_json when expectedRV matches (no generation bump).
@@ -364,6 +412,32 @@ func validateSpec(spec ScalingPolicySpec) error {
 	}
 	if len(spec.Metrics) == 0 {
 		return fmt.Errorf("spec.metrics must contain at least one metric")
+	}
+	for i, sch := range spec.Schedules {
+		if err := schedule.ValidateSchedule(schedule.Spec{
+			Name: sch.Name, Cron: sch.Cron, TimeZone: sch.TimeZone,
+			MinReplicas: sch.MinReplicas, MaxReplicas: sch.MaxReplicas, EndTime: sch.EndTime,
+		}); err != nil {
+			return fmt.Errorf("schedules[%d]: %w", i, err)
+		}
+	}
+	if fb := spec.MetricOutageFallback; fb != nil {
+		mode := strings.ToLower(strings.TrimSpace(fb.Mode))
+		switch mode {
+		case "", OutageHold, OutageFloor, OutageFixed:
+		default:
+			return fmt.Errorf("spec.metricOutageFallback.mode must be hold|floor|fixed")
+		}
+		if mode == OutageFixed {
+			if fb.FixedReplicas == nil || *fb.FixedReplicas < 0 {
+				return fmt.Errorf("spec.metricOutageFallback.fixedReplicas is required when mode=fixed")
+			}
+		}
+	}
+	if freeze := spec.DeploymentFreeze; freeze != nil && strings.TrimSpace(freeze.Until) != "" {
+		if _, err := time.Parse(time.RFC3339, strings.TrimSpace(freeze.Until)); err != nil {
+			return fmt.Errorf("spec.deploymentFreeze.until must be RFC3339: %w", err)
+		}
 	}
 	return nil
 }

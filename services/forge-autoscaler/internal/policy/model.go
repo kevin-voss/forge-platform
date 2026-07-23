@@ -11,6 +11,12 @@ const (
 	Kind       = "ScalingPolicy"
 
 	MaxRecommendations = 10
+	MaxAuditEntries    = 20
+
+	// Metric outage fallback modes (24.05).
+	OutageHold  = "hold"
+	OutageFloor = "floor"
+	OutageFixed = "fixed"
 )
 
 // TargetRef identifies the workload a ScalingPolicy scales.
@@ -40,26 +46,42 @@ type Behavior struct {
 	ScaleDown ScaleBehavior `json:"scaleDown"`
 }
 
-// Schedule is a cron-like override (populated in later steps).
+// Schedule is a cron-based min/max override window (24.05).
 type Schedule struct {
 	Name        string `json:"name,omitempty"`
 	Cron        string `json:"cron,omitempty"`
 	TimeZone    string `json:"timeZone,omitempty"`
 	MinReplicas *int   `json:"minReplicas,omitempty"`
 	MaxReplicas *int   `json:"maxReplicas,omitempty"`
+	EndTime     string `json:"endTime,omitempty"` // optional RFC3339 absolute end
+}
+
+// MetricOutageFallback configures behaviour when all actuable metrics fail (24.05).
+type MetricOutageFallback struct {
+	Mode          string `json:"mode"` // hold | floor | fixed
+	FixedReplicas *int   `json:"fixedReplicas,omitempty"`
+}
+
+// DeploymentFreeze configures an operator freeze window (24.05).
+// Scale-down is also blocked while the target workload reports an active rollout.
+type DeploymentFreeze struct {
+	Enabled bool   `json:"enabled,omitempty"`
+	Until   string `json:"until,omitempty"` // optional RFC3339 end of freeze window
 }
 
 // ScalingPolicySpec is the desired ScalingPolicy configuration.
 type ScalingPolicySpec struct {
-	TargetRef   TargetRef    `json:"targetRef"`
-	MinReplicas int          `json:"minReplicas"`
-	MaxReplicas int          `json:"maxReplicas"`
-	Metrics     []MetricSpec `json:"metrics"`
-	Behavior    Behavior     `json:"behavior"`
-	Schedules   []Schedule   `json:"schedules"`
+	TargetRef            TargetRef             `json:"targetRef"`
+	MinReplicas          int                   `json:"minReplicas"`
+	MaxReplicas          int                   `json:"maxReplicas"`
+	Metrics              []MetricSpec          `json:"metrics"`
+	Behavior             Behavior              `json:"behavior"`
+	Schedules            []Schedule            `json:"schedules"`
+	MetricOutageFallback *MetricOutageFallback `json:"metricOutageFallback,omitempty"`
+	DeploymentFreeze     *DeploymentFreeze     `json:"deploymentFreeze,omitempty"`
 }
 
-// Recommendation records one evaluation observation (no actuation in 24.01).
+// Recommendation records one evaluation observation.
 type Recommendation struct {
 	MetricType          string   `json:"metricType"`
 	MetricValue         *float64 `json:"metricValue"`
@@ -78,16 +100,43 @@ type Condition struct {
 	LastTransitionTime string `json:"lastTransitionTime,omitempty"`
 }
 
+// ManualOverride is a temporary operator force of desired replicas (24.05).
+type ManualOverride struct {
+	Replicas  int    `json:"replicas"`
+	Reason    string `json:"reason"`
+	ExpiresAt string `json:"expiresAt"`
+	CreatedAt string `json:"createdAt,omitempty"`
+	CreatedBy string `json:"createdBy,omitempty"`
+}
+
+// AuditEntry records an override or schedule activation for inspectability.
+type AuditEntry struct {
+	Type      string `json:"type"`
+	At        string `json:"at"`
+	Message   string `json:"message"`
+	Actor     string `json:"actor,omitempty"`
+	Schedule  string `json:"schedule,omitempty"`
+	Replicas  *int   `json:"replicas,omitempty"`
+	ExpiresAt string `json:"expiresAt,omitempty"`
+}
+
 // ScalingPolicyStatus is observed autoscaler state.
 type ScalingPolicyStatus struct {
-	Phase              string           `json:"phase"`
-	ObservedGeneration int              `json:"observedGeneration"`
-	CurrentReplicas    int              `json:"currentReplicas"`
-	DesiredReplicas    int              `json:"desiredReplicas"`
-	LastScaleTime      string           `json:"lastScaleTime,omitempty"`
-	LastRecommendation *Recommendation  `json:"lastRecommendation,omitempty"`
-	Recommendations    []Recommendation `json:"recommendations"`
-	Conditions         []Condition      `json:"conditions"`
+	Phase                string           `json:"phase"`
+	ObservedGeneration   int              `json:"observedGeneration"`
+	CurrentReplicas      int              `json:"currentReplicas"`
+	DesiredReplicas      int              `json:"desiredReplicas"`
+	LastScaleTime        string           `json:"lastScaleTime,omitempty"`
+	LastRecommendation   *Recommendation  `json:"lastRecommendation,omitempty"`
+	Recommendations      []Recommendation `json:"recommendations"`
+	Conditions           []Condition      `json:"conditions"`
+	ManualOverride       *ManualOverride  `json:"manualOverride,omitempty"`
+	ActiveSchedules      []string         `json:"activeSchedules,omitempty"`
+	EffectiveMinReplicas *int             `json:"effectiveMinReplicas,omitempty"`
+	EffectiveMaxReplicas *int             `json:"effectiveMaxReplicas,omitempty"`
+	MetricOutageMode     string           `json:"metricOutageMode,omitempty"`
+	DeploymentFrozen     bool             `json:"deploymentFrozen,omitempty"`
+	Audit                []AuditEntry     `json:"audit,omitempty"`
 }
 
 // Metadata carries identity and concurrency fields.
@@ -133,6 +182,12 @@ func (r Row) ToEnvelope() Envelope {
 	if status.Conditions == nil {
 		status.Conditions = []Condition{}
 	}
+	if status.ActiveSchedules == nil {
+		status.ActiveSchedules = []string{}
+	}
+	if status.Audit == nil {
+		status.Audit = []AuditEntry{}
+	}
 	return Envelope{
 		APIVersion: APIVersion,
 		Kind:       Kind,
@@ -155,6 +210,17 @@ func AppendRecommendation(status *ScalingPolicyStatus, rec Recommendation) {
 	status.Recommendations = append(status.Recommendations, rec)
 	if len(status.Recommendations) > MaxRecommendations {
 		status.Recommendations = status.Recommendations[len(status.Recommendations)-MaxRecommendations:]
+	}
+}
+
+// AppendAudit adds an audit entry and caps the ring buffer.
+func AppendAudit(status *ScalingPolicyStatus, entry AuditEntry) {
+	if entry.At == "" {
+		entry.At = time.Now().UTC().Format(time.RFC3339)
+	}
+	status.Audit = append(status.Audit, entry)
+	if len(status.Audit) > MaxAuditEntries {
+		status.Audit = status.Audit[len(status.Audit)-MaxAuditEntries:]
 	}
 }
 
@@ -184,6 +250,8 @@ func DefaultStatus(generation int) ScalingPolicyStatus {
 		CurrentReplicas:    0,
 		DesiredReplicas:    0,
 		Recommendations:    []Recommendation{},
+		ActiveSchedules:    []string{},
+		Audit:              []AuditEntry{},
 		Conditions: []Condition{
 			{
 				Type:               "AbleToScale",
@@ -195,6 +263,12 @@ func DefaultStatus(generation int) ScalingPolicyStatus {
 				Type:               "ScalingActive",
 				Status:             "False",
 				Reason:             "AwaitingFirstEvaluation",
+				LastTransitionTime: now,
+			},
+			{
+				Type:               "ScheduleConflict",
+				Status:             "False",
+				Reason:             "NoConflict",
 				LastTransitionTime: now,
 			},
 		},
@@ -242,6 +316,12 @@ func marshalStatus(status ScalingPolicyStatus) ([]byte, error) {
 	if status.Conditions == nil {
 		status.Conditions = []Condition{}
 	}
+	if status.ActiveSchedules == nil {
+		status.ActiveSchedules = []string{}
+	}
+	if status.Audit == nil {
+		status.Audit = []AuditEntry{}
+	}
 	return json.Marshal(status)
 }
 
@@ -258,6 +338,12 @@ func unmarshalStatus(raw []byte) (ScalingPolicyStatus, error) {
 	}
 	if status.Conditions == nil {
 		status.Conditions = []Condition{}
+	}
+	if status.ActiveSchedules == nil {
+		status.ActiveSchedules = []string{}
+	}
+	if status.Audit == nil {
+		status.Audit = []AuditEntry{}
 	}
 	return status, nil
 }

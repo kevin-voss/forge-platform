@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 164`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 165`**.
 
 ## Epics
 
@@ -242,7 +242,8 @@ next implementable step is still the one named at the top of this file. Plan:
 | **161** | [CPU/memory workload autoscaling](steps/24-forge-autoscaler/24.02-workload-cpu-memory-autoscaling.md) | Complete |  | Utilization math, stabilization, rate limits; Observe+Runtime sources; Application actuation |
 | **162** | [Request-rate, latency, error-rate autoscaling](steps/24-forge-autoscaler/24.03-request-rate-and-latency-autoscaling.md) | Complete |  | Gateway httpRequests/activeConnections; Observe p95/errorRate; guardrails; mixed-metric max |
 | **163** | [Worker autoscaling from queue signals](steps/24-forge-autoscaler/24.04-worker-queue-depth-autoscaling.md) | Complete |  | QueueSource (Events/NATS); Worker target; backlog/oldest-age math; retry blocks scale-down |
-| **164**–**167** | Epic 24 — remaining (`24.05`–`24.08`) | Not started |  | |
+| **164** | [Scheduled scaling, manual override, safety fallbacks](steps/24-forge-autoscaler/24.05-scheduled-scaling-and-overrides.md) | Complete |  | Cron+TZ schedules; override TTL API; freeze; outage hold/floor/fixed |
+| **165**–**167** | Epic 24 — remaining (`24.06`–`24.08`) | Not started |  | |
 | **168**–**173** | Epic 25 — Scheduling enhancements (`25.01`–`25.06`) | Not started |  | |
 
 Per-step rows live in each epic's steps README; the global lookup is

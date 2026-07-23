@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"forge.local/services/forge-autoscaler/internal/actuate"
+	"forge.local/services/forge-autoscaler/internal/audit"
 	"forge.local/services/forge-autoscaler/internal/metrics"
 	"forge.local/services/forge-autoscaler/internal/policy"
 	"forge.local/services/forge-autoscaler/internal/telemetry"
@@ -27,6 +28,7 @@ type Loop struct {
 	Actuator       actuate.Actuator
 	Stabilizer     *Stabilizer
 	Metrics        *telemetry.Registry
+	Events         audit.Publisher
 	Interval       time.Duration
 	Log            *slog.Logger
 	Now            func() time.Time
@@ -101,6 +103,113 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 	var dominant *policy.Recommendation
 
 	currentReplicas := l.resolveCurrentReplicas(ctx, row)
+	workloadProgressing := l.workloadProgressing(ctx, row)
+
+	// --- Manual override expiry ---
+	ovState := ResolveOverride(status, now)
+	if ovState.Expired && ovState.Value != nil {
+		status.ManualOverride = nil
+		policy.AppendAudit(&status, policy.AuditEntry{
+			Type:    "override.expired",
+			At:      nowStr,
+			Message: "manual override TTL elapsed",
+			Actor:   ovState.Value.CreatedBy,
+		})
+		l.publish(ctx, audit.NewEvent(audit.OverrideExpired, row.Project, row.Environment, row.Name, map[string]any{
+			"reason":     "ttl_elapsed",
+			"expires_at": ovState.Value.ExpiresAt,
+		}, now))
+		ovState = OverrideState{}
+	}
+
+	// --- Schedules ---
+	prevActive := map[string]struct{}{}
+	for _, name := range status.ActiveSchedules {
+		prevActive[name] = struct{}{}
+	}
+	_, bounds := ApplyScheduleBounds(row.Spec.MinReplicas, row.Spec.MaxReplicas, row.Spec.Schedules, currentReplicas, now)
+	status.ActiveSchedules = bounds.Active
+	status.EffectiveMinReplicas = intPtr(bounds.Min)
+	status.EffectiveMaxReplicas = intPtr(bounds.Max)
+	if bounds.Conflict {
+		policy.SetCondition(&status, policy.Condition{
+			Type:    "ScheduleConflict",
+			Status:  "True",
+			Reason:  "ConflictingSchedules",
+			Message: bounds.ConflictMessage,
+		})
+	} else {
+		policy.SetCondition(&status, policy.Condition{
+			Type:   "ScheduleConflict",
+			Status: "False",
+			Reason: "NoConflict",
+		})
+	}
+	for _, name := range bounds.Active {
+		if _, seen := prevActive[name]; !seen {
+			policy.AppendAudit(&status, policy.AuditEntry{
+				Type:     "schedule.activated",
+				At:       nowStr,
+				Message:  "schedule became active",
+				Schedule: name,
+			})
+			l.publish(ctx, audit.NewEvent(audit.ScheduleActive, row.Project, row.Environment, row.Name, map[string]any{
+				"schedule": name,
+				"min":      bounds.Min,
+				"max":      bounds.Max,
+			}, now))
+		}
+	}
+	if l.Metrics != nil {
+		l.Metrics.SetScheduleActive(row.Name, len(bounds.Active) > 0)
+		l.Metrics.SetManualOverrideActive(row.Name, ovState.Active)
+	}
+
+	// Manual override supersedes metrics entirely.
+	if ovState.Active && ovState.Value != nil {
+		desired := ovState.Value.Replicas
+		// Still honour absolute policy max as a hard safety ceiling.
+		if desired > row.Spec.MaxReplicas {
+			desired = row.Spec.MaxReplicas
+		}
+		if desired < 0 {
+			desired = 0
+		}
+		status.CurrentReplicas = currentReplicas
+		status.DesiredReplicas = desired
+		status.MetricOutageMode = ""
+		frozen, freezeReason := FreezeActive(row.Spec, workloadProgressing, now)
+		status.DeploymentFrozen = frozen
+		// Override wins even during freeze (operator intent), but record freeze status.
+		policy.SetCondition(&status, policy.Condition{
+			Type:    "AbleToScale",
+			Status:  "True",
+			Reason:  "ManualOverride",
+			Message: ovState.Value.Reason,
+		})
+		policy.SetCondition(&status, policy.Condition{
+			Type:    "ScalingActive",
+			Status:  "True",
+			Reason:  "ManualOverride",
+			Message: fmt.Sprintf("override replicas=%d until %s", desired, ovState.Value.ExpiresAt),
+		})
+		status.Phase = "Ready"
+		if frozen {
+			policy.SetCondition(&status, policy.Condition{
+				Type:    "DeploymentFreeze",
+				Status:  "True",
+				Reason:  freezeReason,
+				Message: "freeze active; manual override still applied",
+			})
+		} else {
+			policy.SetCondition(&status, policy.Condition{
+				Type:   "DeploymentFreeze",
+				Status: "False",
+				Reason: "NotFrozen",
+			})
+		}
+		return l.actuateAndPersist(ctx, row, &status, currentReplicas, desired, row.Status.DesiredReplicas, now, nowStr)
+	}
 
 	for _, metric := range row.Spec.Metrics {
 		if !metrics.IsActuableMetric(metric.Type) {
@@ -182,7 +291,7 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 		if blockDown {
 			blockScaleDown = true
 		}
-		recommended = ClampReplicas(recommended, row.Spec.MinReplicas, row.Spec.MaxReplicas)
+		recommended = ClampReplicas(recommended, bounds.Min, bounds.Max)
 		rec.RecommendedReplicas = intPtr(recommended)
 		rec.Reason = reason
 		if l.Log != nil {
@@ -213,8 +322,8 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 
 	status.CurrentReplicas = currentReplicas
 	safeDesired := status.DesiredReplicas
-	if safeDesired < row.Spec.MinReplicas {
-		safeDesired = row.Spec.MinReplicas
+	if safeDesired < bounds.Min {
+		safeDesired = bounds.Min
 	}
 
 	policy.SetCondition(&status, policy.Condition{
@@ -223,39 +332,59 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 		Reason: "ReadyForScaling",
 	})
 
+	frozen, freezeReason := FreezeActive(row.Spec, workloadProgressing, now)
+	status.DeploymentFrozen = frozen
+	if frozen {
+		policy.SetCondition(&status, policy.Condition{
+			Type:    "DeploymentFreeze",
+			Status:  "True",
+			Reason:  freezeReason,
+			Message: "scale-down blocked; scale-up allowed",
+		})
+	} else {
+		policy.SetCondition(&status, policy.Condition{
+			Type:   "DeploymentFreeze",
+			Status: "False",
+			Reason: "NotFrozen",
+		})
+	}
+
 	if fetchFailed && !haveRecommendation {
-		// Metric outage: hold last safe desired; never reduce below minReplicas.
-		status.DesiredReplicas = safeDesired
+		desired, mode := OutageDesired(row.Spec, safeDesired, bounds.Min)
+		desired = ClampReplicas(desired, bounds.Min, bounds.Max)
+		if frozen && desired < currentReplicas {
+			desired = currentReplicas
+		}
+		status.DesiredReplicas = desired
+		status.MetricOutageMode = mode
 		policy.SetCondition(&status, policy.Condition{
 			Type:    "ScalingActive",
 			Status:  "Unknown",
 			Reason:  "MetricFetchFailed",
-			Message: "holding last safe desired replica count",
+			Message: fmt.Sprintf("metric outage fallback mode=%s", mode),
 		})
 		status.Phase = "Degraded"
 		if dominant != nil {
 			status.LastRecommendation = dominant
 		}
-		_, err := l.Store.ReplaceStatus(ctx, row.Project, row.Environment, row.Name, row.ResourceVersion, status)
-		if err != nil && errors.Is(err, policy.ErrConflict) {
-			return nil
-		}
-		return err
+		return l.persistStatus(ctx, row, status)
 	}
 
+	status.MetricOutageMode = ""
+
 	if !haveRecommendation {
-		status.DesiredReplicas = safeDesired
+		desired := ClampReplicas(safeDesired, bounds.Min, bounds.Max)
+		if frozen && desired < currentReplicas {
+			desired = currentReplicas
+		}
+		status.DesiredReplicas = desired
 		policy.SetCondition(&status, policy.Condition{
 			Type:   "ScalingActive",
 			Status: "True",
 			Reason: "NoActuableMetrics",
 		})
 		status.Phase = "Ready"
-		_, err := l.Store.ReplaceStatus(ctx, row.Project, row.Environment, row.Name, row.ResourceVersion, status)
-		if err != nil && errors.Is(err, policy.ErrConflict) {
-			return nil
-		}
-		return err
+		return l.persistStatus(ctx, row, status)
 	}
 
 	if fetchFailed {
@@ -295,7 +424,7 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 		rateLimit = row.Spec.Behavior.ScaleDown.MaxReplicasPerMinute
 	}
 	desired := LimitReplicaDelta(currentReplicas, stabilized, rateLimit)
-	desired = ClampReplicas(desired, row.Spec.MinReplicas, row.Spec.MaxReplicas)
+	desired = ClampReplicas(desired, bounds.Min, bounds.Max)
 
 	if blockScaleDown {
 		if desired < currentReplicas {
@@ -306,6 +435,16 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 			Status:  "True",
 			Reason:  "RetryPressureBlocksScaleDown",
 			Message: "retry-rate spike blocks scale-down until pressure recovers",
+		})
+	}
+
+	if frozen && desired < currentReplicas {
+		desired = currentReplicas
+		policy.SetCondition(&status, policy.Condition{
+			Type:    "ScalingActive",
+			Status:  "True",
+			Reason:  freezeReason,
+			Message: "deployment freeze blocked scale-down",
 		})
 	}
 
@@ -341,6 +480,22 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 		}
 	}
 	status.DesiredReplicas = desired
+
+	return l.actuateAndPersist(ctx, row, &status, currentReplicas, desired, row.Status.DesiredReplicas, now, nowStr)
+}
+
+func (l *Loop) actuateAndPersist(
+	ctx context.Context,
+	row policy.Row,
+	status *policy.ScalingPolicyStatus,
+	currentReplicas, desired, previousDesired int,
+	now time.Time,
+	nowStr string,
+) error {
+	safeDesired := previousDesired
+	if safeDesired < row.Spec.MinReplicas {
+		safeDesired = row.Spec.MinReplicas
+	}
 
 	if desired != currentReplicas && l.Actuator != nil && isActuableTarget(row.Spec.TargetRef.Kind) {
 		opID := fmt.Sprintf("scale-%s-%d", row.ID, now.UnixNano())
@@ -378,14 +533,13 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 			if l.Metrics != nil {
 				l.Metrics.IncScaleAction(direction, "error")
 			}
-			policy.SetCondition(&status, policy.Condition{
+			policy.SetCondition(status, policy.Condition{
 				Type:    "AbleToScale",
 				Status:  "False",
 				Reason:  "ActuationFailed",
 				Message: err.Error(),
 			})
 			status.Phase = "Degraded"
-			// Keep previous safe desired on actuation failure.
 			status.DesiredReplicas = safeDesired
 		} else {
 			if l.Metrics != nil {
@@ -398,16 +552,30 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 	} else if desired == currentReplicas {
 		status.DesiredReplicas = desired
 	} else if l.Actuator == nil {
-		// Dry-run / tests without actuator still record the decision.
 		status.DesiredReplicas = desired
 		status.LastScaleTime = nowStr
 	}
 
+	return l.persistStatus(ctx, row, *status)
+}
+
+func (l *Loop) persistStatus(ctx context.Context, row policy.Row, status policy.ScalingPolicyStatus) error {
 	_, err := l.Store.ReplaceStatus(ctx, row.Project, row.Environment, row.Name, row.ResourceVersion, status)
 	if err != nil && errors.Is(err, policy.ErrConflict) {
 		return nil
 	}
 	return err
+}
+
+func (l *Loop) publish(ctx context.Context, ev audit.Event) {
+	if l.Events == nil {
+		return
+	}
+	pubCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if err := l.Events.Publish(pubCtx, ev); err != nil && l.Log != nil {
+		l.Log.Warn("audit event publish failed", "type", ev.Type, "error", err.Error())
+	}
 }
 
 func (l *Loop) recommend(currentReplicas int, metricType string, observed, target float64, sampleCount int64) (desired int, reason string, blockScaleDown bool) {
@@ -419,7 +587,6 @@ func (l *Loop) recommend(currentReplicas int, metricType string, observed, targe
 	case metrics.IsTrafficRateMetric(metricType):
 		recommended := DesiredFromPerReplicaTarget(observed, target)
 		if recommended == 0 && currentReplicas > 0 && observed == 0 {
-			// Zero traffic → allow scale-down toward min via recommendation 0 (clamped later).
 			recommended = 0
 		}
 		return recommended, ReasonForTrafficRate(metricType, currentReplicas, recommended, observed, target), false
@@ -454,6 +621,17 @@ func (l *Loop) resolveCurrentReplicas(ctx context.Context, row policy.Row) int {
 		return row.Status.CurrentReplicas
 	}
 	return row.Spec.MinReplicas
+}
+
+func (l *Loop) workloadProgressing(ctx context.Context, row policy.Row) bool {
+	if l.Actuator == nil || !isActuableTarget(row.Spec.TargetRef.Kind) {
+		return false
+	}
+	view, err := l.Actuator.Get(ctx, row.Project, row.Environment, row.Spec.TargetRef.Kind, row.Spec.TargetRef.Name)
+	if err != nil {
+		return false
+	}
+	return view.Progressing
 }
 
 func isActuableTarget(kind string) bool {

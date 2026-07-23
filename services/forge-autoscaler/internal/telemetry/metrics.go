@@ -15,8 +15,10 @@ type Registry struct {
 	recommendations map[string]*atomic.Int64
 	scaleActions    map[string]*atomic.Int64
 	sourceLatency   map[string]*atomic.Uint64 // last latency in microseconds
-	queueBacklog    map[string]*atomic.Uint64 // float bits via math? store as int64 of backlog
+	queueBacklog    map[string]*atomic.Uint64 // store milli-units
 	workerDesired   map[string]*atomic.Int64
+	scheduleActive  map[string]*atomic.Int64
+	overrideActive  map[string]*atomic.Int64
 }
 
 // NewRegistry creates an empty metrics registry.
@@ -27,6 +29,8 @@ func NewRegistry() *Registry {
 		sourceLatency:   map[string]*atomic.Uint64{},
 		queueBacklog:    map[string]*atomic.Uint64{},
 		workerDesired:   map[string]*atomic.Int64{},
+		scheduleActive:  map[string]*atomic.Int64{},
+		overrideActive:  map[string]*atomic.Int64{},
 	}
 }
 
@@ -91,7 +95,6 @@ func (r *Registry) SetQueueBacklog(queue string, backlog float64) {
 		backlog = 0
 	}
 	key := labelsKey("queue", queue)
-	// Store milli-units so fractional depths remain visible in exposition.
 	millis := uint64(backlog * 1000)
 	r.mu.Lock()
 	gauge, ok := r.queueBacklog[key]
@@ -117,6 +120,46 @@ func (r *Registry) SetWorkerDesiredReplicas(worker string, replicas int) {
 	}
 	r.mu.Unlock()
 	gauge.Store(int64(replicas))
+}
+
+// SetScheduleActive sets forge_autoscaler_schedule_active{policy} (1 when any schedule active).
+func (r *Registry) SetScheduleActive(policy string, active bool) {
+	if r == nil {
+		return
+	}
+	key := labelsKey("policy", policy)
+	r.mu.Lock()
+	gauge, ok := r.scheduleActive[key]
+	if !ok {
+		gauge = &atomic.Int64{}
+		r.scheduleActive[key] = gauge
+	}
+	r.mu.Unlock()
+	if active {
+		gauge.Store(1)
+	} else {
+		gauge.Store(0)
+	}
+}
+
+// SetManualOverrideActive sets forge_autoscaler_manual_override_active{policy}.
+func (r *Registry) SetManualOverrideActive(policy string, active bool) {
+	if r == nil {
+		return
+	}
+	key := labelsKey("policy", policy)
+	r.mu.Lock()
+	gauge, ok := r.overrideActive[key]
+	if !ok {
+		gauge = &atomic.Int64{}
+		r.overrideActive[key] = gauge
+	}
+	r.mu.Unlock()
+	if active {
+		gauge.Store(1)
+	} else {
+		gauge.Store(0)
+	}
 }
 
 // Handler serves Prometheus text exposition.
@@ -156,6 +199,18 @@ func (r *Registry) Handler() http.Handler {
 		workerKeys := sortedKeys(r.workerDesired)
 		for _, key := range workerKeys {
 			fmt.Fprintf(&b, "forge_autoscaler_worker_desired_replicas%s %d\n", key, r.workerDesired[key].Load())
+		}
+		b.WriteString("# HELP forge_autoscaler_schedule_active Whether any schedule is active for the policy.\n")
+		b.WriteString("# TYPE forge_autoscaler_schedule_active gauge\n")
+		schedKeys := sortedKeys(r.scheduleActive)
+		for _, key := range schedKeys {
+			fmt.Fprintf(&b, "forge_autoscaler_schedule_active%s %d\n", key, r.scheduleActive[key].Load())
+		}
+		b.WriteString("# HELP forge_autoscaler_manual_override_active Whether a manual override is active for the policy.\n")
+		b.WriteString("# TYPE forge_autoscaler_manual_override_active gauge\n")
+		ovKeys := sortedKeys(r.overrideActive)
+		for _, key := range ovKeys {
+			fmt.Fprintf(&b, "forge_autoscaler_manual_override_active%s %d\n", key, r.overrideActive[key].Load())
 		}
 		r.mu.Unlock()
 		_, _ = w.Write([]byte(b.String()))

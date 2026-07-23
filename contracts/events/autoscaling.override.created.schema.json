@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/contracts/events/autoscaling.override.created/v1",
+  "title": "autoscaling.override.created",
+  "description": "Emitted when an operator sets a temporary ScalingPolicy manual override.",
+  "x-forge-subject": "autoscaling.override.created",
+  "x-forge-schema-version": 1,
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["event_id", "type", "timestamp", "policy", "project", "environment", "payload"],
+  "properties": {
+    "event_id": { "type": "string", "minLength": 1 },
+    "type": { "type": "string", "const": "autoscaling.override.created" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "policy": { "type": "string", "minLength": 1 },
+    "project": { "type": "string", "minLength": 1 },
+    "environment": { "type": "string", "minLength": 1 },
+    "payload": {
+      "type": "object",
+      "required": ["replicas", "reason", "expires_at"],
+      "properties": {
+        "replicas": { "type": "integer", "minimum": 0 },
+        "reason": { "type": "string", "minLength": 1 },
+        "expires_at": { "type": "string", "format": "date-time" },
+        "created_by": { "type": "string" }
+      }
+    }
+  }
+}

@@ -3,8 +3,9 @@ info:
   title: Forge Autoscaler API
   version: 0.1.0
   description: |
-    ScalingPolicy resource API and evaluation surface (epic 24 / step 24.03).
-    Evaluates CPU/memory and traffic metrics and actuates Application desired replicas.
+    ScalingPolicy resource API and evaluation surface (epic 24 / step 24.05).
+    Evaluates metrics with schedules, manual overrides, deployment freezes, and
+    metric-outage fallbacks; actuates Application/Worker desired replicas.
 servers:
   - url: http://127.0.0.1:4112
     description: Local Compose (host port 4112)
@@ -199,6 +200,73 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /v1/projects/{project}/environments/{environment}/scalingpolicies/{name}/override:
+    parameters:
+      - $ref: "#/components/parameters/Project"
+      - $ref: "#/components/parameters/Environment"
+      - $ref: "#/components/parameters/Name"
+    get:
+      operationId: getScalingPolicyOverride
+      summary: Get the active manual override subresource
+      responses:
+        "200":
+          description: Active override
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManualOverrideView"
+        "404":
+          description: No active override
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: putScalingPolicyOverride
+      summary: Set a temporary manual replica override (TTL required)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetManualOverrideRequest"
+            example:
+              metadata:
+                resourceVersion: "3"
+              replicas: 8
+              reason: incident response
+              ttlSeconds: 3600
+              createdBy: oncall
+      responses:
+        "200":
+          description: Override applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScalingPolicy"
+        "409":
+          description: resource_version_conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteScalingPolicyOverride
+      summary: Clear the manual override before TTL expiry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClearManualOverrideRequest"
+      responses:
+        "200":
+          description: Override cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScalingPolicy"
+
   /v1/projects/{project}/environments/{environment}/scalingpolicies/{name}/status:
     parameters:
       - $ref: "#/components/parameters/Project"
@@ -374,17 +442,127 @@ components:
 
     Schedule:
       type: object
+      required: [cron]
       properties:
         name:
           type: string
         cron:
           type: string
+          description: Standard 5-field cron (minute hour dom month dow)
+          example: "* 7-19 * * MON-FRI"
         timeZone:
           type: string
+          example: America/New_York
         minReplicas:
           type: integer
         maxReplicas:
           type: integer
+        endTime:
+          type: string
+          format: date-time
+          description: Optional absolute end; schedule never active at/after this instant
+
+    MetricOutageFallback:
+      type: object
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          enum: [hold, floor, fixed]
+          description: hold last safe desired, floor to effective min, or fixed replicas
+        fixedReplicas:
+          type: integer
+
+    DeploymentFreeze:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        until:
+          type: string
+          format: date-time
+
+    ManualOverride:
+      type: object
+      required: [replicas, reason, expiresAt]
+      properties:
+        replicas:
+          type: integer
+        reason:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        createdBy:
+          type: string
+
+    ManualOverrideView:
+      type: object
+      required: [manualOverride, resourceVersion]
+      properties:
+        manualOverride:
+          $ref: "#/components/schemas/ManualOverride"
+        resourceVersion:
+          type: string
+
+    SetManualOverrideRequest:
+      type: object
+      required: [metadata, replicas, reason]
+      properties:
+        metadata:
+          type: object
+          required: [resourceVersion]
+          properties:
+            resourceVersion:
+              type: string
+        replicas:
+          type: integer
+        reason:
+          type: string
+        ttlSeconds:
+          type: integer
+          minimum: 1
+        expiresAt:
+          type: string
+          format: date-time
+        createdBy:
+          type: string
+
+    ClearManualOverrideRequest:
+      type: object
+      required: [metadata]
+      properties:
+        metadata:
+          type: object
+          required: [resourceVersion]
+          properties:
+            resourceVersion:
+              type: string
+        reason:
+          type: string
+
+    AuditEntry:
+      type: object
+      properties:
+        type:
+          type: string
+        at:
+          type: string
+          format: date-time
+        message:
+          type: string
+        actor:
+          type: string
+        schedule:
+          type: string
+        replicas:
+          type: integer
+        expiresAt:
+          type: string
+          format: date-time
 
     ScalingPolicySpec:
       type: object
@@ -408,6 +586,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Schedule"
+        metricOutageFallback:
+          $ref: "#/components/schemas/MetricOutageFallback"
+        deploymentFreeze:
+          $ref: "#/components/schemas/DeploymentFreeze"
 
     Condition:
       type: object
@@ -473,6 +655,25 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Condition"
+        manualOverride:
+          $ref: "#/components/schemas/ManualOverride"
+        activeSchedules:
+          type: array
+          items:
+            type: string
+        effectiveMinReplicas:
+          type: integer
+        effectiveMaxReplicas:
+          type: integer
+        metricOutageMode:
+          type: string
+          enum: [hold, floor, fixed]
+        deploymentFrozen:
+          type: boolean
+        audit:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEntry"
 
     ResourceMetadata:
       type: object

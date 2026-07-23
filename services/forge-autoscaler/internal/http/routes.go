@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,14 +11,16 @@ import (
 	"strings"
 	"time"
 
+	"forge.local/services/forge-autoscaler/internal/audit"
 	"forge.local/services/forge-autoscaler/internal/httperr"
 	"forge.local/services/forge-autoscaler/internal/policy"
 )
 
-// Routes hosts ScalingPolicy CRUD/status/watch handlers.
+// Routes hosts ScalingPolicy CRUD/status/watch/override handlers.
 type Routes struct {
-	Store *policy.Store
-	Hub   *policy.Hub
+	Store  *policy.Store
+	Hub    *policy.Hub
+	Events audit.Publisher
 }
 
 // Register mounts policy routes on mux.
@@ -30,6 +33,9 @@ func (r *Routes) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH "+base+"/{name}", r.patch)
 	mux.HandleFunc("DELETE "+base+"/{name}", r.delete)
 	mux.HandleFunc("PUT "+base+"/{name}/status", r.putStatus)
+	mux.HandleFunc("PUT "+base+"/{name}/override", r.putOverride)
+	mux.HandleFunc("GET "+base+"/{name}/override", r.getOverride)
+	mux.HandleFunc("DELETE "+base+"/{name}/override", r.deleteOverride)
 	mux.HandleFunc("GET /v1/watch/scalingpolicies", r.watch)
 }
 
@@ -314,4 +320,137 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+type overrideRequest struct {
+	Metadata struct {
+		ResourceVersion string `json:"resourceVersion"`
+	} `json:"metadata"`
+	Replicas   int    `json:"replicas"`
+	Reason     string `json:"reason"`
+	TTLSeconds int    `json:"ttlSeconds"`
+	ExpiresAt  string `json:"expiresAt,omitempty"`
+	CreatedBy  string `json:"createdBy,omitempty"`
+}
+
+func (r *Routes) putOverride(w http.ResponseWriter, req *http.Request) {
+	var body overrideRequest
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		httperr.Write(w, http.StatusBadRequest, "invalid_body", "JSON body is invalid")
+		return
+	}
+	rv, err := policy.ParseRV(body.Metadata.ResourceVersion)
+	if err != nil || body.Metadata.ResourceVersion == "" {
+		httperr.Write(w, http.StatusBadRequest, "validation_error", "metadata.resourceVersion is required")
+		return
+	}
+	if body.Replicas < 0 {
+		httperr.Write(w, http.StatusBadRequest, "validation_error", "replicas must be >= 0")
+		return
+	}
+	reason := strings.TrimSpace(body.Reason)
+	if reason == "" {
+		httperr.Write(w, http.StatusBadRequest, "validation_error", "reason is required")
+		return
+	}
+	now := time.Now().UTC()
+	expiresAt := strings.TrimSpace(body.ExpiresAt)
+	if expiresAt == "" {
+		ttl := body.TTLSeconds
+		if ttl <= 0 {
+			httperr.Write(w, http.StatusBadRequest, "validation_error", "ttlSeconds or expiresAt is required")
+			return
+		}
+		expiresAt = now.Add(time.Duration(ttl) * time.Second).Format(time.RFC3339)
+	} else if _, err := time.Parse(time.RFC3339, expiresAt); err != nil {
+		httperr.Write(w, http.StatusBadRequest, "validation_error", "expiresAt must be RFC3339")
+		return
+	}
+	createdBy := strings.TrimSpace(body.CreatedBy)
+	if createdBy == "" {
+		createdBy = "operator"
+	}
+	override := policy.ManualOverride{
+		Replicas:  body.Replicas,
+		Reason:    reason,
+		ExpiresAt: expiresAt,
+		CreatedAt: now.Format(time.RFC3339),
+		CreatedBy: createdBy,
+	}
+	project := req.PathValue("project")
+	env := req.PathValue("environment")
+	name := req.PathValue("name")
+	envelope, err := r.Store.SetManualOverride(req.Context(), project, env, name, rv, override)
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	r.publishOverride(req.Context(), audit.OverrideCreated, project, env, name, map[string]any{
+		"replicas":   override.Replicas,
+		"reason":     override.Reason,
+		"expires_at": override.ExpiresAt,
+		"created_by": override.CreatedBy,
+	})
+	writeJSON(w, http.StatusOK, envelope)
+}
+
+func (r *Routes) getOverride(w http.ResponseWriter, req *http.Request) {
+	row, err := r.Store.Get(req.Context(), req.PathValue("project"), req.PathValue("environment"), req.PathValue("name"))
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	if row.Status.ManualOverride == nil {
+		httperr.Write(w, http.StatusNotFound, "not_found", "no active manual override")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"manualOverride":  row.Status.ManualOverride,
+		"resourceVersion": policy.FormatRV(row.ResourceVersion),
+	})
+}
+
+type clearOverrideRequest struct {
+	Metadata struct {
+		ResourceVersion string `json:"resourceVersion"`
+	} `json:"metadata"`
+	Reason string `json:"reason,omitempty"`
+}
+
+func (r *Routes) deleteOverride(w http.ResponseWriter, req *http.Request) {
+	var body clearOverrideRequest
+	if req.Body != nil {
+		_ = json.NewDecoder(io.LimitReader(req.Body, 1<<20)).Decode(&body)
+	}
+	rv, err := policy.ParseRV(body.Metadata.ResourceVersion)
+	if err != nil || body.Metadata.ResourceVersion == "" {
+		httperr.Write(w, http.StatusBadRequest, "validation_error", "metadata.resourceVersion is required")
+		return
+	}
+	reason := strings.TrimSpace(body.Reason)
+	if reason == "" {
+		reason = "cleared by operator"
+	}
+	project := req.PathValue("project")
+	env := req.PathValue("environment")
+	name := req.PathValue("name")
+	envelope, err := r.Store.ClearManualOverride(req.Context(), project, env, name, rv, reason)
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	r.publishOverride(req.Context(), audit.OverrideCleared, project, env, name, map[string]any{
+		"reason": reason,
+	})
+	writeJSON(w, http.StatusOK, envelope)
+}
+
+func (r *Routes) publishOverride(ctx context.Context, eventType, project, env, name string, payload map[string]any) {
+	if r.Events == nil {
+		return
+	}
+	ev := audit.NewEvent(eventType, project, env, name, payload, time.Now().UTC())
+	pubCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	_ = r.Events.Publish(pubCtx, ev)
 }

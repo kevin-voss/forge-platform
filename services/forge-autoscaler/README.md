@@ -1,11 +1,12 @@
 # forge-autoscaler
 
 Go service that owns the `ScalingPolicy` resource kind and runs a tick-based evaluation
-loop that recommends and actuates workload replica counts. Port **4112**. Epic 24 / step 24.04.
+loop that recommends and actuates workload replica counts. Port **4112**. Epic 24 / step 24.05.
 
-CPU/memory, traffic, and **queue-depth worker** policies compute desired replicas, apply
-stabilization windows and `maxReplicasPerMinute` rate limits, then patch
-`Application` or `Worker` `spec.scaling.desiredReplicas` through the Control resource API.
+CPU/memory, traffic, and queue-depth worker policies compute desired replicas, then apply
+**schedules**, **manual overrides**, **deployment freezes**, and **metric-outage fallbacks**
+before patching `Application` or `Worker` `spec.scaling.desiredReplicas` through the Control
+resource API.
 
 ## Quick start
 
@@ -28,22 +29,25 @@ curl -sf http://127.0.0.1:4112/metrics | head
 | `FORGE_RUNTIME_URL` | — | RuntimeSource local fallback |
 | `FORGE_CONTROL_URL` | `http://127.0.0.1:4001` | Application/Worker resource API for actuation |
 | `FORGE_GATEWAY_ADMIN_URL` | — | GatewaySource base (`GET /admin/metrics?application=`) |
-| `FORGE_EVENTS_URL` | — | QueueSource base (`GET /admin/metrics?queue=`) |
+| `FORGE_EVENTS_URL` | — | QueueSource + audit event publish base |
 | `FORGE_AUTH_MODE` | `dev` | Temporary until epic 09 hardening |
 
 ## API
 
 * `POST/GET/PUT/PATCH/DELETE /v1/projects/{project}/environments/{environment}/scalingpolicies[/{name}]`
 * `PUT .../scalingpolicies/{name}/status`
+* `PUT/GET/DELETE .../scalingpolicies/{name}/override` — manual override subresource (TTL + reason)
 * `GET /v1/watch/scalingpolicies?since={resourceVersion}` — SSE `ADDED` / `MODIFIED` / `STATUS_MODIFIED` / `DELETED`
 * `GET /health/live`, `GET /health/ready`
-* `GET /metrics` — `forge_autoscaler_recommendation_replicas`, `forge_autoscaler_scale_actions_total`, `forge_autoscaler_metric_source_latency_seconds`, `forge_autoscaler_queue_backlog`, `forge_autoscaler_worker_desired_replicas`
+* `GET /metrics` — recommendation, scale actions, queue backlog, `forge_autoscaler_schedule_active`, `forge_autoscaler_manual_override_active`
 
 OpenAPI: [`contracts/openapi/forge-autoscaler.openapi.yaml`](../../contracts/openapi/forge-autoscaler.openapi.yaml).
 
+Ops runbook: [`docs/operations/autoscaler-overrides.md`](../../docs/operations/autoscaler-overrides.md).
+
 ## Metric sources
 
-| Adapter | Role in 24.04 |
+| Adapter | Role |
 |---|---|
 | `FakeSource` | Deterministic scripted queue for tests |
 | `ObserveSource` | PromQL for `cpu` / `memory` / `p95Latency` / `errorRate`; historical fallback for traffic |
@@ -53,17 +57,13 @@ OpenAPI: [`contracts/openapi/forge-autoscaler.openapi.yaml`](../../contracts/ope
 
 ## Scaling behaviour
 
-* Utilization math: `ceil(currentReplicas * currentMetric / targetMetric)`, clamped to `[minReplicas, maxReplicas]`
-* Traffic rate math: `ceil(totalMetric / targetPerReplica)` for `httpRequests` / `activeConnections`
-* Queue backlog math: `ceil(backlog / targetPerWorker)` for `queueDepth` (Worker targets)
-* Queue pressure (`oldestMessageAge`, `consumerLag`, `processingDuration`, `deadLetterPressure`): scale-up or hold; never scale down alone
-* Retry rate: may scale up; always blocks scale-down while above target
-* Guardrails: `p95Latency` / `errorRate` may scale up or hold; never reduce replicas by themselves; require ≥50 samples
-* Combine metrics by taking the highest safe replica recommendation
-* Stabilization: scale-up and scale-down windows keep the highest recommendation in-window
-* Rate limit: `behavior.scaleUp/Down.maxReplicasPerMinute`
-* Metric outage: hold last safe desired (≥ `minReplicas`), `ScalingActive=Unknown`; missing one source does not block others
-* Actuation: merge-patch Application or Worker; 409 retries with read-refresh and the same operation id
+* Utilization / traffic / queue math as in 24.02–24.04, clamped to effective `[min,max]`
+* **Schedules** — cron + timezone (+ optional `endTime`) raise/lower effective bounds; overlapping schedules merge to highest min + lowest max
+* **Manual override** — supersedes metrics until TTL; emits `autoscaling.override.created` / `.expired`
+* **Deployment freeze** — `spec.deploymentFreeze` or target `status.phase=Progressing` blocks scale-down only
+* **Metric outage** — `metricOutageFallback.mode` = `hold` (default) / `floor` / `fixed`; surfaced as `status.metricOutageMode`
+* Stabilization windows + `maxReplicasPerMinute` rate limits
+* Actuation: merge-patch Application or Worker; 409 retries with read-refresh
 
 ## Tests
 

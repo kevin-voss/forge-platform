@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"forge.local/services/forge-autoscaler/internal/actuate"
+	"forge.local/services/forge-autoscaler/internal/audit"
 	"forge.local/services/forge-autoscaler/internal/config"
 	"forge.local/services/forge-autoscaler/internal/evaluate"
 	"forge.local/services/forge-autoscaler/internal/health"
@@ -68,12 +69,13 @@ func run() error {
 		Prefer:  cfg.MetricSourceMode,
 	}
 	actuator := &actuate.WorkloadClient{BaseURL: cfg.ControlURL}
+	events := &audit.HTTPPublisher{BaseURL: cfg.EventsURL, Source: cfg.ServiceName}
 
 	ready := health.NewReadiness(db)
 	mux := http.NewServeMux()
 	health.NewHandler(ready).Register(mux)
 	mux.Handle("/metrics", tel.Handler())
-	(&httpserver.Routes{Store: store, Hub: hub}).Register(mux)
+	(&httpserver.Routes{Store: store, Hub: hub, Events: events}).Register(mux)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -96,6 +98,7 @@ func run() error {
 		Actuator:   actuator,
 		Stabilizer: evaluate.NewStabilizer(),
 		Metrics:    tel,
+		Events:     events,
 		Interval:   cfg.EvalInterval,
 		Log:        log,
 	}
