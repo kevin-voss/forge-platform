@@ -1,0 +1,14 @@
+name: fixture-agent
+steps:
+  - id: diagnose
+    type: agent
+    agent: deployment-investigator
+    input:
+      deployment: "${event.deployment_id}"
+    retry:
+      max_attempts: 2
+      backoff: fixed
+      base_ms: 50
+  - id: done
+    type: log
+    message: agent-done

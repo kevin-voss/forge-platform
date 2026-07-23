@@ -52,6 +52,32 @@ defmodule ForgeWorkflows.Metrics do
     :ok
   end
 
+  def inc_trigger(event) when is_binary(event) do
+    ensure_table!()
+
+    :ets.update_counter(
+      @table,
+      {:workflow_triggers_total, event},
+      {2, 1},
+      {{:workflow_triggers_total, event}, 0}
+    )
+
+    :ok
+  end
+
+  def inc_agent_step(status) when is_binary(status) do
+    ensure_table!()
+
+    :ets.update_counter(
+      @table,
+      {:workflow_agent_steps_total, status},
+      {2, 1},
+      {{:workflow_agent_steps_total, status}, 0}
+    )
+
+    :ok
+  end
+
   def snapshot do
     ensure_table!()
 

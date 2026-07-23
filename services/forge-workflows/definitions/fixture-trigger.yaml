@@ -1,0 +1,11 @@
+name: fixture-trigger
+trigger:
+  event: deployment.failed
+steps:
+  - id: diagnose
+    type: agent
+    agent: deployment-investigator
+    input:
+      deployment: "${event.deployment_id}"
+  - id: done
+    type: noop

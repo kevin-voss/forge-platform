@@ -81,6 +81,29 @@ defmodule ForgeWorkflows.Definitions.LoaderTest do
     assert collect.retry.max_attempts == 3
   end
 
+  test "loads trigger and agent step" do
+    path = Path.join(@tmp_root, "triggered.yaml")
+
+    File.write!(path, """
+    name: triggered
+    trigger:
+      event: deployment.failed
+    steps:
+      - id: diagnose
+        type: agent
+        agent: deployment-investigator
+        input:
+          deployment: "${event.deployment_id}"
+    """)
+
+    assert {:ok, %Workflow{name: "triggered", trigger: %{event: "deployment.failed"}, steps: [step]}} =
+             Loader.load_file(path)
+
+    assert step.type == "agent"
+    assert step.agent == "deployment-investigator"
+    assert step.input["deployment"] == "${event.deployment_id}"
+  end
+
   test "rejects malformed definitions" do
     path = Path.join(@tmp_root, "bad.yaml")
     File.write!(path, "name: bad\nsteps: []\n")
@@ -91,7 +114,7 @@ defmodule ForgeWorkflows.Definitions.LoaderTest do
     name: bad
     steps:
       - id: x
-        type: agent
+        type: not-a-real-type
     """)
 
     assert {:error, reason2} = Loader.load_file(path)

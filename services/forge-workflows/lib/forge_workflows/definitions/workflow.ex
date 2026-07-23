@@ -4,13 +4,15 @@ defmodule ForgeWorkflows.Definitions.Workflow do
   alias ForgeWorkflows.Steps.Retry
 
   @enforce_keys [:name, :steps]
-  defstruct [:name, :steps, :timeout_ms]
+  defstruct [:name, :steps, :timeout_ms, :trigger]
 
   @type retry_policy :: %{
           max_attempts: pos_integer(),
           backoff: String.t(),
           base_ms: non_neg_integer()
         }
+
+  @type trigger :: %{event: String.t()}
 
   @type step :: %{
           required(:id) => String.t(),
@@ -24,25 +26,29 @@ defmodule ForgeWorkflows.Definitions.Workflow do
           optional(:when) => String.t(),
           optional(:then) => String.t(),
           optional(:else) => String.t(),
-          optional(:succeed_on_attempt) => pos_integer()
+          optional(:succeed_on_attempt) => pos_integer(),
+          optional(:agent) => String.t(),
+          optional(:input) => map()
         }
 
   @type t :: %__MODULE__{
           name: String.t(),
           steps: [step()],
-          timeout_ms: pos_integer() | nil
+          timeout_ms: pos_integer() | nil,
+          trigger: trigger() | nil
         }
 
-  @allowed_types ~w(log noop task delay timeout parallel conditional retry)
+  @allowed_types ~w(log noop task delay timeout parallel conditional retry agent)
 
   @spec from_map(map()) :: {:ok, t()} | {:error, String.t()}
   def from_map(raw) when is_map(raw) do
     with {:ok, name} <- require_string(raw, "name"),
          {:ok, steps_raw} <- require_list(raw, "steps"),
          {:ok, timeout_ms} <- optional_pos_int(raw, "timeout_ms"),
+         {:ok, trigger} <- parse_trigger(raw),
          {:ok, steps} <- parse_steps(steps_raw),
          :ok <- validate_references(steps) do
-      {:ok, %__MODULE__{name: name, steps: steps, timeout_ms: timeout_ms}}
+      {:ok, %__MODULE__{name: name, steps: steps, timeout_ms: timeout_ms, trigger: trigger}}
     end
   end
 
@@ -90,8 +96,21 @@ defmodule ForgeWorkflows.Definitions.Workflow do
          {:ok, then_id} <- optional_string(step, "then"),
          {:ok, else_id} <- optional_string(step, "else"),
          {:ok, succeed_on} <- optional_pos_int(step, "succeed_on_attempt"),
+         {:ok, agent} <- optional_string(step, "agent"),
+         {:ok, input} <- optional_map(step, "input"),
          {:ok, branches} <- parse_branches(step, idx),
-         :ok <- validate_typed_fields(type, delay_ms, when_expr, then_id, else_id, branches, timeout_ms, idx) do
+         :ok <-
+           validate_typed_fields(
+             type,
+             delay_ms,
+             when_expr,
+             then_id,
+             else_id,
+             branches,
+             timeout_ms,
+             agent,
+             idx
+           ) do
       base = %{id: id, type: type}
 
       base =
@@ -105,6 +124,8 @@ defmodule ForgeWorkflows.Definitions.Workflow do
         |> maybe_put(:then, then_id)
         |> maybe_put(:else, else_id)
         |> maybe_put(:succeed_on_attempt, succeed_on)
+        |> maybe_put(:agent, agent)
+        |> maybe_put(:input, input)
         |> maybe_put(:branches, branches)
 
       {:ok, base}
@@ -112,6 +133,22 @@ defmodule ForgeWorkflows.Definitions.Workflow do
   end
 
   defp parse_step(_, idx), do: {:error, "step #{idx} must be a map"}
+
+  defp parse_trigger(raw) do
+    case Map.get(raw, "trigger") || Map.get(raw, :trigger) do
+      nil ->
+        {:ok, nil}
+
+      trigger when is_map(trigger) ->
+        case require_string(trigger, "event") do
+          {:ok, event} -> {:ok, %{event: event}}
+          {:error, _} -> {:error, "trigger.event is required"}
+        end
+
+      _ ->
+        {:error, "trigger must be a map"}
+    end
+  end
 
   defp parse_retry(step) do
     case Map.get(step, "retry") || Map.get(step, :retry) do
@@ -161,7 +198,7 @@ defmodule ForgeWorkflows.Definitions.Workflow do
 
   defp parse_branch(_, idx, _), do: {:error, "step #{idx} branch must be a map or string id"}
 
-  defp validate_typed_fields("delay", delay_ms, _, _, _, _, _, idx) do
+  defp validate_typed_fields("delay", delay_ms, _, _, _, _, _, _, idx) do
     if is_integer(delay_ms) and delay_ms >= 0 do
       :ok
     else
@@ -169,7 +206,7 @@ defmodule ForgeWorkflows.Definitions.Workflow do
     end
   end
 
-  defp validate_typed_fields("conditional", _, when_expr, then_id, else_id, _, _, idx) do
+  defp validate_typed_fields("conditional", _, when_expr, then_id, else_id, _, _, _, idx) do
     cond do
       not is_binary(when_expr) or when_expr == "" ->
         {:error, "step #{idx} type conditional requires when"}
@@ -185,7 +222,7 @@ defmodule ForgeWorkflows.Definitions.Workflow do
     end
   end
 
-  defp validate_typed_fields("parallel", _, _, _, _, branches, _, idx) do
+  defp validate_typed_fields("parallel", _, _, _, _, branches, _, _, idx) do
     if is_list(branches) and branches != [] do
       :ok
     else
@@ -193,7 +230,7 @@ defmodule ForgeWorkflows.Definitions.Workflow do
     end
   end
 
-  defp validate_typed_fields("timeout", _, _, _, _, _, timeout_ms, idx) do
+  defp validate_typed_fields("timeout", _, _, _, _, _, timeout_ms, _, idx) do
     if is_integer(timeout_ms) and timeout_ms >= 1 do
       :ok
     else
@@ -201,7 +238,15 @@ defmodule ForgeWorkflows.Definitions.Workflow do
     end
   end
 
-  defp validate_typed_fields(_, _, _, _, _, _, _, _), do: :ok
+  defp validate_typed_fields("agent", _, _, _, _, _, _, agent, idx) do
+    if is_binary(agent) and agent != "" do
+      :ok
+    else
+      {:error, "step #{idx} type agent requires agent"}
+    end
+  end
+
+  defp validate_typed_fields(_, _, _, _, _, _, _, _, _), do: :ok
 
   defp validate_references(steps) do
     ids = MapSet.new(Enum.map(steps, & &1.id))
@@ -270,7 +315,7 @@ defmodule ForgeWorkflows.Definitions.Workflow do
   defp validate_type(type, idx),
     do:
       {:error,
-       "step #{idx} type #{inspect(type)} not allowed (log|noop|task|delay|timeout|parallel|conditional|retry)"}
+       "step #{idx} type #{inspect(type)} not allowed (log|noop|task|delay|timeout|parallel|conditional|retry|agent)"}
 
   defp require_string(map, key) do
     case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
@@ -300,6 +345,14 @@ defmodule ForgeWorkflows.Definitions.Workflow do
       nil -> {:ok, nil}
       value when is_binary(value) -> {:ok, String.trim(value)}
       _ -> {:error, "#{key} must be a string"}
+    end
+  end
+
+  defp optional_map(map, key) do
+    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
+      nil -> {:ok, nil}
+      value when is_map(value) -> {:ok, value}
+      _ -> {:error, "#{key} must be a map"}
     end
   end
 

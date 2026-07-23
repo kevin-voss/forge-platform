@@ -19,7 +19,16 @@ defmodule ForgeWorkflowsWeb.RouterTest do
       defs_dir: Path.expand("../definitions", __DIR__),
       max_parallelism: 8,
       default_step_timeout_ms: 300_000,
-      scheduler_tick_ms: 1_000
+      scheduler_tick_ms: 1_000,
+      events_url: "disabled",
+      events_enabled: false,
+      agents_url: "http://forge-agents:4301",
+      agents_mode: "fake",
+      agent_poll_ms: 1_000,
+      agent_step_timeout_ms: 300_000,
+      default_project_id: "proj-a",
+      events_http_timeout_ms: 10_000,
+      agents_http_timeout_ms: 10_000
     }
 
     Application.put_env(:forge_workflows, :runtime_config, cfg)

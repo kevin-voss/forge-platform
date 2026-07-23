@@ -2,12 +2,13 @@
 
 Elixir/OTP durable workflow orchestration service (epic 16). Host port **4302**.
 
-Step 16.03: step primitives — retry (persisted attempts + backoff), durable delay
-timers, step/run timeouts, parallel fan-out/fan-in, and safe conditional branching.
-YAML definitions, Ecto/Postgres run + step state, per-run GenServers, boot resume,
-and a scheduler that fires due `wake_at` timers. Event triggers, approvals, and
-compensation land in later steps. Epic gate: `make demo DEMO=16`
-(`demos/16-agent-workflow`).
+Step 16.04: event triggers + agent steps — durable Events consumer starts
+workflows mapped by event type (idempotent via `event_dedup`), and `agent`
+steps invoke Forge Agents (`POST /v1/agents/{name}/runs`) with poll-to-completion
+(including surfacing `awaiting_approval`). YAML definitions, Ecto/Postgres run +
+step state, per-run GenServers, boot resume, and a scheduler for durable
+`wake_at` timers. Workflow-level human approval and compensation land in later
+steps. Epic gate: `make demo DEMO=16` (`demos/16-agent-workflow`).
 
 ## Local
 
@@ -31,9 +32,9 @@ curl -fsS localhost:4302/ | grep -q '"service":"forge-workflows"'
 
 BASE=localhost:4302; P='-H X-Forge-Project:proj-a'
 curl -fsS $BASE/v1/workflows
-RID=$(curl -fsS $P -XPOST $BASE/v1/workflows/fixture-primitives/runs -H 'content-type: application/json' \
-  -d '{"input":{"severity":"high"}}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])')
-curl -fsS $P $BASE/v1/runs/$RID | grep -q '"steps"'
+curl -fsS $P -XPOST $BASE/v1/triggers/test -H 'content-type: application/json' \
+  -d '{"event":"deployment.failed","event_id":"evt-smoke-1","data":{"deployment_id":"dep-123","service_id":"svc-1","reason":"unhealthy","failed_at":"2026-07-23T09:00:00Z"}}'
+curl -fsS $P $BASE/v1/runs | grep -q dep-123 || true
 ```
 
 OpenAPI (canonical): [`contracts/openapi/forge-workflows.openapi.yaml`](../../contracts/openapi/forge-workflows.openapi.yaml).
@@ -54,18 +55,23 @@ OpenAPI (canonical): [`contracts/openapi/forge-workflows.openapi.yaml`](../../co
 | `FORGE_WORKFLOWS_MAX_PARALLELISM` | `8` | Cap on parallel branch concurrency |
 | `FORGE_WORKFLOWS_DEFAULT_STEP_TIMEOUT` | `300000` | Default step timeout (ms) |
 | `FORGE_WORKFLOWS_SCHEDULER_TICK_MS` | `1000` | Durable timer poll interval |
+| `FORGE_EVENTS_URL` | `http://forge-events:4105` | Events HTTP API for durable consume |
+| `FORGE_WORKFLOWS_EVENTS_ENABLED` | `true` (when URL set) | Set `false` to disable consumer (triggers/test still works) |
+| `FORGE_AGENTS_URL` | `http://forge-agents:4301` | Agents HTTP API |
+| `FORGE_WORKFLOWS_AGENTS_MODE` | `fake` | `fake\|live\|fail\|awaiting` |
+| `FORGE_WORKFLOWS_AGENT_POLL_MS` | `1000` | Agent run poll interval |
+| `FORGE_WORKFLOWS_AGENT_STEP_TIMEOUT` | `300000` | Agent step poll deadline (ms) |
+| `FORGE_WORKFLOWS_DEFAULT_PROJECT` | `default` | Fallback project for triggers without header |
 
-## Architecture (16.03)
+## Architecture (16.04)
 
 ```text
-definitions/*.yaml → DefinitionLoader → %Workflow{steps: [...]}
-POST /v1/workflows/{name}/runs → persist run(queued) → RunSupervisor starts RunServer
-RunServer: dispatch by step type
-  task/log/noop/timeout → execute (+ optional retry with wake_at backoff)
-  delay → persist wake_at (waiting); Scheduler / local timer resumes once
-  parallel → fan-out child steps (parent_step_id), join (collect-then-fail)
-  conditional → safe predicate over context → then/else (other skipped)
-crash/restart → BootResumer + Scheduler boot-scan due wake_at → resume
+definitions/*.yaml → DefinitionLoader → %Workflow{trigger, steps}
+TriggerRegistry: event type → workflow(s)
+Events(deployment.failed) → EventConsumer (durable) → event_dedup → start run
+POST /v1/triggers/test → same path (synthetic event)
+agent step → AgentClient.start_run → poll GET /v1/runs/{id}
+           → capture result / surface awaiting_approval into step.output
 
 ForgeWorkflows.Supervisor (rest_for_one)
 ├── ForgeWorkflows.Repo
@@ -74,34 +80,27 @@ ForgeWorkflows.Supervisor (rest_for_one)
 ├── ForgeWorkflows.Engine.RunSupervisor
 ├── ForgeWorkflows.Engine.BootResumer
 ├── ForgeWorkflows.Engine.Scheduler
+├── ForgeWorkflows.Events.Consumer
 └── Bandit → ForgeWorkflowsWeb.Router
 ```
 
-Idempotency key: `(run_id, step_id)` unique constraint; completed/skipped steps are
-never re-executed after resume. Delays and retry backoffs use durable `wake_at`.
-Parallel children are step rows with `parent_step_id`. Runs are project-scoped via
-`X-Forge-Project`.
+Idempotency: `(run_id, step_id)` for steps; `(event_id, workflow)` in `event_dedup`
+for triggers. Duplicate events do not start a second run.
 
-### Definition schema (primitives)
+### Definition schema (trigger + agent)
 
 ```yaml
+name: fixture-trigger
+trigger:
+  event: deployment.failed
 steps:
-  - id: collect
-    type: task
-    action: noop
+  - id: diagnose
+    type: agent
+    agent: deployment-investigator
+    input: { deployment: "${event.deployment_id}" }
     retry: { max_attempts: 3, backoff: exponential, base_ms: 200 }
-  - id: wait
-    type: delay
-    delay_ms: 5000
-  - id: fanout
-    type: parallel
-    branches: [{id: logs, type: noop}, {id: metrics, type: noop}]
-  - id: decide
-    type: conditional
-    when: "context.severity == 'high'"
-    then: escalate
-    else: close
 ```
 
-Conditional predicates are a closed safe expression language (`context.<key>`,
-`==` / `!=` with string literals) — no arbitrary code execution.
+Agent input supports `${event.<field>}` templates resolved from the run input
+(populated from the triggering event). Agent failures retry per step `retry`
+policy from 16.03, then fail the step.

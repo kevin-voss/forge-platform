@@ -87,6 +87,11 @@ defmodule ForgeWorkflows.ConfigTest do
     assert cfg.max_parallelism == 8
     assert cfg.default_step_timeout_ms == 300_000
     assert cfg.scheduler_tick_ms == 1_000
+    assert cfg.events_url == "http://forge-events:4105"
+    assert cfg.agents_url == "http://forge-agents:4301"
+    assert cfg.agents_mode == "fake"
+    assert cfg.agent_poll_ms == 1_000
+    assert cfg.agent_step_timeout_ms == 300_000
   end
 end
 

@@ -2,6 +2,7 @@ defmodule ForgeWorkflows.Definitions.Loader do
   @moduledoc false
 
   alias ForgeWorkflows.Definitions.Workflow
+  alias ForgeWorkflows.Triggers.Registry
 
   @spec load_dir!(String.t()) :: %{optional(String.t()) => Workflow.t()}
   def load_dir!(dir) when is_binary(dir) do
@@ -56,6 +57,7 @@ defmodule ForgeWorkflows.Definitions.Loader do
   @spec put_definitions(%{optional(String.t()) => Workflow.t()}) :: :ok
   def put_definitions(map) when is_map(map) do
     Application.put_env(:forge_workflows, :definitions, map)
+    Registry.rebuild!(Map.values(map))
     :ok
   end
 

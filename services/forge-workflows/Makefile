@@ -67,7 +67,7 @@ test-integration: run
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"supervision"'
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"request_id":"integ-req-1"'
 	@grep -q '4302' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-workflows.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-workflows" in p; assert "elixir" in p; assert "/v1/workflows" in p; assert "/v1/runs" in p; assert "WorkflowRun" in p; assert "wake_at" in p; assert "RetryPolicy" in p; assert "parallel" in p'
+	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-workflows.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-workflows" in p; assert "elixir" in p; assert "/v1/workflows" in p; assert "/v1/runs" in p; assert "WorkflowRun" in p; assert "wake_at" in p; assert "RetryPolicy" in p; assert "parallel" in p; assert "/v1/triggers/test" in p; assert "TriggerConfig" in p; assert "agent" in p; assert "deployment.failed" in p'
 	@$(MAKE) -C $(ROOT_DIR) lint-openapi
 	@# List definitions
 	@curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/workflows" | python3 -c 'import sys,json; d=json.load(sys.stdin); names={w["name"] for w in d["workflows"]}; assert "fixture-log" in names'
@@ -147,6 +147,35 @@ test-integration: run
 			sleep 0.25; \
 		done; \
 		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="failed", d; steps={s["id"]:s for s in d["steps"]}; assert steps["slow"]["status"]=="failed"; assert steps["slow"]["error"]=="timeout"'
+	@# Event trigger: deployment.failed starts mapped workflow once
+	@EID="evt-integ-$$(date +%s)-$$RANDOM"; \
+		RESP=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' -H 'content-type: application/json' \
+			-XPOST "http://127.0.0.1:$(HOST_PORT)/v1/triggers/test" \
+			-d "{\"event\":\"deployment.failed\",\"event_id\":\"$$EID\",\"data\":{\"deployment_id\":\"dep-123\",\"service_id\":\"svc-1\",\"reason\":\"unhealthy\",\"failed_at\":\"2026-07-23T09:00:00Z\"}}"); \
+		echo "$$RESP" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="started", d; assert d["runs"]'; \
+		RID=$$(echo "$$RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin)["runs"][0]["run_id"])'); \
+		for i in $$(seq 1 60); do \
+			STATUS=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])'); \
+			if [ "$$STATUS" = "completed" ] || [ "$$STATUS" = "failed" ]; then break; fi; \
+			sleep 0.25; \
+		done; \
+		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="completed", d; assert d["input"]["event"]["deployment_id"]=="dep-123"; steps={s["id"]:s for s in d["steps"]}; assert steps["diagnose"]["status"]=="completed"; assert steps["diagnose"]["output"]["status"]=="succeeded"; assert "dep-123" in (steps["diagnose"]["output"].get("result") or "")'; \
+		DUP=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' -H 'content-type: application/json' \
+			-XPOST "http://127.0.0.1:$(HOST_PORT)/v1/triggers/test" \
+			-d "{\"event\":\"deployment.failed\",\"event_id\":\"$$EID\",\"data\":{\"deployment_id\":\"dep-123\",\"service_id\":\"svc-1\",\"reason\":\"unhealthy\",\"failed_at\":\"2026-07-23T09:00:00Z\"}}"); \
+		echo "$$DUP" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="duplicate", d; assert d["runs"]==[]'; \
+		COUNT=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs" | python3 -c 'import sys,json; eid=sys.argv[1]; print(sum(1 for r in json.load(sys.stdin)["runs"] if r.get("input",{}).get("event_id")==eid))' "$$EID"); \
+		test "$$COUNT" = "1"
+	@# Agent step via direct run (fake agent) populates context
+	@RID=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' -H 'content-type: application/json' \
+		-XPOST "http://127.0.0.1:$(HOST_PORT)/v1/workflows/fixture-agent/runs" \
+		-d '{"input":{"event":{"deployment_id":"dep-agent-1"}}}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])'); \
+		for i in $$(seq 1 60); do \
+			STATUS=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])'); \
+			if [ "$$STATUS" = "completed" ] || [ "$$STATUS" = "failed" ]; then break; fi; \
+			sleep 0.25; \
+		done; \
+		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="completed", d; steps={s["id"]:s for s in d["steps"]}; assert steps["diagnose"]["output"]["agent"]=="deployment-investigator"; assert steps["diagnose"]["output"]["input"]["deployment"]=="dep-agent-1"'
 	@# Invalid PORT fails startup.
 	@docker rm -f forge-workflows-bad-port >/dev/null 2>&1 || true
 	@if docker run --name forge-workflows-bad-port \
@@ -167,7 +196,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (definitions, durable runs, resume, retry/delay/parallel/conditional/timeout, project isolation, OpenAPI)."
+	@echo "Integration checks passed (definitions, durable runs, resume, retry/delay/parallel/conditional/timeout, event triggers, agent steps, project isolation, OpenAPI)."
 
 docker-run: run
 

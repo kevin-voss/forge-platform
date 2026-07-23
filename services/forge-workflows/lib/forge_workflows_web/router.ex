@@ -6,6 +6,7 @@ defmodule ForgeWorkflowsWeb.Router do
   alias ForgeWorkflows.Definitions.Loader
   alias ForgeWorkflows.Health
   alias ForgeWorkflows.Runs
+  alias ForgeWorkflows.Triggers
 
   plug ForgeWorkflowsWeb.RequestId
   plug :match
@@ -58,6 +59,8 @@ defmodule ForgeWorkflowsWeb.Router do
               |> maybe_put("when", Map.get(step, :when))
               |> maybe_put("then", Map.get(step, :then))
               |> maybe_put("else", Map.get(step, :else))
+              |> maybe_put("agent", Map.get(step, :agent))
+              |> maybe_put("input", Map.get(step, :input))
               |> maybe_put(
                 "branches",
                 case Map.get(step, :branches) do
@@ -82,9 +85,77 @@ defmodule ForgeWorkflowsWeb.Router do
               )
             end)
         }
+        |> maybe_put(
+          "trigger",
+          case wf.trigger do
+            %{event: event} -> %{"event" => event}
+            _ -> nil
+          end
+        )
       end)
 
     send_json(conn, 200, %{"workflows" => workflows})
+  end
+
+  post "/v1/triggers/test" do
+    with {:ok, project_id} <- project_id_or_default(conn),
+         {:ok, event_type, event_id, data} <- read_trigger_test(conn) do
+      case Triggers.handle_event(event_type, event_id, data, project_id) do
+        {:ok, :unmatched} ->
+          send_json(conn, 202, %{
+            "status" => "unmatched",
+            "event" => event_type,
+            "event_id" => event_id,
+            "runs" => []
+          })
+
+        {:ok, :duplicate, _} ->
+          send_json(conn, 202, %{
+            "status" => "duplicate",
+            "event" => event_type,
+            "event_id" => event_id,
+            "runs" => []
+          })
+
+        {:ok, :started, runs} ->
+          send_json(conn, 202, %{
+            "status" => "started",
+            "event" => event_type,
+            "event_id" => event_id,
+            "runs" => runs
+          })
+
+        {:error, :invalid_event_payload} ->
+          send_json(conn, 400, %{
+            "error" => "invalid event payload",
+            "code" => "invalid_event_payload"
+          })
+
+        {:error, :invalid_event_type} ->
+          send_json(conn, 400, %{
+            "error" => "invalid event type",
+            "code" => "invalid_event_type"
+          })
+
+        {:error, reason} ->
+          send_json(conn, 500, %{
+            "error" => "trigger failed: #{inspect(reason)}",
+            "code" => "trigger_failed"
+          })
+      end
+    else
+      {:error, :project_required} ->
+        send_json(conn, 400, %{
+          "error" => "X-Forge-Project header is required",
+          "code" => "project_required"
+        })
+
+      {:error, :invalid_json} ->
+        send_json(conn, 400, %{"error" => "invalid JSON body", "code" => "invalid_json"})
+
+      {:error, :event_required} ->
+        send_json(conn, 400, %{"error" => "event is required", "code" => "event_required"})
+    end
   end
 
   post "/v1/workflows/:name/runs" do
@@ -169,6 +240,19 @@ defmodule ForgeWorkflowsWeb.Router do
     end
   end
 
+  defp project_id_or_default(conn) do
+    case project_id(conn) do
+      {:ok, _} = ok ->
+        ok
+
+      {:error, :project_required} ->
+        case Application.get_env(:forge_workflows, :runtime_config) do
+          %{default_project_id: id} when is_binary(id) and id != "" -> {:ok, id}
+          _ -> {:error, :project_required}
+        end
+    end
+  end
+
   defp read_input(conn) do
     case conn.body_params do
       %Plug.Conn.Unfetched{} ->
@@ -185,6 +269,39 @@ defmodule ForgeWorkflowsWeb.Router do
 
       _ ->
         {:ok, %{}}
+    end
+  end
+
+  defp read_trigger_test(conn) do
+    case conn.body_params do
+      %Plug.Conn.Unfetched{} ->
+        {:error, :invalid_json}
+
+      params when is_map(params) ->
+        event = Map.get(params, "event") || Map.get(params, "event_type")
+        data = Map.get(params, "data", %{})
+        event_id = Map.get(params, "event_id") || Map.get(params, "id")
+
+        cond do
+          not is_binary(event) or String.trim(event) == "" ->
+            {:error, :event_required}
+
+          not is_map(data) ->
+            {:error, :invalid_json}
+
+          true ->
+            id =
+              if is_binary(event_id) and String.trim(event_id) != "" do
+                String.trim(event_id)
+              else
+                "test-" <> Ecto.UUID.generate()
+              end
+
+            {:ok, String.trim(event), id, data}
+        end
+
+      _ ->
+        {:error, :invalid_json}
     end
   end
 

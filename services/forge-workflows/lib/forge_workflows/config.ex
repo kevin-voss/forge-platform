@@ -12,7 +12,16 @@ defmodule ForgeWorkflows.Config do
     :defs_dir,
     :max_parallelism,
     :default_step_timeout_ms,
-    :scheduler_tick_ms
+    :scheduler_tick_ms,
+    :events_url,
+    :events_enabled,
+    :agents_url,
+    :agents_mode,
+    :agent_poll_ms,
+    :agent_step_timeout_ms,
+    :default_project_id,
+    :events_http_timeout_ms,
+    :agents_http_timeout_ms
   ]
   defstruct [
     :port,
@@ -25,7 +34,16 @@ defmodule ForgeWorkflows.Config do
     :defs_dir,
     :max_parallelism,
     :default_step_timeout_ms,
-    :scheduler_tick_ms
+    :scheduler_tick_ms,
+    :events_url,
+    :events_enabled,
+    :agents_url,
+    :agents_mode,
+    :agent_poll_ms,
+    :agent_step_timeout_ms,
+    :default_project_id,
+    :events_http_timeout_ms,
+    :agents_http_timeout_ms
   ]
 
   @type t :: %__MODULE__{
@@ -39,10 +57,20 @@ defmodule ForgeWorkflows.Config do
           defs_dir: String.t(),
           max_parallelism: pos_integer(),
           default_step_timeout_ms: pos_integer(),
-          scheduler_tick_ms: pos_integer()
+          scheduler_tick_ms: pos_integer(),
+          events_url: String.t(),
+          events_enabled: boolean(),
+          agents_url: String.t(),
+          agents_mode: String.t(),
+          agent_poll_ms: pos_integer(),
+          agent_step_timeout_ms: pos_integer(),
+          default_project_id: String.t(),
+          events_http_timeout_ms: pos_integer(),
+          agents_http_timeout_ms: pos_integer()
         }
 
   @allowed_levels ~w(debug info warn error)
+  @allowed_agents_modes ~w(fake live fail awaiting)
 
   @spec load!() :: t()
   def load! do
@@ -51,6 +79,9 @@ defmodule ForgeWorkflows.Config do
     grace = parse_grace!(System.get_env("FORGE_SHUTDOWN_GRACE_SECONDS"))
     database_url = require_database_url!(System.get_env("FORGE_WORKFLOWS_DATABASE_URL"))
     defs_dir = resolve_defs_dir!(System.get_env("FORGE_WORKFLOWS_DEFS_DIR"))
+    events_url = blank_default(System.get_env("FORGE_EVENTS_URL"), "http://forge-events:4105")
+    agents_url = blank_default(System.get_env("FORGE_AGENTS_URL"), "http://forge-agents:4301")
+    agents_mode = normalize_agents_mode!(System.get_env("FORGE_WORKFLOWS_AGENTS_MODE"))
 
     %__MODULE__{
       port: port,
@@ -70,9 +101,35 @@ defmodule ForgeWorkflows.Config do
           3_600_000
         ),
       scheduler_tick_ms:
-        parse_pos_int!(System.get_env("FORGE_WORKFLOWS_SCHEDULER_TICK_MS"), 1_000, 50, 60_000)
+        parse_pos_int!(System.get_env("FORGE_WORKFLOWS_SCHEDULER_TICK_MS"), 1_000, 50, 60_000),
+      events_url: events_url,
+      events_enabled: events_enabled?(events_url, System.get_env("FORGE_WORKFLOWS_EVENTS_ENABLED")),
+      agents_url: agents_url,
+      agents_mode: agents_mode,
+      agent_poll_ms:
+        parse_pos_int!(System.get_env("FORGE_WORKFLOWS_AGENT_POLL_MS"), 1_000, 50, 60_000),
+      agent_step_timeout_ms:
+        parse_pos_int!(
+          System.get_env("FORGE_WORKFLOWS_AGENT_STEP_TIMEOUT"),
+          300_000,
+          1,
+          3_600_000
+        ),
+      default_project_id:
+        blank_default(System.get_env("FORGE_WORKFLOWS_DEFAULT_PROJECT"), "default"),
+      events_http_timeout_ms:
+        parse_pos_int!(System.get_env("FORGE_WORKFLOWS_EVENTS_HTTP_TIMEOUT_MS"), 10_000, 100, 120_000),
+      agents_http_timeout_ms:
+        parse_pos_int!(System.get_env("FORGE_WORKFLOWS_AGENTS_HTTP_TIMEOUT_MS"), 10_000, 100, 120_000)
     }
   end
+
+  defp events_enabled?(_url, "0"), do: false
+  defp events_enabled?(_url, "false"), do: false
+  defp events_enabled?(_url, "FALSE"), do: false
+  defp events_enabled?("disabled", _), do: false
+  defp events_enabled?("", _), do: false
+  defp events_enabled?(_, _), do: true
 
   defp parse_port!(nil), do: raise(ArgumentError, "PORT is required")
   defp parse_port!(""), do: raise(ArgumentError, "PORT is required")
@@ -125,6 +182,20 @@ defmodule ForgeWorkflows.Config do
       level
     else
       raise ArgumentError, "FORGE_LOG_LEVEL must be debug|info|warn|error, got #{inspect(raw)}"
+    end
+  end
+
+  defp normalize_agents_mode!(nil), do: "fake"
+  defp normalize_agents_mode!(""), do: "fake"
+
+  defp normalize_agents_mode!(raw) do
+    mode = String.downcase(String.trim(raw))
+
+    if mode in @allowed_agents_modes do
+      mode
+    else
+      raise ArgumentError,
+            "FORGE_WORKFLOWS_AGENTS_MODE must be fake|live|fail|awaiting, got #{inspect(raw)}"
     end
   end
 

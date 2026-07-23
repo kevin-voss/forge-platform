@@ -1,13 +1,15 @@
 openapi: 3.0.3
 info:
   title: Forge Workflows API
-  version: 0.3.0
+  version: 0.4.0
   description: |
     Durable workflow orchestration service (epic 16). Definitions load from YAML;
     runs and step state persist in Postgres and resume across restarts without
     re-executing completed steps (idempotency key: run_id + step_id).
     Step primitives: retry (persisted attempts + backoff), durable delay timers,
     step/run timeouts, parallel fan-out/fan-in, and safe conditional branching.
+    Event triggers (durable Events consumer + event_id dedupe) start mapped
+    workflows; `agent` steps invoke Forge Agents runs and capture results.
     Runs are project-scoped via `X-Forge-Project`.
 servers:
   - url: http://127.0.0.1:4302
@@ -178,6 +180,44 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /v1/triggers/test:
+    post:
+      operationId: testTrigger
+      summary: Inject a synthetic event for trigger testing
+      description: |
+        Starts workflows mapped to the event type exactly once per
+        `(event_id, workflow)` via the durable event_dedup table. Useful when
+        the Events consumer is disabled or for deterministic CI.
+      parameters:
+        - $ref: "#/components/parameters/ForgeProjectOptional"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TriggerTestRequest"
+            example:
+              event: deployment.failed
+              event_id: evt-test-1
+              data:
+                deployment_id: dep-123
+                service_id: svc-1
+                reason: health_check_failed
+                failed_at: "2026-07-23T09:00:00Z"
+      responses:
+        "202":
+          description: Trigger accepted (started, duplicate, or unmatched)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TriggerTestResponse"
+        "400":
+          description: Invalid body or missing project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   parameters:
     ForgeProject:
@@ -187,6 +227,15 @@ components:
       schema:
         type: string
       description: Project scope for run isolation
+    ForgeProjectOptional:
+      name: X-Forge-Project
+      in: header
+      required: false
+      schema:
+        type: string
+      description: |
+        Project scope for trigger test. Falls back to
+        `FORGE_WORKFLOWS_DEFAULT_PROJECT` when omitted.
     WorkflowName:
       name: name
       in: path
@@ -274,6 +323,16 @@ components:
           type: integer
           minimum: 0
 
+    TriggerConfig:
+      type: object
+      required:
+        - event
+      properties:
+        event:
+          type: string
+          description: Platform event type / subject (e.g. deployment.failed)
+          example: deployment.failed
+
     WorkflowStepDef:
       type: object
       required:
@@ -284,7 +343,7 @@ components:
           type: string
         type:
           type: string
-          enum: [log, noop, task, delay, timeout, parallel, conditional, retry]
+          enum: [log, noop, task, delay, timeout, parallel, conditional, retry, agent]
         message:
           type: string
         delay_ms:
@@ -306,6 +365,16 @@ components:
           type: string
         else:
           type: string
+        agent:
+          type: string
+          description: Forge Agents agent name (required for type=agent)
+          example: deployment-investigator
+        input:
+          type: object
+          additionalProperties: true
+          description: |
+            Agent input map. String values may use `${event.field}` templates
+            resolved from the workflow run input.
         branches:
           type: array
           items:
@@ -324,10 +393,61 @@ components:
           type: integer
           minimum: 1
           description: Optional run-level deadline from run start
+        trigger:
+          $ref: "#/components/schemas/TriggerConfig"
         steps:
           type: array
           items:
             $ref: "#/components/schemas/WorkflowStepDef"
+
+    TriggerTestRequest:
+      type: object
+      required:
+        - event
+      properties:
+        event:
+          type: string
+          description: Event type / subject to match against definition triggers
+          example: deployment.failed
+        event_id:
+          type: string
+          description: Optional stable event id for dedupe (generated when omitted)
+        data:
+          type: object
+          additionalProperties: true
+          description: Event payload (becomes run input under `event`)
+
+    TriggerTestResponse:
+      type: object
+      required:
+        - status
+        - event
+        - event_id
+        - runs
+      properties:
+        status:
+          type: string
+          enum: [started, duplicate, unmatched]
+        event:
+          type: string
+        event_id:
+          type: string
+        runs:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              run_id:
+                type: string
+                format: uuid
+              workflow:
+                type: string
+              event_id:
+                type: string
+              status:
+                type: string
+
 
     WorkflowList:
       type: object

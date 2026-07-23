@@ -2,6 +2,7 @@ defmodule ForgeWorkflows.Engine.StepExecutor do
   @moduledoc false
 
   alias ForgeWorkflows.JsonLog
+  alias ForgeWorkflows.Steps.Agent
   alias ForgeWorkflows.Steps.Timeout
 
   @spec execute(map(), map(), keyword()) :: {:ok, map()} | {:error, String.t()}
@@ -23,10 +24,13 @@ defmodule ForgeWorkflows.Engine.StepExecutor do
       end
     end
 
-    Timeout.execute_with_timeout(fn -> do_execute(step_def, run_input, attempt) end, timeout_ms)
+    Timeout.execute_with_timeout(
+      fn -> do_execute(step_def, run_input, attempt, opts) end,
+      timeout_ms
+    )
   end
 
-  defp do_execute(step_def, run_input, attempt) do
+  defp do_execute(step_def, run_input, attempt, opts) do
     case step_def[:type] || step_def["type"] do
       "noop" ->
         {:ok, %{"ok" => true, "action" => step_def[:action] || step_def["action"] || "noop"}}
@@ -39,6 +43,13 @@ defmodule ForgeWorkflows.Engine.StepExecutor do
 
       "retry" ->
         execute_action(step_def, run_input, attempt)
+
+      "agent" ->
+        Agent.execute(step_def, run_input,
+          project_id: Keyword.get(opts, :project_id),
+          poll_ms: Keyword.get(opts, :agent_poll_ms),
+          timeout_ms: Keyword.get(opts, :agent_step_timeout_ms) || Keyword.get(opts, :timeout_ms)
+        )
 
       "log" ->
         message = step_def[:message] || step_def["message"] || "log step"

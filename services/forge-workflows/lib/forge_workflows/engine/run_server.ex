@@ -91,13 +91,13 @@ defmodule ForgeWorkflows.Engine.RunServer do
               log("run timeout", run_id, %{timeout_ms: workflow.timeout_ms})
               {:error, :timeout}
             else
-              advance(run_id, workflow, run.input || %{}, cfg)
+              advance(run_id, workflow, run.input || %{}, run.project_id, cfg)
             end
         end
     end
   end
 
-  defp advance(run_id, workflow, input, cfg) do
+  defp advance(run_id, workflow, input, project_id, cfg) do
     steps = workflow.steps
     by_id = Map.new(steps, &{&1.id, &1})
     branch_owned = parallel_ref_ids(steps)
@@ -109,7 +109,7 @@ defmodule ForgeWorkflows.Engine.RunServer do
           {:cont, :continue}
 
         true ->
-          handle_step(run_id, step_def, by_id, input, cfg)
+          handle_step(run_id, step_def, by_id, input, project_id, cfg)
       end
     end)
     |> case do
@@ -127,7 +127,7 @@ defmodule ForgeWorkflows.Engine.RunServer do
     end
   end
 
-  defp handle_step(run_id, step_def, by_id, input, cfg) do
+  defp handle_step(run_id, step_def, by_id, input, project_id, cfg) do
     step_id = step_def.id
 
     case Runs.begin_step(run_id, step_id) do
@@ -141,12 +141,12 @@ defmodule ForgeWorkflows.Engine.RunServer do
         {:cont, :continue}
 
       {:ok, :wake, step} ->
-        handle_wake(run_id, step_def, step, by_id, input, cfg)
+        handle_wake(run_id, step_def, step, by_id, input, project_id, cfg)
 
       {:ok, :execute, step} ->
         _ = Runs.mark_run_running(run_id, step_id)
         log("step starting", run_id, %{step_id: step_id, type: step_def.type, attempt: step.attempt})
-        dispatch(run_id, step_def, step, by_id, input, cfg)
+        dispatch(run_id, step_def, step, by_id, input, project_id, cfg)
 
       {:error, reason} ->
         _ = Runs.mark_run_failed(run_id, "begin_step failed: #{inspect(reason)}")
@@ -154,7 +154,7 @@ defmodule ForgeWorkflows.Engine.RunServer do
     end
   end
 
-  defp handle_wake(run_id, step_def, step, by_id, input, cfg) do
+  defp handle_wake(run_id, step_def, step, by_id, input, project_id, cfg) do
     now = DateTime.utc_now()
 
     case step_def.type do
@@ -183,7 +183,7 @@ defmodule ForgeWorkflows.Engine.RunServer do
               attempt: stepped.attempt
             })
 
-            dispatch(run_id, step_def, stepped, by_id, input, cfg)
+            dispatch(run_id, step_def, stepped, by_id, input, project_id, cfg)
 
           {:error, reason} ->
             _ = Runs.mark_run_failed(run_id, "rebegin failed: #{inspect(reason)}")
@@ -192,7 +192,7 @@ defmodule ForgeWorkflows.Engine.RunServer do
     end
   end
 
-  defp dispatch(run_id, step_def, step, by_id, input, cfg) do
+  defp dispatch(run_id, step_def, step, by_id, input, project_id, cfg) do
     case step_def.type do
       "delay" ->
         case Delay.schedule(run_id, step_def.id, step_def.delay_ms) do
@@ -249,14 +249,17 @@ defmodule ForgeWorkflows.Engine.RunServer do
         end
 
       _ ->
-        execute_actionable(run_id, step_def, step, input, cfg)
+        execute_actionable(run_id, step_def, step, input, project_id, cfg)
     end
   end
 
-  defp execute_actionable(run_id, step_def, step, input, cfg) do
+  defp execute_actionable(run_id, step_def, step, input, project_id, cfg) do
     case StepExecutor.execute(step_def, input,
            attempt: step.attempt,
-           timeout_ms: cfg.default_step_timeout_ms
+           timeout_ms: cfg.default_step_timeout_ms,
+           project_id: project_id,
+           agent_poll_ms: cfg.agent_poll_ms,
+           agent_step_timeout_ms: cfg.agent_step_timeout_ms
          ) do
       {:ok, output} ->
         case Runs.complete_step(run_id, step_def.id, output) do
@@ -338,11 +341,34 @@ defmodule ForgeWorkflows.Engine.RunServer do
 
   defp runtime_limits do
     case Application.get_env(:forge_workflows, :runtime_config) do
+      %{
+        max_parallelism: max,
+        default_step_timeout_ms: timeout,
+        agent_poll_ms: poll,
+        agent_step_timeout_ms: agent_timeout
+      } ->
+        %{
+          max_parallelism: max,
+          default_step_timeout_ms: timeout,
+          agent_poll_ms: poll,
+          agent_step_timeout_ms: agent_timeout
+        }
+
       %{max_parallelism: max, default_step_timeout_ms: timeout} ->
-        %{max_parallelism: max, default_step_timeout_ms: timeout}
+        %{
+          max_parallelism: max,
+          default_step_timeout_ms: timeout,
+          agent_poll_ms: 1_000,
+          agent_step_timeout_ms: 300_000
+        }
 
       _ ->
-        %{max_parallelism: 8, default_step_timeout_ms: 300_000}
+        %{
+          max_parallelism: 8,
+          default_step_timeout_ms: 300_000,
+          agent_poll_ms: 1_000,
+          agent_step_timeout_ms: 300_000
+        }
     end
   end
 

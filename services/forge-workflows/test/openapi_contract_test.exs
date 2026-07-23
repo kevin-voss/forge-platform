@@ -26,6 +26,10 @@ defmodule ForgeWorkflows.OpenAPIContractTest do
       assert text =~ "parallel"
       assert text =~ "conditional"
       assert text =~ "RetryPolicy"
+      assert text =~ "/v1/triggers/test"
+      assert text =~ "deployment.failed"
+      assert text =~ "agent"
+      assert text =~ "TriggerConfig"
     end
   end
 
