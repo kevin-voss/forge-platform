@@ -55,9 +55,12 @@ import forge.control.reconcile.RuntimeClient
 import forge.control.reconcile.StartupRecovery
 import forge.control.reconcile.TrafficShifter
 import forge.control.scheduler.CapacityReservation
+import forge.control.scheduler.HttpNetworkClient
+import forge.control.scheduler.JdbcBootstrapTokenStore
 import forge.control.scheduler.JdbcNodeStore
 import forge.control.scheduler.JdbcPlacementStore
 import forge.control.scheduler.LivenessMonitor
+import forge.control.scheduler.NodeJoinOrchestrator
 import forge.control.scheduler.NodeOfflineHandler
 import forge.control.scheduler.PendingQueue
 import forge.control.scheduler.PlacementService
@@ -65,6 +68,7 @@ import forge.control.scheduler.QueueProcessor
 import forge.control.scheduler.SchedulerFactory
 import forge.control.scheduler.StaleReplicaFencer
 import forge.control.scheduler.model.AntiAffinity
+import forge.control.scheduler.api.bootstrapTokenRoutes
 import forge.control.scheduler.api.nodeFleetRoutes
 import forge.control.scheduler.api.nodeRegistrationRoutes
 import forge.control.scheduler.api.placementRoutes
@@ -350,6 +354,24 @@ fun main() {
             nodeOfflineHandler?.onStatusTransition(nodeId, status)
         },
     )
+    val bootstrapTokenStore = JdbcBootstrapTokenStore(
+        dataSource = db.dataSource,
+        defaultTtlSeconds = cfg.bootstrapTokenTtlSeconds,
+    )
+    val networkClient = if (cfg.networkUrl.isNotBlank()) {
+        HttpNetworkClient(cfg.networkUrl)
+    } else {
+        null
+    }
+    val nodeJoinOrchestrator = NodeJoinOrchestrator(
+        nodes = nodeStore,
+        tokens = bootstrapTokenStore,
+        network = networkClient,
+        networkName = cfg.networkName,
+        log = log,
+        telemetry = telemetry,
+        requireTokenWhenNetworkConfigured = networkClient != null,
+    )
     val secretsClient: forge.control.reconcile.SecretsClient =
         if (cfg.secretsUrl.isNotBlank()) {
             forge.control.reconcile.HttpSecretsClient(
@@ -417,6 +439,9 @@ fun main() {
         nodeStore = nodeStore,
         nodeStrictRegister = cfg.nodeStrictRegister,
         onNodeRegistered = { placementService.drainQueue() },
+        bootstrapTokenStore = bootstrapTokenStore,
+        nodeJoinOrchestrator = nodeJoinOrchestrator,
+        bootstrapTokenTtlSeconds = cfg.bootstrapTokenTtlSeconds,
         managedDb = managedDbService,
         resources = CompatibilityResourceRepository(
             jdbc = JdbcResourceRepository(db.dataSource),
@@ -697,7 +722,16 @@ fun Application.forgeControlModule(
                     strictRegister = services.nodeStrictRegister,
                     telemetry = telemetry,
                     onRegistered = services.onNodeRegistered,
+                    joinOrchestrator = services.nodeJoinOrchestrator,
                 )
+                val bootstrapTokens = services.bootstrapTokenStore
+                if (bootstrapTokens != null) {
+                    bootstrapTokenRoutes(
+                        store = bootstrapTokens,
+                        log = log ?: JsonLog(cfg.serviceName, cfg.logLevel),
+                        defaultTtlSeconds = services.bootstrapTokenTtlSeconds,
+                    )
+                }
             }
             val managedDb = services.managedDb
             if (managedDb != null) {

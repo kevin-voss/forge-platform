@@ -5,6 +5,8 @@ import forge.control.reconcile.DeploymentHistory
 import forge.control.reconcile.DeploymentStore
 import forge.control.reconcile.ReconcileStatusStore
 import forge.control.reconcile.RuntimeClient
+import forge.control.scheduler.BootstrapTokenStore
+import forge.control.scheduler.NodeJoinOrchestrator
 import forge.control.scheduler.NodeStore
 import forge.control.scheduler.PlacementService
 import forge.control.service.ApplicationService
@@ -36,6 +38,9 @@ data class ControlServices(
     val nodeStrictRegister: Boolean = false,
     /** Invoked after a successful node registration (capacity may have increased). */
     val onNodeRegistered: (() -> Unit)? = null,
+    val bootstrapTokenStore: BootstrapTokenStore? = null,
+    val nodeJoinOrchestrator: NodeJoinOrchestrator? = null,
+    val bootstrapTokenTtlSeconds: Long = 900,
     val managedDb: ManagedDbService? = null,
     val resources: ResourceRepository? = null,
     val resourceEvents: ResourceEventRepository? = null,

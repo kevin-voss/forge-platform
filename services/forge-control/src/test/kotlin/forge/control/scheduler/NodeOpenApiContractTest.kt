@@ -28,11 +28,18 @@ class NodeOpenApiContractTest {
         assumeTrue(yaml != null, "contracts/ not available in this build context")
         assertTrue(yaml!!.contains("/v1/nodes"))
         assertTrue(yaml.contains("/v1/nodes/register"))
+        assertTrue(yaml.contains("/v1/nodes/bootstrap-tokens"))
+        assertTrue(yaml.contains("bootstrap-tokens/{tokenId}") || yaml.contains("revokeBootstrapToken"))
+        assertTrue(yaml.contains("revoke-key") || yaml.contains("revokeNodeKey"))
         assertTrue(yaml.contains("/v1/nodes/{nodeId}/heartbeat") || yaml.contains("nodeHeartbeat"))
         assertTrue(yaml.contains("x-register-node") || yaml.contains("registerNode"))
         assertTrue(yaml.contains("x-list-nodes") || yaml.contains("listNodes"))
         assertTrue(yaml.contains("FleetNode"))
         assertTrue(yaml.contains("running_replicas"))
+        assertTrue(yaml.contains("bootstrap_token"))
+        assertTrue(yaml.contains("wireguard_public_key"))
+        assertTrue(yaml.contains("pending-network") || yaml.contains("joining"))
+        assertTrue(yaml.contains("InvalidBootstrapToken"))
     }
 
     @Test
@@ -42,12 +49,16 @@ class NodeOpenApiContractTest {
             {
               "node_id": "node-a",
               "address": "http://runtime-a:4102",
-              "capacity": { "slots": 4, "cpu_millis": 4000, "mem_mb": 4096 }
+              "capacity": { "slots": 4, "cpu_millis": 4000, "mem_mb": 4096 },
+              "bootstrap_token": "bst_8f2a9c...",
+              "wireguard_public_key": "b64:9fQ3z..."
             }
         """.trimIndent()
         val registerDto = json.decodeFromString(RegisterNodeRequest.serializer(), register)
         assertTrue(registerDto.nodeId == "node-a")
         assertTrue(registerDto.capacity?.slots == 4)
+        assertTrue(registerDto.bootstrapToken == "bst_8f2a9c...")
+        assertTrue(registerDto.wireguardPublicKey == "b64:9fQ3z...")
 
         val heartbeat = """
             {

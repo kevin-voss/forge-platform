@@ -47,6 +47,12 @@ data class AppConfig(
     val nodeHeartbeatTimeoutSeconds: Long = 15,
     val livenessIntervalMs: Long = 5_000,
     val nodeStrictRegister: Boolean = false,
+    /** Base URL for forge-network (empty disables join lease allocation). */
+    val networkUrl: String = "",
+    /** Default Network resource name for node-block leases. */
+    val networkName: String = "cluster-overlay",
+    /** Default bootstrap token TTL (seconds). */
+    val bootstrapTokenTtlSeconds: Long = 900,
     val antiAffinityDefault: String = "soft",
     val queueRetryMs: Long = 2_000,
     val queueMaxLen: Int = 1000,
@@ -222,6 +228,39 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         )
     }
     val secretsServiceAccount = env["FORGE_SECRETS_SERVICE_ACCOUNT"]?.trim().orEmpty()
+
+    val networkUrlRaw = env["FORGE_NETWORK_URL"]?.trim().orEmpty()
+    val networkUrl = if (
+        networkUrlRaw.isEmpty() ||
+        networkUrlRaw.equals("disabled", ignoreCase = true) ||
+        networkUrlRaw == "-"
+    ) {
+        ""
+    } else {
+        networkUrlRaw
+    }
+    if (networkUrl.isNotEmpty() &&
+        !networkUrl.startsWith("http://") &&
+        !networkUrl.startsWith("https://")
+    ) {
+        throw IllegalArgumentException(
+            "FORGE_NETWORK_URL must be an http(s) URL, 'disabled', or empty, got '$networkUrlRaw'",
+        )
+    }
+    val networkName = env["FORGE_NETWORK_NAME"]?.trim().orEmpty().ifEmpty { "cluster-overlay" }
+    if (networkName.isBlank()) {
+        throw IllegalArgumentException("FORGE_NETWORK_NAME must not be blank")
+    }
+    val bootstrapTokenTtlRaw = env["FORGE_BOOTSTRAP_TOKEN_TTL_S"]?.trim().orEmpty().ifEmpty { "900" }
+    val bootstrapTokenTtlSeconds = bootstrapTokenTtlRaw.toLongOrNull()
+        ?: throw IllegalArgumentException(
+            "FORGE_BOOTSTRAP_TOKEN_TTL_S must be a positive integer, got '$bootstrapTokenTtlRaw'",
+        )
+    if (bootstrapTokenTtlSeconds < 1) {
+        throw IllegalArgumentException(
+            "FORGE_BOOTSTRAP_TOKEN_TTL_S must be a positive integer, got '$bootstrapTokenTtlRaw'",
+        )
+    }
     val injectMaskRaw = env["FORGE_INJECT_MASK_IN_LOGS"]?.trim()?.lowercase().orEmpty()
         .ifEmpty { "true" }
     val injectMaskInLogs = when (injectMaskRaw) {
@@ -622,6 +661,9 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         nodeHeartbeatTimeoutSeconds = nodeHeartbeatTimeoutSeconds,
         livenessIntervalMs = livenessIntervalMs,
         nodeStrictRegister = nodeStrictRegister,
+        networkUrl = networkUrl,
+        networkName = networkName,
+        bootstrapTokenTtlSeconds = bootstrapTokenTtlSeconds,
         antiAffinityDefault = antiAffinityDefault,
         queueRetryMs = queueRetryMs,
         queueMaxLen = queueMaxLen,

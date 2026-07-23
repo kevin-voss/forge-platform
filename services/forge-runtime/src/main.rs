@@ -104,16 +104,18 @@ async fn run() -> Result<(), String> {
         }
     }
 
-    let node = Node::bootstrap_with_id(
+    let node = Node::bootstrap_with_id_and_keys(
         &cfg.data_dir,
         &docker,
         cfg.node_id.as_deref(),
+        cfg.key_dir.as_deref(),
     )
     .await?;
     let workload_labels = node.labels();
     info!(
         node_id = %node.info.id,
         node_slots = cfg.node_slots,
+        has_wireguard_public_key = node.wireguard_public_key.is_some(),
         label = %node::NODE_ID_LABEL,
         label_value = %workload_labels
             .get(node::NODE_ID_LABEL)
@@ -182,7 +184,7 @@ async fn run() -> Result<(), String> {
         } else {
             None
         };
-        match HeartbeatReporter::new(
+        match HeartbeatReporter::new_with_join(
             control_url,
             node.info.id.clone(),
             address,
@@ -191,6 +193,10 @@ async fn run() -> Result<(), String> {
                 cpu_millis: Some(cpu_millis),
                 mem_mb,
             },
+            cfg.bootstrap_token.clone(),
+            node.wireguard_public_key
+                .as_ref()
+                .map(|k| k.as_str().to_string()),
             Arc::clone(&docker) as Arc<dyn docker::DockerEngine>,
         ) {
             Ok(reporter) => {

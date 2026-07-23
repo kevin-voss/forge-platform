@@ -2,8 +2,10 @@ package forge.control.scheduler.api
 
 import forge.control.http.ApiException
 import forge.control.logging.JsonLog
+import forge.control.scheduler.JoinRegisterCommand
 import forge.control.scheduler.LivenessMonitor
 import forge.control.scheduler.NodeCapacity
+import forge.control.scheduler.NodeJoinOrchestrator
 import forge.control.scheduler.NodeStore
 import forge.control.telemetry.Telemetry
 import io.ktor.http.HttpStatusCode
@@ -21,6 +23,7 @@ fun Route.nodeRegistrationRoutes(
     telemetry: Telemetry = Telemetry.current(),
     clock: () -> Instant = { Instant.now() },
     onRegistered: (() -> Unit)? = null,
+    joinOrchestrator: NodeJoinOrchestrator? = null,
 ) {
     route("/v1/nodes") {
         post("/register") {
@@ -49,6 +52,40 @@ fun Route.nodeRegistrationRoutes(
                     "capacity.slots must be >= 1",
                     mapOf("field" to "capacity.slots"),
                 )
+            }
+
+            val orchestrator = joinOrchestrator
+            if (orchestrator != null) {
+                val result = orchestrator.register(
+                    JoinRegisterCommand(
+                        nodeId = nodeId,
+                        address = address,
+                        capacity = capacity,
+                        bootstrapToken = body.bootstrapToken,
+                        wireguardPublicKey = body.wireguardPublicKey,
+                    ),
+                )
+                log.info(
+                    if (result.created) "node registered" else "node registration idempotent",
+                    "node_id" to result.node.id,
+                    "address" to result.node.address,
+                    "slots" to result.node.capacity.slots,
+                    "status" to result.node.status,
+                )
+                telemetry.recordNodeStatus(result.node.status)
+                if (result.created) {
+                    try {
+                        onRegistered?.invoke()
+                    } catch (_: Exception) {
+                        // Queue drain failures must not fail registration.
+                    }
+                }
+                val peers = if (result.node.networkCidr != null) result.peers else emptyList()
+                call.respond(
+                    if (result.created) HttpStatusCode.Created else HttpStatusCode.OK,
+                    result.node.toResponse(peers),
+                )
+                return@post
             }
 
             val existing = store.find(nodeId)
@@ -116,6 +153,15 @@ fun Route.nodeRegistrationRoutes(
                     )
                 }
 
+                if (node.keyRevoked) {
+                    throw ApiException.Unauthorized(
+                        "node key revoked; re-register with a fresh bootstrap token",
+                        details = mapOf("node_id" to id),
+                        code = "InvalidBootstrapToken",
+                    )
+                }
+
+                val fromStatus = node.status
                 // Slot accounting is driven by CapacityReservation; heartbeats must not
                 // shrink reserved slots before containers appear (or on shared-socket noise).
                 // They may raise slots toward the observed running count and always refresh
@@ -129,6 +175,15 @@ fun Route.nodeRegistrationRoutes(
                         "node not registered",
                         mapOf("node_id" to id),
                     )
+                if (fromStatus == "joining" && updated.status == "online") {
+                    log.info(
+                        "node join status transition",
+                        "node_id" to id,
+                        "from_status" to fromStatus,
+                        "to_status" to "online",
+                    )
+                    telemetry.recordNodeStatus("online")
+                }
                 telemetry.recordNodeFreeSlots(
                     updated.id,
                     LivenessMonitor.freeSlots(updated),
@@ -137,6 +192,25 @@ fun Route.nodeRegistrationRoutes(
             } finally {
                 span.end()
             }
+        }
+
+        post("/{id}/revoke-key") {
+            val id = call.parameters["id"]?.trim().orEmpty()
+            if (id.isEmpty()) {
+                throw ApiException.BadRequest(
+                    "node id is required",
+                    mapOf("field" to "id"),
+                )
+            }
+            val orchestrator = joinOrchestrator
+                ?: throw ApiException.ServiceUnavailable("join orchestrator not configured")
+            val revoked = orchestrator.revokeKey(id, clock())
+                ?: throw ApiException.NotFound(
+                    "node not registered",
+                    mapOf("node_id" to id),
+                )
+            telemetry.recordNodeStatus(revoked.status)
+            call.respond(HttpStatusCode.OK, revoked.toResponse())
         }
     }
 }

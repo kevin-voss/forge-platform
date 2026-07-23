@@ -20,6 +20,10 @@ struct RegisterBody {
     node_id: String,
     address: String,
     capacity: CapacityReport,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bootstrap_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    wireguard_public_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -40,6 +44,8 @@ pub struct HeartbeatReporter {
     node_id: String,
     address: String,
     capacity: CapacityReport,
+    bootstrap_token: Option<String>,
+    wireguard_public_key: Option<String>,
     docker: Arc<dyn DockerEngine>,
     http: reqwest::Client,
 }
@@ -50,6 +56,18 @@ impl HeartbeatReporter {
         node_id: impl Into<String>,
         address: impl Into<String>,
         capacity: CapacityReport,
+        docker: Arc<dyn DockerEngine>,
+    ) -> Result<Self, String> {
+        Self::new_with_join(control_url, node_id, address, capacity, None, None, docker)
+    }
+
+    pub fn new_with_join(
+        control_url: impl Into<String>,
+        node_id: impl Into<String>,
+        address: impl Into<String>,
+        capacity: CapacityReport,
+        bootstrap_token: Option<String>,
+        wireguard_public_key: Option<String>,
         docker: Arc<dyn DockerEngine>,
     ) -> Result<Self, String> {
         let base_url = control_url.into().trim().trim_end_matches('/').to_string();
@@ -65,6 +83,8 @@ impl HeartbeatReporter {
             node_id: node_id.into(),
             address: address.into(),
             capacity,
+            bootstrap_token,
+            wireguard_public_key,
             docker,
             http,
         })
@@ -83,9 +103,12 @@ impl HeartbeatReporter {
             node_id: self.node_id.clone(),
             address: self.address.clone(),
             capacity: self.capacity.clone(),
+            bootstrap_token: self.bootstrap_token.clone(),
+            wireguard_public_key: self.wireguard_public_key.clone(),
         };
         let payload =
             serde_json::to_string(&body).map_err(|e| format!("register encode: {e}"))?;
+        // Never log the bootstrap token or any private key material.
         let resp = self
             .http
             .post(self.register_url())
@@ -100,6 +123,8 @@ impl HeartbeatReporter {
                 node_id = %self.node_id,
                 address = %self.address,
                 slots = self.capacity.slots,
+                has_bootstrap_token = self.bootstrap_token.is_some(),
+                has_wireguard_public_key = self.wireguard_public_key.is_some(),
                 "registered node with control"
             );
             Ok(())

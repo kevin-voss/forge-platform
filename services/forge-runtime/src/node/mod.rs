@@ -1,3 +1,7 @@
+mod key;
+
+pub use key::{load_or_create_keypair, resolve_key_dir, NodePublicKey};
+
 use crate::docker::DockerProbe;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -21,12 +25,17 @@ pub struct NodeInfo {
     pub cpu: u32,
     pub memory_bytes: u64,
     pub started_at: DateTime<Utc>,
+    /// WireGuard public key (`b64:...`); never includes the private key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wireguard_public_key: Option<String>,
 }
 
 /// Runtime node: persisted id + gathered capacity/info + label helper.
 #[derive(Debug, Clone)]
 pub struct Node {
     pub info: NodeInfo,
+    /// Public key only — private key never leaves the key module / disk.
+    pub wireguard_public_key: Option<NodePublicKey>,
 }
 
 impl Node {
@@ -45,6 +54,15 @@ impl Node {
         data_dir: impl AsRef<Path>,
         docker: &dyn DockerProbe,
         node_id_override: Option<&str>,
+    ) -> Result<Self, String> {
+        Self::bootstrap_with_id_and_keys(data_dir, docker, node_id_override, None).await
+    }
+
+    pub async fn bootstrap_with_id_and_keys(
+        data_dir: impl AsRef<Path>,
+        docker: &dyn DockerProbe,
+        node_id_override: Option<&str>,
+        key_dir: Option<&Path>,
     ) -> Result<Self, String> {
         let data_dir = data_dir.as_ref();
         ensure_writable_data_dir(data_dir)?;
@@ -69,6 +87,9 @@ impl Node {
             id
         };
 
+        let key_dir_resolved = resolve_key_dir(key_dir, data_dir);
+        let public_key = load_or_create_keypair(&key_dir_resolved)?;
+
         let docker_version = match docker.engine_version().await {
             Ok(v) if !v.trim().is_empty() => v,
             Ok(_) => {
@@ -88,9 +109,13 @@ impl Node {
             cpu: cpu_count(),
             memory_bytes: memory_bytes(),
             started_at: Utc::now(),
+            wireguard_public_key: Some(public_key.as_str().to_string()),
         };
 
-        Ok(Self { info })
+        Ok(Self {
+            info,
+            wireguard_public_key: Some(public_key),
+        })
     }
 
     /// Label map for workload containers (`forge.node_id`).

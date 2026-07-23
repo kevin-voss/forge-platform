@@ -53,6 +53,10 @@ pub struct Config {
     pub node_slots: u32,
     /// Optional advertised address for Control registration.
     pub node_address: Option<String>,
+    /// Single-use bootstrap token for join handshake (`FORGE_NODE_BOOTSTRAP_TOKEN`).
+    pub bootstrap_token: Option<String>,
+    /// Directory for WireGuard key pair; defaults to `data_dir`.
+    pub key_dir: Option<PathBuf>,
     /// Interval for Control register/heartbeat reporting.
     pub control_heartbeat_interval: Duration,
     /// Optional Discovery base URL for endpoint lease registration (epic 21.02).
@@ -276,6 +280,16 @@ impl Config {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
 
+        let bootstrap_token = env::var("FORGE_NODE_BOOTSTRAP_TOKEN")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let key_dir = env::var("FORGE_NODE_KEY_DIR")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from);
+
         let control_hb_ms_raw =
             env::var("FORGE_HEARTBEAT_INTERVAL_MS").unwrap_or_else(|_| "5000".into());
         let control_hb_ms: u64 = control_hb_ms_raw.trim().parse().map_err(|_| {
@@ -349,6 +363,8 @@ impl Config {
             node_id,
             node_slots,
             node_address,
+            bootstrap_token,
+            key_dir,
             control_heartbeat_interval: Duration::from_millis(control_hb_ms),
             discovery_url,
             discovery_register_enabled,
@@ -413,6 +429,8 @@ mod tests {
             "FORGE_NODE_ID",
             "FORGE_NODE_SLOTS",
             "FORGE_NODE_ADDRESS",
+            "FORGE_NODE_BOOTSTRAP_TOKEN",
+            "FORGE_NODE_KEY_DIR",
             "FORGE_HEARTBEAT_INTERVAL_MS",
             "FORGE_DISCOVERY_URL",
             "FORGE_DISCOVERY_REGISTER_ENABLED",

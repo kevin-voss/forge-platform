@@ -168,6 +168,9 @@ make dev
 | `FORGE_SCHEDULER_ENABLED` | `true` | Reconciler delegates placement before starting replicas |
 | `FORGE_SCHEDULER_STRATEGY` | `least-allocated` | `first-fit` \| `least-allocated` \| `single-node` |
 | `FORGE_SCHEDULER_LOCAL_NODE_ID` | `node-local` | Fallback sole node for `single-node` when the fleet is empty |
+| `FORGE_NETWORK_URL` | _(empty)_ | `forge-network` base URL for join leases (`22.02`); empty keeps legacy docker register path |
+| `FORGE_NETWORK_NAME` | `cluster-overlay` | Network resource name used for node-block leases |
+| `FORGE_BOOTSTRAP_TOKEN_TTL_S` | `900` | Default TTL for issued bootstrap tokens |
 | `FORGE_RESCHEDULE_ENABLED` | `true` | On node offline, mark placements lost and request replacements (`08.05`) |
 | `FORGE_RESCHEDULE_GRACE_S` | `5` | Wait after offline before rescheduling (suppresses fast flaps) |
 | `FORGE_DB_PROVISIONER` | `fake` | `fake` (CI no-op) \| `local` (Docker Postgres per instance; requires docker CLI + socket) |

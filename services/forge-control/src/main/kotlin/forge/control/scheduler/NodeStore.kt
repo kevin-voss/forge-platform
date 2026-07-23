@@ -35,7 +35,14 @@ data class FleetNode(
     val status: String,
     val lastHeartbeatAt: Instant,
     val registeredAt: Instant,
-)
+    val wireguardPublicKey: String? = null,
+    val networkCidr: String? = null,
+    val networkGateway: String? = null,
+    val joinedAt: Instant? = null,
+    val keyRevokedAt: Instant? = null,
+) {
+    val keyRevoked: Boolean get() = keyRevokedAt != null
+}
 
 interface NodeStore {
     /** Idempotent upsert by node id; refreshes address/capacity and marks online. */
@@ -46,11 +53,31 @@ interface NodeStore {
         at: Instant = Instant.now(),
     ): FleetNode
 
+    /**
+     * Join-path upsert: sets status + WireGuard/network fields without forcing `online`.
+     * Used by [NodeJoinOrchestrator] for pending-network → joining.
+     */
+    fun registerJoin(
+        id: String,
+        address: String,
+        capacity: NodeCapacity,
+        status: String,
+        wireguardPublicKey: String?,
+        networkCidr: String?,
+        networkGateway: String?,
+        joinedAt: Instant?,
+        at: Instant = Instant.now(),
+        clearKeyRevocation: Boolean = false,
+    ): FleetNode
+
     fun heartbeat(
         id: String,
         allocation: NodeAllocation,
         at: Instant = Instant.now(),
     ): FleetNode?
+
+    /** Evict a joined node: clear WireGuard key, mark key revoked, set offline. */
+    fun revokeKey(id: String, at: Instant = Instant.now()): FleetNode?
 
     fun find(id: String): FleetNode?
 
@@ -117,28 +144,120 @@ class JdbcNodeStore(
         }
     }
 
+    override fun registerJoin(
+        id: String,
+        address: String,
+        capacity: NodeCapacity,
+        status: String,
+        wireguardPublicKey: String?,
+        networkCidr: String?,
+        networkGateway: String?,
+        joinedAt: Instant?,
+        at: Instant,
+        clearKeyRevocation: Boolean,
+    ): FleetNode = runSql {
+        dataSource.withConnection { conn ->
+            val capacityJson = json.encodeToString(capacity)
+            conn.prepareStatement(
+                """
+                INSERT INTO nodes (
+                    id, address, capacity_json, allocation_json, status,
+                    last_heartbeat_at, registered_at,
+                    wireguard_public_key, network_cidr, network_gateway, joined_at, key_revoked_at
+                ) VALUES (
+                    ?, ?, ?::jsonb, '{}'::jsonb, ?,
+                    ?, ?,
+                    ?, ?::cidr, ?::inet, ?, NULL
+                )
+                ON CONFLICT (id) DO UPDATE SET
+                    address = EXCLUDED.address,
+                    capacity_json = EXCLUDED.capacity_json,
+                    status = EXCLUDED.status,
+                    last_heartbeat_at = EXCLUDED.last_heartbeat_at,
+                    wireguard_public_key = EXCLUDED.wireguard_public_key,
+                    network_cidr = EXCLUDED.network_cidr,
+                    network_gateway = EXCLUDED.network_gateway,
+                    joined_at = COALESCE(EXCLUDED.joined_at, nodes.joined_at),
+                    key_revoked_at = CASE
+                        WHEN ? THEN NULL
+                        ELSE nodes.key_revoked_at
+                    END
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setString(1, id)
+                ps.setString(2, address)
+                ps.setString(3, capacityJson)
+                ps.setString(4, status)
+                ps.setTimestamp(5, java.sql.Timestamp.from(at))
+                ps.setTimestamp(6, java.sql.Timestamp.from(at))
+                ps.setString(7, wireguardPublicKey)
+                ps.setString(8, networkCidr)
+                ps.setString(9, networkGateway)
+                if (joinedAt != null) {
+                    ps.setTimestamp(10, java.sql.Timestamp.from(joinedAt))
+                } else {
+                    ps.setTimestamp(10, null)
+                }
+                ps.setBoolean(11, clearKeyRevocation)
+                ps.executeUpdate()
+            }
+            find(conn, id) ?: error("node missing after join register")
+        }
+    }
+
     override fun heartbeat(
         id: String,
         allocation: NodeAllocation,
         at: Instant,
     ): FleetNode? = runSql {
         dataSource.withConnection { conn ->
+            val existing = find(conn, id) ?: return@withConnection null
+            if (existing.keyRevoked) return@withConnection existing
             val allocationJson = json.encodeToString(allocation)
-            val updated = conn.prepareStatement(
+            val nextStatus = when (existing.status) {
+                "joining" -> "online"
+                "pending-network" -> "pending-network"
+                "draining" -> "draining"
+                "offline" -> "online"
+                else -> "online"
+            }
+            conn.prepareStatement(
                 """
                 UPDATE nodes
                 SET allocation_json = ?::jsonb,
                     last_heartbeat_at = ?,
-                    status = 'online'
+                    status = ?
                 WHERE id = ?
+                  AND key_revoked_at IS NULL
                 """.trimIndent(),
             ).use { ps ->
                 ps.setString(1, allocationJson)
                 ps.setTimestamp(2, java.sql.Timestamp.from(at))
-                ps.setString(3, id)
-                ps.executeUpdate()
+                ps.setString(3, nextStatus)
+                ps.setString(4, id)
+                if (ps.executeUpdate() == 0) return@withConnection null
             }
-            if (updated == 0) return@withConnection null
+            find(conn, id)
+        }
+    }
+
+    override fun revokeKey(id: String, at: Instant): FleetNode? = runSql {
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                UPDATE nodes
+                SET wireguard_public_key = NULL,
+                    key_revoked_at = ?,
+                    status = 'offline',
+                    network_cidr = NULL,
+                    network_gateway = NULL
+                WHERE id = ?
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setTimestamp(1, java.sql.Timestamp.from(at))
+                ps.setString(2, id)
+                if (ps.executeUpdate() == 0) return@withConnection null
+            }
             find(conn, id)
         }
     }
@@ -152,7 +271,9 @@ class JdbcNodeStore(
             conn.prepareStatement(
                 """
                 SELECT id, address, capacity_json, allocation_json, status,
-                       last_heartbeat_at, registered_at
+                       last_heartbeat_at, registered_at,
+                       wireguard_public_key, network_cidr::text, network_gateway::text,
+                       joined_at, key_revoked_at
                 FROM nodes
                 ORDER BY id
                 """.trimIndent(),
@@ -312,7 +433,9 @@ class JdbcNodeStore(
         conn.prepareStatement(
             """
             SELECT id, address, capacity_json, allocation_json, status,
-                   last_heartbeat_at, registered_at
+                   last_heartbeat_at, registered_at,
+                   wireguard_public_key, network_cidr::text, network_gateway::text,
+                   joined_at, key_revoked_at
             FROM nodes
             WHERE id = ?
             """.trimIndent(),
@@ -340,6 +463,11 @@ class JdbcNodeStore(
             status = rs.getString("status"),
             lastHeartbeatAt = rs.instant("last_heartbeat_at"),
             registeredAt = rs.instant("registered_at"),
+            wireguardPublicKey = rs.getString("wireguard_public_key"),
+            networkCidr = rs.getString("network_cidr"),
+            networkGateway = rs.getString("network_gateway"),
+            joinedAt = rs.getTimestamp("joined_at")?.toInstant(),
+            keyRevokedAt = rs.getTimestamp("key_revoked_at")?.toInstant(),
         )
     }
 }
@@ -363,6 +491,42 @@ class InMemoryNodeStore : NodeStore {
             status = "online",
             lastHeartbeatAt = at,
             registeredAt = existing?.registeredAt ?: at,
+            wireguardPublicKey = existing?.wireguardPublicKey,
+            networkCidr = existing?.networkCidr,
+            networkGateway = existing?.networkGateway,
+            joinedAt = existing?.joinedAt,
+            keyRevokedAt = existing?.keyRevokedAt,
+        )
+        rows[id] = node
+        return node
+    }
+
+    override fun registerJoin(
+        id: String,
+        address: String,
+        capacity: NodeCapacity,
+        status: String,
+        wireguardPublicKey: String?,
+        networkCidr: String?,
+        networkGateway: String?,
+        joinedAt: Instant?,
+        at: Instant,
+        clearKeyRevocation: Boolean,
+    ): FleetNode {
+        val existing = rows[id]
+        val node = FleetNode(
+            id = id,
+            address = address,
+            capacity = capacity,
+            allocation = existing?.allocation ?: NodeAllocation(),
+            status = status,
+            lastHeartbeatAt = at,
+            registeredAt = existing?.registeredAt ?: at,
+            wireguardPublicKey = wireguardPublicKey,
+            networkCidr = networkCidr,
+            networkGateway = networkGateway,
+            joinedAt = joinedAt ?: existing?.joinedAt,
+            keyRevokedAt = if (clearKeyRevocation) null else existing?.keyRevokedAt,
         )
         rows[id] = node
         return node
@@ -374,10 +538,31 @@ class InMemoryNodeStore : NodeStore {
         at: Instant,
     ): FleetNode? {
         val existing = rows[id] ?: return null
+        if (existing.keyRevoked) return existing
+        val nextStatus = when (existing.status) {
+            "joining" -> "online"
+            "pending-network" -> "pending-network"
+            "draining" -> "draining"
+            "offline" -> "online"
+            else -> "online"
+        }
         val updated = existing.copy(
             allocation = allocation,
-            status = "online",
+            status = nextStatus,
             lastHeartbeatAt = at,
+        )
+        rows[id] = updated
+        return updated
+    }
+
+    override fun revokeKey(id: String, at: Instant): FleetNode? {
+        val existing = rows[id] ?: return null
+        val updated = existing.copy(
+            wireguardPublicKey = null,
+            keyRevokedAt = at,
+            status = "offline",
+            networkCidr = null,
+            networkGateway = null,
         )
         rows[id] = updated
         return updated

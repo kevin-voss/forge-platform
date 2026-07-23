@@ -61,6 +61,8 @@ class Telemetry private constructor(
     private val nodesTotal: LongCounter,
     private val nodeFreeSlots: LongCounter,
     private val nodeHeartbeatAge: DoubleHistogram,
+    private val nodeJoinTotal: LongCounter,
+    private val nodeJoinDuration: DoubleHistogram,
     private val rescheduleTotal: LongCounter,
     private val nodeOfflineTotal: LongCounter,
     private val staleReplicasFenced: LongCounter,
@@ -266,6 +268,19 @@ class Telemetry private constructor(
             ageSeconds.toDouble(),
             Attributes.of(AttributeKey.stringKey("node"), nodeId),
         )
+    }
+
+    fun recordNodeJoin(result: String, durationSeconds: Double) {
+        nodeJoinTotal.add(
+            1,
+            Attributes.of(AttributeKey.stringKey("result"), result),
+        )
+        if (durationSeconds > 0) {
+            nodeJoinDuration.record(
+                durationSeconds,
+                Attributes.of(AttributeKey.stringKey("result"), result),
+            )
+        }
     }
 
     fun recordReschedule(result: String) {
@@ -524,6 +539,10 @@ class Telemetry private constructor(
                 nodesTotal = meter.counterBuilder("forge_nodes_total").build(),
                 nodeFreeSlots = meter.counterBuilder("forge_node_free_slots").build(),
                 nodeHeartbeatAge = meter.histogramBuilder("forge_node_heartbeat_age_seconds")
+                    .setUnit("s")
+                    .build(),
+                nodeJoinTotal = meter.counterBuilder("forge_node_join_total").build(),
+                nodeJoinDuration = meter.histogramBuilder("forge_node_join_duration_seconds")
                     .setUnit("s")
                     .build(),
                 rescheduleTotal = meter.counterBuilder("forge_reschedule_total").build(),

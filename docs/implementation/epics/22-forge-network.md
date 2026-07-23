@@ -154,7 +154,7 @@ Restart node-b
 | Step | N | Title | Status | Notes |
 |---|---:|---|---|---|
 | [22.01](../steps/22-forge-network/22.01-skeleton-and-address-allocation.md) | 146 | Service skeleton + provider-independent address plan | Complete | `forge-network` on `4110`; CIDR plan; leases + reclamation |
-| [22.02](../steps/22-forge-network/22.02-node-identity-and-bootstrap-tokens.md) | 147 | Node identity, bootstrap tokens, join handshake | Not started | Extends `04.02`/`08.02` registration |
+| [22.02](../steps/22-forge-network/22.02-node-identity-and-bootstrap-tokens.md) | 147 | Node identity, bootstrap tokens, join handshake | Complete | Bootstrap tokens; Runtime X25519; join → lease → `joining` |
 | [22.03](../steps/22-forge-network/22.03-wireguard-peer-management.md) | 148 | WireGuard peer management + route distribution | Not started | Key registry, peer computation, rotation |
 | [22.04](../steps/22-forge-network/22.04-local-and-provider-network-modes.md) | 149 | Local Docker mode + provider private networks | Not started | Per-pair transport selection |
 | [22.05](../steps/22-forge-network/22.05-network-policy-resource-and-enforcement.md) | 150 | `NetworkPolicy` resource + enforcement | Not started | Node-level enforcement + observability |
@@ -210,6 +210,5 @@ Restart node-b
 
 ## Next step to implement
 
-**[22.02](../steps/22-forge-network/22.02-node-identity-and-bootstrap-tokens.md) — Node
-identity, bootstrap tokens, join handshake** (extends `04.02`/`08.02` registration so a
-node joins the address plan from `22.01`).
+**[22.03](../steps/22-forge-network/22.03-wireguard-peer-management.md) — WireGuard peer
+management + route distribution** (peer registry and distribution for joined nodes).

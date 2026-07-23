@@ -72,6 +72,8 @@ make dev
 | `FORGE_DOCKER_STARTUP_RETRIES` | `5` | Bounded ping retries at boot. |
 | `FORGE_DOCKER_STARTUP_RETRY_DELAY_MS` | `500` | Delay between startup ping attempts. |
 | `FORGE_RUNTIME_DATA_DIR` | `/var/lib/forge-runtime` | Persists `node_id` (mode `0600`). Must be writable or startup fails. |
+| `FORGE_NODE_KEY_DIR` | _(same as data dir)_ | Directory for WireGuard X25519 key pair (`wireguard_private.key`, mode `0600`). |
+| `FORGE_NODE_BOOTSTRAP_TOKEN` | _(unset)_ | Single-use Control bootstrap token for join registration (`22.02`). |
 | `FORGE_HEARTBEAT_INTERVAL_SECONDS` | `10` | Periodic liveness tick interval. |
 | `FORGE_PULL_TIMEOUT_SECONDS` | `120` | Max wait for `docker pull` during workload create. |
 | `FORGE_DEFAULT_REGISTRY` | `localhost:5000` | Informational; workload images are fully qualified. |
@@ -111,6 +113,10 @@ bounded retries; readiness stays `503` until the Engine is reachable again.
 | `GET /v1/node/state` | Actual workloads on this node: `{ nodeId, workloads:[{deploymentId,status,hostPort,image}] }` (Control pull interim). |
 
 The node id is generated once (UUID) and stored at `$FORGE_RUNTIME_DATA_DIR/node_id`.
+An X25519 WireGuard key pair is generated alongside it under
+`$FORGE_NODE_KEY_DIR` (default: same data dir); the private key file is mode
+`0600` and never leaves the node. Optional `FORGE_NODE_BOOTSTRAP_TOKEN` is sent
+on Control registration for the join handshake (`22.02`).
 Compose mounts a named volume (`forge-runtime-data`) so the id survives container
 restarts. Workload containers are labeled with this value as `forge.node_id`.
 
