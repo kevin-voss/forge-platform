@@ -103,6 +103,7 @@ mod tests {
             verify_on_read: crate::config::VerifyOnRead::Off,
             signing: None,
             clock: crate::signing::system_clock(),
+            default_quota_bytes: crate::quota::DEFAULT_QUOTA_BYTES,
         }
     }
 

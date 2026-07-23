@@ -36,6 +36,7 @@ async fn test_app(auth_mode: AuthMode) -> (tempfile::TempDir, axum::Router) {
         verify_on_read: VerifyOnRead::Off,
         signing: None,
         clock: forge_storage::signing::system_clock(),
+        default_quota_bytes: forge_storage::quota::DEFAULT_QUOTA_BYTES,
     };
     (dir, app(state))
 }
@@ -174,6 +175,7 @@ async fn delete_non_empty_returns_409() {
         verify_on_read: VerifyOnRead::Off,
         signing: None,
         clock: forge_storage::signing::system_clock(),
+        default_quota_bytes: forge_storage::quota::DEFAULT_QUOTA_BYTES,
     };
     let app = app(state);
     let (status, body) = request(

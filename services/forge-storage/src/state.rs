@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
-/// Counters for storage observability (13.02 / 13.03 / 13.04 / 13.05).
+/// Counters for storage observability (13.02–13.06).
 #[derive(Debug, Default)]
 pub struct StorageMetrics {
     pub buckets_created: AtomicU64,
@@ -24,6 +24,9 @@ pub struct StorageMetrics {
     pub storage_range_requests_total: AtomicU64,
     pub storage_tokens_issued_total: AtomicU64,
     pub storage_token_rejections_total: AtomicU64,
+    pub storage_quota_rejections_total: AtomicU64,
+    pub storage_blobs_gc_total: AtomicU64,
+    pub storage_used_bytes: AtomicU64,
 }
 
 impl StorageMetrics {
@@ -50,6 +53,8 @@ pub struct AppState {
     pub verify_on_read: VerifyOnRead,
     pub signing: Option<Arc<SigningKeys>>,
     pub clock: Clock,
+    /// Default per-project quota when no override row exists.
+    pub default_quota_bytes: u64,
 }
 
 impl AppState {
@@ -130,6 +135,33 @@ pub async fn bootstrap(cfg: &Config) -> Result<AppState, String> {
                 meta_path = %cfg.meta_path.display(),
                 "metadata SQLite index ready"
             );
+
+            if cfg.reconcile_on_boot {
+                match meta.reconcile() {
+                    Ok(report) => {
+                        let keep = meta.live_blob_paths().unwrap_or_default();
+                        let orphans_from_meta = report.orphan_blob_paths.len();
+                        let gc = backend
+                            .gc_orphan_blobs(&keep)
+                            .await
+                            .map_err(|e| format!("boot orphan GC: {e}"))?;
+                        metrics
+                            .storage_blobs_gc_total
+                            .fetch_add(gc, Ordering::Relaxed);
+                        info!(
+                            projects = report.projects,
+                            blobs = report.blobs,
+                            orphan_paths_from_meta = orphans_from_meta,
+                            orphan_files_gc = gc,
+                            "boot reconcile complete"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "boot reconcile failed; continuing with existing counters");
+                    }
+                }
+            }
+
             let state = AppState {
                 service_name: cfg.service_name.clone(),
                 service_version: cfg.service_version.clone(),
@@ -146,9 +178,11 @@ pub async fn bootstrap(cfg: &Config) -> Result<AppState, String> {
                 verify_on_read: cfg.verify_on_read,
                 signing,
                 clock,
+                default_quota_bytes: cfg.default_quota_bytes,
             };
             info!(
                 storage_root = %state.backend.root().display(),
+                default_quota_bytes = state.default_quota_bytes,
                 "backend readiness transition: ready"
             );
             Ok(state)
@@ -179,6 +213,7 @@ pub async fn bootstrap(cfg: &Config) -> Result<AppState, String> {
                 verify_on_read: cfg.verify_on_read,
                 signing,
                 clock,
+                default_quota_bytes: cfg.default_quota_bytes,
             })
         }
         Err(err) => {

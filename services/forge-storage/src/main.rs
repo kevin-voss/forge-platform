@@ -31,6 +31,8 @@ async fn run() -> Result<(), String> {
         auth_mode = %cfg.auth_mode,
         stream_buffer_bytes = cfg.stream_buffer_bytes,
         max_object_bytes = ?cfg.max_object_bytes,
+        default_quota_bytes = cfg.default_quota_bytes,
+        reconcile_on_boot = cfg.reconcile_on_boot,
         shutdown_grace_seconds = cfg.shutdown_grace.as_secs(),
         "starting forge-storage"
     );

@@ -49,6 +49,7 @@ async fn test_app_with(
         verify_on_read: VerifyOnRead::Off,
         signing: Some(signing.clone()),
         clock,
+        default_quota_bytes: forge_storage::quota::DEFAULT_QUOTA_BYTES,
     };
     (dir, app(state), signing)
 }

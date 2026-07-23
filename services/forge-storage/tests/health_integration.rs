@@ -52,6 +52,7 @@ async fn ready_200_with_temp_writable_root() {
         verify_on_read: VerifyOnRead::Off,
         signing: None,
         clock: forge_storage::signing::system_clock(),
+        default_quota_bytes: forge_storage::quota::DEFAULT_QUOTA_BYTES,
     };
     let app = app(state);
     let (status, body) = get(app, "/health/ready").await;
@@ -85,6 +86,7 @@ async fn ready_503_with_read_only_root() {
         verify_on_read: VerifyOnRead::Off,
         signing: None,
         clock: forge_storage::signing::system_clock(),
+        default_quota_bytes: forge_storage::quota::DEFAULT_QUOTA_BYTES,
     };
     let app = app(state);
     let (status, body) = get(app, "/health/ready").await;

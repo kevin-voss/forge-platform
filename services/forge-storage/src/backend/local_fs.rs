@@ -372,6 +372,67 @@ impl LocalFsBackend {
         self.resolve_object_path(storage_path)
     }
 
+    /// Unlink a content-addressed blob. Missing files are treated as success (idempotent GC).
+    pub async fn unlink_blob(&self, storage_path: &str) -> Result<(), BackendError> {
+        let path = self.resolve_object_path(storage_path)?;
+        match tokio::fs::remove_file(&path).await {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(BackendError::Io(format!(
+                "unlink blob {}: {e}",
+                path.display()
+            ))),
+        }
+    }
+
+    /// List relative content-addressed paths under `objects/` (`aa/hash`).
+    pub fn list_blob_storage_paths(&self) -> Result<Vec<String>, BackendError> {
+        let objects = self.objects_dir();
+        if !objects.is_dir() {
+            return Ok(Vec::new());
+        }
+        let mut out = Vec::new();
+        for prefix in fs::read_dir(&objects)
+            .map_err(|e| BackendError::Io(format!("read objects: {e}")))?
+        {
+            let prefix = prefix.map_err(|e| BackendError::Io(format!("objects entry: {e}")))?;
+            if !prefix.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let prefix_name = prefix.file_name().to_string_lossy().to_string();
+            if prefix_name.len() != 2 {
+                continue;
+            }
+            for file in fs::read_dir(prefix.path())
+                .map_err(|e| BackendError::Io(format!("read prefix: {e}")))?
+            {
+                let file = file.map_err(|e| BackendError::Io(format!("blob entry: {e}")))?;
+                if !file.file_type().map(|t| t.is_file()).unwrap_or(false) {
+                    continue;
+                }
+                let name = file.file_name().to_string_lossy().to_string();
+                out.push(format!("{prefix_name}/{name}"));
+            }
+        }
+        Ok(out)
+    }
+
+    /// Unlink on-disk blobs whose relative path is not in `keep`.
+    pub async fn gc_orphan_blobs(
+        &self,
+        keep: &std::collections::HashSet<String>,
+    ) -> Result<u64, BackendError> {
+        let mut removed = 0u64;
+        for path in self.list_blob_storage_paths()? {
+            if keep.contains(&path) {
+                continue;
+            }
+            self.unlink_blob(&path).await?;
+            removed += 1;
+        }
+        Ok(removed)
+    }
+
     /// Count files currently in `meta/tmp` (for tests / cleanup verification).
     pub fn count_tmp_files(&self) -> Result<usize, BackendError> {
         let tmp = self.tmp_dir();

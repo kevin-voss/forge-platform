@@ -36,6 +36,7 @@ async fn test_app(verify: VerifyOnRead) -> (tempfile::TempDir, axum::Router, Arc
         verify_on_read: verify,
         signing: None,
         clock: forge_storage::signing::system_clock(),
+        default_quota_bytes: forge_storage::quota::DEFAULT_QUOTA_BYTES,
     };
     (dir, app(state), backend)
 }

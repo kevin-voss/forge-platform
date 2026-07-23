@@ -1,4 +1,5 @@
 use crate::backend::DEFAULT_STREAM_BUFFER_BYTES;
+use crate::quota::DEFAULT_QUOTA_BYTES;
 use std::env;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -91,6 +92,10 @@ pub struct Config {
     pub max_ttl_seconds: u64,
     /// Clock-skew tolerance for token expiry (default 30).
     pub clock_skew_seconds: i64,
+    /// Default per-project byte quota when no `project_quota` row exists.
+    pub default_quota_bytes: u64,
+    /// Recompute usage/blob refcounts from metadata on boot (default true).
+    pub reconcile_on_boot: bool,
 }
 
 impl Config {
@@ -230,6 +235,11 @@ impl Config {
         let clock_skew_seconds =
             parse_u64_env("FORGE_STORAGE_CLOCK_SKEW_SECONDS", 30)? as i64;
 
+        let default_quota_bytes =
+            parse_u64_env("FORGE_STORAGE_DEFAULT_QUOTA_BYTES", DEFAULT_QUOTA_BYTES)?;
+
+        let reconcile_on_boot = parse_bool_env("FORGE_STORAGE_RECONCILE_ON_BOOT", true)?;
+
         Ok(Self {
             port,
             service_name,
@@ -252,6 +262,8 @@ impl Config {
             signing_key_prev,
             max_ttl_seconds,
             clock_skew_seconds,
+            default_quota_bytes,
+            reconcile_on_boot,
         })
     }
 }
@@ -276,6 +288,23 @@ fn parse_u64_env(key: &str, default: u64) -> Result<u64, String> {
             trimmed
                 .parse()
                 .map_err(|_| format!("{key} must be a non-negative integer, got {raw:?}"))
+        }
+        Err(_) => Ok(default),
+    }
+}
+
+fn parse_bool_env(key: &str, default: bool) -> Result<bool, String> {
+    match env::var(key) {
+        Ok(raw) => {
+            let trimmed = raw.trim().to_ascii_lowercase();
+            if trimmed.is_empty() {
+                return Ok(default);
+            }
+            match trimmed.as_str() {
+                "1" | "true" | "yes" | "on" => Ok(true),
+                "0" | "false" | "no" | "off" => Ok(false),
+                other => Err(format!("{key} must be true|false, got {other:?}")),
+            }
         }
         Err(_) => Ok(default),
     }
@@ -315,6 +344,8 @@ mod tests {
             "FORGE_STORAGE_SIGNING_KEY_PREV",
             "FORGE_STORAGE_MAX_TTL_SECONDS",
             "FORGE_STORAGE_CLOCK_SKEW_SECONDS",
+            "FORGE_STORAGE_DEFAULT_QUOTA_BYTES",
+            "FORGE_STORAGE_RECONCILE_ON_BOOT",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()
@@ -358,6 +389,8 @@ mod tests {
             assert!(cfg.signing_key.is_none());
             assert_eq!(cfg.max_ttl_seconds, 3600);
             assert_eq!(cfg.clock_skew_seconds, 30);
+            assert_eq!(cfg.default_quota_bytes, DEFAULT_QUOTA_BYTES);
+            assert!(cfg.reconcile_on_boot);
         });
     }
 

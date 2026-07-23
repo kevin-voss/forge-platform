@@ -1,13 +1,14 @@
 openapi: 3.0.3
 info:
   title: Forge Storage API
-  version: 0.5.0
+  version: 0.6.0
   description: |
     Platform object storage service (epic 13). Health/identity from 13.01;
     project-scoped bucket APIs and metadata index from 13.02; streamed object
     upload/download from 13.03; SHA-256 integrity, content-addressed layout,
     and HTTP byte-range requests from 13.04; HMAC-signed object access tokens
-    with expiry from 13.05. Quotas and delete arrive in later steps.
+    with expiry from 13.05; per-project quotas, hard delete with refcount GC,
+    usage reporting, and restart durability from 13.06.
 servers:
   - url: http://127.0.0.1:4107
     description: Local Compose (host port 4107)
@@ -173,16 +174,24 @@ paths:
                 $ref: "#/components/schemas/Error"
     delete:
       operationId: deleteBucket
-      summary: Delete an empty bucket
+      summary: Delete a bucket
       description: |
-        Deletes the bucket when it contains no objects. Non-empty buckets return
-        409 with `object_count` (cascade delete lands in 13.06).
+        Deletes an empty bucket (`204`). Non-empty buckets return `409` with
+        `object_count` unless `force=true`, which cascade-deletes all objects
+        (refcount-aware blob GC) then the bucket.
       parameters:
         - $ref: "#/components/parameters/ForgeProjectHeader"
         - $ref: "#/components/parameters/BucketName"
+        - name: force
+          in: query
+          required: false
+          description: When true, delete all objects then the bucket
+          schema:
+            type: boolean
+            default: false
       responses:
         "204":
-          description: Bucket deleted
+          description: Bucket deleted (empty, or cascade with force=true)
         "401":
           description: Missing/invalid bearer token (enforce mode)
           content:
@@ -196,7 +205,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: Bucket is not empty
+          description: Bucket is not empty and force was not set
           content:
             application/json:
               schema:
@@ -205,6 +214,41 @@ paths:
                 error: "bucket not empty: 1 object(s)"
                 code: conflict
                 object_count: 1
+
+  /v1/usage:
+    get:
+      operationId: getProjectUsage
+      summary: Report project storage usage vs quota
+      description: |
+        Returns bytes used, effective quota, and object count for the caller's
+        project. Quota is the per-project override when set, otherwise
+        `FORGE_STORAGE_DEFAULT_QUOTA_BYTES`.
+      parameters:
+        - $ref: "#/components/parameters/ForgeProjectHeader"
+      responses:
+        "200":
+          description: Usage report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Usage"
+              example:
+                project_id: proj-a
+                used_bytes: 1048576
+                quota_bytes: 1073741824
+                objects: 3
+        "401":
+          description: Missing/invalid bearer token (enforce mode)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Metadata store unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /v1/buckets/{bucket}/objects/{key}/sign:
     post:
@@ -345,11 +389,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "413":
-          description: Object exceeds `FORGE_STORAGE_MAX_OBJECT_BYTES` when set
+          description: |
+            Object exceeds `FORGE_STORAGE_MAX_OBJECT_BYTES` when set (`too_large`),
+            or the upload would exceed the project's byte quota (`quota_exceeded`).
+            Quota rejections do not commit metadata; temp/new blobs are cleaned.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+              examples:
+                tooLarge:
+                  value:
+                    error: "object exceeds max size of 1048576 bytes"
+                    code: too_large
+                quotaExceeded:
+                  value:
+                    error: "quota exceeded: used=12 incoming=12 quota=20"
+                    code: quota_exceeded
         "422":
           description: Client `X-Expected-SHA256` did not match streamed content
           content:
@@ -359,6 +415,32 @@ paths:
               example:
                 error: "checksum mismatch: expected …, got …"
                 code: checksum_mismatch
+    delete:
+      operationId: deleteObject
+      summary: Delete an object
+      description: |
+        Removes object metadata and decrements the content-addressed blob
+        refcount. When the refcount reaches zero the on-disk blob is unlinked
+        (dedup-safe GC). Cross-project deletes return `404`.
+      parameters:
+        - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/BucketName"
+        - $ref: "#/components/parameters/ObjectKey"
+      responses:
+        "204":
+          description: Object deleted
+        "401":
+          description: Missing/invalid bearer token (enforce mode)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Object not found in caller's project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
     get:
       operationId: getObject
       summary: Stream-download an object
@@ -716,6 +798,29 @@ components:
           type: string
           format: date-time
 
+    Usage:
+      type: object
+      required: [project_id, used_bytes, quota_bytes, objects]
+      properties:
+        project_id:
+          type: string
+          example: proj-a
+        used_bytes:
+          type: integer
+          format: int64
+          description: Sum of object size_bytes for the project
+          example: 1048576
+        quota_bytes:
+          type: integer
+          format: int64
+          description: Effective quota (override or default)
+          example: 1073741824
+        objects:
+          type: integer
+          format: int64
+          description: Number of objects in the project
+          example: 3
+
     Object:
       type: object
       required:
@@ -779,6 +884,7 @@ components:
             - invalid
             - invalid_key
             - too_large
+            - quota_exceeded
             - checksum_mismatch
             - integrity_error
             - unavailable
@@ -794,4 +900,4 @@ components:
             - unauthenticated
         object_count:
           type: integer
-          description: Present when deleting a non-empty bucket
+          description: Present when deleting a non-empty bucket without force=true

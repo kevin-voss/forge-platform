@@ -1,4 +1,4 @@
-//! Streamed object upload / download / HEAD with SHA-256 + Range (13.03 / 13.04).
+//! Streamed object upload / download / HEAD / DELETE with SHA-256 + Range + quotas (13.03–13.06).
 
 use crate::api::sign::post_sign;
 use crate::api::validate::{validate_bucket_name, validate_object_key};
@@ -7,6 +7,7 @@ use crate::config::VerifyOnRead;
 use crate::http::range::{parse_bytes_range, unsatisfiable_content_range, RangeError};
 use crate::meta::{MetaError, ObjectMeta};
 use crate::project::ProjectContext;
+use crate::quota;
 use crate::state::AppState;
 use axum::body::Body;
 use axum::extract::{Extension, Path, State};
@@ -35,6 +36,7 @@ pub fn router() -> Router<AppState> {
         axum::routing::put(put_object)
             .get(get_object)
             .head(head_object)
+            .delete(delete_object)
             .post(post_sign),
     )
 }
@@ -64,6 +66,17 @@ fn meta_err(err: MetaError) -> Response {
         MetaError::NotFound => err_json(StatusCode::NOT_FOUND, "object not found", "not_found"),
         MetaError::Conflict(msg) => err_json(StatusCode::CONFLICT, msg, "conflict"),
         MetaError::Invalid(msg) => err_json(StatusCode::BAD_REQUEST, msg, "invalid"),
+        MetaError::QuotaExceeded {
+            used_bytes,
+            quota_bytes,
+            incoming_bytes,
+        } => err_json(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!(
+                "quota exceeded: used={used_bytes} incoming={incoming_bytes} quota={quota_bytes}"
+            ),
+            "quota_exceeded",
+        ),
         MetaError::Internal(msg) => {
             warn!(error = %msg, "metadata store error");
             err_json(
@@ -248,6 +261,12 @@ async fn put_object(
         .map(str::trim)
         .filter(|s| !s.is_empty());
 
+    let replacing_bytes = match meta.get_object(&project.project_id, &bucket, &key) {
+        Ok(existing) => existing.size_bytes.max(0),
+        Err(MetaError::NotFound) => 0,
+        Err(err) => return meta_err(err),
+    };
+
     let mut reader = BodyReader::new(body);
     let put = match state
         .backend
@@ -271,6 +290,47 @@ async fn put_object(
         }
     };
 
+    let (used_bytes, _) = match meta.project_usage_counters(&project.project_id) {
+        Ok(v) => v,
+        Err(err) => {
+            if !put.dedup_hit {
+                let _ = state.backend.unlink_blob(&put.storage_path).await;
+            }
+            return meta_err(err);
+        }
+    };
+    let quota_bytes = match meta.effective_quota(&project.project_id, state.default_quota_bytes) {
+        Ok(v) => v,
+        Err(err) => {
+            if !put.dedup_hit {
+                let _ = state.backend.unlink_blob(&put.storage_path).await;
+            }
+            return meta_err(err);
+        }
+    };
+    if quota::would_exceed(
+        used_bytes,
+        put.size_bytes as i64,
+        replacing_bytes,
+        quota_bytes,
+    ) {
+        state
+            .metrics
+            .storage_quota_rejections_total
+            .fetch_add(1, Ordering::Relaxed);
+        if !put.dedup_hit {
+            let _ = state.backend.unlink_blob(&put.storage_path).await;
+        }
+        return err_json(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!(
+                "quota exceeded: used={used_bytes} incoming={} quota={quota_bytes}",
+                put.size_bytes
+            ),
+            "quota_exceeded",
+        );
+    }
+
     let (object, created) = match meta.upsert_object(
         &project.project_id,
         &bucket,
@@ -281,8 +341,20 @@ async fn put_object(
         &put.sha256,
     ) {
         Ok(v) => v,
-        Err(err) => return meta_err(err),
+        Err(err) => {
+            if !put.dedup_hit {
+                let _ = state.backend.unlink_blob(&put.storage_path).await;
+            }
+            return meta_err(err);
+        }
     };
+
+    if let Ok(report) = meta.project_usage_report(&project.project_id, state.default_quota_bytes) {
+        state
+            .metrics
+            .storage_used_bytes
+            .store(report.used_bytes.max(0) as u64, Ordering::Relaxed);
+    }
 
     state
         .metrics
@@ -352,6 +424,77 @@ async fn head_object(
         }
         Err(resp) => resp,
     }
+}
+
+async fn delete_object(
+    State(state): State<AppState>,
+    Extension(project): Extension<ProjectContext>,
+    Path((bucket, raw_key)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    let rid = request_id(&headers);
+    if validate_bucket_name(&bucket).is_err() {
+        return err_json(StatusCode::NOT_FOUND, "object not found", "not_found");
+    }
+    let key = match normalize_key(&raw_key) {
+        Ok(k) => k,
+        Err(resp) => return resp,
+    };
+    let Some(meta) = state.meta.as_ref() else {
+        return unavailable_meta();
+    };
+
+    let outcome = match meta.delete_object(&project.project_id, &bucket, &key) {
+        Ok(v) => v,
+        Err(err) => return meta_err(err),
+    };
+
+    let gc = outcome.should_gc_blob();
+    if gc {
+        if let Err(err) = state
+            .backend
+            .unlink_blob(&outcome.object.storage_path)
+            .await
+        {
+            warn!(
+                error = %err,
+                storage_path = %outcome.object.storage_path,
+                "blob GC unlink failed"
+            );
+        } else {
+            state
+                .metrics
+                .storage_blobs_gc_total
+                .fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    state.metrics.storage_objects_total.fetch_update(
+        Ordering::Relaxed,
+        Ordering::Relaxed,
+        |n| Some(n.saturating_sub(1)),
+    ).ok();
+
+    if let Ok(report) = meta.project_usage_report(&project.project_id, state.default_quota_bytes) {
+        state
+            .metrics
+            .storage_used_bytes
+            .store(report.used_bytes.max(0) as u64, Ordering::Relaxed);
+    }
+
+    info!(
+        project_id = %project.project_id,
+        bucket = %bucket,
+        key = %key,
+        sha256 = outcome.object.sha256.as_deref().unwrap_or("-"),
+        refcount_before = outcome.refcount_before,
+        refcount_after = outcome.refcount_after,
+        gc_blob = gc,
+        request_id = %rid,
+        "object deleted"
+    );
+
+    StatusCode::NO_CONTENT.into_response()
 }
 
 fn load_object_meta(

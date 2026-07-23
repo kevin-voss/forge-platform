@@ -9,6 +9,9 @@ pub const MIGRATION_0002: &str = include_str!("../../migrations/0002_storage_pat
 /// Content-addressed blob refcounts (source: `migrations/0003_sha_refcount.sql`).
 pub const MIGRATION_0003: &str = include_str!("../../migrations/0003_sha_refcount.sql");
 
+/// Per-project quotas + usage counters (source: `migrations/0004_quota_blobs.sql`).
+pub const MIGRATION_0004: &str = include_str!("../../migrations/0004_quota_blobs.sql");
+
 /// Apply all migrations to an open connection.
 pub fn apply(conn: &rusqlite::Connection) -> Result<(), String> {
     conn.execute_batch(
@@ -45,6 +48,9 @@ pub fn apply(conn: &rusqlite::Connection) -> Result<(), String> {
     conn.execute_batch(MIGRATION_0003)
         .map_err(|e| format!("migration 0003: {e}"))?;
 
+    conn.execute_batch(MIGRATION_0004)
+        .map_err(|e| format!("migration 0004: {e}"))?;
+
     Ok(())
 }
 
@@ -59,12 +65,12 @@ mod tests {
         apply(&conn).expect("migrate");
         let n: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('buckets','objects','blobs')",
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('buckets','objects','blobs','project_quota','project_usage')",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(n, 3);
+        assert_eq!(n, 5);
         let has: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('objects') WHERE name = 'storage_path'",
