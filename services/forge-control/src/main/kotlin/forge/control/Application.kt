@@ -37,6 +37,7 @@ import forge.control.manageddb.LocalProvisioner
 import forge.control.manageddb.ManagedDbService
 import forge.control.manageddb.Provisioner
 import forge.control.manageddb.RestoreRunner
+import forge.control.manageddb.RotationRunner
 import forge.control.manageddb.buildArchiveStore
 import forge.control.manageddb.managedDbRoutes
 import java.nio.file.Path
@@ -204,6 +205,15 @@ fun main() {
         log = log,
         telemetry = telemetry,
     )
+    val rotationRunner = RotationRunner(
+        store = managedDbRepo,
+        provisioner = dbProvisioner,
+        isolation = isolationGuard,
+        secrets = dbSecretsClient,
+        graceSeconds = cfg.dbRotationGraceSeconds,
+        log = log,
+        telemetry = telemetry,
+    )
     val managedDbService = ManagedDbService(
         store = managedDbRepo,
         provisioner = dbProvisioner,
@@ -215,6 +225,10 @@ fun main() {
         backupRunner = backupRunner,
         restoreRunner = restoreRunner,
         archives = archiveStore,
+        rotationRunner = rotationRunner,
+        predeleteBackup = cfg.dbPredeleteBackup,
+        audit = auditRepo,
+        actor = "control",
         log = log,
         telemetry = telemetry,
     )

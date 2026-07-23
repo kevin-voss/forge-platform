@@ -234,14 +234,24 @@ class InMemoryManagedDbRepository : ManagedDbRepository {
         containerId: String?,
     ): DbInstance = error("unused")
 
+    override fun updateInstanceDeletionProtection(id: UUID, deletionProtection: Boolean): DbInstance =
+        error("unused")
+
     override fun listDatabases(instanceId: UUID): List<DbDatabase> =
         databases.values.filter { it.instanceId == instanceId }
 
     override fun findDatabaseById(id: UUID): DbDatabase? = databases[id]
-    override fun createDatabase(instanceId: UUID, name: String, status: DbDatabaseStatus): DbDatabase =
-        error("unused")
+    override fun createDatabase(
+        instanceId: UUID,
+        name: String,
+        status: DbDatabaseStatus,
+        deletionProtection: Boolean,
+    ): DbDatabase = error("unused")
 
     override fun updateDatabaseStatus(id: UUID, status: DbDatabaseStatus, statusReason: String?): DbDatabase =
+        error("unused")
+
+    override fun updateDatabaseDeletionProtection(id: UUID, deletionProtection: Boolean): DbDatabase =
         error("unused")
 
     override fun createCredential(
@@ -252,6 +262,17 @@ class InMemoryManagedDbRepository : ManagedDbRepository {
     ): DbCredential = error("unused")
 
     override fun findActiveCredential(databaseId: UUID): DbCredential? = null
+    override fun findCredentialById(id: UUID): DbCredential? = null
+    override fun listCredentials(databaseId: UUID): List<DbCredential> = emptyList()
+    override fun updateCredentialStatus(
+        id: UUID,
+        status: String,
+        rotatedAt: Instant?,
+        revokedAt: Instant?,
+    ): DbCredential = error("unused")
+
+    override fun markCredentialRotated(id: UUID): DbCredential = error("unused")
+
     override fun createAttachment(
         databaseId: UUID,
         applicationId: UUID,
@@ -262,9 +283,12 @@ class InMemoryManagedDbRepository : ManagedDbRepository {
 
     override fun findAttachmentById(id: UUID): DbAttachment? = null
     override fun listAttachmentsByApplication(applicationId: UUID): List<DbAttachment> = emptyList()
+    override fun listAttachmentsByDatabase(databaseId: UUID): List<DbAttachment> = emptyList()
     override fun deleteAttachment(id: UUID) = Unit
     override fun deleteDatabase(id: UUID) = Unit
     override fun deleteCredential(id: UUID) = Unit
+    override fun deleteBackupsForDatabase(databaseId: UUID) = Unit
+    override fun deleteInstance(id: UUID) = Unit
 
     override fun createBackup(databaseId: UUID, status: DbBackupStatus, id: UUID): DbBackup {
         val backup = DbBackup(

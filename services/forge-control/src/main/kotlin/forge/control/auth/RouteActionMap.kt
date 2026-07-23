@@ -224,6 +224,10 @@ class RouteActionMap(
             }
         }
 
+        match(m, p, DB_DATABASE_ROTATE)?.let { id ->
+            return authorize("database.write", ScopeKind.DbDatabase, id)
+        }
+
         match(m, p, DB_DATABASE_ATTACH)?.let { id ->
             return when (m) {
                 "POST" -> authorize("database.write", ScopeKind.DbDatabase, id)
@@ -324,6 +328,13 @@ class RouteActionMap(
                 Regex(
                     "^/v1/databases/(?!instances(?:/|$)|attachments(?:/|$)|backups(?:/|$))" +
                         "($UUID_OR_ID)$",
+                ),
+            )
+        private val DB_DATABASE_ROTATE =
+            Pattern(
+                Regex(
+                    "^/v1/databases/(?!instances(?:/|$)|attachments(?:/|$)|backups(?:/|$))" +
+                        "($UUID_OR_ID)/rotate-credentials$",
                 ),
             )
         private val DB_DATABASE_ATTACH =

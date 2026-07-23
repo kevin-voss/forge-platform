@@ -10,7 +10,7 @@ HTTP APIs for projects, environments, applications, services, and desired-state
 deployments (`02.05`) are available under `/v1`. Control records deployment
 intent only; it does not pull images or start containers.
 
-Managed PostgreSQL (`18.01`–`18.04`) adds project-scoped management-plane
+Managed PostgreSQL (`18.01`–`18.05`) adds project-scoped management-plane
 resources (`db_instance`, `db_database`, `db_credential`, `db_attachment`,
 `db_backup`) and a `Provisioner` seam. Default `FORGE_DB_PROVISIONER=fake` is
 deterministic for CI; `local` starts an isolated Postgres container per instance
@@ -23,9 +23,15 @@ Runtime workload env. Detach removes injection on the next deploy. On-demand
 backup (`POST /v1/databases/{id}/backups`) runs `pg_dump`, stores the archive on
 a volume or Forge Storage with a SHA-256 checksum, and restore
 (`POST /v1/databases/backups/{id}/restore`) verifies integrity before
-`pg_restore`. Cross-project backup/restore returns `404`. Product DBs are
-isolated from Control's own JDBC connection; plaintext URLs never appear in
-Control logs or API responses.
+`pg_restore`. Credential rotation (`POST /v1/databases/{id}/rotate-credentials`)
+issues a new role/password, updates Secrets (and attached URL secrets), then
+revokes the old role after `FORGE_DB_ROTATION_GRACE_SECONDS` so there is no
+outage window; mid-flight failures keep the old credentials valid. Deletion
+protection defaults on for instances and databases — `PATCH` to disable, then
+`DELETE …?force=true` (optional pre-delete backup via `FORGE_DB_PREDELETE_BACKUP`);
+attached databases return `409` until detached. Cross-project backup/restore
+returns `404`. Product DBs are isolated from Control's own JDBC connection;
+plaintext URLs never appear in Control logs or API responses.
 
 A reconciliation controller (`07.01`–`07.05`) periodically diffs desired vs
 actual replica state, converges via Runtime, performs rolling updates, and on
@@ -151,6 +157,8 @@ make dev
 | `FORGE_DB_BACKUP_TARGET` | `storage` if `FORGE_STORAGE_URL` set, else `volume` | `storage` \| `volume` for backup archives |
 | `FORGE_DB_BACKUP_BUCKET` | `db-backups` | Forge Storage bucket when target=`storage` |
 | `FORGE_DB_BACKUP_DIR` | `/var/forge/db-backups` | Local volume path when target=`volume` |
+| `FORGE_DB_ROTATION_GRACE_SECONDS` | `60` | Seconds old credentials remain valid after new secrets are delivered |
+| `FORGE_DB_PREDELETE_BACKUP` | `true` | Take a safety dump before forced deletes |
 | `FORGE_STORAGE_URL` | _(empty)_ | Enables storage-backed backups when set |
 | `FORGE_SECRETS_URL` | `http://forge-secrets:8080` | Used to persist generated DB credentials + attachment URLs (`disabled` → in-memory) |
 
@@ -183,6 +191,7 @@ With OTEL export enabled, HTTP/JDBC spans and standard metrics
 `managed_db_provision_duration_seconds{op}`, `managed_db_provision_errors_total{op}`,
 `managed_db_attachments_total`,
 `managed_db_backups_total{status}`, `managed_db_restore_total{status}`,
+`managed_db_rotations_total{status}`, `managed_db_deletes_total{forced}`,
 and spans `scheduler.place` / `scheduler.reschedule` (attributes `strategy`,
 `candidates`, `node`).
 From 07.02 the controller executes start/stop/recreate against Runtime using
@@ -229,9 +238,14 @@ request handling.
 | `POST` | `/v1/databases/instances` | Create managed DB instance; body `{"name","projectId?"}`; project via body or `X-Forge-Project`; status `provisioning`→`available` (or `error`); duplicate name → `409` (`18.01`/`18.02`) |
 | `GET` | `/v1/databases/instances?projectId=` | List instances for a project (`projectId` query or `X-Forge-Project`) |
 | `GET` | `/v1/databases/instances/{instanceId}` | Get instance; missing → `404` |
+| `PATCH` | `/v1/databases/instances/{instanceId}` | Body `{"deletionProtection":false}` — required before forced delete (`18.05`) |
+| `DELETE` | `/v1/databases/instances/{instanceId}?force=true` | Delete when protection disabled; else `409`; optional pre-delete backup (`18.05`) |
 | `POST` | `/v1/databases/instances/{instanceId}/databases` | Create database + least-privilege role; body `{"name"}`; returns `secretRef` + one-time `password`; list/get omit password (`18.02`) |
 | `GET` | `/v1/databases/instances/{instanceId}/databases` | List databases on an instance (no plaintext passwords) |
 | `GET` | `/v1/databases/{databaseId}` | Get database (`status`,`host`,`port`,`secretRef`); no plaintext password |
+| `PATCH` | `/v1/databases/{databaseId}` | Body `{"deletionProtection":false}` (`18.05`) |
+| `DELETE` | `/v1/databases/{databaseId}?force=true` | Delete when protection disabled and no attachments; else `409` (`18.05`) |
+| `POST` | `/v1/databases/{databaseId}/rotate-credentials` | Issue new role/password; update Secrets; revoke old after grace; returns `{credential,secretRef}` (`18.05`) |
 
 The machine-readable API contract is
 [`contracts/openapi/forge-control.openapi.yaml`](../../contracts/openapi/forge-control.openapi.yaml).
@@ -251,7 +265,7 @@ Tables in schema `control`:
 * `placements` (replica → node assignments, `pending` queue, or `lost` audit rows; active unique on `(deployment_id, replica_index)` where `status in (placed,pending)`; `rescheduled_from_node` on replacements)
 * `audit_log` (append-only; create actions for projects/environments/applications/services/deployments)
 * `idempotency_keys` (key, request hash, resource ID, stored response; 24-hour retention target)
-* `db_instance` (incl. `host`/`port`/`container_id`), `db_database` (incl. `status`), `db_credential` (`secret_ref` only), `db_attachment` (`secret_ref` for composed URL), `db_backup` (checksum/size/restore status; managed PostgreSQL; `18.01`–`18.04`)
+* `db_instance` (incl. `host`/`port`/`container_id`, `deletion_protection`), `db_database` (incl. `status`, `deletion_protection`), `db_credential` (`secret_ref` only; `rotated_at`/`revoked_at`), `db_attachment` (`secret_ref` for composed URL), `db_backup` (checksum/size/restore status; managed PostgreSQL; `18.01`–`18.05`)
 * `flyway_schema_history`
 
 `deployments` also stores rollout policy defaults (`rollout_batch_size=1`,

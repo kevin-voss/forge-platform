@@ -60,6 +60,7 @@ data class DbDatabase(
     val name: String,
     val status: DbDatabaseStatus = DbDatabaseStatus.Provisioning,
     val statusReason: String? = null,
+    val deletionProtection: Boolean = true,
     val createdAt: Instant,
 ) {
     init {
@@ -74,6 +75,8 @@ data class DbCredential(
     val secretRef: String?,
     val status: String,
     val createdAt: Instant,
+    val rotatedAt: Instant? = null,
+    val revokedAt: Instant? = null,
 ) {
     init {
         require(username.isNotBlank()) { "username must not be blank" }

@@ -70,6 +70,10 @@ data class AppConfig(
     val dbBackupDir: String = "/var/forge/db-backups",
     /** Base URL for forge-storage (empty disables storage-backed backups). */
     val storageUrl: String = "",
+    /** Seconds to keep old credentials valid after new secrets are delivered (rotation). */
+    val dbRotationGraceSeconds: Long = 60,
+    /** Take a safety backup before forced deletes. */
+    val dbPredeleteBackup: Boolean = true,
 )
 
 fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
@@ -455,6 +459,24 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
     if (dbBackupDir.isBlank()) {
         throw IllegalArgumentException("FORGE_DB_BACKUP_DIR must not be blank")
     }
+    val dbRotationGraceSeconds = env["FORGE_DB_ROTATION_GRACE_SECONDS"]?.trim().orEmpty()
+        .ifEmpty { "60" }
+        .toLongOrNull()
+        ?.takeIf { it >= 0 }
+        ?: throw IllegalArgumentException(
+            "FORGE_DB_ROTATION_GRACE_SECONDS must be a non-negative integer",
+        )
+    val dbPredeleteBackup = env["FORGE_DB_PREDELETE_BACKUP"]?.trim()?.lowercase().orEmpty()
+        .ifEmpty { "true" }
+        .let {
+            when (it) {
+                "true", "1", "yes" -> true
+                "false", "0", "no" -> false
+                else -> throw IllegalArgumentException(
+                    "FORGE_DB_PREDELETE_BACKUP must be true|false, got '$it'",
+                )
+            }
+        }
 
     return AppConfig(
         port = port,
@@ -528,5 +550,7 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         dbBackupBucket = dbBackupBucket,
         dbBackupDir = dbBackupDir,
         storageUrl = storageUrl,
+        dbRotationGraceSeconds = dbRotationGraceSeconds,
+        dbPredeleteBackup = dbPredeleteBackup,
     )
 }

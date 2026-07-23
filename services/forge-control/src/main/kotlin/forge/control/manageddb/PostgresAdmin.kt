@@ -10,7 +10,10 @@ interface PostgresAdminClient {
     fun waitReady(timeoutMs: Long = 60_000, pollMs: Long = 500)
     fun ping(user: String, password: String, database: String): Boolean
     fun createDatabaseAndRole(databaseName: String, roleName: String, rolePassword: String): List<String>
+    fun createRoleOnDatabase(databaseName: String, roleName: String, rolePassword: String): List<String>
+    fun revokeRole(roleName: String, reassignTo: String? = null)
     fun dropDatabaseAndRole(databaseName: String, roleName: String)
+    fun dropDatabase(databaseName: String, roleNames: List<String> = emptyList())
 }
 
 /**
@@ -80,8 +83,77 @@ class PostgresAdmin(
         return statements
     }
 
+    /**
+     * Create an additional login role with privileges on an existing database
+     * (credential rotation). Does not create a new database.
+     */
+    override fun createRoleOnDatabase(
+        databaseName: String,
+        roleName: String,
+        rolePassword: String,
+    ): List<String> {
+        validateIdent(databaseName, "database")
+        validateIdent(roleName, "role")
+        val statements = listOf(
+            RoleGrantSql.createRole(roleName, "<redacted>"),
+            RoleGrantSql.grantConnect(databaseName, roleName),
+            RoleGrantSql.grantSchemaPrivileges(roleName),
+            RoleGrantSql.grantAllTables(roleName),
+            RoleGrantSql.alterDefaultPrivileges(roleName),
+        )
+        connect(adminUser, adminPassword, "postgres").use { conn ->
+            conn.autoCommit = true
+            conn.createStatement().use { st ->
+                st.execute(RoleGrantSql.createRole(roleName, rolePassword))
+                st.execute(RoleGrantSql.grantConnect(databaseName, roleName))
+            }
+        }
+        connect(adminUser, adminPassword, databaseName).use { conn ->
+            conn.autoCommit = true
+            conn.createStatement().use { st ->
+                st.execute(RoleGrantSql.grantSchemaPrivileges(roleName))
+                st.execute(RoleGrantSql.grantAllTables(roleName))
+                st.execute(RoleGrantSql.alterDefaultPrivileges(roleName))
+            }
+        }
+        return statements
+    }
+
+    override fun revokeRole(roleName: String, reassignTo: String?) {
+        if (!isSafeIdent(roleName)) return
+        if (reassignTo != null && !isSafeIdent(reassignTo)) return
+        try {
+            connect(adminUser, adminPassword, "postgres").use { conn ->
+                conn.autoCommit = true
+                conn.createStatement().use { st ->
+                    if (reassignTo != null) {
+                        // Best-effort ownership transfer across databases.
+                        st.execute("REASSIGN OWNED BY \"$roleName\" TO \"$reassignTo\"")
+                        st.execute("DROP OWNED BY \"$roleName\"")
+                    }
+                    st.execute("DROP ROLE IF EXISTS \"$roleName\"")
+                }
+            }
+        } catch (_: SQLException) {
+            try {
+                connect(adminUser, adminPassword, "postgres").use { conn ->
+                    conn.autoCommit = true
+                    conn.createStatement().use { st ->
+                        st.execute("ALTER ROLE \"$roleName\" NOLOGIN")
+                    }
+                }
+            } catch (_: SQLException) {
+                // best-effort invalidate
+            }
+        }
+    }
+
     override fun dropDatabaseAndRole(databaseName: String, roleName: String) {
-        if (!isSafeIdent(databaseName) || !isSafeIdent(roleName)) return
+        dropDatabase(databaseName, listOf(roleName))
+    }
+
+    override fun dropDatabase(databaseName: String, roleNames: List<String>) {
+        if (!isSafeIdent(databaseName)) return
         try {
             connect(adminUser, adminPassword, "postgres").use { conn ->
                 conn.autoCommit = true
@@ -91,7 +163,14 @@ class PostgresAdmin(
                             "WHERE datname = '$databaseName' AND pid <> pg_backend_pid()",
                     )
                     st.execute("DROP DATABASE IF EXISTS \"$databaseName\"")
-                    st.execute("DROP ROLE IF EXISTS \"$roleName\"")
+                    for (roleName in roleNames) {
+                        if (!isSafeIdent(roleName)) continue
+                        try {
+                            st.execute("DROP ROLE IF EXISTS \"$roleName\"")
+                        } catch (_: SQLException) {
+                            // continue
+                        }
+                    }
                 }
             }
         } catch (_: SQLException) {
@@ -148,6 +227,12 @@ object RoleGrantSql {
 
     fun grantSchemaPrivileges(roleName: String): String =
         "GRANT ALL ON SCHEMA public TO \"$roleName\""
+
+    fun grantAllTables(roleName: String): String =
+        "GRANT ALL ON ALL TABLES IN SCHEMA public TO \"$roleName\""
+
+    fun alterDefaultPrivileges(roleName: String): String =
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO \"$roleName\""
 
     /** True when grants mention only the target database (no other DB CONNECT grants). */
     fun isLimitedToDatabase(statements: List<String>, databaseName: String): Boolean {

@@ -29,6 +29,7 @@ import forge.control.http.dto.ApplicationResponse
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
@@ -48,6 +49,7 @@ import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.TestMethodOrder
 import java.nio.file.Files
 import java.sql.DriverManager
+import kotlin.test.assertFalse
 import java.util.UUID
 import java.util.concurrent.Executor
 import kotlin.test.assertEquals
@@ -137,6 +139,16 @@ class ManagedDbApiIntegrationTest {
             backupRunner = BackupRunner(managedDbRepo, provisioner, archives, executor = sync),
             restoreRunner = RestoreRunner(managedDbRepo, provisioner, archives, executor = sync),
             archives = archives,
+            rotationRunner = RotationRunner(
+                store = managedDbRepo,
+                provisioner = provisioner,
+                isolation = isolation,
+                secrets = secrets,
+                graceSeconds = 0,
+            ),
+            predeleteBackup = true,
+            audit = auditRepo,
+            actor = "dev",
             log = JsonLog("forge-control", "info"),
         )
         services = ControlServices(
@@ -424,5 +436,46 @@ class ManagedDbApiIntegrationTest {
             header("X-Forge-Project", other)
         }
         assertEquals(HttpStatusCode.NotFound, cross.status)
+    }
+
+    @Test
+    @Order(9)
+    fun rotateCredentialsAndDeletionProtection() = withApp {
+        val client = jsonClient()
+        val iid = instanceId!!
+        val dbid = databaseId!!
+
+        val rotated = client.post("/v1/databases/$dbid/rotate-credentials")
+        assertEquals(HttpStatusCode.OK, rotated.status)
+        val body = rotated.body<RotateCredentialsResponse>()
+        assertTrue(body.secretRef.startsWith("secret:"))
+        assertTrue(body.credential.password.isNotBlank())
+        assertNotNull(body.credential.username)
+
+        val protectedDelete = client.delete("/v1/databases/instances/$iid?force=true")
+        assertEquals(HttpStatusCode.Conflict, protectedDelete.status)
+
+        val patched = client.patch("/v1/databases/instances/$iid") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"deletionProtection":false}""")
+        }
+        assertEquals(HttpStatusCode.OK, patched.status)
+        assertFalse(patched.body<DbInstanceResponse>().deletionProtection)
+
+        // Database still has deletion protection by default.
+        val dbProtected = client.delete("/v1/databases/$dbid?force=true")
+        assertEquals(HttpStatusCode.Conflict, dbProtected.status)
+
+        client.patch("/v1/databases/$dbid") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"deletionProtection":false}""")
+        }
+        val dbDeleted = client.delete("/v1/databases/$dbid?force=true")
+        assertEquals(HttpStatusCode.NoContent, dbDeleted.status)
+
+        val instanceDeleted = client.delete("/v1/databases/instances/$iid?force=true")
+        assertEquals(HttpStatusCode.NoContent, instanceDeleted.status)
+        val missing = client.get("/v1/databases/instances/$iid")
+        assertEquals(HttpStatusCode.NotFound, missing.status)
     }
 }

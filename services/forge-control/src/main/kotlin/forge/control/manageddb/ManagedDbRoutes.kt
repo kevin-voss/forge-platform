@@ -12,6 +12,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
+import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import kotlinx.serialization.json.Json
@@ -47,6 +48,21 @@ fun Route.managedDbRoutes(managedDb: ManagedDbService, idempotency: IdempotencyS
         call.respond(managedDb.getInstance(instanceId).toResponse())
     }
 
+    patch("/v1/databases/instances/{instanceId}") {
+        val instanceId = call.parameters.requireUuid("instanceId")
+        val body = call.receive<PatchDeletionProtectionRequest>()
+        call.respond(
+            managedDb.patchInstanceDeletionProtection(instanceId, body.deletionProtection).toResponse(),
+        )
+    }
+
+    delete("/v1/databases/instances/{instanceId}") {
+        val instanceId = call.parameters.requireUuid("instanceId")
+        val force = call.request.queryParameters["force"]?.equals("true", ignoreCase = true) == true
+        managedDb.deleteInstance(instanceId, force = force)
+        call.respond(HttpStatusCode.NoContent)
+    }
+
     route("/v1/databases/instances/{instanceId}/databases") {
         get {
             val instanceId = call.parameters.requireUuid("instanceId")
@@ -72,6 +88,26 @@ fun Route.managedDbRoutes(managedDb: ManagedDbService, idempotency: IdempotencyS
     get("/v1/databases/{databaseId}") {
         val databaseId = call.parameters.requireUuid("databaseId")
         call.respond(managedDb.getDatabase(databaseId))
+    }
+
+    patch("/v1/databases/{databaseId}") {
+        val databaseId = call.parameters.requireUuid("databaseId")
+        val body = call.receive<PatchDeletionProtectionRequest>()
+        call.respond(
+            managedDb.patchDatabaseDeletionProtection(databaseId, body.deletionProtection),
+        )
+    }
+
+    delete("/v1/databases/{databaseId}") {
+        val databaseId = call.parameters.requireUuid("databaseId")
+        val force = call.request.queryParameters["force"]?.equals("true", ignoreCase = true) == true
+        managedDb.deleteDatabase(databaseId, force = force)
+        call.respond(HttpStatusCode.NoContent)
+    }
+
+    post("/v1/databases/{databaseId}/rotate-credentials") {
+        val databaseId = call.parameters.requireUuid("databaseId")
+        call.respond(managedDb.rotateCredentials(databaseId))
     }
 
     post("/v1/databases/{databaseId}/attach") {

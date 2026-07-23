@@ -259,10 +259,18 @@ class ManagedDbAttachTest {
             containerId: String?,
         ) = error("unused")
 
+        override fun updateInstanceDeletionProtection(id: UUID, deletionProtection: Boolean) = error("unused")
+
         override fun listDatabases(instanceId: UUID) = listOf(database)
         override fun findDatabaseById(id: UUID) = database.takeIf { it.id == id }
-        override fun createDatabase(instanceId: UUID, name: String, status: DbDatabaseStatus) = error("unused")
+        override fun createDatabase(
+            instanceId: UUID,
+            name: String,
+            status: DbDatabaseStatus,
+            deletionProtection: Boolean,
+        ) = error("unused")
         override fun updateDatabaseStatus(id: UUID, status: DbDatabaseStatus, statusReason: String?) = error("unused")
+        override fun updateDatabaseDeletionProtection(id: UUID, deletionProtection: Boolean) = error("unused")
         override fun createCredential(
             databaseId: UUID,
             username: String,
@@ -272,6 +280,17 @@ class ManagedDbAttachTest {
 
         override fun findActiveCredential(databaseId: UUID) =
             credential.takeIf { it.databaseId == databaseId }
+
+        override fun findCredentialById(id: UUID) = credential.takeIf { it.id == id }
+        override fun listCredentials(databaseId: UUID) =
+            listOf(credential).filter { it.databaseId == databaseId }
+        override fun updateCredentialStatus(
+            id: UUID,
+            status: String,
+            rotatedAt: Instant?,
+            revokedAt: Instant?,
+        ) = error("unused")
+        override fun markCredentialRotated(id: UUID) = error("unused")
 
         override fun createAttachment(
             databaseId: UUID,
@@ -291,6 +310,8 @@ class ManagedDbAttachTest {
         override fun findAttachmentById(id: UUID) = attachments[id]
         override fun listAttachmentsByApplication(applicationId: UUID) =
             attachments.values.filter { it.applicationId == applicationId }
+        override fun listAttachmentsByDatabase(databaseId: UUID) =
+            attachments.values.filter { it.databaseId == databaseId }
 
         override fun deleteAttachment(id: UUID) {
             if (attachments.remove(id) == null) throw RepositoryException.NotFound("db_attachment", id)
@@ -298,6 +319,8 @@ class ManagedDbAttachTest {
 
         override fun deleteDatabase(id: UUID) = error("unused")
         override fun deleteCredential(id: UUID) = error("unused")
+        override fun deleteBackupsForDatabase(databaseId: UUID) = error("unused")
+        override fun deleteInstance(id: UUID) = error("unused")
 
         override fun createBackup(databaseId: UUID, status: DbBackupStatus, id: UUID) = error("unused")
         override fun findBackupById(id: UUID): DbBackup? = null

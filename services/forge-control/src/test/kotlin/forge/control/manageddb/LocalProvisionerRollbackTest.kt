@@ -53,7 +53,19 @@ class LocalProvisionerRollbackTest {
                         rolePassword: String,
                     ): List<String> = RoleGrantSql.plan(databaseName, roleName)
 
+                    override fun createRoleOnDatabase(
+                        databaseName: String,
+                        roleName: String,
+                        rolePassword: String,
+                    ): List<String> = emptyList()
+
+                    override fun revokeRole(roleName: String, reassignTo: String?) = Unit
+
                     override fun dropDatabaseAndRole(databaseName: String, roleName: String) {
+                        dropped = true
+                    }
+
+                    override fun dropDatabase(databaseName: String, roleNames: List<String>) {
                         dropped = true
                     }
                 }

@@ -20,6 +20,28 @@ data class AttachDatabaseRequest(
 )
 
 @Serializable
+data class PatchDeletionProtectionRequest(
+    val deletionProtection: Boolean? = null,
+)
+
+@Serializable
+data class RotateCredentialsResponse(
+    val credential: RotatedCredentialResponse,
+    val secretRef: String,
+)
+
+@Serializable
+data class RotatedCredentialResponse(
+    val id: String,
+    val username: String,
+    val password: String,
+    val status: String,
+    val secretRef: String? = null,
+    val createdAt: String,
+    val rotatedAt: String? = null,
+)
+
+@Serializable
 data class DbAttachmentResponse(
     val id: String,
     val databaseId: String,
@@ -63,6 +85,7 @@ data class DbDatabaseResponse(
     val name: String,
     val status: String,
     val statusReason: String? = null,
+    val deletionProtection: Boolean = true,
     val host: String? = null,
     val port: Int? = null,
     val secretRef: String? = null,
@@ -102,12 +125,27 @@ fun DbDatabase.toResponse(
         name = name,
         status = status.wire,
         statusReason = statusReason,
+        deletionProtection = deletionProtection,
         host = host,
         port = port,
         secretRef = secretRef,
         username = username,
         password = password,
         createdAt = createdAt.toString(),
+    )
+
+fun RotationResult.toResponse(): RotateCredentialsResponse =
+    RotateCredentialsResponse(
+        credential = RotatedCredentialResponse(
+            id = credential.id.toString(),
+            username = credential.username,
+            password = password,
+            status = credential.status,
+            secretRef = secretRef,
+            createdAt = credential.createdAt.toString(),
+            rotatedAt = credential.rotatedAt?.toString(),
+        ),
+        secretRef = secretRef,
     )
 
 @Serializable

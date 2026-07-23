@@ -244,8 +244,81 @@ class LocalProvisioner(
         }
     }
 
-    override fun rotateCredential(credentialId: UUID): ProvisionResult {
-        throw UnsupportedOperationException("rotate reserved for 18.05")
+    override fun createRoleOnDatabase(
+        instanceId: UUID,
+        databaseName: String,
+        username: String,
+        password: String,
+    ): ProvisionResult {
+        PostgresAdmin.validateIdent(databaseName, "database")
+        PostgresAdmin.validateIdent(username, "role")
+        val endpoint = requireEndpoint(instanceId)
+        val adminPassword = adminPasswordFor(endpoint.containerId!!)
+        val admin = adminFactory(endpoint.host, endpoint.port, adminPassword)
+        var created = false
+        return try {
+            log?.info(
+                "managed db creating rotated role",
+                "instance_id" to instanceId,
+                "database" to databaseName,
+                "username" to username,
+            )
+            admin.createRoleOnDatabase(databaseName, username, password)
+            created = true
+            if (!admin.ping(username, password, databaseName)) {
+                throw ProvisionerException("health check failed after role rotate create")
+            }
+            val endpointRef = "postgres://${endpoint.host}:${endpoint.port}/$databaseName"
+            isolation.assertNotControlDatabase(endpointRef)
+            ProvisionResult(
+                endpointRef = endpointRef,
+                detail = "local-create-role",
+                host = endpoint.host,
+                port = endpoint.port,
+                containerId = endpoint.containerId,
+                username = username,
+                password = password,
+            )
+        } catch (e: Exception) {
+            if (created) {
+                admin.revokeRole(username, reassignTo = null)
+            }
+            throw ProvisionerException(
+                "local provisioner failed to create rotated role: ${e.message ?: e.javaClass.simpleName}",
+                e,
+            )
+        }
+    }
+
+    override fun revokeRole(instanceId: UUID, username: String, reassignTo: String?) {
+        PostgresAdmin.validateIdent(username, "role")
+        if (reassignTo != null) {
+            PostgresAdmin.validateIdent(reassignTo, "role")
+        }
+        val endpoint = requireEndpoint(instanceId)
+        val adminPassword = adminPasswordFor(endpoint.containerId!!)
+        val admin = adminFactory(endpoint.host, endpoint.port, adminPassword)
+        log?.info(
+            "managed db revoking role",
+            "instance_id" to instanceId,
+            "username" to username,
+            "reassign_to" to reassignTo,
+        )
+        admin.revokeRole(username, reassignTo = reassignTo)
+    }
+
+    override fun dropDatabase(instanceId: UUID, databaseName: String, roleNames: List<String>) {
+        PostgresAdmin.validateIdent(databaseName, "database")
+        val endpoint = requireEndpoint(instanceId)
+        val adminPassword = adminPasswordFor(endpoint.containerId!!)
+        val admin = adminFactory(endpoint.host, endpoint.port, adminPassword)
+        log?.info(
+            "managed db dropping database",
+            "instance_id" to instanceId,
+            "database" to databaseName,
+            "roles" to roleNames.joinToString(","),
+        )
+        admin.dropDatabase(databaseName, roleNames)
     }
 
     /** Rehydrate endpoint cache after Control restart (from persisted host/port/container_id). */

@@ -70,6 +70,8 @@ class Telemetry private constructor(
     private val managedDbAttachments: LongCounter,
     private val managedDbBackups: LongCounter,
     private val managedDbRestores: LongCounter,
+    private val managedDbRotations: LongCounter,
+    private val managedDbDeletes: LongCounter,
     private val sdk: OpenTelemetrySdk?,
 ) : AutoCloseable {
     val enabled: Boolean = sdk != null
@@ -209,6 +211,20 @@ class Telemetry private constructor(
         managedDbRestores.add(
             1,
             Attributes.of(AttributeKey.stringKey("status"), status),
+        )
+    }
+
+    fun recordManagedDbRotation(status: String) {
+        managedDbRotations.add(
+            1,
+            Attributes.of(AttributeKey.stringKey("status"), status),
+        )
+    }
+
+    fun recordManagedDbDelete(forced: Boolean) {
+        managedDbDeletes.add(
+            1,
+            Attributes.of(AttributeKey.stringKey("forced"), forced.toString()),
         )
     }
 
@@ -421,6 +437,12 @@ class Telemetry private constructor(
                     .build(),
                 managedDbRestores = meter
                     .counterBuilder("managed_db_restore_total")
+                    .build(),
+                managedDbRotations = meter
+                    .counterBuilder("managed_db_rotations_total")
+                    .build(),
+                managedDbDeletes = meter
+                    .counterBuilder("managed_db_deletes_total")
                     .build(),
                 sdk = sdk,
             )

@@ -51,6 +51,14 @@ class ManagedDbOpenApiContractTest {
         assertTrue(yaml.contains("checksum"))
         assertTrue(yaml.contains("succeeded"))
         assertTrue(yaml.contains("integrity_error"))
+        assertTrue(yaml.contains("/v1/databases/{databaseId}/rotate-credentials"))
+        assertTrue(yaml.contains("x-rotate-db-credentials") || yaml.contains("rotateDbCredentials"))
+        assertTrue(yaml.contains("x-patch-db-instance") || yaml.contains("patchDbInstance"))
+        assertTrue(yaml.contains("x-delete-db-instance") || yaml.contains("deleteDbInstance"))
+        assertTrue(yaml.contains("x-patch-db-database") || yaml.contains("patchDbDatabase"))
+        assertTrue(yaml.contains("x-delete-db-database") || yaml.contains("deleteDbDatabase"))
+        assertTrue(yaml.contains("RotateCredentialsResponse"))
+        assertTrue(yaml.contains("force"))
     }
 
     @Test

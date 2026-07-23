@@ -28,6 +28,10 @@ class ManagedDbService(
     private val backupRunner: BackupRunner? = null,
     private val restoreRunner: RestoreRunner? = null,
     private val archives: ArchiveStore? = null,
+    private val rotationRunner: RotationRunner? = null,
+    private val predeleteBackup: Boolean = true,
+    private val audit: forge.control.repo.AuditRepository? = null,
+    private val actor: String = "dev",
     private val log: JsonLog? = null,
     private val telemetry: Telemetry = Telemetry.current(),
 ) : AttachmentEnvSource {
@@ -108,6 +112,172 @@ class ManagedDbService(
     fun listInstances(projectId: UUID): List<DbInstance> {
         relationships.requireProject(projectId)
         return store.listInstances(projectId)
+    }
+
+    fun patchInstanceDeletionProtection(instanceId: UUID, deletionProtection: Boolean?): DbInstance {
+        val instance = getInstance(instanceId)
+        if (deletionProtection == null) {
+            throw ApiException.BadRequest(
+                "deletionProtection is required",
+                mapOf("field" to "deletionProtection"),
+            )
+        }
+        val updated = store.updateInstanceDeletionProtection(instanceId, deletionProtection)
+        audit?.append(
+            entityType = "db_instance",
+            entityId = instanceId,
+            action = "patch_deletion_protection",
+            actor = actor,
+            detailJson = """{"deletionProtection":$deletionProtection,"projectId":"${instance.projectId}"}""",
+        )
+        log?.info(
+            "managed db instance deletion protection updated",
+            "instance_id" to instanceId,
+            "deletion_protection" to deletionProtection,
+        )
+        return updated
+    }
+
+    fun deleteInstance(instanceId: UUID, force: Boolean) {
+        val instance = getInstance(instanceId)
+        DeletionGuard.assertCanDelete("db_instance", instanceId, instance.deletionProtection, force)
+        val databases = store.listDatabases(instanceId)
+        for (db in databases) {
+            DeletionGuard.assertNoAttachments(
+                db.id,
+                store.listAttachmentsByDatabase(db.id).size,
+            )
+        }
+        rememberLocalEndpoint(
+            instance.id,
+            ProvisionResult(
+                endpointRef = instance.endpointRef ?: "",
+                host = instance.host,
+                port = instance.port,
+                containerId = instance.containerId,
+            ),
+        )
+        transition(instance, DbInstanceStatus.Deleting)
+        var backupId: UUID? = null
+        try {
+            for (db in databases) {
+                if (predeleteBackup && db.status == DbDatabaseStatus.Available) {
+                    backupId = runPredeleteBackup(db, instance)
+                }
+                purgeDatabaseRecords(db, dropInProvisioner = true)
+            }
+            provisioner.deleteInstance(instanceId)
+            store.deleteInstance(instanceId)
+            telemetry.recordManagedDbDelete(forced = force)
+            audit?.append(
+                entityType = "db_instance",
+                entityId = instanceId,
+                action = "delete",
+                actor = actor,
+                detailJson =
+                    """{"force":$force,"predeleteBackupId":${backupId?.let { "\"$it\"" } ?: "null"},"projectId":"${instance.projectId}"}""",
+            )
+            log?.info(
+                "managed db instance deleted",
+                "instance_id" to instanceId,
+                "force" to force,
+                "deletion_protection" to false,
+                "predelete_backup_id" to backupId,
+            )
+        } catch (e: Exception) {
+            if (e is ApiException) throw e
+            throw ApiException.BadRequest(
+                "failed to delete instance: ${e.message ?: e.javaClass.simpleName}",
+                mapOf("instanceId" to instanceId.toString()),
+            )
+        }
+    }
+
+    fun patchDatabaseDeletionProtection(databaseId: UUID, deletionProtection: Boolean?): DbDatabaseResponse {
+        if (deletionProtection == null) {
+            throw ApiException.BadRequest(
+                "deletionProtection is required",
+                mapOf("field" to "deletionProtection"),
+            )
+        }
+        store.findDatabaseById(databaseId)
+            ?: throw ApiException.NotFound(
+                "database not found",
+                mapOf("id" to databaseId.toString()),
+            )
+        store.updateDatabaseDeletionProtection(databaseId, deletionProtection)
+        audit?.append(
+            entityType = "db_database",
+            entityId = databaseId,
+            action = "patch_deletion_protection",
+            actor = actor,
+            detailJson = """{"deletionProtection":$deletionProtection}""",
+        )
+        log?.info(
+            "managed db database deletion protection updated",
+            "database_id" to databaseId,
+            "deletion_protection" to deletionProtection,
+        )
+        return getDatabase(databaseId)
+    }
+
+    fun deleteDatabase(databaseId: UUID, force: Boolean) {
+        val database = store.findDatabaseById(databaseId)
+            ?: throw ApiException.NotFound(
+                "database not found",
+                mapOf("id" to databaseId.toString()),
+            )
+        DeletionGuard.assertCanDelete("db_database", databaseId, database.deletionProtection, force)
+        DeletionGuard.assertNoAttachments(
+            databaseId,
+            store.listAttachmentsByDatabase(databaseId).size,
+        )
+        val instance = getInstance(database.instanceId)
+        rememberLocalEndpoint(
+            instance.id,
+            ProvisionResult(
+                endpointRef = instance.endpointRef ?: "",
+                host = instance.host,
+                port = instance.port,
+                containerId = instance.containerId,
+            ),
+        )
+        var backupId: UUID? = null
+        if (predeleteBackup && database.status == DbDatabaseStatus.Available) {
+            backupId = runPredeleteBackup(database, instance)
+        }
+        purgeDatabaseRecords(database, dropInProvisioner = true)
+        telemetry.recordManagedDbDelete(forced = force)
+        audit?.append(
+            entityType = "db_database",
+            entityId = databaseId,
+            action = "delete",
+            actor = actor,
+            detailJson =
+                """{"force":$force,"predeleteBackupId":${backupId?.let { "\"$it\"" } ?: "null"},"projectId":"${instance.projectId}"}""",
+        )
+        log?.info(
+            "managed db database deleted",
+            "database_id" to databaseId,
+            "instance_id" to instance.id,
+            "force" to force,
+            "predelete_backup_id" to backupId,
+        )
+    }
+
+    fun rotateCredentials(databaseId: UUID): RotateCredentialsResponse {
+        val runner = rotationRunner
+            ?: throw ApiException.ServiceUnavailable("rotation runner not configured")
+        val result = runner.rotate(databaseId)
+        audit?.append(
+            entityType = "db_database",
+            entityId = databaseId,
+            action = "rotate_credentials",
+            actor = actor,
+            detailJson =
+                """{"credentialId":"${result.credential.id}","secretRef":"${result.secretRef}","oldCredentialId":"${result.oldCredentialId}"}""",
+        )
+        return result.toResponse()
     }
 
     fun listDatabases(instanceId: UUID): List<DbDatabaseResponse> {
@@ -596,6 +766,62 @@ class ManagedDbService(
             targetDatabaseId = targetDatabaseId.toString(),
             status = DbRestoreStatus.Running.wire,
         )
+    }
+
+    private fun runPredeleteBackup(database: DbDatabase, instance: DbInstance): UUID? {
+        val archiveStore = archives ?: return null
+        return try {
+            val dump = provisioner.dumpDatabase(instance.id, database.name)
+            isolation.assertNotControlDatabase(instance.endpointRef)
+            val pending = store.createBackup(database.id, status = DbBackupStatus.Running)
+            val location = archiveStore.put(instance.projectId, pending.id, dump.bytes)
+            store.updateBackup(
+                pending.id,
+                status = DbBackupStatus.Succeeded,
+                location = location,
+                checksum = dump.checksum,
+                sizeBytes = dump.sizeBytes,
+                completedAt = java.time.Instant.now(),
+            )
+            log?.info(
+                "managed db pre-delete backup completed",
+                "backup_id" to pending.id,
+                "database_id" to database.id,
+                "checksum" to dump.checksum,
+            )
+            pending.id
+        } catch (e: Exception) {
+            log?.error(
+                "managed db pre-delete backup failed",
+                "database_id" to database.id,
+                "error" to (e.message ?: e.javaClass.simpleName),
+            )
+            // Pre-delete backup is best-effort safety; delete continues.
+            null
+        }
+    }
+
+    private fun purgeDatabaseRecords(database: DbDatabase, dropInProvisioner: Boolean) {
+        val roles = store.listCredentials(database.id).map { it.username }
+        if (dropInProvisioner) {
+            try {
+                provisioner.dropDatabase(database.instanceId, database.name, roles)
+            } catch (_: Exception) {
+                // Container may already be gone during instance delete.
+            }
+        }
+        for (cred in store.listCredentials(database.id)) {
+            cred.secretRef?.let { ref ->
+                try {
+                    secrets.deleteSecret(ref)
+                } catch (_: Exception) {
+                    // best effort
+                }
+            }
+            store.deleteCredential(cred.id)
+        }
+        store.deleteBackupsForDatabase(database.id)
+        store.deleteDatabase(database.id)
     }
 
     private fun requireDatabaseInProject(databaseId: UUID, projectId: UUID): DbDatabase {

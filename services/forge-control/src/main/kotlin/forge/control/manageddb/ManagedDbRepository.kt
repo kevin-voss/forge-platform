@@ -30,12 +30,15 @@ interface ManagedDbRepository {
         containerId: String? = null,
     ): DbInstance
 
+    fun updateInstanceDeletionProtection(id: UUID, deletionProtection: Boolean): DbInstance
+
     fun listDatabases(instanceId: UUID): List<DbDatabase>
     fun findDatabaseById(id: UUID): DbDatabase?
     fun createDatabase(
         instanceId: UUID,
         name: String,
         status: DbDatabaseStatus = DbDatabaseStatus.Provisioning,
+        deletionProtection: Boolean = true,
     ): DbDatabase
 
     fun updateDatabaseStatus(
@@ -43,6 +46,8 @@ interface ManagedDbRepository {
         status: DbDatabaseStatus,
         statusReason: String? = null,
     ): DbDatabase
+
+    fun updateDatabaseDeletionProtection(id: UUID, deletionProtection: Boolean): DbDatabase
 
     fun createCredential(
         databaseId: UUID,
@@ -52,6 +57,16 @@ interface ManagedDbRepository {
     ): DbCredential
 
     fun findActiveCredential(databaseId: UUID): DbCredential?
+    fun findCredentialById(id: UUID): DbCredential?
+    fun listCredentials(databaseId: UUID): List<DbCredential>
+    fun updateCredentialStatus(
+        id: UUID,
+        status: String,
+        rotatedAt: Instant? = null,
+        revokedAt: Instant? = null,
+    ): DbCredential
+
+    fun markCredentialRotated(id: UUID): DbCredential
 
     fun createAttachment(
         databaseId: UUID,
@@ -63,10 +78,13 @@ interface ManagedDbRepository {
 
     fun findAttachmentById(id: UUID): DbAttachment?
     fun listAttachmentsByApplication(applicationId: UUID): List<DbAttachment>
+    fun listAttachmentsByDatabase(databaseId: UUID): List<DbAttachment>
     fun deleteAttachment(id: UUID)
 
     fun deleteDatabase(id: UUID)
     fun deleteCredential(id: UUID)
+    fun deleteBackupsForDatabase(databaseId: UUID)
+    fun deleteInstance(id: UUID)
 
     fun createBackup(
         databaseId: UUID,
@@ -227,11 +245,37 @@ class JdbcManagedDbRepository(
         )
     }
 
+    override fun updateInstanceDeletionProtection(
+        id: UUID,
+        deletionProtection: Boolean,
+    ): DbInstance = runSql {
+        val existing = findInstanceById(id)
+            ?: throw RepositoryException.NotFound("db_instance", id)
+        val now = Instant.now()
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                UPDATE db_instance
+                SET deletion_protection = ?, updated_at = ?
+                WHERE id = ?
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setBoolean(1, deletionProtection)
+                ps.setTimestamp(2, java.sql.Timestamp.from(now))
+                ps.setObject(3, id)
+                if (ps.executeUpdate() == 0) {
+                    throw RepositoryException.NotFound("db_instance", id)
+                }
+            }
+        }
+        existing.copy(deletionProtection = deletionProtection, updatedAt = now)
+    }
+
     override fun listDatabases(instanceId: UUID): List<DbDatabase> = runSql {
         dataSource.withConnection { conn ->
             conn.prepareStatement(
                 """
-                SELECT id, instance_id, name, status, status_reason, created_at
+                SELECT id, instance_id, name, status, status_reason, deletion_protection, created_at
                 FROM db_database WHERE instance_id = ? ORDER BY created_at
                 """.trimIndent(),
             ).use { ps ->
@@ -249,7 +293,7 @@ class JdbcManagedDbRepository(
         dataSource.withConnection { conn ->
             conn.prepareStatement(
                 """
-                SELECT id, instance_id, name, status, status_reason, created_at
+                SELECT id, instance_id, name, status, status_reason, deletion_protection, created_at
                 FROM db_database WHERE id = ?
                 """.trimIndent(),
             ).use { ps ->
@@ -265,21 +309,23 @@ class JdbcManagedDbRepository(
         instanceId: UUID,
         name: String,
         status: DbDatabaseStatus,
+        deletionProtection: Boolean,
     ): DbDatabase = runSql {
         val id = UUID.randomUUID()
         val now = Instant.now()
         dataSource.withConnection { conn ->
             conn.prepareStatement(
                 """
-                INSERT INTO db_database (id, instance_id, name, status, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO db_database (id, instance_id, name, status, deletion_protection, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, id)
                 ps.setObject(2, instanceId)
                 ps.setString(3, name)
                 ps.setString(4, status.wire)
-                ps.setTimestamp(5, java.sql.Timestamp.from(now))
+                ps.setBoolean(5, deletionProtection)
+                ps.setTimestamp(6, java.sql.Timestamp.from(now))
                 ps.executeUpdate()
             }
         }
@@ -288,6 +334,7 @@ class JdbcManagedDbRepository(
             instanceId = instanceId,
             name = name,
             status = status,
+            deletionProtection = deletionProtection,
             createdAt = now,
         )
     }
@@ -314,6 +361,28 @@ class JdbcManagedDbRepository(
             }
         }
         existing.copy(status = status, statusReason = statusReason)
+    }
+
+    override fun updateDatabaseDeletionProtection(
+        id: UUID,
+        deletionProtection: Boolean,
+    ): DbDatabase = runSql {
+        val existing = findDatabaseById(id)
+            ?: throw RepositoryException.NotFound("db_database", id)
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                UPDATE db_database SET deletion_protection = ? WHERE id = ?
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setBoolean(1, deletionProtection)
+                ps.setObject(2, id)
+                if (ps.executeUpdate() == 0) {
+                    throw RepositoryException.NotFound("db_database", id)
+                }
+            }
+        }
+        existing.copy(deletionProtection = deletionProtection)
     }
 
     override fun createCredential(
@@ -354,7 +423,7 @@ class JdbcManagedDbRepository(
         dataSource.withConnection { conn ->
             conn.prepareStatement(
                 """
-                SELECT id, database_id, username, secret_ref, status, created_at
+                SELECT id, database_id, username, secret_ref, status, created_at, rotated_at, revoked_at
                 FROM db_credential
                 WHERE database_id = ? AND status = 'active'
                 ORDER BY created_at DESC
@@ -363,22 +432,90 @@ class JdbcManagedDbRepository(
             ).use { ps ->
                 ps.setObject(1, databaseId)
                 ps.executeQuery().use { rs ->
-                    if (rs.next()) {
-                        DbCredential(
-                            id = rs.uuid("id"),
-                            databaseId = rs.uuid("database_id"),
-                            username = rs.getString("username"),
-                            secretRef = rs.getString("secret_ref"),
-                            status = rs.getString("status"),
-                            createdAt = rs.instant("created_at"),
-                        )
-                    } else {
-                        null
+                    if (rs.next()) mapCredential(rs) else null
+                }
+            }
+        }
+    }
+
+    override fun findCredentialById(id: UUID): DbCredential? = runSql {
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                SELECT id, database_id, username, secret_ref, status, created_at, rotated_at, revoked_at
+                FROM db_credential WHERE id = ?
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, id)
+                ps.executeQuery().use { rs ->
+                    if (rs.next()) mapCredential(rs) else null
+                }
+            }
+        }
+    }
+
+    override fun listCredentials(databaseId: UUID): List<DbCredential> = runSql {
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                SELECT id, database_id, username, secret_ref, status, created_at, rotated_at, revoked_at
+                FROM db_credential WHERE database_id = ? ORDER BY created_at
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, databaseId)
+                ps.executeQuery().use { rs ->
+                    buildList {
+                        while (rs.next()) add(mapCredential(rs))
                     }
                 }
             }
         }
     }
+
+    override fun updateCredentialStatus(
+        id: UUID,
+        status: String,
+        rotatedAt: Instant?,
+        revokedAt: Instant?,
+    ): DbCredential = runSql {
+        val existing = findCredentialById(id)
+            ?: throw RepositoryException.NotFound("db_credential", id)
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                UPDATE db_credential
+                SET status = ?,
+                    rotated_at = COALESCE(?, rotated_at),
+                    revoked_at = COALESCE(?, revoked_at)
+                WHERE id = ?
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setString(1, status)
+                if (rotatedAt != null) {
+                    ps.setTimestamp(2, java.sql.Timestamp.from(rotatedAt))
+                } else {
+                    ps.setObject(2, null)
+                }
+                if (revokedAt != null) {
+                    ps.setTimestamp(3, java.sql.Timestamp.from(revokedAt))
+                } else {
+                    ps.setObject(3, null)
+                }
+                ps.setObject(4, id)
+                if (ps.executeUpdate() == 0) {
+                    throw RepositoryException.NotFound("db_credential", id)
+                }
+            }
+        }
+        existing.copy(
+            status = status,
+            rotatedAt = rotatedAt ?: existing.rotatedAt,
+            revokedAt = revokedAt ?: existing.revokedAt,
+        )
+    }
+
+    override fun markCredentialRotated(id: UUID): DbCredential =
+        updateCredentialStatus(id, status = "active", rotatedAt = Instant.now())
 
     override fun createAttachment(
         databaseId: UUID,
@@ -448,6 +585,24 @@ class JdbcManagedDbRepository(
         }
     }
 
+    override fun listAttachmentsByDatabase(databaseId: UUID): List<DbAttachment> = runSql {
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                SELECT id, database_id, application_id, env_var, secret_ref, created_at
+                FROM db_attachment WHERE database_id = ? ORDER BY created_at
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, databaseId)
+                ps.executeQuery().use { rs ->
+                    buildList {
+                        while (rs.next()) add(mapAttachment(rs))
+                    }
+                }
+            }
+        }
+    }
+
     override fun deleteAttachment(id: UUID) {
         runSql {
             dataSource.withConnection { conn ->
@@ -478,6 +633,30 @@ class JdbcManagedDbRepository(
                 conn.prepareStatement("DELETE FROM db_credential WHERE id = ?").use { ps ->
                     ps.setObject(1, id)
                     ps.executeUpdate()
+                }
+            }
+        }
+    }
+
+    override fun deleteBackupsForDatabase(databaseId: UUID) {
+        runSql {
+            dataSource.withConnection { conn ->
+                conn.prepareStatement("DELETE FROM db_backup WHERE database_id = ?").use { ps ->
+                    ps.setObject(1, databaseId)
+                    ps.executeUpdate()
+                }
+            }
+        }
+    }
+
+    override fun deleteInstance(id: UUID) {
+        runSql {
+            dataSource.withConnection { conn ->
+                conn.prepareStatement("DELETE FROM db_instance WHERE id = ?").use { ps ->
+                    ps.setObject(1, id)
+                    if (ps.executeUpdate() == 0) {
+                        throw RepositoryException.NotFound("db_instance", id)
+                    }
                 }
             }
         }
@@ -683,7 +862,20 @@ class JdbcManagedDbRepository(
             name = rs.getString("name"),
             status = DbDatabaseStatus.parse(rs.getString("status")),
             statusReason = rs.getString("status_reason"),
+            deletionProtection = rs.getBoolean("deletion_protection"),
             createdAt = rs.instant("created_at"),
+        )
+
+    private fun mapCredential(rs: java.sql.ResultSet): DbCredential =
+        DbCredential(
+            id = rs.uuid("id"),
+            databaseId = rs.uuid("database_id"),
+            username = rs.getString("username"),
+            secretRef = rs.getString("secret_ref"),
+            status = rs.getString("status"),
+            createdAt = rs.instant("created_at"),
+            rotatedAt = rs.getTimestamp("rotated_at")?.toInstant(),
+            revokedAt = rs.getTimestamp("revoked_at")?.toInstant(),
         )
 
     private fun mapAttachment(rs: java.sql.ResultSet): DbAttachment =

@@ -54,7 +54,28 @@ interface Provisioner {
      */
     fun restoreDatabase(instanceId: UUID, databaseName: String, archive: ByteArray)
 
-    fun rotateCredential(credentialId: UUID): ProvisionResult
+    /**
+     * Create an additional login role on an existing database (credential rotation).
+     * Does not drop the previous role — caller revokes after secrets are updated.
+     */
+    fun createRoleOnDatabase(
+        instanceId: UUID,
+        databaseName: String,
+        username: String,
+        password: String,
+    ): ProvisionResult
+
+    /**
+     * Revoke/drop [username] after rotation grace. Optionally reassign owned
+     * objects to [reassignTo] first so the new role keeps ownership.
+     */
+    fun revokeRole(instanceId: UUID, username: String, reassignTo: String? = null)
+
+    /**
+     * Drop a product database (and optionally its roles) from the instance.
+     * Best-effort; used by guarded deletes.
+     */
+    fun dropDatabase(instanceId: UUID, databaseName: String, roleNames: List<String> = emptyList())
 }
 
 /**
@@ -104,6 +125,7 @@ class FakeProvisioner(
     ): ProvisionResult {
         val endpoint = "fake://managed-db/$instanceId/db/$databaseName"
         isolation.assertNotControlDatabase(endpoint)
+        roles["$instanceId/$databaseName/$username"] = password
         return ProvisionResult(
             endpointRef = endpoint,
             detail = "fake-create-database-role",
@@ -116,6 +138,7 @@ class FakeProvisioner(
     }
 
     private val dumps = ConcurrentHashMap<String, ByteArray>()
+    private val roles = ConcurrentHashMap<String, String>()
 
     override fun dumpDatabase(instanceId: UUID, databaseName: String): DumpArchive {
         val endpoint = "fake://managed-db/$instanceId/db/$databaseName"
@@ -144,11 +167,47 @@ class FakeProvisioner(
     fun currentDump(instanceId: UUID, databaseName: String): ByteArray? =
         dumps["$instanceId/$databaseName"]
 
-    override fun rotateCredential(credentialId: UUID): ProvisionResult {
-        val endpoint = "fake://managed-db/rotate/$credentialId"
+    override fun createRoleOnDatabase(
+        instanceId: UUID,
+        databaseName: String,
+        username: String,
+        password: String,
+    ): ProvisionResult {
+        val endpoint = "fake://managed-db/$instanceId/db/$databaseName"
         isolation.assertNotControlDatabase(endpoint)
-        return ProvisionResult(endpointRef = endpoint, detail = "fake-rotate")
+        roles["$instanceId/$databaseName/$username"] = password
+        return ProvisionResult(
+            endpointRef = endpoint,
+            detail = "fake-create-role",
+            host = "fake.local",
+            port = 5432,
+            containerId = "fake-$instanceId",
+            username = username,
+            password = password,
+        )
     }
+
+    override fun revokeRole(instanceId: UUID, username: String, reassignTo: String?) {
+        roles.keys.removeIf { key ->
+            key.startsWith("$instanceId/") && key.endsWith("/$username")
+        }
+    }
+
+    override fun dropDatabase(instanceId: UUID, databaseName: String, roleNames: List<String>) {
+        dumps.remove("$instanceId/$databaseName")
+        roles.keys.removeIf { it.startsWith("$instanceId/$databaseName/") }
+        for (role in roleNames) {
+            revokeRole(instanceId, role, reassignTo = null)
+        }
+    }
+
+    /** Test helper: whether a role/password pair still authenticates. */
+    fun canAuthenticate(
+        instanceId: UUID,
+        databaseName: String,
+        username: String,
+        password: String,
+    ): Boolean = roles["$instanceId/$databaseName/$username"] == password
 }
 
 /**
