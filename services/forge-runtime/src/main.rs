@@ -8,6 +8,7 @@ mod heartbeat;
 mod heartbeat_reporter;
 mod lifecycle;
 mod logs;
+mod network;
 mod node;
 mod observability;
 mod prober;
@@ -250,6 +251,40 @@ async fn run() -> Result<(), String> {
         }
     } else {
         info!("control reconcile loop disabled (FORGE_CONTROL_URL unset)");
+        None
+    };
+
+    let _peer_poll_task = if let Some(network_url) = cfg.network_url.as_deref() {
+        match node.wireguard_public_key.as_ref() {
+            Some(pk) => {
+                let kind = network::WgBackendKind::parse(&cfg.network_wg_backend)
+                    .unwrap_or(network::WgBackendKind::Userspace);
+                let backend = network::select_backend(kind);
+                info!(
+                    network_url = %network_url,
+                    network_name = %cfg.network_name,
+                    backend = ?backend.kind(),
+                    poll_interval_s = cfg.network_peer_poll_interval.as_secs(),
+                    "starting wireguard peer poll loop"
+                );
+                Some(network::spawn_peer_poll_loop(network::PeerPollConfig {
+                    network_url: network_url.to_string(),
+                    network_name: cfg.network_name.clone(),
+                    node_id: node.info.id.clone(),
+                    public_key: pk.as_str().to_string(),
+                    endpoint: cfg.network_wg_endpoint.clone(),
+                    iface: cfg.network_wg_iface.clone(),
+                    poll_interval: cfg.network_peer_poll_interval,
+                    backend,
+                }))
+            }
+            None => {
+                info!("wireguard peer poll skipped (no node public key)");
+                None
+            }
+        }
+    } else {
+        info!("wireguard peer poll disabled (FORGE_NETWORK_URL unset)");
         None
     };
 

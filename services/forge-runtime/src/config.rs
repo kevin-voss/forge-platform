@@ -69,6 +69,18 @@ pub struct Config {
     pub discovery_default_project: String,
     /// Default environment when workload lacks `forge.environment`.
     pub discovery_default_environment: String,
+    /// Optional forge-network base URL for WireGuard peer poll (22.03).
+    pub network_url: Option<String>,
+    /// Network resource name for peer APIs.
+    pub network_name: String,
+    /// WireGuard backend: kernel|userspace|fake|auto.
+    pub network_wg_backend: String,
+    /// Local WireGuard interface name.
+    pub network_wg_iface: String,
+    /// Advertised WireGuard endpoint host:port (optional).
+    pub network_wg_endpoint: Option<String>,
+    /// Peer poll interval.
+    pub network_peer_poll_interval: Duration,
 }
 
 impl Config {
@@ -331,6 +343,31 @@ impl Config {
         let discovery_default_environment =
             non_empty_env("FORGE_DISCOVERY_DEFAULT_ENVIRONMENT", "local");
 
+        let network_url = env::var("FORGE_NETWORK_URL")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let network_name = non_empty_env("FORGE_NETWORK_NAME", "cluster-overlay");
+        let network_wg_backend = non_empty_env("FORGE_NETWORK_WG_BACKEND", "auto");
+        let _ = crate::network::WgBackendKind::parse(&network_wg_backend)?;
+        let network_wg_iface = non_empty_env("FORGE_NETWORK_WG_IFACE", "wg0");
+        let network_wg_endpoint = env::var("FORGE_NETWORK_WG_ENDPOINT")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let peer_poll_raw =
+            env::var("FORGE_NETWORK_PEER_POLL_INTERVAL_S").unwrap_or_else(|_| "5".into());
+        let peer_poll_secs: u64 = peer_poll_raw.trim().parse().map_err(|_| {
+            format!(
+                "FORGE_NETWORK_PEER_POLL_INTERVAL_S must be a positive integer, got {peer_poll_raw:?}"
+            )
+        })?;
+        if peer_poll_secs == 0 {
+            return Err(format!(
+                "FORGE_NETWORK_PEER_POLL_INTERVAL_S must be a positive integer, got {peer_poll_raw:?}"
+            ));
+        }
+
         Ok(Self {
             port,
             service_name,
@@ -371,6 +408,12 @@ impl Config {
             discovery_lease_seconds,
             discovery_default_project,
             discovery_default_environment,
+            network_url,
+            network_name,
+            network_wg_backend,
+            network_wg_iface,
+            network_wg_endpoint,
+            network_peer_poll_interval: Duration::from_secs(peer_poll_secs),
         })
     }
 }
@@ -437,6 +480,12 @@ mod tests {
             "FORGE_DISCOVERY_LEASE_SECONDS",
             "FORGE_DISCOVERY_DEFAULT_PROJECT",
             "FORGE_DISCOVERY_DEFAULT_ENVIRONMENT",
+            "FORGE_NETWORK_URL",
+            "FORGE_NETWORK_NAME",
+            "FORGE_NETWORK_WG_BACKEND",
+            "FORGE_NETWORK_WG_IFACE",
+            "FORGE_NETWORK_WG_ENDPOINT",
+            "FORGE_NETWORK_PEER_POLL_INTERVAL_S",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()

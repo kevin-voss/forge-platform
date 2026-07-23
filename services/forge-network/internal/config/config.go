@@ -30,6 +30,13 @@ type Config struct {
 	ProviderCIDRs        []string
 	DockerHost           string
 	DockerCollisionCheck bool
+
+	// WireGuard peer control plane (22.03).
+	WgMTU            int
+	WgKeepaliveS     int
+	WgTopology       string // mesh|hub (hub documented, not implemented)
+	WgBackend        string // kernel|userspace|auto — Runtime consumes; documented here
+	WgRotationWindow time.Duration
 }
 
 // Load reads configuration from the process environment.
@@ -148,6 +155,37 @@ func Load() (Config, error) {
 		dockerCheck = false
 	}
 
+	wgMTU, err := positiveIntEnv("FORGE_NETWORK_WG_MTU", 1420)
+	if err != nil {
+		return Config{}, err
+	}
+	wgKeepalive, err := positiveIntEnv("FORGE_NETWORK_WG_KEEPALIVE_S", 25)
+	if err != nil {
+		return Config{}, err
+	}
+	wgTopology := strings.ToLower(strings.TrimSpace(os.Getenv("FORGE_NETWORK_WG_TOPOLOGY")))
+	if wgTopology == "" {
+		wgTopology = "mesh"
+	}
+	switch wgTopology {
+	case "mesh", "hub":
+	default:
+		return Config{}, fmt.Errorf("FORGE_NETWORK_WG_TOPOLOGY must be mesh|hub, got %q", wgTopology)
+	}
+	wgBackend := strings.ToLower(strings.TrimSpace(os.Getenv("FORGE_NETWORK_WG_BACKEND")))
+	if wgBackend == "" {
+		wgBackend = "auto"
+	}
+	switch wgBackend {
+	case "kernel", "userspace", "auto":
+	default:
+		return Config{}, fmt.Errorf("FORGE_NETWORK_WG_BACKEND must be kernel|userspace|auto, got %q", wgBackend)
+	}
+	rotSecs, err := positiveIntEnv("FORGE_NETWORK_WG_ROTATION_WINDOW_S", 300)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		Port:                   port,
 		ServiceName:            name,
@@ -166,6 +204,11 @@ func Load() (Config, error) {
 		ProviderCIDRs:          providerCIDRs,
 		DockerHost:             dockerHost,
 		DockerCollisionCheck:   dockerCheck,
+		WgMTU:                  wgMTU,
+		WgKeepaliveS:           wgKeepalive,
+		WgTopology:             wgTopology,
+		WgBackend:              wgBackend,
+		WgRotationWindow:       time.Duration(rotSecs) * time.Second,
 	}, nil
 }
 

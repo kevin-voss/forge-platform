@@ -226,7 +226,8 @@ next implementable step is still the one named at the top of this file. Plan:
 | **145** | [Demo `21-service-discovery` + epic gate](steps/21-forge-discovery/21.06-demo-21-service-discovery.md) | Complete |  | `make demo DEMO=21`; Ready/DNS/watch; Gateway discovery flip; lease/node-loss |
 | **146** | [Service skeleton + provider-independent address plan](steps/22-forge-network/22.01-skeleton-and-address-allocation.md) | Complete |  | `forge-network` on 4110; `network` schema; Network + node/workload leases; CIDR collision checks |
 | **147** | [Node identity, bootstrap tokens, join handshake](steps/22-forge-network/22.02-node-identity-and-bootstrap-tokens.md) | Complete |  | Bootstrap tokens; Runtime X25519 keys; register→lease→joining→online; revoke-key |
-| **148**–**152** | Epic 22 — Forge Network (`22.03`–`22.07`) | Not started |  | |
+| **148** | [WireGuard peer management + route distribution](steps/22-forge-network/22.03-wireguard-peer-management.md) | Complete |  | PeerRegistry; full-mesh PeerSetComputer; rotate/retire; Runtime WG poll + fake/userspace fallback |
+| **149**–**152** | Epic 22 — Forge Network (`22.04`–`22.07`) | Not started |  | |
 | **153**–**159** | Epic 23 — Forge Infrastructure (`23.01`–`23.07`) | Not started |  | |
 | **160**–**167** | Epic 24 — Forge Autoscaler (`24.01`–`24.08`) | Not started |  | |
 | **168**–**173** | Epic 25 — Scheduling enhancements (`25.01`–`25.06`) | Not started |  | |

@@ -7,6 +7,10 @@ Step `22.01` stands up the service skeleton, Postgres-backed `Network` resources
 and node/workload address leases carved from a cluster CIDR (default
 `10.100.0.0/16` → one `/24` per node → one address per workload).
 
+Step `22.03` adds WireGuard peer registry, full-mesh peer-set computation,
+incremental `peer_version` bumps, dual-key rotation, and Runtime distribution
+(`GET .../peers`, `rotate-key`, `applied-version`).
+
 ## Quick start
 
 ```bash
@@ -53,6 +57,25 @@ Overlaps with Docker bridge/IPAM subnets (via Docker Engine API) or
 | `FORGE_NETWORK_PROVIDER_CIDRS` | empty | Comma-separated install-target private CIDRs |
 | `FORGE_NETWORK_LEASE_RECLAIM_INTERVAL_S` | `60` | Orphan workload lease sweep |
 | `DOCKER_HOST` | `unix:///var/run/docker.sock` | Bridge subnet collision source |
+| `FORGE_NETWORK_WG_MTU` | `1420` | Advertised MTU in peer sets |
+| `FORGE_NETWORK_WG_KEEPALIVE_S` | `25` | `persistent_keepalive` for NAT'd peers |
+| `FORGE_NETWORK_WG_TOPOLOGY` | `mesh` | `hub` documented only ([hub-topology.md](../../docs/implementation/steps/22-forge-network/notes/hub-topology.md)) |
+| `FORGE_NETWORK_WG_ROTATION_WINDOW_S` | `300` | Dual-key window before scheduled retire |
+
+## WireGuard peers
+
+```bash
+# After node lease exists:
+curl -s -X PUT localhost:4110/v1/networks/cluster-overlay/nodes/node-a/wireguard \
+  -H 'content-type: application/json' \
+  -d '{"public_key":"b64:...", "endpoint":"203.0.113.5:51820"}' | jq
+
+curl -s localhost:4110/v1/networks/cluster-overlay/nodes/node-a/peers | jq
+
+curl -s -X POST localhost:4110/v1/networks/cluster-overlay/nodes/node-a/rotate-key \
+  -H 'content-type: application/json' \
+  -d '{"new_public_key":"b64:rotated..."}' | jq
+```
 
 ## OpenAPI
 
@@ -61,4 +84,5 @@ Overlaps with Docker bridge/IPAM subnets (via Docker Engine API) or
 ## Related
 
 * Epic: [`docs/implementation/epics/22-forge-network.md`](../../docs/implementation/epics/22-forge-network.md)
-* Step: [`docs/implementation/steps/22-forge-network/22.01-skeleton-and-address-allocation.md`](../../docs/implementation/steps/22-forge-network/22.01-skeleton-and-address-allocation.md)
+* Step `22.01`: [`22.01-skeleton-and-address-allocation.md`](../../docs/implementation/steps/22-forge-network/22.01-skeleton-and-address-allocation.md)
+* Step `22.03`: [`22.03-wireguard-peer-management.md`](../../docs/implementation/steps/22-forge-network/22.03-wireguard-peer-management.md)

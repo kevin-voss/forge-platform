@@ -68,11 +68,34 @@ func run() error {
 		)
 	}
 
+	metrics := &network.PeerMetrics{}
+	registry := &network.PeerRegistry{
+		Pool:             database.Pool,
+		Log:              log,
+		KeepaliveSeconds: cfg.WgKeepaliveS,
+		MTU:              cfg.WgMTU,
+		RotationWindow:   cfg.WgRotationWindow,
+		Metrics:          metrics,
+		Topology:         cfg.WgTopology,
+	}
+	computer := &network.PeerSetComputer{Registry: registry, Log: log}
+	if cfg.WgTopology == "hub" {
+		log.Warn("FORGE_NETWORK_WG_TOPOLOGY=hub is documented but not implemented; using full mesh",
+			"event", "network.peers.topology_fallback")
+	}
+
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	defer bgCancel()
 	go runReclaimer(bgCtx, alloc, cfg.LeaseReclaimInterval, log)
+	go runRotationRetirer(bgCtx, registry, cfg.LeaseReclaimInterval, log)
 
-	mux := api.NewRouter(api.Deps{Alloc: alloc, DB: database, Log: log})
+	mux := api.NewRouter(api.Deps{
+		Alloc:    alloc,
+		Registry: registry,
+		Computer: computer,
+		DB:       database,
+		Log:      log,
+	})
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           mux,
@@ -100,6 +123,9 @@ func run() error {
 		"db_schema", cfg.DatabaseSchema,
 		"cluster_cidr", cfg.ClusterCIDR,
 		"node_prefix_length", cfg.NodePrefixLength,
+		"wg_mtu", cfg.WgMTU,
+		"wg_keepalive_s", cfg.WgKeepaliveS,
+		"wg_topology", cfg.WgTopology,
 		"version", cfg.ServiceVersion,
 		"env", cfg.Env,
 	)
@@ -143,6 +169,29 @@ func runReclaimer(ctx context.Context, alloc *network.Allocator, every time.Dura
 			}
 			if n > 0 {
 				log.Info("orphan reclaim complete", "released", n)
+			}
+		}
+	}
+}
+
+func runRotationRetirer(ctx context.Context, reg *network.PeerRegistry, every time.Duration, log *slog.Logger) {
+	if every <= 0 {
+		every = 60 * time.Second
+	}
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			n, err := reg.RetireDueRotations(ctx)
+			if err != nil {
+				log.Warn("rotation retire sweep failed", "error", err.Error())
+				continue
+			}
+			if n > 0 {
+				log.Info("rotation retire sweep complete", "retired", n)
 			}
 		}
 	}

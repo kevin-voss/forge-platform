@@ -11,8 +11,9 @@ import (
 
 // NodeLeasesHandler serves node block lease endpoints.
 type NodeLeasesHandler struct {
-	Alloc *network.Allocator
-	Log   *slog.Logger
+	Alloc    *network.Allocator
+	Computer *network.PeerSetComputer
+	Log      *slog.Logger
 }
 
 // Register mounts node-lease routes.
@@ -50,6 +51,12 @@ func (h *NodeLeasesHandler) release(w http.ResponseWriter, r *http.Request) {
 		}
 		httperr.Write(w, http.StatusInternalServerError, "internal_error", err.Error())
 		return
+	}
+	if h.Computer != nil {
+		if _, err := h.Computer.OnLeave(r.Context(), name, nodeID); err != nil && h.Log != nil {
+			h.Log.Warn("peer leave after node lease release failed",
+				"network", name, "node_id", nodeID, "error", err.Error())
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

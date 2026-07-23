@@ -232,6 +232,142 @@ paths:
         "404":
           description: Not found
 
+  /v1/networks/{name}/nodes/{node_id}/wireguard:
+    parameters:
+      - $ref: "#/components/parameters/NetworkName"
+      - $ref: "#/components/parameters/NodeId"
+    put:
+      operationId: registerWireGuardPeer
+      summary: Register or update a node's WireGuard public key and endpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterWireGuardPeerRequest"
+            example:
+              public_key: "b64:9fQ3z..."
+              endpoint: "203.0.113.5:51820"
+      responses:
+        "200":
+          description: Peer registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WireGuardPeerRegistration"
+        "404":
+          description: Network or node lease not found
+
+  /v1/networks/{name}/nodes/{node_id}/peers:
+    parameters:
+      - $ref: "#/components/parameters/NetworkName"
+      - $ref: "#/components/parameters/NodeId"
+    get:
+      operationId: getNodePeers
+      summary: Fetch the WireGuard peer set for a node
+      responses:
+        "200":
+          description: Peer set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PeerSetResponse"
+              example:
+                node_id: node-a
+                peer_version: 4
+                peers:
+                  - node_id: node-b
+                    public_key: "b64:..."
+                    endpoint: "203.0.113.5:51820"
+                    allowed_ips: ["10.100.2.0/24"]
+                    persistent_keepalive: 25
+                  - node_id: node-c
+                    public_key: "b64:..."
+                    endpoint: "198.51.100.9:51820"
+                    allowed_ips: ["10.100.3.0/24"]
+                    persistent_keepalive: 25
+        "404":
+          description: Network or peer not found
+
+  /v1/networks/{name}/nodes/{node_id}/rotate-key:
+    parameters:
+      - $ref: "#/components/parameters/NetworkName"
+      - $ref: "#/components/parameters/NodeId"
+    post:
+      operationId: rotateNodeKey
+      summary: Start dual-key WireGuard key rotation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RotateKeyRequest"
+            example:
+              new_public_key: "b64:rotated..."
+      responses:
+        "200":
+          description: Rotation started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RotateKeyResponse"
+              example:
+                status: rotating
+                retire_old_after: "2026-07-23T10:30:00Z"
+        "404":
+          description: Peer not found
+
+  /v1/networks/{name}/nodes/{node_id}/retire-key:
+    parameters:
+      - $ref: "#/components/parameters/NetworkName"
+      - $ref: "#/components/parameters/NodeId"
+    post:
+      operationId: retireNodeKey
+      summary: Retire the old key after rotation window
+      responses:
+        "200":
+          description: Old key retired
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: active
+
+  /v1/networks/{name}/nodes/{node_id}/applied-version:
+    parameters:
+      - $ref: "#/components/parameters/NetworkName"
+      - $ref: "#/components/parameters/NodeId"
+    post:
+      operationId: reportAppliedPeerVersion
+      summary: Runtime reports the peer_version it has applied
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppliedVersionRequest"
+            example:
+              applied_peer_version: 4
+      responses:
+        "200":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  node_id:
+                    type: string
+                  applied_peer_version:
+                    type: integer
+                    format: int64
+                  network_drift_total:
+                    type: integer
+                    format: int64
+
 components:
   parameters:
     NetworkName:
@@ -241,6 +377,13 @@ components:
       schema:
         type: string
       example: cluster-overlay
+    NodeId:
+      name: node_id
+      in: path
+      required: true
+      schema:
+        type: string
+      example: node-a
 
   schemas:
     HealthStatus:
@@ -354,6 +497,100 @@ components:
         address:
           type: string
           example: "10.100.1.5"
+
+    RegisterWireGuardPeerRequest:
+      type: object
+      required: [public_key]
+      properties:
+        public_key:
+          type: string
+          example: "b64:9fQ3z..."
+        endpoint:
+          type: string
+          description: host:port; omit when inbound-only via NAT
+          example: "203.0.113.5:51820"
+
+    WireGuardPeerRegistration:
+      type: object
+      required: [node_id, public_key, status, online]
+      properties:
+        node_id:
+          type: string
+        public_key:
+          type: string
+        endpoint:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [active, rotating, retiring]
+        online:
+          type: boolean
+
+    PeerSetResponse:
+      type: object
+      required: [node_id, peer_version, peers]
+      properties:
+        node_id:
+          type: string
+        peer_version:
+          type: integer
+          format: int64
+        mtu:
+          type: integer
+          example: 1420
+        peers:
+          type: array
+          items:
+            $ref: "#/components/schemas/PeerEntry"
+
+    PeerEntry:
+      type: object
+      required: [node_id, public_key, allowed_ips, persistent_keepalive]
+      properties:
+        node_id:
+          type: string
+        public_key:
+          type: string
+        endpoint:
+          type: string
+          nullable: true
+        allowed_ips:
+          type: array
+          items:
+            type: string
+          example: ["10.100.2.0/24"]
+        persistent_keepalive:
+          type: integer
+          example: 25
+
+    RotateKeyRequest:
+      type: object
+      required: [new_public_key]
+      properties:
+        new_public_key:
+          type: string
+          example: "b64:rotated..."
+
+    RotateKeyResponse:
+      type: object
+      required: [status, retire_old_after]
+      properties:
+        status:
+          type: string
+          example: rotating
+        retire_old_after:
+          type: string
+          format: date-time
+
+    AppliedVersionRequest:
+      type: object
+      required: [applied_peer_version]
+      properties:
+        applied_peer_version:
+          type: integer
+          format: int64
+          example: 4
 
     ErrorEnvelope:
       type: object

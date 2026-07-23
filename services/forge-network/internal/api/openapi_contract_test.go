@@ -47,6 +47,18 @@ func TestOpenAPIDeclaresNetworkAndLeases(t *testing.T) {
 		"10.100.0.0/16",
 		"node-a",
 		"wl_123",
+		"/v1/networks/{name}/nodes/{node_id}/peers",
+		"/v1/networks/{name}/nodes/{node_id}/rotate-key",
+		"/v1/networks/{name}/nodes/{node_id}/applied-version",
+		"getNodePeers",
+		"rotateNodeKey",
+		"reportAppliedPeerVersion",
+		"registerWireGuardPeer",
+		"PeerSetResponse",
+		"RotateKeyRequest",
+		"applied_peer_version",
+		"persistent_keepalive",
+		"b64:rotated...",
 	} {
 		if !strings.Contains(text, needle) {
 			t.Fatalf("openapi missing %q", needle)

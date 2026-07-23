@@ -91,6 +91,12 @@ make dev
 | `FORGE_LIFECYCLE_OWNER` | `runtime` locally / `control` in Compose | `runtime` create/stops locally; `control` delegates lifecycle to Control (epic 07). |
 | `FORGE_RECONCILE_INTERVAL_SECONDS` | `10` | Poll/converge interval. |
 | `FORGE_CONTROL_REPORT_MODE` | `push` | `push` POSTs status to Control (404 tolerated); `pull` relies on `GET /v1/node/state`. |
+| `FORGE_NETWORK_URL` | _(unset)_ | When set, polls forge-network for WireGuard peers (`22.03`). |
+| `FORGE_NETWORK_NAME` | `cluster-overlay` | Network resource name for peer APIs. |
+| `FORGE_NETWORK_WG_BACKEND` | `auto` | `kernel` / `userspace` / `fake` / `auto` (auto falls back when tun/`wg` missing). |
+| `FORGE_NETWORK_WG_IFACE` | `wg0` | Local WireGuard interface name. |
+| `FORGE_NETWORK_WG_ENDPOINT` | _(unset)_ | Optional advertised `host:port` for NAT peers. |
+| `FORGE_NETWORK_PEER_POLL_INTERVAL_S` | `5` | Peer fetch → apply → report loop interval. |
 
 Invalid `PORT` or an unwritable data dir causes a non-zero exit at startup.
 
@@ -117,6 +123,9 @@ An X25519 WireGuard key pair is generated alongside it under
 `$FORGE_NODE_KEY_DIR` (default: same data dir); the private key file is mode
 `0600` and never leaves the node. Optional `FORGE_NODE_BOOTSTRAP_TOKEN` is sent
 on Control registration for the join handshake (`22.02`).
+When `FORGE_NETWORK_URL` is set, Runtime registers that public key with
+forge-network and applies peer sets via kernel `wg` when available, otherwise a
+userspace/fake backend (`22.03`).
 Compose mounts a named volume (`forge-runtime-data`) so the id survives container
 restarts. Workload containers are labeled with this value as `forge.node_id`.
 
