@@ -30,12 +30,22 @@ contract**.
 * Doc: [`docs/contracts/observability-correlation.md`](../../docs/contracts/observability-correlation.md)
 * Go constants: `internal/correlation`
 
+## Grafana dashboards (12.03)
+
+Provisioned under `deploy/observability/grafana/` (see
+[`docs/operations/grafana-dashboards.md`](../../docs/operations/grafana-dashboards.md)):
+
+* Forge Platform / Service / Deployment / Runtime
+* Provider: `provisioning/dashboards/forge.yaml`
+* Checks: `make -C services/forge-observe test-dashboards`
+
 ## Local commands
 
 ```bash
 make -C services/forge-observe test-unit
+make -C services/forge-observe test-dashboards
 make -C services/forge-observe run          # Compose on :4106
-make -C services/forge-observe test         # unit + integration
+make -C services/forge-observe test         # unit + dashboards + integration
 ```
 
 ## Degraded mode

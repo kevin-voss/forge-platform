@@ -17,6 +17,9 @@ exporters:
       insecure: true
   prometheus:
     endpoint: 0.0.0.0:8889
+    # Expose resource attrs (service.name, forge.*) as metric labels for dashboards.
+    resource_to_telemetry_conversion:
+      enabled: true
   loki:
     endpoint: http://loki:3100/loki/api/v1/push
     default_labels_enabled:

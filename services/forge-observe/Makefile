@@ -6,7 +6,7 @@ SERVICE := forge-observe
 IMAGE := forge/forge-observe:local
 HOST_PORT ?= 4106
 
-.PHONY: dev build run test test-unit test-integration lint format docker-build docker-run clean wait
+.PHONY: dev build run test test-unit test-integration test-dashboards lint format docker-build docker-run clean wait
 
 dev:
 	PORT=$${PORT:-4106} \
@@ -35,10 +35,16 @@ wait:
 	@$(ROOT_DIR)/scripts/wait-for-service.sh http://127.0.0.1:$(HOST_PORT)/health/live 90
 	@$(ROOT_DIR)/scripts/wait-for-service.sh http://127.0.0.1:$(HOST_PORT)/health/ready 90
 
-test: test-unit test-integration
+test: test-unit test-dashboards test-integration
 
 test-unit:
 	go test ./...
+
+# Grafana provisioning smoke: four Forge dashboards load with stable UIDs.
+test-dashboards:
+	@$(COMPOSE) up -d grafana
+	@$(ROOT_DIR)/scripts/wait-for-service.sh http://127.0.0.1:3000/api/health 90
+	@python3 $(dir $(lastword $(MAKEFILE_LIST)))scripts/check-grafana-dashboards.py
 
 test-integration: run
 	@curl -sf "http://127.0.0.1:$(HOST_PORT)/health/live" | grep -q '"status":"ok"'

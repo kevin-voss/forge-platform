@@ -144,10 +144,13 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_USERS_DEFAULT_THEME: light
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+      FORGE_GRAFANA_DASHBOARD_DIR: /etc/grafana/forge-dashboards
     ports:
       - "3000:3000"
     volumes:
       - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboards:/etc/grafana/forge-dashboards:ro
       - forge-grafana-data:/var/lib/grafana
     depends_on:
       prometheus:

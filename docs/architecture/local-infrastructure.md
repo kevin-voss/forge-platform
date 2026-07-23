@@ -51,7 +51,8 @@ Compose named volumes:
 | `infrastructure/prometheus/prometheus.yml` | scrape config |
 | `infrastructure/tempo/tempo.yaml` | trace backend |
 | `infrastructure/loki/loki.yaml` | log backend |
-| `infrastructure/grafana/provisioning/` | datasources/dashboards |
+| `infrastructure/grafana/provisioning/` | datasources + base dashboard provider |
+| `deploy/observability/grafana/` | Forge platform/service/deployment/runtime dashboards |
 
 ## Hybrid mode (later services)
 
