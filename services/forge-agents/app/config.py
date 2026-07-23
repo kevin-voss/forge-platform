@@ -27,6 +27,11 @@ class Settings(BaseSettings):
         default="http://forge-models:4300",
         alias="FORGE_MODELS_URL",
     )
+    forge_agents_defs_dir: str = Field(
+        default="",
+        alias="FORGE_AGENTS_DEFS_DIR",
+        description="Directory of agent YAML definitions; empty uses packaged agents/",
+    )
     forge_service_name: str = Field(default="forge-agents", alias="FORGE_SERVICE_NAME")
     forge_service_version: str = Field(default="0.1.0", alias="FORGE_SERVICE_VERSION")
     forge_env: str = Field(default="development", alias="FORGE_ENV")
@@ -57,6 +62,15 @@ class Settings(BaseSettings):
         parsed = urlparse(value)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("FORGE_MODELS_URL must be an absolute http(s) URL")
+        return value
+
+    @field_validator("forge_agents_defs_dir", mode="before")
+    @classmethod
+    def normalize_defs_dir(cls, value: object) -> object:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value.strip()
         return value
 
     @field_validator("forge_service_name", "forge_service_version", "forge_env", mode="before")

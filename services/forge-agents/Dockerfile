@@ -12,6 +12,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.6.14 /uv /usr/local/bin/uv
 
 COPY pyproject.toml uv.lock README.md ./
 COPY app ./app
+COPY agents ./agents
 COPY tests ./tests
 
 # Fail the image build if unit/contract tests fail.
@@ -37,6 +38,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.6.14 /uv /usr/local/bin/uv
 # Depend on the build stage so tests always run before shipping the image.
 COPY --from=build /src/pyproject.toml /src/uv.lock /src/README.md ./
 COPY --from=build /src/app ./app
+COPY --from=build /src/agents ./agents
 
 RUN uv sync --frozen --no-dev \
 	&& chown -R appuser:appgroup /app
@@ -51,6 +53,7 @@ ENV PORT=8080 \
 	FORGE_LOG_LEVEL=info \
 	FORGE_ENV=development \
 	FORGE_MODELS_URL=http://forge-models:4300 \
+	FORGE_AGENTS_DEFS_DIR=/app/agents \
 	FORGE_SHUTDOWN_GRACE_SECONDS=10 \
 	PYTHONUNBUFFERED=1 \
 	PATH="/app/.venv/bin:$PATH"

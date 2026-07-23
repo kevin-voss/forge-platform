@@ -592,6 +592,7 @@ services:
       FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-info}
       FORGE_ENV: ${FORGE_ENV:-development}
       FORGE_MODELS_URL: ${FORGE_MODELS_URL:-http://forge-models:4300}
+      FORGE_AGENTS_DEFS_DIR: ${FORGE_AGENTS_DEFS_DIR:-/app/agents}
       FORGE_SHUTDOWN_GRACE_SECONDS: ${FORGE_SHUTDOWN_GRACE_SECONDS:-10}
     stop_grace_period: 15s
     healthcheck:

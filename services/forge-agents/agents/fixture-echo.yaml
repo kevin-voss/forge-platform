@@ -1,0 +1,9 @@
+name: fixture-echo
+model: local-general
+tools:
+  - echo.ping
+permissions:
+  - project:read
+limits:
+  max_steps: 3
+  timeout_seconds: 30

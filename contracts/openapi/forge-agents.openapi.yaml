@@ -4,7 +4,8 @@ info:
   version: 0.1.0
   description: |
     Platform agent runtime service (epic 15). Health/identity from 15.01;
-    agent registry, tools, run engine, approval, and CLI land in later steps.
+    agent registry + YAML definitions from 15.02. Tools, run engine, approval,
+    and CLI land in later steps.
 servers:
   - url: http://127.0.0.1:4301
     description: Local Compose (host port 4301)
@@ -30,8 +31,8 @@ paths:
       operationId: getHealthReady
       summary: Readiness probe
       description: |
-        Returns 200 when configuration parsed successfully (including
-        `FORGE_MODELS_URL`) at startup; 503 otherwise.
+        Returns 200 when configuration and the agent registry loaded
+        successfully at startup; 503 otherwise.
       responses:
         "200":
           description: Ready to receive traffic
@@ -71,7 +72,75 @@ paths:
                 version: 0.1.0
                 uptime_seconds: 12.5
 
+  /v1/agents:
+    get:
+      operationId: listAgents
+      summary: List registered agents
+      description: |
+        Returns agent definitions loaded from YAML under `FORGE_AGENTS_DEFS_DIR`
+        (default `services/forge-agents/agents`). Each entry includes model,
+        declared tools, permissions, and execution limits.
+      responses:
+        "200":
+          description: Agent registry listing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentListResponse"
+              example:
+                agents:
+                  - name: fixture-echo
+                    model: local-general
+                    tools: [echo.ping]
+                    permissions: [project:read]
+                    limits:
+                      max_steps: 3
+                      timeout_seconds: 30
+
+  /v1/agents/{name}:
+    get:
+      operationId: getAgent
+      summary: Get a registered agent by name
+      parameters:
+        - $ref: "#/components/parameters/AgentName"
+      responses:
+        "200":
+          description: Agent definition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+              example:
+                name: fixture-echo
+                model: local-general
+                tools: [echo.ping]
+                permissions: [project:read]
+                limits:
+                  max_steps: 3
+                  timeout_seconds: 30
+        "404":
+          description: Unknown agent name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+              example:
+                error: "agent not found: nope"
+                code: agent_not_found
+
 components:
+  parameters:
+    AgentName:
+      name: name
+      in: path
+      required: true
+      description: Agent name as declared in YAML (`name` field)
+      schema:
+        type: string
+        minLength: 1
+        pattern: "^[a-z][a-z0-9_-]*$"
+      example: fixture-echo
+
   schemas:
     HealthStatus:
       type: object
@@ -105,3 +174,81 @@ components:
         uptime_seconds:
           type: number
           example: 12.5
+
+    AgentLimits:
+      type: object
+      additionalProperties: false
+      required:
+        - max_steps
+        - timeout_seconds
+      properties:
+        max_steps:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Maximum model/tool loop iterations per run
+          example: 10
+        timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          description: Wall-clock run timeout in seconds
+          example: 120
+
+    Agent:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - model
+        - tools
+        - permissions
+        - limits
+      properties:
+        name:
+          type: string
+          example: fixture-echo
+        model:
+          type: string
+          description: Model id from forge-models registry
+          example: local-general
+        tools:
+          type: array
+          items:
+            type: string
+            pattern: "^[a-z][a-z0-9_-]*(\\.[a-z][a-z0-9_-]*)+$"
+          description: Declared tool ids (existence enforced in 15.03)
+          example: [echo.ping]
+        permissions:
+          type: array
+          items:
+            type: string
+            pattern: "^[a-z][a-z0-9_-]*:[a-z][a-z0-9_-]*$"
+          description: Declared permission scopes checked per tool call (15.03)
+          example: [project:read]
+        limits:
+          $ref: "#/components/schemas/AgentLimits"
+
+    AgentListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - agents
+      properties:
+        agents:
+          type: array
+          items:
+            $ref: "#/components/schemas/Agent"
+
+    ErrorBody:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+        - code
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+          example: agent_not_found

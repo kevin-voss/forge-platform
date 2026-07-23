@@ -57,7 +57,7 @@ make demo DEMO=15
 | Step | Title | Status | Notes |
 |---|---|---|---|
 | [15.01](../steps/15-forge-agents/15.01-skeleton.md) | Skeleton | Complete | Python/FastAPI, health, port 4301 |
-| [15.02](../steps/15-forge-agents/15.02-agent-registry-yaml.md) | Agent registry + YAML definitions | Not started | Depends on 15.01 |
+| [15.02](../steps/15-forge-agents/15.02-agent-registry-yaml.md) | Agent registry + YAML definitions | Complete | YAML registry + `GET /v1/agents`; fixture-echo |
 | [15.03](../steps/15-forge-agents/15.03-tool-registry-permissions.md) | Tool registry + per-call permission checks | Not started | Depends on 15.02 |
 | [15.04](../steps/15-forge-agents/15.04-run-engine.md) | Run engine: max steps, timeouts, history | Not started | Depends on 15.03; Models 14.04 |
 | [15.05](../steps/15-forge-agents/15.05-platform-tools.md) | Platform tools | Not started | Depends on 15.04; Control/Runtime/Observe/Storage/Models/Events |
@@ -82,4 +82,4 @@ make demo DEMO=15
 
 ## Next step to implement
 
-**[15.02](../steps/15-forge-agents/15.02-agent-registry-yaml.md) — Agent registry + YAML definitions**.
+**[15.03](../steps/15-forge-agents/15.03-tool-registry-permissions.md) — Tool registry + per-call permission checks**.

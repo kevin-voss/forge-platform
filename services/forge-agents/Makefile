@@ -19,6 +19,7 @@ dev: sync
 	FORGE_LOG_LEVEL=$${FORGE_LOG_LEVEL:-info} \
 	FORGE_ENV=$${FORGE_ENV:-development} \
 	FORGE_MODELS_URL=$${FORGE_MODELS_URL:-http://127.0.0.1:4300} \
+	FORGE_AGENTS_DEFS_DIR=$${FORGE_AGENTS_DEFS_DIR:-} \
 	FORGE_SHUTDOWN_GRACE_SECONDS=$${FORGE_SHUTDOWN_GRACE_SECONDS:-10} \
 	uv run python -m app.main
 
@@ -43,13 +44,17 @@ test-integration: run
 	@curl -sf "http://127.0.0.1:$(HOST_PORT)/health/live" | grep -q '"status":"live"'
 	@curl -sf "http://127.0.0.1:$(HOST_PORT)/health/ready" | grep -q '"status":"ready"'
 	@curl -sf "http://127.0.0.1:$(HOST_PORT)/" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["service"]=="forge-agents"; assert d["language"]=="python"; assert d["status"]=="running"; assert "version" in d'
+	@# Agent registry (15.02)
+	@curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/agents" | grep -q 'fixture-echo'
+	@code="$$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$(HOST_PORT)/v1/agents/nope")"; test "$$code" = "404"
 	@# Structured JSON logs + request IDs
 	@curl -sf -H 'X-Request-ID: integ-req-1' "http://127.0.0.1:$(HOST_PORT)/health/live" >/dev/null
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"service":"forge-agents"'
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"message":"starting forge-agents"'
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"request_id":"integ-req-1"'
+	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"agents_registry_size"'
 	@grep -q '4301' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-agents.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-agents" in p; assert "/v1/agents" not in p'
+	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-agents.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-agents" in p; assert "/v1/agents" in p; assert "Agent" in p; assert "agent_not_found" in p'
 	@# Invalid MODELS_URL fails process startup (ephemeral container).
 	@docker rm -f forge-agents-bad-url >/dev/null 2>&1 || true
 	@if docker run --name forge-agents-bad-url \
@@ -74,6 +79,22 @@ test-integration: run
 	fi
 	@docker rm -f forge-agents-bad-port >/dev/null 2>&1 || true
 	@grep -Eiq 'PORT|port|validation error' /tmp/forge-agents-bad-port.out
+	@# Malformed agent YAML fails startup.
+	@docker rm -f forge-agents-bad-agents >/dev/null 2>&1 || true
+	@mkdir -p /tmp/forge-agents-bad-defs
+	@printf 'name: [\n' > /tmp/forge-agents-bad-defs/bad.yaml
+	@if docker run --name forge-agents-bad-agents \
+		-e PORT=8080 \
+		-e FORGE_MODELS_URL=http://forge-models:4300 \
+		-e FORGE_AGENTS_DEFS_DIR=/bad-agents \
+		-v /tmp/forge-agents-bad-defs:/bad-agents:ro \
+		$(IMAGE) >/tmp/forge-agents-bad-agents.out 2>&1; then \
+		echo "expected non-zero exit for malformed agent YAML" >&2; \
+		docker rm -f forge-agents-bad-agents >/dev/null 2>&1 || true; \
+		exit 1; \
+	fi
+	@docker rm -f forge-agents-bad-agents >/dev/null 2>&1 || true
+	@grep -Eiq 'malformed|agent|registry|bad.yaml' /tmp/forge-agents-bad-agents.out
 	@# SIGTERM → graceful exit 0 within grace period.
 	@cid="$$($(COMPOSE) ps -q $(SERVICE))"; \
 		test -n "$$cid"; \
@@ -82,7 +103,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (health, identity, JSON logs/request IDs, OpenAPI, bad URL/PORT, SIGTERM)."
+	@echo "Integration checks passed (health, identity, agent registry, JSON logs/request IDs, OpenAPI, bad URL/PORT/YAML, SIGTERM)."
 
 lint: sync
 	uv run ruff check app tests
@@ -98,5 +119,6 @@ docker-run: run
 
 clean:
 	@rm -rf .venv .pytest_cache .ruff_cache __pycache__ app/__pycache__ tests/__pycache__
-	@rm -f /tmp/forge-agents-bad-url.out /tmp/forge-agents-bad-port.out
+	@rm -f /tmp/forge-agents-bad-url.out /tmp/forge-agents-bad-port.out /tmp/forge-agents-bad-agents.out
+	@rm -rf /tmp/forge-agents-bad-defs
 	@find . -type d -name '__pycache__' -prune -exec rm -rf {} +

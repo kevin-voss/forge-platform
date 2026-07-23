@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 100`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 101`**.
 
 ## Epics
 
@@ -23,7 +23,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [12](epics/12-forge-observe.md) | Forge Observe | Complete | 7/7 steps; demo 12 observability acceptance gate passed |
 | [13](epics/13-forge-storage.md) | Forge Storage | Complete | 7/7 steps; demo 13 object-storage acceptance gate passed |
 | [14](epics/14-forge-models.md) | Forge Models | Complete | 7/7 steps; demo 14 model-serving acceptance gate passed |
-| [15](epics/15-forge-agents.md) | Forge Agents | In progress | 1/8 steps; skeleton on `4301` |
+| [15](epics/15-forge-agents.md) | Forge Agents | In progress | 2/8 steps; agent YAML registry + `GET /v1/agents` |
 | [16](epics/16-forge-workflows.md) | Forge Workflows | Planning | 7 steps |
 | [17](epics/17-forge-memory.md) | Forge Memory | Planning | 6 steps |
 | [18](epics/18-managed-postgresql.md) | Managed PostgreSQL | Planning | 6 steps |
@@ -133,7 +133,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **97** | [Usage metrics + OpenAPI; optional CLI `forge model`](steps/14-forge-models/14.06-usage-metrics-openapi-cli.md) | Complete |  | Prometheus `/metrics` + `/v1/usage`; OpenAPI lint; `forge model` CLI |
 | **98** | [Demo `14-model-serving` + gate](steps/14-forge-models/14.07-demo-and-gate.md) | Complete |  | Demo 14: embed→classify→summarize + usage; epic gate |
 | **99** | [Skeleton](steps/15-forge-agents/15.01-skeleton.md) | Complete |  | Python/FastAPI on `4301`, health/identity, JSON logs, Compose |
-| **100** | [Agent registry + YAML definitions](steps/15-forge-agents/15.02-agent-registry-yaml.md) | Not started |  |  |
+| **100** | [Agent registry + YAML definitions](steps/15-forge-agents/15.02-agent-registry-yaml.md) | Complete |  | YAML loader + `GET /v1/agents`; fixture-echo; limits bounds |
 | **101** | [Tool registry + per-call permission checks](steps/15-forge-agents/15.03-tool-registry-permissions.md) | Not started |  |  |
 | **102** | [Run engine: max steps, timeouts, history](steps/15-forge-agents/15.04-run-engine.md) | Not started |  |  |
 | **103** | [Platform tools](steps/15-forge-agents/15.05-platform-tools.md) | Not started |  |  |

@@ -11,6 +11,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app import __version__
+from app.agents.loader import AgentLoadError, load_registry
+from app.api.agents import router as agents_router
 from app.config import Settings, clear_settings_cache, get_settings
 from app.health import router as health_router
 from app.logging import RequestIdMiddleware, configure_logging
@@ -21,11 +23,16 @@ logger = logging.getLogger("forge-agents")
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
+    registry = app.state.registry
     app.state.started_at = time.time()
     app.state.ready = True
     logger.info(
         "starting forge-agents",
-        extra={"models_url": settings.forge_models_url},
+        extra={
+            "models_url": settings.forge_models_url,
+            "agents_registry_size": registry.agents_registry_size,
+            "agent_names": [a.name for a in registry.list()],
+        },
     )
     try:
         yield
@@ -35,10 +42,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
-    """Build the FastAPI app. Validates settings before returning."""
+    """Build the FastAPI app. Validates settings and agent registry before returning."""
     clear_settings_cache()
     resolved = settings if settings is not None else get_settings()
     configure_logging(resolved.forge_service_name, resolved.forge_log_level)
+
+    try:
+        registry = load_registry(resolved.forge_agents_defs_dir or None)
+    except AgentLoadError:
+        # Re-raise with original message for clear startup failure.
+        raise
 
     application = FastAPI(
         title="Forge Agents",
@@ -46,11 +59,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     application.state.settings = resolved
+    application.state.registry = registry
     application.state.ready = False
     application.state.started_at = time.time()
 
     application.add_middleware(RequestIdMiddleware, logger=logger)
     application.include_router(health_router)
+    application.include_router(agents_router)
 
     @application.get("/")
     async def identity(request: Request) -> JSONResponse:
@@ -73,8 +88,14 @@ def main() -> None:
     """Run uvicorn with configured PORT (local `make dev`)."""
     import uvicorn
 
-    # Validate settings before binding so invalid PORT / URL exit non-zero.
+    # Validate settings + registry before binding so bad config exits non-zero.
     settings = get_settings()
+    try:
+        load_registry(settings.forge_agents_defs_dir or None)
+    except AgentLoadError as exc:
+        logger.error("agent registry load failed: %s", exc)
+        raise SystemExit(1) from exc
+
     uvicorn.run(
         "app.main:create_app",
         factory=True,

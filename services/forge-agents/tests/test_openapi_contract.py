@@ -1,10 +1,11 @@
-"""Contract tests for forge-agents OpenAPI skeleton."""
+"""Contract tests for forge-agents OpenAPI (agent registry schemas)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 
@@ -32,18 +33,66 @@ def _repo_openapi() -> Path:
 OPENAPI = _repo_openapi()
 
 
-def test_openapi_file_exists_and_declares_three_paths() -> None:
+def test_openapi_documents_agent_schema() -> None:
     if not OPENAPI.is_file():
         pytest.skip(f"canonical OpenAPI not in build context ({OPENAPI})")
-    text = OPENAPI.read_text(encoding="utf-8")
-    assert "openapi:" in text
-    assert "/health/live" in text
-    assert "/health/ready" in text
-    assert "\n  /:" in text
-    assert "forge-agents" in text
-    # No agent surface yet (15.02+)
-    assert "/v1/agents" not in text
-    assert "/v1/runs" not in text
+    doc = yaml.safe_load(OPENAPI.read_text(encoding="utf-8"))
+    paths = doc["paths"]
+    assert "/health/live" in paths
+    assert "/health/ready" in paths
+    assert "/" in paths
+    assert "/v1/agents" in paths
+    assert "/v1/agents/{name}" in paths
+    # Runs surface lands in 15.04+
+    assert "/v1/runs" not in paths
+
+    list_op = paths["/v1/agents"]["get"]
+    assert "200" in list_op["responses"]
+    get_op = paths["/v1/agents/{name}"]["get"]
+    assert "200" in get_op["responses"]
+    assert "404" in get_op["responses"]
+
+    schemas = doc["components"]["schemas"]
+    assert "Agent" in schemas
+    assert "AgentListResponse" in schemas
+    assert "AgentLimits" in schemas
+    assert "ErrorBody" in schemas
+    agent = schemas["Agent"]
+    assert set(agent["required"]) >= {
+        "name",
+        "model",
+        "tools",
+        "permissions",
+        "limits",
+    }
+    limits = schemas["AgentLimits"]
+    assert set(limits["required"]) >= {"max_steps", "timeout_seconds"}
+    assert limits["properties"]["max_steps"]["maximum"] == 100
+    assert limits["properties"]["timeout_seconds"]["maximum"] == 3600
+
+
+def test_list_and_get_responses_match_schema(client: TestClient) -> None:
+    listed = client.get("/v1/agents")
+    assert listed.status_code == 200
+    body = listed.json()
+    assert isinstance(body.get("agents"), list)
+    assert body["agents"], "expected packaged fixture agent"
+    for agent in body["agents"]:
+        for key in ("name", "model", "tools", "permissions", "limits"):
+            assert key in agent
+        assert "max_steps" in agent["limits"]
+        assert "timeout_seconds" in agent["limits"]
+
+    name = body["agents"][0]["name"]
+    detail = client.get(f"/v1/agents/{name}")
+    assert detail.status_code == 200
+    assert detail.json()["name"] == name
+
+    missing = client.get("/v1/agents/nope")
+    assert missing.status_code == 404
+    err = missing.json()
+    assert err["code"] == "agent_not_found"
+    assert "error" in err
 
 
 def test_live_ready_identity_match_contract(client: TestClient) -> None:
