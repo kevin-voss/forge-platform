@@ -146,8 +146,17 @@ a per-check severity.
 
 ## 7. Findings integration
 
-`findings.ts` is the only writer to [`PLATFORM_FINDINGS.md`](PLATFORM_FINDINGS.md) and a machine
--readable `artifacts/findings.json`. API:
+### 50.04 outcome — findings collector
+
+**Landed:** `tests/e2e/harness/findings.ts` is the only automated writer to
+[`PLATFORM_FINDINGS.md`](PLATFORM_FINDINGS.md) and `artifacts/findings.json`.
+`record({service, demo, severity, title, …})` appends a template block, updates summary /
+by-service / by-demo counters, merges JSON, and dedupes by `service+title`.
+`platform.expect(service, fn, {severity})` catches platform-assertion throws, records a finding
+with captured evidence, and returns `failed` (blocker) or `degraded` (major/minor) without
+hard-failing the suite — ordinary Playwright `expect` stays for product bugs.
+
+API:
 
 ```ts
 findings.record({
