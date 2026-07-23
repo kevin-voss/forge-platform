@@ -433,6 +433,11 @@ components:
           type: integer
         desiredReplicas:
           type: integer
+        lastScaleTime:
+          type: string
+          format: date-time
+        lastRecommendation:
+          $ref: "#/components/schemas/Recommendation"
         recommendations:
           type: array
           items:

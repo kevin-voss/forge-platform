@@ -974,6 +974,7 @@ services:
       FORGE_GATEWAY_ADMIN_URL: http://forge-gateway:8080
       FORGE_EVENTS_URL: http://forge-events:8080
       FORGE_RUNTIME_URL: http://forge-runtime:8080
+      FORGE_CONTROL_URL: http://forge-control:8080
     depends_on:
       postgres:
         condition: service_healthy

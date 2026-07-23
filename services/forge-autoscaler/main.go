@@ -13,12 +13,14 @@ import (
 	"syscall"
 	"time"
 
+	"forge.local/services/forge-autoscaler/internal/actuate"
 	"forge.local/services/forge-autoscaler/internal/config"
 	"forge.local/services/forge-autoscaler/internal/evaluate"
 	"forge.local/services/forge-autoscaler/internal/health"
 	httpserver "forge.local/services/forge-autoscaler/internal/http"
 	"forge.local/services/forge-autoscaler/internal/metrics"
 	"forge.local/services/forge-autoscaler/internal/policy"
+	"forge.local/services/forge-autoscaler/internal/telemetry"
 )
 
 func main() {
@@ -41,6 +43,7 @@ func run() error {
 		"auth_mode", cfg.AuthMode,
 		"eval_interval_ms", int(cfg.EvalInterval.Milliseconds()),
 		"metric_source", cfg.MetricSourceMode,
+		"control_url", cfg.ControlURL,
 		"shutdown_grace_seconds", int(cfg.ShutdownGrace.Seconds()),
 	)
 
@@ -63,10 +66,13 @@ func run() error {
 		Fake:    fake,
 		Prefer:  cfg.MetricSourceMode,
 	}
+	actuator := &actuate.ApplicationClient{BaseURL: cfg.ControlURL}
+	tel := telemetry.NewRegistry()
 
 	ready := health.NewReadiness(db)
 	mux := http.NewServeMux()
 	health.NewHandler(ready).Register(mux)
+	mux.Handle("/metrics", tel.Handler())
 	(&httpserver.Routes{Store: store, Hub: hub}).Register(mux)
 
 	httpServer := &http.Server{
@@ -85,10 +91,13 @@ func run() error {
 	defer bgCancel()
 
 	loop := &evaluate.Loop{
-		Store:    store,
-		Source:   router,
-		Interval: cfg.EvalInterval,
-		Log:      log,
+		Store:      store,
+		Source:     router,
+		Actuator:   actuator,
+		Stabilizer: evaluate.NewStabilizer(),
+		Metrics:    tel,
+		Interval:   cfg.EvalInterval,
+		Log:        log,
 	}
 	go loop.Run(bgCtx)
 

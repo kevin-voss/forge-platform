@@ -43,7 +43,21 @@ func (r *Router) Fetch(ctx context.Context, target policy.TargetRef, metric poli
 	switch strings.ToLower(strings.TrimSpace(metric.Type)) {
 	case "cpu", "memory", "custom":
 		if r.Observe != nil {
-			return r.Observe.Fetch(ctx, target, metric)
+			sample, err := r.Observe.Fetch(ctx, target, metric)
+			if err == nil {
+				return sample, nil
+			}
+			// Local / degraded path: fall back to Runtime for cpu/memory only.
+			if isCPUOrMemory(metric.Type) && r.Runtime != nil {
+				fallback, ferr := r.Runtime.Fetch(ctx, target, metric)
+				if ferr == nil {
+					return fallback, nil
+				}
+			}
+			return Sample{}, err
+		}
+		if isCPUOrMemory(metric.Type) && r.Runtime != nil {
+			return r.Runtime.Fetch(ctx, target, metric)
 		}
 	case "requestrate", "request_rate", "latency", "errorrate", "error_rate":
 		if r.Gateway != nil {
@@ -62,6 +76,15 @@ func (r *Router) Fetch(ctx context.Context, target policy.TargetRef, metric poli
 		return r.Runtime.Fetch(ctx, target, metric)
 	}
 	return Sample{}, ErrNotImplemented
+}
+
+func isCPUOrMemory(metricType string) bool {
+	switch strings.ToLower(strings.TrimSpace(metricType)) {
+	case "cpu", "memory":
+		return true
+	default:
+		return false
+	}
 }
 
 // TargetAverage returns the configured target value for a metric, if any.

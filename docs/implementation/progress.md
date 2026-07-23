@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 161`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 162`**.
 
 ## Epics
 
@@ -185,7 +185,7 @@ next implementable step is still the one named at the top of this file. Plan:
 | [21](epics/21-forge-discovery.md) | Forge Discovery | M1 | Complete | 6/6 steps; demo 21 service-discovery acceptance gate passed |
 | [22](epics/22-forge-network.md) | Forge Network | M1 | Complete | 7/7 steps; demo 22 forge-network acceptance gate passed |
 | [23](epics/23-forge-infrastructure.md) | Forge Infrastructure | M1 | Complete | 7/7 steps; demo 23 local-cloud-simulation gate passed |
-| [24](epics/24-forge-autoscaler.md) | Forge Autoscaler | M1 | In progress | 1/8 steps; `ScalingPolicy` skeleton + metric sources on `4112` |
+| [24](epics/24-forge-autoscaler.md) | Forge Autoscaler | M1 | In progress | 2/8 steps; CPU/memory HPA actuation patches Application desired replicas |
 | [25](epics/25-scheduling-enhancements.md) | Scheduling enhancements | M1 | Planning | 6 steps (`N = 168`–`173`); M1 exit gate |
 | [26](epics/26-forge-registry.md) | Forge Registry | M2 | Catalog | steps not yet materialized |
 | [27](epics/27-deployment-strategies.md) | Deployment strategies | M2 | Catalog | canary, blue-green, traffic shifting |
@@ -239,7 +239,8 @@ next implementable step is still the one named at the top of this file. Plan:
 | **158** | [AWS EC2 + Azure VM provider adapters](steps/23-forge-infrastructure/23.06-aws-and-azure-providers.md) | Complete |  | `aws`/`azure` adapters; tag idempotency; pricing catalog; IAM/RBAC docs |
 | **159** | [Demo `23-local-cloud-simulation` + epic gate](steps/23-forge-infrastructure/23.07-demo-23-local-cloud-simulation.md) | Complete |  | `make demo DEMO=23`; Docker provider scale/drain; optional cloud targets documented |
 | **160** | [Skeleton, ScalingPolicy resource, metric sources](steps/24-forge-autoscaler/24.01-skeleton-scalingpolicy-and-metric-sources.md) | Complete |  | `forge-autoscaler` on `4112`; `ScalingPolicy` CRUD/status/watch; `MetricSource` + FakeSource; eval loop records recommendations only |
-| **161**–**167** | Epic 24 — remaining (`24.02`–`24.08`) | Not started |  | |
+| **161** | [CPU/memory workload autoscaling](steps/24-forge-autoscaler/24.02-workload-cpu-memory-autoscaling.md) | Complete |  | Utilization math, stabilization, rate limits; Observe+Runtime sources; Application actuation |
+| **162**–**167** | Epic 24 — remaining (`24.03`–`24.08`) | Not started |  | |
 | **168**–**173** | Epic 25 — Scheduling enhancements (`25.01`–`25.06`) | Not started |  | |
 
 Per-step rows live in each epic's steps README; the global lookup is

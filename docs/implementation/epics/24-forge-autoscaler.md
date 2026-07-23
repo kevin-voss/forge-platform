@@ -121,7 +121,7 @@ Phase 4 — scale-down
 | Step | N | Title | Status | Notes |
 |---|---:|---|---|---|
 | [24.01](../steps/24-forge-autoscaler/24.01-skeleton-scalingpolicy-and-metric-sources.md) | 160 | Service skeleton, `ScalingPolicy` resource, metric sources | Complete | Go service on `4112`; pluggable `MetricSource`; recommendations only, no actuation |
-| [24.02](../steps/24-forge-autoscaler/24.02-workload-cpu-memory-autoscaling.md) | 161 | CPU/memory workload autoscaling | Not started | Utilization math, desired-replica formula, dampening; first real actuation |
+| [24.02](../steps/24-forge-autoscaler/24.02-workload-cpu-memory-autoscaling.md) | 161 | CPU/memory workload autoscaling | Complete | Utilization math, dampening, Application actuation via resource API |
 | [24.03](../steps/24-forge-autoscaler/24.03-request-rate-and-latency-autoscaling.md) | 162 | Request-rate, latency, error-rate autoscaling | Not started | Gateway-sourced metrics + custom app metric hook |
 | [24.04](../steps/24-forge-autoscaler/24.04-worker-queue-depth-autoscaling.md) | 163 | Worker autoscaling from queue signals | Not started | Events-sourced today, Queue-sourced later; scale-to-low, drain-safe shutdown |
 | [24.05](../steps/24-forge-autoscaler/24.05-scheduled-scaling-and-overrides.md) | 164 | Scheduled scaling, manual override, safety fallbacks | Not started | Cron + timezone, override precedence, deployment freeze, metric-outage hold |
@@ -149,4 +149,4 @@ Phase 4 — scale-down
 
 ## Next step to implement
 
-**[24.02](../steps/24-forge-autoscaler/24.02-workload-cpu-memory-autoscaling.md) — CPU/memory workload autoscaling** (utilization math, desired-replica formula, dampening; first real actuation).
+**[24.03](../steps/24-forge-autoscaler/24.03-request-rate-and-latency-autoscaling.md) — Request-rate, latency, and error-rate autoscaling**.

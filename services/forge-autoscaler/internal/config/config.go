@@ -28,6 +28,7 @@ type Config struct {
 	GatewayAdminURL  string
 	EventsURL        string
 	RuntimeURL       string
+	ControlURL       string
 	MetricSourceMode string // auto|fake — fake forces FakeSource for demos/tests
 }
 
@@ -117,6 +118,11 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("FORGE_AUTOSCALER_METRIC_SOURCE must be auto|fake, got %q", mode)
 	}
 
+	controlURL := firstNonEmpty(os.Getenv("FORGE_CONTROL_URL"), os.Getenv("FORGE_AUTOSCALER_CONTROL_URL"))
+	if controlURL == "" {
+		controlURL = "http://127.0.0.1:4001"
+	}
+
 	return Config{
 		Port:                   port,
 		ServiceName:            name,
@@ -133,6 +139,7 @@ func Load() (Config, error) {
 		GatewayAdminURL:        strings.TrimRight(strings.TrimSpace(os.Getenv("FORGE_GATEWAY_ADMIN_URL")), "/"),
 		EventsURL:              strings.TrimRight(strings.TrimSpace(os.Getenv("FORGE_EVENTS_URL")), "/"),
 		RuntimeURL:             strings.TrimRight(strings.TrimSpace(os.Getenv("FORGE_RUNTIME_URL")), "/"),
+		ControlURL:             strings.TrimRight(strings.TrimSpace(controlURL), "/"),
 		MetricSourceMode:       mode,
 	}, nil
 }

@@ -83,6 +83,8 @@ type ScalingPolicyStatus struct {
 	ObservedGeneration int              `json:"observedGeneration"`
 	CurrentReplicas    int              `json:"currentReplicas"`
 	DesiredReplicas    int              `json:"desiredReplicas"`
+	LastScaleTime      string           `json:"lastScaleTime,omitempty"`
+	LastRecommendation *Recommendation  `json:"lastRecommendation,omitempty"`
 	Recommendations    []Recommendation `json:"recommendations"`
 	Conditions         []Condition      `json:"conditions"`
 }
