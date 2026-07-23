@@ -424,3 +424,17 @@ func (f *fakeRegistry) Create(ctx context.Context, plural string, res registrycl
 	}
 	return &res, nil
 }
+
+func (f *fakeRegistry) Delete(ctx context.Context, plural, name string) error {
+	if plural != "nodes" {
+		return nil
+	}
+	out := f.nodes[:0]
+	for _, n := range f.nodes {
+		if n.Metadata.Name != name {
+			out = append(out, n)
+		}
+	}
+	f.nodes = out
+	return nil
+}

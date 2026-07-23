@@ -76,6 +76,12 @@ type CreateNodeRequest struct {
 	Labels      map[string]string `json:"labels,omitempty"`
 	NodePool    string            `json:"nodePool,omitempty"`
 	Slot        int               `json:"slot,omitempty"`
+	// BootstrapToken is a single-use epic-22 token; never log unmasked.
+	BootstrapToken string `json:"bootstrapToken,omitempty"`
+	// UserData is optional cloud-init / install script rendered by bootstrap.Payload.
+	UserData string `json:"userData,omitempty"`
+	// Env is optional provider-agnostic env injected at create (e.g. docker).
+	Env map[string]string `json:"env,omitempty"`
 }
 
 // AttachDiskRequest attaches a disk to a node.

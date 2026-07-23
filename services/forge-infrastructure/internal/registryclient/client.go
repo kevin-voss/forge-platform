@@ -284,6 +284,18 @@ func (c *Client) PutStatus(ctx context.Context, plural, name, resourceVersion st
 	return &out, nil
 }
 
+// Delete removes a cluster-scoped resource by plural + name.
+func (c *Client) Delete(ctx context.Context, plural, name string) error {
+	_, status, err := c.doRaw(ctx, http.MethodDelete, fmt.Sprintf("/v1/%s/%s", plural, name), nil, false)
+	if err != nil {
+		return err
+	}
+	if status == http.StatusNotFound || status == http.StatusNoContent || (status >= 200 && status < 300) {
+		return nil
+	}
+	return fmt.Errorf("DELETE /v1/%s/%s: status %d", plural, name, status)
+}
+
 // WatchEvent is one SSE frame from GET /v1/watch/{plural}.
 type WatchEvent struct {
 	Type            string   `json:"type"`

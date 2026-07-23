@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"forge.local/services/forge-infrastructure/internal/bootstrap"
+	"forge.local/services/forge-infrastructure/internal/bootstraptoken"
 	"forge.local/services/forge-infrastructure/internal/operations"
 	"forge.local/services/forge-infrastructure/internal/provider"
 	"forge.local/services/forge-infrastructure/internal/registryclient"
@@ -21,6 +23,12 @@ type RegistryAPI interface {
 	Get(ctx context.Context, plural, name string) (*registryclient.Resource, error)
 	PutStatus(ctx context.Context, plural, name, resourceVersion string, status map[string]any) (*registryclient.Resource, error)
 	Create(ctx context.Context, plural string, res registryclient.Resource) (*registryclient.Resource, error)
+	Delete(ctx context.Context, plural, name string) error
+}
+
+// TokenIssuer requests a single-use bootstrap token per CreateNode.
+type TokenIssuer interface {
+	Issue(ctx context.Context, nodePool string, ttlSeconds int64) (*bootstraptoken.Issued, error)
 }
 
 // OpLedger is the subset of operations.Ledger used by the controller.
@@ -40,11 +48,13 @@ type NodePoolController struct {
 	Registry  RegistryAPI
 	Ledger    OpLedger
 	Providers ProviderResolver
+	Nodes     *NodeController
+	Tokens    TokenIssuer
 	Log       *slog.Logger
 	Interval  time.Duration
 
-	// CreateNodeFn / DeleteNodeFn allow tests to observe provider calls.
-	// When nil, the resolved Provider methods are used.
+	ControlURL   string
+	RuntimeImage string
 }
 
 // Run polls NodePools until ctx is cancelled.
@@ -92,7 +102,26 @@ func (c *NodePoolController) ReconcileAll(ctx context.Context) {
 					"error", err.Error(),
 				)
 			}
+			c.advanceOwnedNodes(ctx, pool.Metadata.Name)
 		}(pools[i])
+	}
+}
+
+func (c *NodePoolController) advanceOwnedNodes(ctx context.Context, poolName string) {
+	if c.Nodes == nil {
+		return
+	}
+	nodes, err := c.listOwnedNodes(ctx, poolName)
+	if err != nil {
+		return
+	}
+	for _, n := range nodes {
+		if err := c.Nodes.Reconcile(ctx, n); err != nil && c.Log != nil {
+			c.Log.Warn("node reconcile failed",
+				"node", n.Metadata.Name,
+				"error", err.Error(),
+			)
+		}
 	}
 }
 
@@ -158,7 +187,18 @@ func (c *NodePoolController) Reconcile(ctx context.Context, pool registryclient.
 			Slot:        slot,
 			Labels:      map[string]string{"forge.local/node-pool": name},
 		}
-		begin, err := c.Ledger.Begin(ctx, providerRef, operations.KindCreateNode, operations.TargetNode, naturalKey, req)
+		if err := c.attachBootstrap(ctx, &req); err != nil && c.Log != nil {
+			c.Log.Warn("bootstrap token attach failed",
+				"nodepool", name,
+				"error", err.Error(),
+			)
+		}
+		// Persist a redacted request so bootstrap tokens never sit unmasked in the ledger.
+		ledgerReq := req
+		ledgerReq.BootstrapToken = bootstrap.MaskToken(req.BootstrapToken)
+		ledgerReq.UserData = "[redacted]"
+		ledgerReq.Env = nil
+		begin, err := c.Ledger.Begin(ctx, providerRef, operations.KindCreateNode, operations.TargetNode, naturalKey, ledgerReq)
 		if err != nil {
 			return err
 		}
@@ -188,35 +228,37 @@ func (c *NodePoolController) Reconcile(ctx context.Context, pool registryclient.
 	} else if ready > replicas {
 		victim := mostRecentNode(nodes)
 		if victim != nil {
-			providerNodeID := stringFromSpec(victim.Spec, "providerNodeId")
-			if providerNodeID == "" {
-				providerNodeID = victim.Metadata.Name
-			}
-			naturalKey := victim.Metadata.Name
-			begin, err := c.Ledger.Begin(ctx, providerRef, operations.KindDeleteNode, operations.TargetNode, naturalKey, map[string]any{
-				"providerNodeId": providerNodeID,
-			})
-			if err != nil {
-				return err
-			}
-			opID = begin.Op.ID
-			action = "delete_node"
-			if begin.SkipProvider {
-				if begin.Op.Status == operations.StatusPending {
-					action = "delete_node_pending"
-				} else {
-					action = "delete_node_cached"
-				}
-			} else {
-				callErr := provRes.DeleteNode(ctx, begin.Op.ID, providerNodeID)
-				if err := c.Ledger.Complete(ctx, begin.Op.ID, nil, callErr); err != nil {
+			action = "drain_node"
+			if c.Nodes != nil {
+				if err := c.Nodes.RequestDrain(ctx, *victim); err != nil {
 					return err
 				}
-				if callErr != nil {
-					if errors.Is(callErr, provider.ErrProviderNotConfigured) {
-						return c.writeProviderNotConfigured(ctx, pool, ready, callErr)
+			} else {
+				// Fallback (tests without NodeController): immediate delete via ledger.
+				providerNodeID := stringFromSpec(victim.Spec, "providerNodeId")
+				if providerNodeID == "" {
+					providerNodeID = victim.Metadata.Name
+				}
+				naturalKey := victim.Metadata.Name
+				begin, err := c.Ledger.Begin(ctx, providerRef, operations.KindDeleteNode, operations.TargetNode, naturalKey, map[string]any{
+					"providerNodeId": providerNodeID,
+				})
+				if err != nil {
+					return err
+				}
+				opID = begin.Op.ID
+				action = "delete_node"
+				if !begin.SkipProvider {
+					callErr := provRes.DeleteNode(ctx, begin.Op.ID, providerNodeID)
+					if err := c.Ledger.Complete(ctx, begin.Op.ID, nil, callErr); err != nil {
+						return err
 					}
-					return c.writeDegraded(ctx, pool, ready, callErr)
+					if callErr != nil {
+						if errors.Is(callErr, provider.ErrProviderNotConfigured) {
+							return c.writeProviderNotConfigured(ctx, pool, ready, callErr)
+						}
+						return c.writeDegraded(ctx, pool, ready, callErr)
+					}
 				}
 			}
 		}
@@ -379,7 +421,7 @@ func (c *NodePoolController) ensureNodeResource(ctx context.Context, poolName, n
 	if existing != nil {
 		return existing, nil
 	}
-	return c.Registry.Create(ctx, "nodes", registryclient.Resource{
+	created, err := c.Registry.Create(ctx, "nodes", registryclient.Resource{
 		APIVersion: "forge.dev/v1",
 		Kind:       "Node",
 		Metadata: registryclient.Metadata{
@@ -391,10 +433,78 @@ func (c *NodePoolController) ensureNodeResource(ctx context.Context, poolName, n
 			"providerNodeId": pn.ID,
 		},
 		Status: map[string]any{
-			"phase":   "Provisioning",
+			"phase":   PhaseProvisioning,
 			"address": pn.Address,
 		},
 	})
+	if err != nil {
+		return nil, err
+	}
+	if c.Nodes != nil && c.Nodes.Timers != nil && created != nil {
+		nodeID := created.Metadata.ID
+		if nodeID == "" {
+			nodeID = created.Metadata.Name
+		}
+		_ = c.Nodes.ensureTimer(ctx, nodeID, PhaseProvisioning)
+	}
+	return created, nil
+}
+
+func (c *NodePoolController) attachBootstrap(ctx context.Context, req *provider.CreateNodeRequest) error {
+	token := ""
+	if c.Tokens != nil {
+		issued, err := c.Tokens.Issue(ctx, req.NodePool, 900)
+		if err != nil {
+			return err
+		}
+		if issued != nil {
+			token = issued.Token
+		}
+	}
+	controlURL := c.ControlURL
+	if controlURL == "" {
+		controlURL = "http://forge-control:8080"
+	}
+	image := c.RuntimeImage
+	if image == "" {
+		image = "forge/forge-runtime:local"
+	}
+	payload := bootstrap.Payload{
+		ControlURL:     controlURL,
+		BootstrapToken: token,
+		NodePool:       req.NodePool,
+		RuntimeImage:   image,
+	}
+	req.BootstrapToken = token
+	req.UserData = bootstrap.RenderCloudInit(payload)
+	req.Env = payload.EnvMap()
+	if c.Log != nil {
+		safe := payload.LogSafe()
+		c.Log.Info("bootstrap payload rendered",
+			"node_pool", safe["node_pool"],
+			"control_url", safe["control_url"],
+			"bootstrap_token", safe["bootstrap_token"],
+			"runtime_image", safe["runtime_image"],
+		)
+	}
+	return nil
+}
+
+// ResolveProviderForPool looks up the InfrastructureProvider for a NodePool.
+func (c *NodePoolController) ResolveProviderForPool(ctx context.Context, poolName string) (provider.Provider, string, error) {
+	pool, err := c.Registry.Get(ctx, "nodepools", poolName)
+	if err != nil {
+		return nil, "", err
+	}
+	if pool == nil {
+		return nil, "", fmt.Errorf("%w: NodePool %q not found", provider.ErrProviderNotConfigured, poolName)
+	}
+	providerRef := stringFromSpec(pool.Spec, "providerRef")
+	p, _, _, err := c.resolveProvider(ctx, providerRef)
+	if err != nil {
+		return nil, providerRef, err
+	}
+	return p, providerRef, nil
 }
 
 func countReadyish(nodes []registryclient.Resource) int {

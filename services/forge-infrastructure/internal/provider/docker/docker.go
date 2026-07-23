@@ -203,15 +203,37 @@ func (p *Provider) CreateNode(ctx context.Context, opID string, req provider.Cre
 		return nil, fmt.Errorf("volume create: %w", err)
 	}
 
+	controlURL := p.cfg.ControlURL
+	if req.Env != nil {
+		if v := strings.TrimSpace(req.Env["FORGE_CONTROL_URL"]); v != "" {
+			controlURL = v
+		}
+	}
 	env := []string{
 		"PORT=8080",
 		"FORGE_AUTH_MODE=dev",
-		"FORGE_CONTROL_URL=" + p.cfg.ControlURL,
+		"FORGE_CONTROL_URL=" + controlURL,
 		"FORGE_RUNTIME_DATA_DIR=/var/lib/forge-runtime",
 		"FORGE_NODE_SLOTS=" + strconv.Itoa(mt.Slots),
 		"FORGE_NODE_ADDRESS=http://" + name + ":8080",
 		"FORGE_SERVICE_NAME=forge-runtime",
 		"FORGE_LIFECYCLE_OWNER=control",
+	}
+	if tok := strings.TrimSpace(req.BootstrapToken); tok != "" {
+		env = append(env, "FORGE_NODE_BOOTSTRAP_TOKEN="+tok)
+	} else if req.Env != nil {
+		if tok := strings.TrimSpace(req.Env["FORGE_NODE_BOOTSTRAP_TOKEN"]); tok != "" {
+			env = append(env, "FORGE_NODE_BOOTSTRAP_TOKEN="+tok)
+		}
+	}
+	for k, v := range req.Env {
+		if k == "FORGE_CONTROL_URL" || k == "FORGE_NODE_BOOTSTRAP_TOKEN" {
+			continue
+		}
+		if strings.TrimSpace(k) == "" {
+			continue
+		}
+		env = append(env, k+"="+v)
 	}
 
 	containerID, err := p.engine.ContainerCreate(ctx, name, ContainerConfig{

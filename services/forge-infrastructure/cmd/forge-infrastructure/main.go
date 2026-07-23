@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"forge.local/services/forge-infrastructure/internal/api"
+	"forge.local/services/forge-infrastructure/internal/bootstraptoken"
 	"forge.local/services/forge-infrastructure/internal/config"
 	"forge.local/services/forge-infrastructure/internal/controller"
 	"forge.local/services/forge-infrastructure/internal/health"
@@ -79,13 +80,45 @@ func run() error {
 	health.NewHandler(ready).Register(mux)
 	(&api.Handler{Ledger: ledger}).Register(mux)
 
-	ctrl := &controller.NodePoolController{
-		Registry:  registryClient,
-		Ledger:    ledger,
-		Providers: reg,
-		Log:       log,
-		Interval:  cfg.ReconcileInterval,
+	timers := &controller.PGTimers{Pool: db.Pool, Schema: cfg.DatabaseSchema}
+	tokenClient := bootstraptoken.New(cfg.BootstrapTokenURL, cfg.BootstrapOrganization, cfg.AuthMode)
+	var eventPub controller.EventPublisher
+	if cfg.EventsURL != "" {
+		eventPub = &controller.HTTPEvents{BaseURL: cfg.EventsURL, Source: cfg.ServiceName}
+	} else {
+		eventPub = &controller.MemoryEvents{}
 	}
+
+	nodeCtrl := &controller.NodeController{
+		Registry: registryClient,
+		Ledger:   ledger,
+		Timers:   timers,
+		Drain:    controller.NewControlDrainHook(cfg.ControlURLForNodes),
+		Events:   eventPub,
+		Machines: controller.ProviderMachineObserver{},
+		Health:   &controller.HTTPHealthProber{},
+		Join:     &controller.ControlJoinObserver{ControlURL: cfg.ControlURLForNodes},
+		Timeouts: controller.NodeTimeouts{
+			Provision: time.Duration(cfg.ProvisionTimeoutSeconds) * time.Second,
+			Bootstrap: time.Duration(cfg.BootstrapTimeoutSeconds) * time.Second,
+			Join:      time.Duration(cfg.JoinTimeoutSeconds) * time.Second,
+			Drain:     time.Duration(cfg.DrainTimeoutSeconds) * time.Second,
+		},
+		Log: log,
+	}
+
+	ctrl := &controller.NodePoolController{
+		Registry:     registryClient,
+		Ledger:       ledger,
+		Providers:    reg,
+		Nodes:        nodeCtrl,
+		Tokens:       tokenClient,
+		Log:          log,
+		Interval:     cfg.ReconcileInterval,
+		ControlURL:   cfg.ControlURLForNodes,
+		RuntimeImage: cfg.RuntimeImage,
+	}
+	nodeCtrl.ResolveProvider = ctrl.ResolveProviderForPool
 
 	orphan := &docker.OrphanReconciler{
 		Provider: dockerProv,

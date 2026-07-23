@@ -136,6 +136,16 @@ func (f *fakeRegistry) PutStatus(ctx context.Context, plural, name, resourceVers
 			return &p, nil
 		}
 	}
+	if plural == "nodes" {
+		for i, n := range f.nodes {
+			if n.Metadata.Name == name {
+				n.Status = status
+				n.Metadata.ResourceVersion = resourceVersion
+				f.nodes[i] = n
+				return &n, nil
+			}
+		}
+	}
 	return &registryclient.Resource{Metadata: registryclient.Metadata{Name: name, ResourceVersion: resourceVersion}, Status: status}, nil
 }
 
@@ -146,6 +156,22 @@ func (f *fakeRegistry) Create(ctx context.Context, plural string, res registrycl
 		f.nodes = append(f.nodes, res)
 	}
 	return &res, nil
+}
+
+func (f *fakeRegistry) Delete(ctx context.Context, plural, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if plural != "nodes" {
+		return nil
+	}
+	out := f.nodes[:0]
+	for _, n := range f.nodes {
+		if n.Metadata.Name != name {
+			out = append(out, n)
+		}
+	}
+	f.nodes = out
+	return nil
 }
 
 type countingProvider struct {

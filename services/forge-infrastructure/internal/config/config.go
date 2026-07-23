@@ -32,6 +32,15 @@ type Config struct {
 	DockerHostAddress  string
 	OrphanScanInterval time.Duration
 	ControlURLForNodes string
+
+	ProvisionTimeoutSeconds int
+	BootstrapTimeoutSeconds int
+	JoinTimeoutSeconds      int
+	DrainTimeoutSeconds     int
+	BootstrapTokenURL       string
+	BootstrapOrganization   string
+	RuntimeImage            string
+	EventsURL               string
 }
 
 // Load reads configuration from the process environment.
@@ -155,25 +164,75 @@ func Load() (Config, error) {
 		controlURLNodes = "http://forge-control:8080"
 	}
 
+	provisionTO, err := envIntDefault("FORGE_NODE_PROVISION_TIMEOUT_SECONDS", 180)
+	if err != nil {
+		return Config{}, err
+	}
+	bootstrapTO, err := envIntDefault("FORGE_NODE_BOOTSTRAP_TIMEOUT_SECONDS", 600)
+	if err != nil {
+		return Config{}, err
+	}
+	joinTO, err := envIntDefault("FORGE_NODE_JOIN_TIMEOUT_SECONDS", 120)
+	if err != nil {
+		return Config{}, err
+	}
+	drainTO, err := envIntDefault("FORGE_NODE_DRAIN_TIMEOUT_SECONDS", 300)
+	if err != nil {
+		return Config{}, err
+	}
+	tokenURL := strings.TrimSpace(os.Getenv("FORGE_BOOTSTRAP_TOKEN_URL"))
+	if tokenURL == "" {
+		tokenURL = strings.TrimRight(controlURLNodes, "/")
+	}
+	org := strings.TrimSpace(os.Getenv("FORGE_BOOTSTRAP_ORGANIZATION"))
+	if org == "" {
+		org = "forge"
+	}
+	runtimeImage := strings.TrimSpace(os.Getenv("FORGE_RUNTIME_IMAGE"))
+	if runtimeImage == "" {
+		runtimeImage = dockerImage
+	}
+	eventsURL := strings.TrimSpace(os.Getenv("FORGE_EVENTS_URL"))
+
 	return Config{
-		Port:                   port,
-		ServiceName:            name,
-		ServiceVersion:         version,
-		LogLevel:               level,
-		Env:                    env,
-		AuthMode:               authMode,
-		ShutdownGrace:          time.Duration(graceSecs) * time.Second,
-		DatabaseURL:            dbURL,
-		DatabaseSchema:         schema,
-		DatabasePoolMax:        poolMax,
-		DatabaseMigrateOnStart: migrateOnStart,
-		RegistryURL:            strings.TrimRight(registryURL, "/"),
-		ReconcileInterval:      time.Duration(intervalMs) * time.Millisecond,
-		DockerSocket:           dockerSocket,
-		DockerNetwork:          dockerNetwork,
-		DockerImage:            dockerImage,
-		DockerHostAddress:      dockerHostAddr,
-		OrphanScanInterval:     time.Duration(orphanSecs) * time.Second,
-		ControlURLForNodes:     strings.TrimRight(controlURLNodes, "/"),
+		Port:                    port,
+		ServiceName:             name,
+		ServiceVersion:          version,
+		LogLevel:                level,
+		Env:                     env,
+		AuthMode:                authMode,
+		ShutdownGrace:           time.Duration(graceSecs) * time.Second,
+		DatabaseURL:             dbURL,
+		DatabaseSchema:          schema,
+		DatabasePoolMax:         poolMax,
+		DatabaseMigrateOnStart:  migrateOnStart,
+		RegistryURL:             strings.TrimRight(registryURL, "/"),
+		ReconcileInterval:       time.Duration(intervalMs) * time.Millisecond,
+		DockerSocket:            dockerSocket,
+		DockerNetwork:           dockerNetwork,
+		DockerImage:             dockerImage,
+		DockerHostAddress:       dockerHostAddr,
+		OrphanScanInterval:      time.Duration(orphanSecs) * time.Second,
+		ControlURLForNodes:      strings.TrimRight(controlURLNodes, "/"),
+		ProvisionTimeoutSeconds: provisionTO,
+		BootstrapTimeoutSeconds: bootstrapTO,
+		JoinTimeoutSeconds:      joinTO,
+		DrainTimeoutSeconds:     drainTO,
+		BootstrapTokenURL:       strings.TrimRight(tokenURL, "/"),
+		BootstrapOrganization:   org,
+		RuntimeImage:            runtimeImage,
+		EventsURL:               strings.TrimRight(eventsURL, "/"),
 	}, nil
+}
+
+func envIntDefault(key string, def int) (int, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("%s must be a positive integer, got %q", key, raw)
+	}
+	return n, nil
 }
