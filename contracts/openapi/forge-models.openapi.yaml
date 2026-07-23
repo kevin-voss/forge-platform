@@ -1,0 +1,108 @@
+openapi: 3.0.3
+info:
+  title: Forge Models API
+  version: 0.1.0
+  description: |
+    Platform model-serving service (epic 14). Health/identity from 14.01;
+    registry, embeddings, generate/classify/summarize, streaming, and usage
+    metrics land in later steps.
+servers:
+  - url: http://127.0.0.1:4300
+    description: Local Compose (host port 4300)
+
+paths:
+  /health/live:
+    get:
+      operationId: getHealthLive
+      summary: Liveness probe
+      description: Returns 200 when the process is alive.
+      responses:
+        "200":
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: live
+
+  /health/ready:
+    get:
+      operationId: getHealthReady
+      summary: Readiness probe
+      description: |
+        Returns 200 when configuration parsed successfully and backend
+        selection (`FORGE_MODELS_BACKEND`) was validated at startup; 503 otherwise.
+      responses:
+        "200":
+          description: Ready to receive traffic
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: ready
+        "503":
+          description: Not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: not_ready
+
+  /:
+    get:
+      operationId: getIdentity
+      summary: Service identity
+      description: |
+        Returns JSON identity for the running service. Required fields match the
+        epic-01 runtime contract: service, language, status.
+      responses:
+        "200":
+          description: Identity payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Identity"
+              example:
+                service: forge-models
+                language: python
+                status: running
+                version: 0.1.0
+                uptime_seconds: 12.5
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      additionalProperties: true
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          description: Short health indicator (live, ready, not_ready)
+
+    Identity:
+      type: object
+      required:
+        - service
+        - language
+        - status
+      properties:
+        service:
+          type: string
+          example: forge-models
+        language:
+          type: string
+          example: python
+        status:
+          type: string
+          example: running
+        version:
+          type: string
+          example: 0.1.0
+        uptime_seconds:
+          type: number
+          example: 12.5

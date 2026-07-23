@@ -45,6 +45,12 @@
 | Forge Observe | 4106 |
 | Forge Storage | 4107 |
 
+## AI and model services
+
+| Service | Host port |
+|---|---:|
+| Forge Models | 4300 |
+
 ## Reserved for the standalone-cloud phase (epics 20–43)
 
 Not yet allocated — reserved so future service skeletons stay consistent. Plan:

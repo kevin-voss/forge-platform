@@ -27,6 +27,7 @@ Platform control-plane services are added as later **epics**, each planned into 
 | Service | Language | Host port | Notes |
 |---|---|---:|---|
 | Forge Storage | Rust (Axum) | 4107 | Local FS backend at `FORGE_STORAGE_ROOT`; object APIs in later epic-13 steps |
+| Forge Models | Python (FastAPI) | 4300 | Model-serving skeleton (`FORGE_MODELS_BACKEND=fake\|local`); inference in later epic-14 steps |
 
 ## Where this is heading
 
