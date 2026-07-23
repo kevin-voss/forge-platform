@@ -49,6 +49,14 @@ type Config struct {
 	HetznerAPIBase            string
 	HetznerMaxConcurrentOps   int
 	HetznerOrphanScanInterval time.Duration
+
+	AWSMaxConcurrentOps   int
+	AWSOrphanScanInterval time.Duration
+	AWSAPIBase            string
+
+	AzureMaxConcurrentOps   int
+	AzureOrphanScanInterval time.Duration
+	AzureARMBase            string
 }
 
 // Load reads configuration from the process environment.
@@ -229,6 +237,37 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("FORGE_INFRA_HETZNER_ORPHAN_SCAN_INTERVAL_S must be >= 1, got %q", hetznerOrphanRaw)
 	}
 
+	awsMaxConc, err := envIntDefault("FORGE_INFRA_AWS_MAX_CONCURRENT_OPS", 5)
+	if err != nil {
+		return Config{}, err
+	}
+	awsOrphanRaw := strings.TrimSpace(os.Getenv("FORGE_INFRA_AWS_ORPHAN_SCAN_INTERVAL_S"))
+	if awsOrphanRaw == "" {
+		awsOrphanRaw = "300"
+	}
+	awsOrphanSecs, err := strconv.Atoi(awsOrphanRaw)
+	if err != nil || awsOrphanSecs < 1 {
+		return Config{}, fmt.Errorf("FORGE_INFRA_AWS_ORPHAN_SCAN_INTERVAL_S must be >= 1, got %q", awsOrphanRaw)
+	}
+	awsAPIBase := strings.TrimSpace(os.Getenv("FORGE_INFRA_AWS_API_BASE"))
+
+	azureMaxConc, err := envIntDefault("FORGE_INFRA_AZURE_MAX_CONCURRENT_OPS", 5)
+	if err != nil {
+		return Config{}, err
+	}
+	azureOrphanRaw := strings.TrimSpace(os.Getenv("FORGE_INFRA_AZURE_ORPHAN_SCAN_INTERVAL_S"))
+	if azureOrphanRaw == "" {
+		azureOrphanRaw = "300"
+	}
+	azureOrphanSecs, err := strconv.Atoi(azureOrphanRaw)
+	if err != nil || azureOrphanSecs < 1 {
+		return Config{}, fmt.Errorf("FORGE_INFRA_AZURE_ORPHAN_SCAN_INTERVAL_S must be >= 1, got %q", azureOrphanRaw)
+	}
+	azureARMBase := strings.TrimSpace(os.Getenv("FORGE_INFRA_AZURE_ARM_BASE"))
+	if azureARMBase == "" {
+		azureARMBase = "https://management.azure.com"
+	}
+
 	return Config{
 		Port:                      port,
 		ServiceName:               name,
@@ -263,6 +302,12 @@ func Load() (Config, error) {
 		HetznerAPIBase:            strings.TrimRight(hetznerBase, "/"),
 		HetznerMaxConcurrentOps:   hetznerMaxConc,
 		HetznerOrphanScanInterval: time.Duration(hetznerOrphanSecs) * time.Second,
+		AWSMaxConcurrentOps:       awsMaxConc,
+		AWSOrphanScanInterval:     time.Duration(awsOrphanSecs) * time.Second,
+		AWSAPIBase:                awsAPIBase,
+		AzureMaxConcurrentOps:     azureMaxConc,
+		AzureOrphanScanInterval:   time.Duration(azureOrphanSecs) * time.Second,
+		AzureARMBase:              strings.TrimRight(azureARMBase, "/"),
 	}, nil
 }
 

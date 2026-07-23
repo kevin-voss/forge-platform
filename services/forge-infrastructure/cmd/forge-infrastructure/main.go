@@ -20,6 +20,8 @@ import (
 	"forge.local/services/forge-infrastructure/internal/health"
 	"forge.local/services/forge-infrastructure/internal/operations"
 	"forge.local/services/forge-infrastructure/internal/provider"
+	awsprovider "forge.local/services/forge-infrastructure/internal/provider/aws"
+	azureprovider "forge.local/services/forge-infrastructure/internal/provider/azure"
 	"forge.local/services/forge-infrastructure/internal/provider/baremetal"
 	"forge.local/services/forge-infrastructure/internal/provider/docker"
 	"forge.local/services/forge-infrastructure/internal/provider/hetzner"
@@ -107,6 +109,44 @@ func run() error {
 		Log:                log,
 	}
 	reg.Register(provider.TypeHetzner, hetzner.Factory(hetznerDefaults))
+
+	var awsResolver awsprovider.CredentialResolver = &awsprovider.MapSecrets{Values: map[string]string{}}
+	if cfg.SecretsURL != "" {
+		awsResolver = &awsprovider.EnvFallbackSecrets{Inner: &awsprovider.HTTPSecrets{
+			BaseURL: cfg.SecretsURL,
+			Project: cfg.BootstrapOrganization,
+			Env:     "default",
+		}}
+	} else {
+		awsResolver = &awsprovider.EnvFallbackSecrets{Inner: awsResolver}
+	}
+	awsDefaults := awsprovider.Config{
+		APIBase:            cfg.AWSAPIBase,
+		MaxConcurrentOps:   cfg.AWSMaxConcurrentOps,
+		OrphanScanInterval: cfg.AWSOrphanScanInterval,
+		CredentialResolver: awsResolver,
+		Log:                log,
+	}
+	reg.Register(provider.TypeAWS, awsprovider.Factory(awsDefaults))
+
+	var azureResolver azureprovider.CredentialResolver = &azureprovider.MapSecrets{Values: map[string]string{}}
+	if cfg.SecretsURL != "" {
+		azureResolver = &azureprovider.EnvFallbackSecrets{Inner: &azureprovider.HTTPSecrets{
+			BaseURL: cfg.SecretsURL,
+			Project: cfg.BootstrapOrganization,
+			Env:     "default",
+		}}
+	} else {
+		azureResolver = &azureprovider.EnvFallbackSecrets{Inner: azureResolver}
+	}
+	azureDefaults := azureprovider.Config{
+		ARMBase:            cfg.AzureARMBase,
+		MaxConcurrentOps:   cfg.AzureMaxConcurrentOps,
+		OrphanScanInterval: cfg.AzureOrphanScanInterval,
+		CredentialResolver: azureResolver,
+		Log:                log,
+	}
+	reg.Register(provider.TypeAzure, azureprovider.Factory(azureDefaults))
 
 	registryClient := registryclient.New(cfg.RegistryURL, log)
 	ready := health.NewReadiness(db)

@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 
+	awsprovider "forge.local/services/forge-infrastructure/internal/provider/aws"
+	azureprovider "forge.local/services/forge-infrastructure/internal/provider/azure"
 	"forge.local/services/forge-infrastructure/internal/provider/hetzner"
 )
 
@@ -61,6 +63,30 @@ func (h *AdmissionHandler) admit(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"error":   err.Error(),
 				"code":    "invalid_hetzner_config",
+				"message": err.Error(),
+			})
+			return
+		}
+	}
+	if strings.EqualFold(typeName, "aws") {
+		if err := awsprovider.ValidateConfig(cfg); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error":   err.Error(),
+				"code":    "invalid_aws_config",
+				"message": err.Error(),
+			})
+			return
+		}
+	}
+	if strings.EqualFold(typeName, "azure") {
+		if err := azureprovider.ValidateConfig(cfg); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error":   err.Error(),
+				"code":    "invalid_azure_config",
 				"message": err.Error(),
 			})
 			return

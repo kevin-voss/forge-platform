@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 158`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 159`**.
 
 ## Epics
 
@@ -236,7 +236,8 @@ next implementable step is still the one named at the top of this file. Plan:
 | **155** | [Node bootstrap, install, join, drain, delete](steps/23-forge-infrastructure/23.03-node-bootstrap-and-join.md) | Complete |  | Phase machine; bootstrap tokens; timers; drain-before-delete |
 | **156** | [Generic SSH provider + static bare-metal inventory](steps/23-forge-infrastructure/23.04-ssh-and-bare-metal-providers.md) | Complete |  | `ssh`/`bare-metal` adopt/release; inventory claims; `InventoryExhausted` |
 | **157** | [Hetzner Cloud provider adapter](steps/23-forge-infrastructure/23.05-hetzner-provider.md) | Complete |  | `hetzner` adapter; label idempotency; rate limits; teardown order; orphan grace |
-| **158**–**159** | Epic 23 — Forge Infrastructure (`23.06`–`23.07`) | Not started |  | |
+| **158** | [AWS EC2 + Azure VM provider adapters](steps/23-forge-infrastructure/23.06-aws-and-azure-providers.md) | Complete |  | `aws`/`azure` adapters; tag idempotency; pricing catalog; IAM/RBAC docs |
+| **159** | Epic 23 — Forge Infrastructure (`23.07`) | Not started |  | |
 | **160**–**167** | Epic 24 — Forge Autoscaler (`24.01`–`24.08`) | Not started |  | |
 | **168**–**173** | Epic 25 — Scheduling enhancements (`25.01`–`25.06`) | Not started |  | |
 
