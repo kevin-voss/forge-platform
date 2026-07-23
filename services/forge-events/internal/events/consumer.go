@@ -28,12 +28,13 @@ type ConsumeRequest struct {
 
 // DeliveredMessage is one message returned to an HTTP consumer.
 type DeliveredMessage struct {
-	EventID  string          `json:"event_id"`
-	Subject  string          `json:"subject"`
-	Time     time.Time       `json:"time"`
-	Source   string          `json:"source,omitempty"`
-	Data     json.RawMessage `json:"data"`
-	AckToken string          `json:"ack_token"`
+	EventID       string          `json:"event_id"`
+	Subject       string          `json:"subject"`
+	Time          time.Time       `json:"time"`
+	Source        string          `json:"source,omitempty"`
+	Data          json.RawMessage `json:"data"`
+	AckToken      string          `json:"ack_token"`
+	DeliveryCount int             `json:"delivery_count"`
 }
 
 // ConsumeResult is a batch of delivered messages.
@@ -143,26 +144,32 @@ func (c *Consumer) Consume(ctx context.Context, req ConsumeRequest) (ConsumeResu
 		} else {
 			ackToken = encodeAckToken(family, 0, durable)
 		}
+		deliveryCount := 1
+		if metaErr == nil && meta != nil {
+			deliveryCount = int(meta.NumDelivered)
+		}
 		if envErr != nil {
-			// Still ack to avoid poison-pill loops in the 11.02 stub.
+			// Legacy subject-based pull still auto-acks (HTTP path uses durable Store).
 			_ = msg.Ack()
 			out = append(out, DeliveredMessage{
-				EventID:  NewEventID(),
-				Subject:  msg.Subject,
-				Time:     time.Now().UTC().Truncate(time.Millisecond),
-				Data:     json.RawMessage(msg.Data),
-				AckToken: ackToken,
+				EventID:       NewEventID(),
+				Subject:       msg.Subject,
+				Time:          time.Now().UTC().Truncate(time.Millisecond),
+				Data:          json.RawMessage(msg.Data),
+				AckToken:      ackToken,
+				DeliveryCount: deliveryCount,
 			})
 			continue
 		}
 		_ = msg.Ack()
 		out = append(out, DeliveredMessage{
-			EventID:  env.ID,
-			Subject:  env.Subject,
-			Time:     env.Time,
-			Source:   env.Source,
-			Data:     env.Data,
-			AckToken: ackToken,
+			EventID:       env.ID,
+			Subject:       env.Subject,
+			Time:          env.Time,
+			Source:        env.Source,
+			Data:          env.Data,
+			AckToken:      ackToken,
+			DeliveryCount: deliveryCount,
 		})
 	}
 

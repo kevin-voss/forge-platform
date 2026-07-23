@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 73`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 74`**.
 
 ## Epics
 
@@ -106,7 +106,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **70** | [Demo `10-secrets` + epic gate](steps/10-forge-secrets/10.07-demo-10-secrets.md) | Complete |  | Demo 10: set/rotate/redeploy; metadata-only list; log masking; epic gate |
 | **71** | [Skeleton + NATS wiring](steps/11-forge-events/11.01-skeleton-and-nats-wiring.md) | Complete |  | Go skeleton on `4105`; JetStream connect + platform stream bootstrap; ready gated on streams |
 | **72** | [Publish/subscribe API](steps/11-forge-events/11.02-publish-subscribe-api.md) | Complete |  | `POST /v1/events` + `POST /v1/consume`; envelope; subject allow-list; OpenAPI |
-| **73** | [Durable consumers, ack, retry](steps/11-forge-events/11.03-durable-consumers-ack-retry.md) | Not started |  |  |
+| **73** | [Durable consumers, ack, retry](steps/11-forge-events/11.03-durable-consumers-ack-retry.md) | Complete |  | Named durables; explicit ack/nak; ack_wait redelivery; max_deliveries park |
 | **74** | [DLQ + inspect APIs](steps/11-forge-events/11.04-dlq-and-inspect-apis.md) | Not started |  |  |
 | **75** | [Event JSON Schemas](steps/11-forge-events/11.05-event-json-schemas.md) | Not started |  |  |
 | **76** | [Idempotency keys + consumer identity](steps/11-forge-events/11.06-idempotency-keys-and-consumer-identity.md) | Not started |  |  |

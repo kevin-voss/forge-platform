@@ -1,11 +1,11 @@
 openapi: 3.0.3
 info:
   title: Forge Events API
-  version: 0.2.0
+  version: 0.3.0
   description: |
-    Platform events service (epic 11). Step 11.02 adds HTTP publish and
-    pull-consume over NATS JetStream. Durable ack/retry, DLQ, schemas, and
-    auth arrive in later steps. Auth is not required yet (documented for 11.06).
+    Platform events service (epic 11). Step 11.03 adds named durable consumers
+    with explicit ack/nak and bounded retry (max_deliveries + ack_wait). DLQ,
+    schemas, and auth arrive in later steps. Auth is not required yet (11.06).
 servers:
   - url: http://127.0.0.1:4105
     description: Local Compose (host port 4105)
@@ -125,15 +125,61 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /v1/consumers:
+    post:
+      operationId: createConsumer
+      summary: Create a durable consumer
+      description: |
+        Registers a named JetStream durable consumer with ack_wait and
+        max_deliveries. Identical config is idempotent; conflicting config
+        returns 409.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConsumerRequest"
+            example:
+              name: deploy-worker
+              subject: deployment.completed
+              ack_wait_s: 30
+              max_deliveries: 5
+      responses:
+        "201":
+          description: Consumer created (or idempotent match)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsumerInfo"
+        "400":
+          description: Invalid consumer config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Consumer exists with conflicting config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: JetStream unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /v1/consume:
     post:
       operationId: consumeEvents
-      summary: Pull-consume events
+      summary: Pull-consume from a durable consumer
       description: |
-        Long-polls JetStream for a batch of messages matching subject. Returns an
-        empty messages array when none arrive within the wait window. Messages
-        include an ack_token stub; durable ack semantics arrive in 11.03.
-        Auto-ack is applied on deliver in this step.
+        Long-polls a named durable consumer for a batch of messages. Messages
+        include ack_token and delivery_count and are not auto-acked — callers
+        must POST /v1/ack or /v1/nak. Empty messages array when none arrive
+        within the wait window.
       security: []
       requestBody:
         required: true
@@ -142,7 +188,7 @@ paths:
             schema:
               $ref: "#/components/schemas/ConsumeRequest"
             example:
-              subject: application.crashed
+              consumer: deploy-worker
               batch: 10
       responses:
         "200":
@@ -152,13 +198,108 @@ paths:
               schema:
                 $ref: "#/components/schemas/ConsumeResponse"
         "400":
-          description: Unknown or invalid subject / request
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Unknown durable consumer
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "503":
           description: JetStream consume failed (retryable)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/ack:
+    post:
+      operationId: ackEvent
+      summary: Acknowledge a delivered message
+      description: |
+        Acknowledges a single delivery by opaque ack_token, advancing the durable
+        consumer position. Tokens are single-use.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AckRequest"
+            example:
+              ack_token: opaque-token
+      responses:
+        "204":
+          description: Acknowledged
+        "400":
+          description: Missing or invalid ack_token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Unknown or already-used token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "410":
+          description: Token expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: JetStream ack failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/nak:
+    post:
+      operationId: nakEvent
+      summary: Negatively acknowledge a delivered message
+      description: |
+        Negatively acknowledges a delivery, scheduling redelivery (optionally
+        delayed by delay_s). Tokens are single-use.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NakRequest"
+            example:
+              ack_token: opaque-token
+              delay_s: 5
+      responses:
+        "204":
+          description: Negatively acknowledged
+        "400":
+          description: Missing or invalid ack_token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Unknown or already-used token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "410":
+          description: Token expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: JetStream nak failed
           content:
             application/json:
               schema:
@@ -260,20 +401,64 @@ components:
           format: int64
           minimum: 0
 
+    CreateConsumerRequest:
+      type: object
+      required:
+        - name
+        - subject
+      properties:
+        name:
+          type: string
+          description: Durable consumer name (letters, digits, _-)
+          maxLength: 64
+        subject:
+          type: string
+          description: Concrete filter subject for the durable
+        ack_wait_s:
+          type: integer
+          minimum: 1
+          description: Seconds before unacked messages are redelivered (default 30)
+        max_deliveries:
+          type: integer
+          minimum: 1
+          description: Max delivery attempts before parking (default 5)
+
+    ConsumerInfo:
+      type: object
+      required:
+        - name
+        - subject
+        - ack_wait_s
+        - max_deliveries
+        - stream
+        - created_at
+      properties:
+        name:
+          type: string
+        subject:
+          type: string
+        ack_wait_s:
+          type: integer
+        max_deliveries:
+          type: integer
+        stream:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
     ConsumeRequest:
       type: object
       required:
-        - subject
+        - consumer
       properties:
-        subject:
+        consumer:
           type: string
+          description: Named durable consumer (must be created via POST /v1/consumers)
         batch:
           type: integer
           minimum: 1
           description: Max messages to return (capped by FORGE_CONSUME_MAX_BATCH)
-        consumer:
-          type: string
-          description: Optional pull consumer name; default is subject-derived
 
     DeliveredMessage:
       type: object
@@ -283,6 +468,7 @@ components:
         - time
         - data
         - ack_token
+        - delivery_count
       properties:
         event_id:
           type: string
@@ -297,7 +483,11 @@ components:
           description: Opaque JSON payload from the envelope
         ack_token:
           type: string
-          description: Opaque delivery token (ack API in 11.03)
+          description: Opaque single-use delivery token for /v1/ack or /v1/nak
+        delivery_count:
+          type: integer
+          minimum: 1
+          description: JetStream delivery attempt count (1 on first delivery)
 
     ConsumeResponse:
       type: object
@@ -308,6 +498,26 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/DeliveredMessage"
+
+    AckRequest:
+      type: object
+      required:
+        - ack_token
+      properties:
+        ack_token:
+          type: string
+
+    NakRequest:
+      type: object
+      required:
+        - ack_token
+      properties:
+        ack_token:
+          type: string
+        delay_s:
+          type: integer
+          minimum: 0
+          description: Optional delay before redelivery
 
     ErrorEnvelope:
       type: object

@@ -19,6 +19,9 @@ dev:
 	FORGE_EVENT_MAX_BYTES=$${FORGE_EVENT_MAX_BYTES:-262144} \
 	FORGE_CONSUME_MAX_BATCH=$${FORGE_CONSUME_MAX_BATCH:-100} \
 	FORGE_CONSUME_WAIT_MS=$${FORGE_CONSUME_WAIT_MS:-2000} \
+	FORGE_DEFAULT_ACK_WAIT_S=$${FORGE_DEFAULT_ACK_WAIT_S:-30} \
+	FORGE_DEFAULT_MAX_DELIVERIES=$${FORGE_DEFAULT_MAX_DELIVERIES:-5} \
+	FORGE_ACK_TOKEN_TTL_S=$${FORGE_ACK_TOKEN_TTL_S:-60} \
 	FORGE_SHUTDOWN_GRACE_SECONDS=$${FORGE_SHUTDOWN_GRACE_SECONDS:-10} \
 	go run ./cmd/forge-events
 
@@ -49,17 +52,36 @@ test-integration: run
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q 'events.bootstrap'
 	@# Platform streams present via JetStream API (Go one-shot against compose NATS).
 	@FORGE_EVENTS_EXPECT_STREAMS=1 FORGE_NATS_URL=nats://127.0.0.1:5002 go test ./internal/nats -run TestPlatformStreamsPresent -count=1
-	@# Publish → consume round-trip + unknown subject 400.
-	@subj="application.crashed.make_$$$$"; \
+	@# Durable create → publish → consume → ack; ack_wait redelivery; unknown subject 400.
+	@subj="application.crashed.make_$$$$"; cons="make_$$$$"; \
+		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/consumers" \
+			-H 'content-type: application/json' \
+			-d "{\"name\":\"$$cons\",\"subject\":\"$$subj\",\"ack_wait_s\":2,\"max_deliveries\":3}" \
+			| python3 -c 'import sys,json; b=json.load(sys.stdin); assert b["name"] and b["ack_wait_s"]==2'; \
 		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/events" \
 			-H 'content-type: application/json' \
 			-d "{\"subject\":\"$$subj\",\"data\":{\"service\":\"demo\",\"reason\":\"oom\"},\"source\":\"runtime\"}" \
 			| python3 -c 'import sys,json; b=json.load(sys.stdin); assert b.get("event_id") and b.get("stream")=="application" and int(b.get("seq",0))>0'; \
+		tok="$$(curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/consume" \
+			-H 'content-type: application/json' \
+			-d "{\"consumer\":\"$$cons\",\"batch\":10}" \
+			| python3 -c 'import sys,json; b=json.load(sys.stdin); assert len(b["messages"])>=1; m=b["messages"][0]; assert m["subject"].startswith("application.crashed"); assert m["data"]["service"]=="demo"; assert m.get("ack_token"); assert int(m.get("delivery_count",0))==1; print(m["ack_token"])')"; \
+		code="$$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$(HOST_PORT)/v1/ack" \
+			-H 'content-type: application/json' -d "{\"ack_token\":\"$$tok\"}")"; \
+		test "$$code" = "204"; \
+		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/events" \
+			-H 'content-type: application/json' \
+			-d "{\"subject\":\"$$subj\",\"data\":{\"service\":\"demo\",\"reason\":\"retry\"},\"source\":\"runtime\"}" >/dev/null; \
 		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/consume" \
 			-H 'content-type: application/json' \
-			-d "{\"subject\":\"$$subj\",\"batch\":10,\"consumer\":\"make_$$$$\"}" \
-			| python3 -c 'import sys,json; b=json.load(sys.stdin); assert len(b["messages"])>=1; m=b["messages"][0]; assert m["subject"].startswith("application.crashed"); assert m["data"]["service"]=="demo"; assert m.get("ack_token")'
-	@code="$$(curl -s -o /tmp/forge-events-bad-subject.json -w '%{http_code}' -X POST "http://127.0.0.1:$(HOST_PORT)/v1/events" -H 'content-type: application/json' -d '{"subject":"nope.bad","data":{}}')"; \
+			-d "{\"consumer\":\"$$cons\",\"batch\":1}" >/tmp/forge-events-noack.json; \
+		python3 -c 'import json; m=json.load(open("/tmp/forge-events-noack.json"))["messages"][0]; assert int(m["delivery_count"])==1'; \
+		sleep 3; \
+		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/consume" \
+			-H 'content-type: application/json' \
+			-d "{\"consumer\":\"$$cons\",\"batch\":1}" \
+			| python3 -c 'import sys,json; b=json.load(sys.stdin); assert len(b["messages"])>=1; assert int(b["messages"][0]["delivery_count"])>=2'; \
+		code="$$(curl -s -o /tmp/forge-events-bad-subject.json -w '%{http_code}' -X POST "http://127.0.0.1:$(HOST_PORT)/v1/events" -H 'content-type: application/json' -d '{"subject":"nope.bad","data":{}}')"; \
 		test "$$code" = "400"
 	@# Bad NATS URL → readiness 503 while live stays 200.
 	@docker run --rm -d --name forge-events-bad-nats-$$$$ \
@@ -111,7 +133,7 @@ test-integration: run
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
 	@grep -q '4105' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@echo "Integration checks passed (health + identity + JetStream streams + publish/consume + unknown subject 400 + ready/503 + restart idempotency + invalid PORT + graceful SIGTERM)."
+	@echo "Integration checks passed (health + identity + JetStream streams + durable consume/ack/redelivery + unknown subject 400 + ready/503 + restart idempotency + invalid PORT + graceful SIGTERM)."
 
 lint:
 	@go vet ./...

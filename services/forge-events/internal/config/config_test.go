@@ -17,6 +17,9 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FORGE_EVENT_MAX_BYTES", "")
 	t.Setenv("FORGE_CONSUME_MAX_BATCH", "")
 	t.Setenv("FORGE_CONSUME_WAIT_MS", "")
+	t.Setenv("FORGE_DEFAULT_ACK_WAIT_S", "")
+	t.Setenv("FORGE_DEFAULT_MAX_DELIVERIES", "")
+	t.Setenv("FORGE_ACK_TOKEN_TTL_S", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -33,6 +36,15 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.ConsumeWait != 2*time.Second {
 		t.Fatalf("ConsumeWait = %v, want 2s", cfg.ConsumeWait)
+	}
+	if cfg.DefaultAckWaitS != 30 {
+		t.Fatalf("DefaultAckWaitS = %d, want 30", cfg.DefaultAckWaitS)
+	}
+	if cfg.DefaultMaxDeliveries != 5 {
+		t.Fatalf("DefaultMaxDeliveries = %d, want 5", cfg.DefaultMaxDeliveries)
+	}
+	if cfg.AckTokenTTLS != 60 {
+		t.Fatalf("AckTokenTTLS = %d, want 60", cfg.AckTokenTTLS)
 	}
 	if cfg.ServiceName != "forge-events" {
 		t.Fatalf("ServiceName = %q, want forge-events", cfg.ServiceName)

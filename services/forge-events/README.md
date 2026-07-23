@@ -2,8 +2,8 @@
 
 Go HTTP service on host port `4105` that wraps NATS JetStream with a Forge
 publish/consume API. Bootstraps platform event streams (`build`, `deployment`,
-`runtime`, `application`, `agent`) and exposes `POST /v1/events` +
-`POST /v1/consume`.
+`runtime`, `application`, `agent`) and exposes durable consumers with explicit
+ack/nak and bounded retry.
 
 ## Quick start
 
@@ -14,13 +14,22 @@ make -C services/forge-events run
 curl -s localhost:4105/health/ready
 curl -s localhost:4105/ | jq '{service,language,status}'
 
+curl -s -X POST localhost:4105/v1/consumers \
+  -H 'content-type: application/json' \
+  -d '{"name":"crash-worker","subject":"application.crashed","ack_wait_s":30,"max_deliveries":5}'
+
 curl -s -X POST localhost:4105/v1/events \
   -H 'content-type: application/json' \
   -d '{"subject":"application.crashed","data":{"service":"demo","reason":"oom"},"source":"runtime"}'
 
 curl -s -X POST localhost:4105/v1/consume \
   -H 'content-type: application/json' \
-  -d '{"subject":"application.crashed","batch":10}' | jq '.messages[0] | {subject, data}'
+  -d '{"consumer":"crash-worker","batch":10}' | jq '.messages[0] | {subject, delivery_count, ack_token}'
+
+# Acknowledge (or nak) using the opaque token
+curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:4105/v1/ack \
+  -H 'content-type: application/json' \
+  -d '{"ack_token":"<token>"}'
 ```
 
 ## Local development
@@ -42,6 +51,9 @@ make -C services/forge-events test
 | `FORGE_EVENT_MAX_BYTES` | `262144` (256KB) | Max event/envelope bytes; oversize → 413 |
 | `FORGE_CONSUME_MAX_BATCH` | `100` | Cap for `POST /v1/consume` batch |
 | `FORGE_CONSUME_WAIT_MS` | `2000` | Long-poll wait for empty pull |
+| `FORGE_DEFAULT_ACK_WAIT_S` | `30` | Default ack wait / redelivery delay |
+| `FORGE_DEFAULT_MAX_DELIVERIES` | `5` | Default max delivery attempts |
+| `FORGE_ACK_TOKEN_TTL_S` | `60` (or ≥ ack wait) | Opaque ack token validity window |
 | `FORGE_SHUTDOWN_GRACE_SECONDS` | `10` | SIGTERM drain window |
 
 ## Auth
@@ -50,4 +62,4 @@ No auth on publish/consume yet. Identity tokens land in step `11.06`.
 
 ## Status
 
-Step `11.02` — publish + pull-consume over JetStream. Durable ack/retry is `11.03`.
+Step `11.03` — durable consumers, explicit ack/nak, bounded retry. DLQ is `11.04`.

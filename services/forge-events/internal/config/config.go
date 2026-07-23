@@ -13,17 +13,20 @@ var DefaultStreams = []string{"build", "deployment", "runtime", "application", "
 
 // Config holds env-based runtime settings for forge-events.
 type Config struct {
-	Port            int
-	ServiceName     string
-	ServiceVersion  string
-	LogLevel        string
-	Env             string
-	ShutdownGrace   time.Duration
-	NATSURL         string
-	Streams         []string
-	EventMaxBytes   int
-	ConsumeMaxBatch int
-	ConsumeWait     time.Duration
+	Port                 int
+	ServiceName          string
+	ServiceVersion       string
+	LogLevel             string
+	Env                  string
+	ShutdownGrace        time.Duration
+	NATSURL              string
+	Streams              []string
+	EventMaxBytes        int
+	ConsumeMaxBatch      int
+	ConsumeWait          time.Duration
+	DefaultAckWaitS      int
+	DefaultMaxDeliveries int
+	AckTokenTTLS         int
 }
 
 // Load reads configuration from the process environment.
@@ -91,19 +94,44 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	ackWaitS, err := parsePositiveInt("FORGE_DEFAULT_ACK_WAIT_S", os.Getenv("FORGE_DEFAULT_ACK_WAIT_S"), 30)
+	if err != nil {
+		return Config{}, err
+	}
+	maxDeliveries, err := parsePositiveInt("FORGE_DEFAULT_MAX_DELIVERIES", os.Getenv("FORGE_DEFAULT_MAX_DELIVERIES"), 5)
+	if err != nil {
+		return Config{}, err
+	}
+	ackTokenTTL, err := parsePositiveInt("FORGE_ACK_TOKEN_TTL_S", os.Getenv("FORGE_ACK_TOKEN_TTL_S"), 0)
+	if err != nil {
+		return Config{}, err
+	}
+	if ackTokenTTL == 0 {
+		// Token validity window must cover at least ack_wait.
+		ackTokenTTL = ackWaitS
+		if ackTokenTTL < 60 {
+			ackTokenTTL = 60
+		}
+	}
+	if ackTokenTTL < ackWaitS {
+		return Config{}, fmt.Errorf("FORGE_ACK_TOKEN_TTL_S (%d) must be >= FORGE_DEFAULT_ACK_WAIT_S (%d)", ackTokenTTL, ackWaitS)
+	}
 
 	return Config{
-		Port:            port,
-		ServiceName:     name,
-		ServiceVersion:  version,
-		LogLevel:        level,
-		Env:             env,
-		ShutdownGrace:   time.Duration(graceSecs) * time.Second,
-		NATSURL:         natsURL,
-		Streams:         streams,
-		EventMaxBytes:   maxBytes,
-		ConsumeMaxBatch: maxBatch,
-		ConsumeWait:     time.Duration(waitMS) * time.Millisecond,
+		Port:                 port,
+		ServiceName:          name,
+		ServiceVersion:       version,
+		LogLevel:             level,
+		Env:                  env,
+		ShutdownGrace:        time.Duration(graceSecs) * time.Second,
+		NATSURL:              natsURL,
+		Streams:              streams,
+		EventMaxBytes:        maxBytes,
+		ConsumeMaxBatch:      maxBatch,
+		ConsumeWait:          time.Duration(waitMS) * time.Millisecond,
+		DefaultAckWaitS:      ackWaitS,
+		DefaultMaxDeliveries: maxDeliveries,
+		AckTokenTTLS:         ackTokenTTL,
 	}, nil
 }
 

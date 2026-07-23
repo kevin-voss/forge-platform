@@ -15,6 +15,7 @@ import (
 
 	"forge.local/services/forge-events/internal/api"
 	"forge.local/services/forge-events/internal/config"
+	"forge.local/services/forge-events/internal/consumers"
 	"forge.local/services/forge-events/internal/events"
 	"forge.local/services/forge-events/internal/health"
 	natsx "forge.local/services/forge-events/internal/nats"
@@ -44,6 +45,9 @@ func run() error {
 		"event_max_bytes", cfg.EventMaxBytes,
 		"consume_max_batch", cfg.ConsumeMaxBatch,
 		"consume_wait_ms", int(cfg.ConsumeWait.Milliseconds()),
+		"default_ack_wait_s", cfg.DefaultAckWaitS,
+		"default_max_deliveries", cfg.DefaultMaxDeliveries,
+		"ack_token_ttl_s", cfg.AckTokenTTLS,
 		"shutdown_grace_seconds", int(cfg.ShutdownGrace.Seconds()),
 	)
 
@@ -61,12 +65,25 @@ func run() error {
 
 	eventMetrics := &events.Metrics{}
 	publisher := events.NewPublisher(conn.JetStream(), cfg.Streams, cfg.EventMaxBytes, log, eventMetrics)
-	consumer := events.NewConsumer(conn.JetStream(), cfg.Streams, cfg.ConsumeMaxBatch, cfg.ConsumeWait, log, eventMetrics)
+	ackMetrics := &consumers.AckMetrics{}
+	ackMgr := consumers.NewAckManager(time.Duration(cfg.AckTokenTTLS)*time.Second, log, ackMetrics)
+	store := consumers.NewStore(
+		conn.JetStream(),
+		cfg.Streams,
+		cfg.DefaultAckWaitS,
+		cfg.DefaultMaxDeliveries,
+		cfg.ConsumeMaxBatch,
+		cfg.ConsumeWait,
+		ackMgr,
+		log,
+		&consumers.Metrics{},
+	)
 
 	mux := http.NewServeMux()
 	health.NewHandler(conn, cfg.ServiceName, cfg.ServiceVersion).Register(mux)
 	(&api.PublishHandler{Publisher: publisher, MaxBytes: cfg.EventMaxBytes}).Register(mux)
-	(&api.ConsumeHandler{Consumer: consumer, MaxBytes: cfg.EventMaxBytes, Wait: cfg.ConsumeWait}).Register(mux)
+	(&api.ConsumeHandler{Consumer: store, MaxBytes: cfg.EventMaxBytes, Wait: cfg.ConsumeWait}).Register(mux)
+	(&api.ConsumersHandler{Store: store, Acker: ackMgr, MaxBytes: cfg.EventMaxBytes}).Register(mux)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

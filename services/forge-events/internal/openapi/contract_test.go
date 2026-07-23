@@ -28,7 +28,10 @@ func TestOpenAPISkeletonPaths(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths")
 	}
-	for _, p := range []string{"/health/live", "/health/ready", "/", "/v1/events", "/v1/consume"} {
+	for _, p := range []string{
+		"/health/live", "/health/ready", "/",
+		"/v1/events", "/v1/consume", "/v1/consumers", "/v1/ack", "/v1/nak",
+	} {
 		if paths[p] == nil {
 			t.Fatalf("openapi missing path %s", p)
 		}
@@ -69,6 +72,27 @@ func TestOpenAPISkeletonPaths(t *testing.T) {
 		t.Fatalf("consume operationId = %v", postConsume["operationId"])
 	}
 
+	for _, item := range []struct {
+		path string
+		op   string
+	}{
+		{"/v1/consumers", "createConsumer"},
+		{"/v1/ack", "ackEvent"},
+		{"/v1/nak", "nakEvent"},
+	} {
+		p, ok := paths[item.path].(map[string]any)
+		if !ok {
+			t.Fatalf("openapi %s is not an object", item.path)
+		}
+		post, ok := p["post"].(map[string]any)
+		if !ok {
+			t.Fatalf("openapi %s missing post", item.path)
+		}
+		if post["operationId"] != item.op {
+			t.Fatalf("%s operationId = %v, want %s", item.path, post["operationId"], item.op)
+		}
+	}
+
 	components, ok := doc["components"].(map[string]any)
 	if !ok {
 		t.Fatal("missing components")
@@ -80,6 +104,7 @@ func TestOpenAPISkeletonPaths(t *testing.T) {
 	for _, name := range []string{
 		"Envelope", "PublishRequest", "PublishResponse",
 		"ConsumeRequest", "ConsumeResponse", "DeliveredMessage", "ErrorEnvelope",
+		"CreateConsumerRequest", "ConsumerInfo", "AckRequest", "NakRequest",
 	} {
 		if schemas[name] == nil {
 			t.Fatalf("openapi missing schema %s", name)
@@ -117,10 +142,26 @@ func TestOpenAPISkeletonPaths(t *testing.T) {
 	if !ok {
 		t.Fatal("DeliveredMessage missing properties")
 	}
-	for _, field := range []string{"event_id", "subject", "time", "data", "ack_token"} {
+	for _, field := range []string{"event_id", "subject", "time", "data", "ack_token", "delivery_count"} {
 		if dprops[field] == nil {
 			t.Fatalf("DeliveredMessage missing property %s", field)
 		}
+	}
+	dreq, ok := delivered["required"].([]any)
+	if !ok {
+		t.Fatal("DeliveredMessage missing required")
+	}
+	if !containsAny(dreq, "delivery_count") {
+		t.Fatal("DeliveredMessage required missing delivery_count")
+	}
+
+	consumeReq, ok := schemas["ConsumeRequest"].(map[string]any)
+	if !ok {
+		t.Fatal("ConsumeRequest not an object")
+	}
+	creq, ok := consumeReq["required"].([]any)
+	if !ok || !containsAny(creq, "consumer") {
+		t.Fatal("ConsumeRequest must require consumer")
 	}
 }
 
