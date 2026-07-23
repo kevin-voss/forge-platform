@@ -73,6 +73,65 @@ func ReasonForTrafficRate(metricType string, current, recommended int, observed,
 	return fmt.Sprintf("%s: ceil(%.4g / %.4g) = %d (metric=%s)", code, observed, target, recommended, metrics.NormalizeMetricType(metricType))
 }
 
+// DesiredFromQueueBacklog computes ceil(backlog / targetPerWorker).
+// Identical to per-replica traffic math; named for worker/queue clarity.
+func DesiredFromQueueBacklog(backlog, targetPerWorker float64) int {
+	return DesiredFromPerReplicaTarget(backlog, targetPerWorker)
+}
+
+// QueuePressureRecommendation scales up when a queue SLO (age/lag/duration/DLQ) is breached.
+// These signals never recommend below currentReplicas.
+func QueuePressureRecommendation(currentReplicas int, observed, target float64) (desired int, reasonCode string) {
+	if target <= 0 {
+		return currentReplicas, "HoldInvalidTarget"
+	}
+	if observed <= target {
+		return currentReplicas, "HoldWithinQueueSLO"
+	}
+	raw := DesiredFromUtilization(currentReplicas, observed, target)
+	if raw <= currentReplicas {
+		if currentReplicas < math.MaxInt {
+			return currentReplicas + 1, "ScaleUpQueuePressure"
+		}
+		return currentReplicas, "ScaleUpQueuePressure"
+	}
+	return raw, "ScaleUpQueuePressure"
+}
+
+// RetryRateDecision returns whether retry pressure blocks scale-down and an optional scale-up.
+// Any breach blocks scale-down. Mild breaches (below 2× target) hold; severe breaches may scale up.
+func RetryRateDecision(currentReplicas int, observed, target float64) (desired int, blockScaleDown bool, reasonCode string) {
+	if target <= 0 {
+		return currentReplicas, false, "HoldInvalidTarget"
+	}
+	if observed <= target {
+		return currentReplicas, false, "HoldRetryHealthy"
+	}
+	if observed < target*2 {
+		return currentReplicas, true, "HoldRetryPressure"
+	}
+	raw := DesiredFromUtilization(currentReplicas, observed, target)
+	if raw < currentReplicas {
+		raw = currentReplicas
+	}
+	if raw == currentReplicas && currentReplicas < math.MaxInt {
+		raw = currentReplicas + 1
+	}
+	return raw, true, "ScaleUpRetryPressure"
+}
+
+// ReasonForQueue builds a stable reason for queue backlog decisions.
+func ReasonForQueue(metricType string, current, recommended int, observed, target float64) string {
+	code := "ScaleHoldQueue"
+	if recommended > current {
+		code = "ScaleUpQueue"
+	} else if recommended < current {
+		code = "ScaleDownQueue"
+	}
+	return fmt.Sprintf("%s: backlog=%.4g targetPerWorker=%.4g → %d workers (metric=%s)",
+		code, observed, target, recommended, metrics.NormalizeMetricType(metricType))
+}
+
 // ClampReplicas bounds n to [minReplicas, maxReplicas].
 func ClampReplicas(n, minReplicas, maxReplicas int) int {
 	if minReplicas < 0 {

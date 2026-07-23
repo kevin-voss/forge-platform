@@ -97,6 +97,7 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 	fetchFailed := false
 	rawDesired := 0
 	haveRecommendation := false
+	blockScaleDown := false
 	var dominant *policy.Recommendation
 
 	currentReplicas := l.resolveCurrentReplicas(ctx, row)
@@ -121,14 +122,24 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 			continue
 		}
 
-		if strings.EqualFold(metrics.NormalizeMetricType(metric.Type), "httpRequests") ||
-			strings.EqualFold(metrics.NormalizeMetricType(metric.Type), "activeConnections") {
+		if metrics.IsTrafficRateMetric(metric.Type) {
 			if l.Log != nil {
 				l.Log.Info("autoscaler metric fetch",
 					"span", "autoscaler.metrics.gateway",
 					"policy_id", row.ID,
 					"metric_type", metric.Type,
 					"target_name", row.Spec.TargetRef.Name,
+				)
+			}
+		}
+		if metrics.IsQueueMetric(metric.Type) {
+			if l.Log != nil {
+				l.Log.Info("autoscaler metric fetch",
+					"span", "autoscaler.metrics.queue",
+					"policy_id", row.ID,
+					"metric_type", metric.Type,
+					"target_name", row.Spec.TargetRef.Name,
+					"queue", metrics.QueueName(row.Spec.TargetRef, metric),
 				)
 			}
 		}
@@ -167,7 +178,10 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 			target = sample.Target
 		}
 
-		recommended, reason := l.recommend(currentReplicas, metric.Type, v, target, sample.SampleCount)
+		recommended, reason, blockDown := l.recommend(currentReplicas, metric.Type, v, target, sample.SampleCount)
+		if blockDown {
+			blockScaleDown = true
+		}
 		recommended = ClampReplicas(recommended, row.Spec.MinReplicas, row.Spec.MaxReplicas)
 		rec.RecommendedReplicas = intPtr(recommended)
 		rec.Reason = reason
@@ -184,6 +198,7 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 				"recommended_replicas", recommended,
 				"sample_count", sample.SampleCount,
 				"source", sample.Source,
+				"queue", sample.QueueName,
 				"reason", rec.Reason,
 			)
 		}
@@ -282,8 +297,23 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 	desired := LimitReplicaDelta(currentReplicas, stabilized, rateLimit)
 	desired = ClampReplicas(desired, row.Spec.MinReplicas, row.Spec.MaxReplicas)
 
+	if blockScaleDown {
+		if desired < currentReplicas {
+			desired = currentReplicas
+		}
+		policy.SetCondition(&status, policy.Condition{
+			Type:    "ScalingActive",
+			Status:  "True",
+			Reason:  "RetryPressureBlocksScaleDown",
+			Message: "retry-rate spike blocks scale-down until pressure recovers",
+		})
+	}
+
 	if l.Metrics != nil {
 		l.Metrics.SetRecommendationReplicas(row.Name, row.Spec.TargetRef.Kind, row.Spec.TargetRef.Name, desired)
+		if strings.EqualFold(row.Spec.TargetRef.Kind, "Worker") {
+			l.Metrics.SetWorkerDesiredReplicas(row.Spec.TargetRef.Name, desired)
+		}
 	}
 	if dominant != nil {
 		status.LastRecommendation = dominant
@@ -312,8 +342,7 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 	}
 	status.DesiredReplicas = desired
 
-	if desired != currentReplicas && l.Actuator != nil &&
-		strings.EqualFold(row.Spec.TargetRef.Kind, "Application") {
+	if desired != currentReplicas && l.Actuator != nil && isActuableTarget(row.Spec.TargetRef.Kind) {
 		opID := fmt.Sprintf("scale-%s-%d", row.ID, now.UnixNano())
 		direction := "up"
 		if desired < currentReplicas {
@@ -321,10 +350,15 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 		}
 		actCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
+		span := "autoscaler.actuate.application"
+		if strings.EqualFold(row.Spec.TargetRef.Kind, "Worker") {
+			span = "autoscaler.actuate.worker"
+		}
 		if l.Log != nil {
 			l.Log.Info("autoscaler actuate",
-				"span", "autoscaler.actuate.application",
+				"span", span,
 				"policy_id", row.ID,
+				"target_kind", row.Spec.TargetRef.Kind,
 				"target_name", row.Spec.TargetRef.Name,
 				"from", currentReplicas,
 				"to", desired,
@@ -335,6 +369,7 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 			actCtx,
 			row.Project,
 			row.Environment,
+			row.Spec.TargetRef.Kind,
 			row.Spec.TargetRef.Name,
 			desired,
 			opID,
@@ -375,30 +410,39 @@ func (l *Loop) evaluateOne(ctx context.Context, row policy.Row) error {
 	return err
 }
 
-func (l *Loop) recommend(currentReplicas int, metricType string, observed, target float64, sampleCount int64) (int, string) {
+func (l *Loop) recommend(currentReplicas int, metricType string, observed, target float64, sampleCount int64) (desired int, reason string, blockScaleDown bool) {
 	switch {
 	case metrics.IsWorkloadUtilizationMetric(metricType):
 		recommended := DesiredFromUtilization(currentReplicas, observed, target)
 		reason := fmt.Sprintf("ScaleUtilization: ceil(%d * %.4g / %.4g) = %d", currentReplicas, observed, target, recommended)
-		return recommended, reason
+		return recommended, reason, false
 	case metrics.IsTrafficRateMetric(metricType):
 		recommended := DesiredFromPerReplicaTarget(observed, target)
 		if recommended == 0 && currentReplicas > 0 && observed == 0 {
 			// Zero traffic → allow scale-down toward min via recommendation 0 (clamped later).
 			recommended = 0
 		}
-		return recommended, ReasonForTrafficRate(metricType, currentReplicas, recommended, observed, target)
+		return recommended, ReasonForTrafficRate(metricType, currentReplicas, recommended, observed, target), false
 	case metrics.IsGuardrailMetric(metricType):
 		recommended, code := GuardrailRecommendation(currentReplicas, observed, target, sampleCount, l.minSamples())
-		return recommended, fmt.Sprintf("%s: observed=%.4g target=%.4g samples=%d", code, observed, target, sampleCount)
+		return recommended, fmt.Sprintf("%s: observed=%.4g target=%.4g samples=%d", code, observed, target, sampleCount), false
+	case metrics.IsQueueDepthMetric(metricType):
+		recommended := DesiredFromQueueBacklog(observed, target)
+		return recommended, ReasonForQueue(metricType, currentReplicas, recommended, observed, target), false
+	case metrics.IsQueuePressureMetric(metricType):
+		recommended, code := QueuePressureRecommendation(currentReplicas, observed, target)
+		return recommended, fmt.Sprintf("%s: observed=%.4g target=%.4g (metric=%s)", code, observed, target, metrics.NormalizeMetricType(metricType)), false
+	case metrics.IsRetryRateMetric(metricType):
+		recommended, block, code := RetryRateDecision(currentReplicas, observed, target)
+		return recommended, fmt.Sprintf("%s: observed=%.4g target=%.4g", code, observed, target), block
 	default:
-		return currentReplicas, "HoldUnknownMetric"
+		return currentReplicas, "HoldUnknownMetric", false
 	}
 }
 
 func (l *Loop) resolveCurrentReplicas(ctx context.Context, row policy.Row) int {
-	if l.Actuator != nil && strings.EqualFold(row.Spec.TargetRef.Kind, "Application") {
-		view, err := l.Actuator.Get(ctx, row.Project, row.Environment, row.Spec.TargetRef.Name)
+	if l.Actuator != nil && isActuableTarget(row.Spec.TargetRef.Kind) {
+		view, err := l.Actuator.Get(ctx, row.Project, row.Environment, row.Spec.TargetRef.Kind, row.Spec.TargetRef.Name)
 		if err == nil && view.HasDesired {
 			return view.DesiredReplicas
 		}
@@ -410,6 +454,15 @@ func (l *Loop) resolveCurrentReplicas(ctx context.Context, row policy.Row) int {
 		return row.Status.CurrentReplicas
 	}
 	return row.Spec.MinReplicas
+}
+
+func isActuableTarget(kind string) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "application", "worker":
+		return true
+	default:
+		return false
+	}
 }
 
 func floatPtr(v float64) *float64 { return &v }

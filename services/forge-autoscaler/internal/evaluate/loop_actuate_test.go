@@ -20,20 +20,20 @@ type fakeActuator struct {
 	ops     []string
 }
 
-func (f *fakeActuator) Get(context.Context, string, string, string) (actuate.ApplicationView, error) {
+func (f *fakeActuator) Get(context.Context, string, string, string, string) (actuate.WorkloadView, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return actuate.ApplicationView{DesiredReplicas: f.desired, HasDesired: f.has, ResourceVersion: "1"}, nil
+	return actuate.WorkloadView{DesiredReplicas: f.desired, HasDesired: f.has, ResourceVersion: "1"}, nil
 }
 
-func (f *fakeActuator) SetDesiredReplicas(_ context.Context, _, _, _ string, desired int, op string) (actuate.ApplicationView, error) {
+func (f *fakeActuator) SetDesiredReplicas(_ context.Context, _, _, _, _ string, desired int, op string) (actuate.WorkloadView, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
 	f.ops = append(f.ops, op)
 	f.desired = desired
 	f.has = true
-	return actuate.ApplicationView{DesiredReplicas: desired, HasDesired: true, ResourceVersion: "2"}, nil
+	return actuate.WorkloadView{DesiredReplicas: desired, HasDesired: true, ResourceVersion: "2"}, nil
 }
 
 func TestLoopScalesUpAndDownWithFakeMetrics(t *testing.T) {

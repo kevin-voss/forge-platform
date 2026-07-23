@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 163`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 164`**.
 
 ## Epics
 
@@ -185,7 +185,7 @@ next implementable step is still the one named at the top of this file. Plan:
 | [21](epics/21-forge-discovery.md) | Forge Discovery | M1 | Complete | 6/6 steps; demo 21 service-discovery acceptance gate passed |
 | [22](epics/22-forge-network.md) | Forge Network | M1 | Complete | 7/7 steps; demo 22 forge-network acceptance gate passed |
 | [23](epics/23-forge-infrastructure.md) | Forge Infrastructure | M1 | Complete | 7/7 steps; demo 23 local-cloud-simulation gate passed |
-| [24](epics/24-forge-autoscaler.md) | Forge Autoscaler | M1 | In progress | 2/8 steps; CPU/memory HPA actuation patches Application desired replicas |
+| [24](epics/24-forge-autoscaler.md) | Forge Autoscaler | M1 | In progress | 4/8 steps; Worker queue-depth autoscaling via Events/NATS QueueSource |
 | [25](epics/25-scheduling-enhancements.md) | Scheduling enhancements | M1 | Planning | 6 steps (`N = 168`–`173`); M1 exit gate |
 | [26](epics/26-forge-registry.md) | Forge Registry | M2 | Catalog | steps not yet materialized |
 | [27](epics/27-deployment-strategies.md) | Deployment strategies | M2 | Catalog | canary, blue-green, traffic shifting |
@@ -241,7 +241,8 @@ next implementable step is still the one named at the top of this file. Plan:
 | **160** | [Skeleton, ScalingPolicy resource, metric sources](steps/24-forge-autoscaler/24.01-skeleton-scalingpolicy-and-metric-sources.md) | Complete |  | `forge-autoscaler` on `4112`; `ScalingPolicy` CRUD/status/watch; `MetricSource` + FakeSource; eval loop records recommendations only |
 | **161** | [CPU/memory workload autoscaling](steps/24-forge-autoscaler/24.02-workload-cpu-memory-autoscaling.md) | Complete |  | Utilization math, stabilization, rate limits; Observe+Runtime sources; Application actuation |
 | **162** | [Request-rate, latency, error-rate autoscaling](steps/24-forge-autoscaler/24.03-request-rate-and-latency-autoscaling.md) | Complete |  | Gateway httpRequests/activeConnections; Observe p95/errorRate; guardrails; mixed-metric max |
-| **163**–**167** | Epic 24 — remaining (`24.04`–`24.08`) | Not started |  | |
+| **163** | [Worker autoscaling from queue signals](steps/24-forge-autoscaler/24.04-worker-queue-depth-autoscaling.md) | Complete |  | QueueSource (Events/NATS); Worker target; backlog/oldest-age math; retry blocks scale-down |
+| **164**–**167** | Epic 24 — remaining (`24.05`–`24.08`) | Not started |  | |
 | **168**–**173** | Epic 25 — Scheduling enhancements (`25.01`–`25.06`) | Not started |  | |
 
 Per-step rows live in each epic's steps README; the global lookup is

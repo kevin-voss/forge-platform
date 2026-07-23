@@ -27,6 +27,7 @@ type Sample struct {
 	ObservedAt  time.Time
 	Source      string
 	SampleCount int64
+	QueueName   string // set by QueueSource for backlog telemetry
 }
 
 // MetricSource fetches a metric for a ScalingPolicy target.
@@ -109,7 +110,7 @@ func (r *Router) Fetch(ctx context.Context, target policy.TargetRef, metric poli
 		if r.Gateway != nil {
 			return r.Gateway.Fetch(ctx, target, metric)
 		}
-	case "queueDepth", "queue":
+	case "queueDepth", "oldestMessageAge", "consumerLag", "retryRate", "processingDuration", "deadLetterPressure":
 		if r.Queue != nil {
 			return r.Queue.Fetch(ctx, target, metric)
 		}
@@ -152,6 +153,16 @@ func NormalizeMetricType(metricType string) string {
 		return "errorRate"
 	case "queuedepth", "queue_depth", "queue":
 		return "queueDepth"
+	case "oldestmessageage", "oldest_message_age", "oldestage", "oldest_age":
+		return "oldestMessageAge"
+	case "consumerlag", "consumer_lag", "lag":
+		return "consumerLag"
+	case "retryrate", "retry_rate":
+		return "retryRate"
+	case "processingduration", "processing_duration", "avgprocessingduration":
+		return "processingDuration"
+	case "deadletterpressure", "dead_letter_pressure", "dlq", "deadlettercount":
+		return "deadLetterPressure"
 	default:
 		return strings.TrimSpace(metricType)
 	}
@@ -187,11 +198,37 @@ func IsWorkloadUtilizationMetric(metricType string) bool {
 	}
 }
 
+// IsQueueDepthMetric is true for backlog-per-worker scale signals.
+func IsQueueDepthMetric(metricType string) bool {
+	return NormalizeMetricType(metricType) == "queueDepth"
+}
+
+// IsQueuePressureMetric is true for age/lag/duration/DLQ signals that scale workers up.
+func IsQueuePressureMetric(metricType string) bool {
+	switch NormalizeMetricType(metricType) {
+	case "oldestMessageAge", "consumerLag", "processingDuration", "deadLetterPressure":
+		return true
+	default:
+		return false
+	}
+}
+
+// IsRetryRateMetric is true for retry-rate signals that block unsafe scale-down.
+func IsRetryRateMetric(metricType string) bool {
+	return NormalizeMetricType(metricType) == "retryRate"
+}
+
+// IsQueueMetric is true for any Forge Events / Queue worker signal.
+func IsQueueMetric(metricType string) bool {
+	return IsQueueDepthMetric(metricType) || IsQueuePressureMetric(metricType) || IsRetryRateMetric(metricType)
+}
+
 // IsActuableMetric reports whether the evaluation loop should compute replica recommendations.
 func IsActuableMetric(metricType string) bool {
 	return IsWorkloadUtilizationMetric(metricType) ||
 		IsTrafficRateMetric(metricType) ||
-		IsGuardrailMetric(metricType)
+		IsGuardrailMetric(metricType) ||
+		IsQueueMetric(metricType)
 }
 
 // TargetAverage returns the configured target value for a metric, if any.

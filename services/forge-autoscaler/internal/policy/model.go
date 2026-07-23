@@ -25,6 +25,7 @@ type MetricSpec struct {
 	TargetAverageUtilization *float64 `json:"targetAverageUtilization,omitempty"`
 	TargetValue              *float64 `json:"targetValue,omitempty"`
 	Query                    string   `json:"query,omitempty"`
+	Queue                    string   `json:"queue,omitempty"` // queueDepth / worker signals (24.04+)
 }
 
 // ScaleBehavior bounds scale-up or scale-down rate.

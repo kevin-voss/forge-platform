@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -19,10 +20,14 @@ func TestSetDesiredReplicasRetriesConflict(t *testing.T) {
 	var lastOp string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/applications/invoice-api") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		switch r.Method {
 		case http.MethodGet:
 			gets.Add(1)
-			writeApp(w, rv.Load(), int(gets.Load()))
+			writeWorkload(w, "Application", "invoice-api", rv.Load(), int(gets.Load()))
 		case http.MethodPatch:
 			patches.Add(1)
 			lastOp = r.Header.Get("X-Forge-Operation-Id")
@@ -37,15 +42,15 @@ func TestSetDesiredReplicasRetriesConflict(t *testing.T) {
 			spec := body["spec"].(map[string]any)
 			scaling := spec["scaling"].(map[string]any)
 			desired := int(scaling["desiredReplicas"].(float64))
-			writeApp(w, rv.Load()+1, desired)
+			writeWorkload(w, "Application", "invoice-api", rv.Load()+1, desired)
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
 	}))
 	defer srv.Close()
 
-	client := &actuate.ApplicationClient{BaseURL: srv.URL}
-	view, err := client.SetDesiredReplicas(context.Background(), "demo", "production", "invoice-api", 4, "op-1")
+	client := &actuate.WorkloadClient{BaseURL: srv.URL}
+	view, err := client.SetDesiredReplicas(context.Background(), "demo", "production", "Application", "invoice-api", 4, "op-1")
 	if err != nil {
 		t.Fatalf("SetDesiredReplicas: %v", err)
 	}
@@ -60,13 +65,40 @@ func TestSetDesiredReplicasRetriesConflict(t *testing.T) {
 	}
 }
 
-func writeApp(w http.ResponseWriter, resourceVersion int64, desired int) {
+func TestWorkerSetDesiredReplicas(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/workers/invoice-worker") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			writeWorkload(w, "Worker", "invoice-worker", 1, 1)
+		case http.MethodPatch:
+			writeWorkload(w, "Worker", "invoice-worker", 2, 8)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	defer srv.Close()
+
+	client := &actuate.WorkloadClient{BaseURL: srv.URL}
+	view, err := client.SetDesiredReplicas(context.Background(), "demo", "production", "Worker", "invoice-worker", 8, "op-w")
+	if err != nil {
+		t.Fatalf("SetDesiredReplicas: %v", err)
+	}
+	if view.DesiredReplicas != 8 || view.Kind != "Worker" {
+		t.Fatalf("view=%+v", view)
+	}
+}
+
+func writeWorkload(w http.ResponseWriter, kind, name string, resourceVersion int64, desired int) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"apiVersion": "forge.dev/v1",
-		"kind":       "Application",
+		"kind":       kind,
 		"metadata": map[string]any{
-			"name":            "invoice-api",
+			"name":            name,
 			"resourceVersion": resourceVersion,
 		},
 		"spec": map[string]any{

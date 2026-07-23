@@ -305,10 +305,11 @@ components:
       properties:
         kind:
           type: string
-          example: Application
+          description: Workload kind to scale (Application or Worker)
+          example: Worker
         name:
           type: string
-          example: invoice-api
+          example: invoice-worker
 
     MetricSpec:
       type: object
@@ -317,9 +318,11 @@ components:
         type:
           type: string
           description: |
-            Metric signal type. Actuable in 24.03: cpu, memory, httpRequests,
-            activeConnections, p95Latency, errorRate.
-          example: httpRequests
+            Metric signal type. Actuable in 24.04: cpu, memory, httpRequests,
+            activeConnections, p95Latency, errorRate, queueDepth,
+            oldestMessageAge, consumerLag, retryRate, processingDuration,
+            deadLetterPressure.
+          example: queueDepth
           enum:
             - cpu
             - memory
@@ -329,15 +332,24 @@ components:
             - p95Latency
             - errorRate
             - queueDepth
+            - oldestMessageAge
+            - consumerLag
+            - retryRate
+            - processingDuration
+            - deadLetterPressure
         targetAverageUtilization:
           type: number
           example: 65
         targetValue:
           type: number
-          description: Absolute target (e.g. RPS per replica, p95 seconds, error ratio)
-          example: 150
+          description: Absolute target (e.g. backlog per worker, RPS per replica, p95 seconds)
+          example: 500
         query:
           type: string
+        queue:
+          type: string
+          description: Queue / stream name for worker queue metrics (defaults to target name)
+          example: invoice-jobs
 
 
     ScaleBehavior:

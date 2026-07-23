@@ -62,6 +62,39 @@ func TestDesiredFromPerReplicaTarget(t *testing.T) {
 	}
 }
 
+func TestDesiredFromQueueBacklog(t *testing.T) {
+	if got := evaluate.DesiredFromQueueBacklog(20000, 500); got != 40 {
+		t.Fatalf("got %d want 40", got)
+	}
+	if got := evaluate.DesiredFromQueueBacklog(0, 500); got != 0 {
+		t.Fatalf("got %d want 0", got)
+	}
+}
+
+func TestQueuePressureAndRetryDecisions(t *testing.T) {
+	desired, code := evaluate.QueuePressureRecommendation(2, 20, 30)
+	if desired != 2 || code != "HoldWithinQueueSLO" {
+		t.Fatalf("within SLO: desired=%d code=%s", desired, code)
+	}
+	desired, code = evaluate.QueuePressureRecommendation(2, 90, 30)
+	if desired <= 2 || code != "ScaleUpQueuePressure" {
+		t.Fatalf("age breach: desired=%d code=%s", desired, code)
+	}
+
+	desired, block, code := evaluate.RetryRateDecision(4, 0.01, 0.05)
+	if desired != 4 || block || code != "HoldRetryHealthy" {
+		t.Fatalf("healthy retry: desired=%d block=%v code=%s", desired, block, code)
+	}
+	desired, block, code = evaluate.RetryRateDecision(4, 0.06, 0.05)
+	if !block || desired != 4 || code != "HoldRetryPressure" {
+		t.Fatalf("mild retry: desired=%d block=%v code=%s", desired, block, code)
+	}
+	desired, block, code = evaluate.RetryRateDecision(4, 0.40, 0.05)
+	if !block || desired < 4 || code != "ScaleUpRetryPressure" {
+		t.Fatalf("severe retry: desired=%d block=%v code=%s", desired, block, code)
+	}
+}
+
 func TestGuardrailRecommendationNeverScalesDown(t *testing.T) {
 	desired, code := evaluate.GuardrailRecommendation(4, 0.05, 0.20, 200, 50)
 	if desired != 4 || code != "HoldWithinTarget" {

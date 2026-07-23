@@ -15,6 +15,8 @@ type Registry struct {
 	recommendations map[string]*atomic.Int64
 	scaleActions    map[string]*atomic.Int64
 	sourceLatency   map[string]*atomic.Uint64 // last latency in microseconds
+	queueBacklog    map[string]*atomic.Uint64 // float bits via math? store as int64 of backlog
+	workerDesired   map[string]*atomic.Int64
 }
 
 // NewRegistry creates an empty metrics registry.
@@ -23,6 +25,8 @@ func NewRegistry() *Registry {
 		recommendations: map[string]*atomic.Int64{},
 		scaleActions:    map[string]*atomic.Int64{},
 		sourceLatency:   map[string]*atomic.Uint64{},
+		queueBacklog:    map[string]*atomic.Uint64{},
+		workerDesired:   map[string]*atomic.Int64{},
 	}
 }
 
@@ -78,6 +82,43 @@ func (r *Registry) ObserveSourceLatency(source string, seconds float64) {
 	gauge.Store(micros)
 }
 
+// SetQueueBacklog sets forge_autoscaler_queue_backlog{queue}.
+func (r *Registry) SetQueueBacklog(queue string, backlog float64) {
+	if r == nil {
+		return
+	}
+	if backlog < 0 {
+		backlog = 0
+	}
+	key := labelsKey("queue", queue)
+	// Store milli-units so fractional depths remain visible in exposition.
+	millis := uint64(backlog * 1000)
+	r.mu.Lock()
+	gauge, ok := r.queueBacklog[key]
+	if !ok {
+		gauge = &atomic.Uint64{}
+		r.queueBacklog[key] = gauge
+	}
+	r.mu.Unlock()
+	gauge.Store(millis)
+}
+
+// SetWorkerDesiredReplicas sets forge_autoscaler_worker_desired_replicas{worker}.
+func (r *Registry) SetWorkerDesiredReplicas(worker string, replicas int) {
+	if r == nil {
+		return
+	}
+	key := labelsKey("worker", worker)
+	r.mu.Lock()
+	gauge, ok := r.workerDesired[key]
+	if !ok {
+		gauge = &atomic.Int64{}
+		r.workerDesired[key] = gauge
+	}
+	r.mu.Unlock()
+	gauge.Store(int64(replicas))
+}
+
 // Handler serves Prometheus text exposition.
 func (r *Registry) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -102,6 +143,19 @@ func (r *Registry) Handler() http.Handler {
 		for _, key := range latKeys {
 			secs := float64(r.sourceLatency[key].Load()) / 1_000_000
 			fmt.Fprintf(&b, "forge_autoscaler_metric_source_latency_seconds%s %g\n", key, secs)
+		}
+		b.WriteString("# HELP forge_autoscaler_queue_backlog Latest observed queue backlog depth.\n")
+		b.WriteString("# TYPE forge_autoscaler_queue_backlog gauge\n")
+		backlogKeys := sortedUintKeys(r.queueBacklog)
+		for _, key := range backlogKeys {
+			depth := float64(r.queueBacklog[key].Load()) / 1000
+			fmt.Fprintf(&b, "forge_autoscaler_queue_backlog%s %g\n", key, depth)
+		}
+		b.WriteString("# HELP forge_autoscaler_worker_desired_replicas Latest desired worker replica count.\n")
+		b.WriteString("# TYPE forge_autoscaler_worker_desired_replicas gauge\n")
+		workerKeys := sortedKeys(r.workerDesired)
+		for _, key := range workerKeys {
+			fmt.Fprintf(&b, "forge_autoscaler_worker_desired_replicas%s %d\n", key, r.workerDesired[key].Load())
 		}
 		r.mu.Unlock()
 		_, _ = w.Write([]byte(b.String()))

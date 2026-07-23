@@ -62,12 +62,12 @@ func run() error {
 	router := &metrics.Router{
 		Observe: &metrics.ObserveSource{BaseURL: cfg.ObserveURL, Metrics: tel},
 		Gateway: &metrics.GatewaySource{BaseURL: cfg.GatewayAdminURL, Metrics: tel},
-		Queue:   &metrics.QueueSource{BaseURL: cfg.EventsURL},
+		Queue:   &metrics.QueueSource{BaseURL: cfg.EventsURL, Metrics: tel},
 		Runtime: &metrics.RuntimeSource{BaseURL: cfg.RuntimeURL},
 		Fake:    fake,
 		Prefer:  cfg.MetricSourceMode,
 	}
-	actuator := &actuate.ApplicationClient{BaseURL: cfg.ControlURL}
+	actuator := &actuate.WorkloadClient{BaseURL: cfg.ControlURL}
 
 	ready := health.NewReadiness(db)
 	mux := http.NewServeMux()

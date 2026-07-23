@@ -7,7 +7,7 @@ Atomic steps for [Forge Autoscaler](../../epics/24-forge-autoscaler.md).
 | 24.01 | 160 | [24.01-skeleton-scalingpolicy-and-metric-sources.md](24.01-skeleton-scalingpolicy-and-metric-sources.md) | Complete |
 | 24.02 | 161 | [24.02-workload-cpu-memory-autoscaling.md](24.02-workload-cpu-memory-autoscaling.md) | Complete |
 | 24.03 | 162 | [24.03-request-rate-and-latency-autoscaling.md](24.03-request-rate-and-latency-autoscaling.md) | Complete |
-| 24.04 | 163 | [24.04-worker-queue-depth-autoscaling.md](24.04-worker-queue-depth-autoscaling.md) | Not started |
+| 24.04 | 163 | [24.04-worker-queue-depth-autoscaling.md](24.04-worker-queue-depth-autoscaling.md) | Complete |
 | 24.05 | 164 | [24.05-scheduled-scaling-and-overrides.md](24.05-scheduled-scaling-and-overrides.md) | Not started |
 | 24.06 | 165 | [24.06-node-autoscaling-scale-up.md](24.06-node-autoscaling-scale-up.md) | Not started |
 | 24.07 | 166 | [24.07-scale-down-draining-and-safeguards.md](24.07-scale-down-draining-and-safeguards.md) | Not started |
