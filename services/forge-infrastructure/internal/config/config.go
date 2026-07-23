@@ -25,6 +25,13 @@ type Config struct {
 
 	RegistryURL       string
 	ReconcileInterval time.Duration
+
+	DockerSocket       string
+	DockerNetwork      string
+	DockerImage        string
+	DockerHostAddress  string
+	OrphanScanInterval time.Duration
+	ControlURLForNodes string
 }
 
 // Load reads configuration from the process environment.
@@ -116,6 +123,38 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("FORGE_INFRA_RECONCILE_INTERVAL_MS must be >= 100, got %q", intervalRaw)
 	}
 
+	dockerSocket := strings.TrimSpace(os.Getenv("FORGE_INFRA_DOCKER_SOCKET"))
+	if dockerSocket == "" {
+		dockerSocket = strings.TrimSpace(os.Getenv("DOCKER_HOST"))
+	}
+	if dockerSocket == "" {
+		dockerSocket = "/var/run/docker.sock"
+	}
+	dockerNetwork := strings.TrimSpace(os.Getenv("FORGE_INFRA_DOCKER_NETWORK"))
+	if dockerNetwork == "" {
+		dockerNetwork = "forge-platform_default"
+	}
+	dockerImage := strings.TrimSpace(os.Getenv("FORGE_INFRA_DOCKER_IMAGE"))
+	if dockerImage == "" {
+		dockerImage = "forge/forge-runtime:local"
+	}
+	dockerHostAddr := strings.TrimSpace(os.Getenv("FORGE_INFRA_DOCKER_HOST_ADDRESS"))
+	if dockerHostAddr == "" {
+		dockerHostAddr = "127.0.0.1"
+	}
+	orphanRaw := strings.TrimSpace(os.Getenv("FORGE_INFRA_ORPHAN_SCAN_INTERVAL_S"))
+	if orphanRaw == "" {
+		orphanRaw = "30"
+	}
+	orphanSecs, err := strconv.Atoi(orphanRaw)
+	if err != nil || orphanSecs < 1 {
+		return Config{}, fmt.Errorf("FORGE_INFRA_ORPHAN_SCAN_INTERVAL_S must be >= 1, got %q", orphanRaw)
+	}
+	controlURLNodes := strings.TrimSpace(os.Getenv("FORGE_CONTROL_URL"))
+	if controlURLNodes == "" {
+		controlURLNodes = "http://forge-control:8080"
+	}
+
 	return Config{
 		Port:                   port,
 		ServiceName:            name,
@@ -130,5 +169,11 @@ func Load() (Config, error) {
 		DatabaseMigrateOnStart: migrateOnStart,
 		RegistryURL:            strings.TrimRight(registryURL, "/"),
 		ReconcileInterval:      time.Duration(intervalMs) * time.Millisecond,
+		DockerSocket:           dockerSocket,
+		DockerNetwork:          dockerNetwork,
+		DockerImage:            dockerImage,
+		DockerHostAddress:      dockerHostAddr,
+		OrphanScanInterval:     time.Duration(orphanSecs) * time.Second,
+		ControlURLForNodes:     strings.TrimRight(controlURLNodes, "/"),
 	}, nil
 }

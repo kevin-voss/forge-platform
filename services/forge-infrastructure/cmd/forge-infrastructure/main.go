@@ -19,6 +19,7 @@ import (
 	"forge.local/services/forge-infrastructure/internal/health"
 	"forge.local/services/forge-infrastructure/internal/operations"
 	"forge.local/services/forge-infrastructure/internal/provider"
+	"forge.local/services/forge-infrastructure/internal/provider/docker"
 	"forge.local/services/forge-infrastructure/internal/provider/noop"
 	"forge.local/services/forge-infrastructure/internal/registryclient"
 )
@@ -51,8 +52,25 @@ func run() error {
 	}
 
 	reg := provider.NewRegistry(noop.Factory)
-	// Known type keys reserved; real adapters register in 23.02+.
-	_ = provider.TypeDocker
+	dockerCfg := docker.Config{
+		Socket:      cfg.DockerSocket,
+		Network:     cfg.DockerNetwork,
+		Image:       cfg.DockerImage,
+		HostAddress: cfg.DockerHostAddress,
+		ControlURL:  cfg.ControlURLForNodes,
+		Log:         log,
+	}
+	dockerProv, dockerErr := docker.New(dockerCfg)
+	if dockerErr != nil {
+		log.Warn("docker provider client init failed; using factory fallback",
+			"error", dockerErr.Error(),
+		)
+		reg.Register(provider.TypeDocker, docker.Factory(dockerCfg))
+	} else {
+		reg.Register(provider.TypeDocker, func(cfg map[string]any) (provider.Provider, error) {
+			return dockerProv, nil
+		})
+	}
 
 	registryClient := registryclient.New(cfg.RegistryURL, log)
 	ready := health.NewReadiness(db)
@@ -67,6 +85,13 @@ func run() error {
 		Providers: reg,
 		Log:       log,
 		Interval:  cfg.ReconcileInterval,
+	}
+
+	orphan := &docker.OrphanReconciler{
+		Provider: dockerProv,
+		Known:    &docker.RegistryKnown{Lister: &registryNodeLister{client: registryClient}},
+		Log:      log,
+		Interval: cfg.OrphanScanInterval,
 	}
 
 	bgCtx, bgCancel := context.WithCancel(context.Background())
@@ -105,6 +130,9 @@ func run() error {
 	} else {
 		ready.MarkKindsRegistered()
 		go ctrl.Run(bgCtx)
+		if dockerProv != nil {
+			go orphan.Run(bgCtx)
+		}
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -126,6 +154,30 @@ func run() error {
 		return fmt.Errorf("shutdown: %w", err)
 	}
 	return nil
+}
+
+type registryNodeLister struct {
+	client *registryclient.Client
+}
+
+func (r *registryNodeLister) ListNodes(ctx context.Context) ([]docker.NodeResource, error) {
+	items, err := r.client.List(ctx, "nodes", "")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]docker.NodeResource, 0, len(items))
+	for _, n := range items {
+		id := ""
+		if n.Spec != nil {
+			if v, ok := n.Spec["providerNodeId"].(string); ok {
+				id = v
+			} else if v, ok := n.Spec["providerNodeId"]; ok && v != nil {
+				id = fmt.Sprint(v)
+			}
+		}
+		out = append(out, docker.NodeResource{ProviderNodeID: id})
+	}
+	return out, nil
 }
 
 func newLogger(service, level string) *slog.Logger {

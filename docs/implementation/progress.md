@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 154`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 155`**.
 
 ## Epics
 
@@ -232,7 +232,8 @@ next implementable step is still the one named at the top of this file. Plan:
 | **151** | [Overlay + Discovery/DNS integration](steps/22-forge-network/22.06-overlay-dns-and-cross-node-services.md) | Complete |  | Runtime DNS bootstrap; overlay lease registration; Discovery overlay filter; drift reconcile + metrics |
 | **152** | [Demo `22-forge-network` + epic gate](steps/22-forge-network/22.07-demo-22-forge-network.md) | Complete |  | `make demo DEMO=22`; join/peers/DNS/policy/node-loss |
 | **153** | [Skeleton, provider interface, NodePool/Node resources](steps/23-forge-infrastructure/23.01-skeleton-provider-interface-and-nodepools.md) | Complete |  | `forge-infrastructure` on 4111; Provider iface; ledger; inert NodePoolController |
-| **154**–**159** | Epic 23 — Forge Infrastructure (`23.02`–`23.07`) | Not started |  | |
+| **154** | [Local Docker provider (local cloud simulation)](steps/23-forge-infrastructure/23.02-docker-provider-local-nodes.md) | Complete |  | `docker` provider; machine types; orphan scan; Compose socket mount |
+| **155**–**159** | Epic 23 — Forge Infrastructure (`23.03`–`23.07`) | Not started |  | |
 | **160**–**167** | Epic 24 — Forge Autoscaler (`24.01`–`24.08`) | Not started |  | |
 | **168**–**173** | Epic 25 — Scheduling enhancements (`25.01`–`25.06`) | Not started |  | |
 
