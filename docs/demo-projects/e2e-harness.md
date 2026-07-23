@@ -194,7 +194,15 @@ exit 0 iff: all selected products passed AND zero blocker findings
 **Landed:** `tests/e2e/harness/orchestrator.ts` discovers `demos/*/demo.json` (numeric order),
 honors `HEADLESS`/`CI`, `PROJECTS=01,50…`, `KEEP`, and `FINDINGS_ONLY`, runs platform preflight
 then each product lifecycle, writes `artifacts/orchestrator-result.json`, and exits 0 iff all
-selected products passed with zero blocker findings. Report markdown/HTML is still 50.06.
+selected products passed with zero blocker findings.
+
+### 50.06 outcome — run report + coverage rollup
+
+**Landed:** `tests/e2e/harness/report.ts` writes `artifacts/report.md` + `artifacts/report.html`
+after every orchestrator run (product results, durations, findings counts, video/trace links).
+Coverage rollup unions each product’s `demo.json.services` against
+[`service-coverage-matrix.md`](service-coverage-matrix.md) and marks covered/uncovered
+(informational; enforcement is 56.02). `make e2e-report` opens the last HTML report.
 
 ```make
 test-platform-e2e:
@@ -202,9 +210,13 @@ test-platform-e2e:
 	@cd tests/e2e && npm run build
 	@cd tests/e2e && HEADLESS=$(HEADLESS) PROJECTS=$(PROJECTS) KEEP=$(KEEP) FINDINGS_ONLY=$(FINDINGS_ONLY) \
 		node harness/orchestrator.js
+
+e2e-report:
+	@cd tests/e2e && npm run build
+	@cd tests/e2e && node harness/report.js --open
 ```
 
-Related targets: `make e2e-install` (Playwright browsers), `make e2e-report` (50.06),
+Related targets: `make e2e-install` (Playwright browsers), `make e2e-report`,
 `make demo DEMO=5X` (when `demos/5X-*/demo.json` exists, reuses the orchestrator lifecycle).
 
 ## 9. Determinism

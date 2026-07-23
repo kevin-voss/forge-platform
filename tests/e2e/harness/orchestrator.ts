@@ -19,6 +19,7 @@ import {
 } from './findings';
 import { HostPreflightError, preflightHosts } from './gateway';
 import { PreflightError, preflight } from './platform';
+import { writeReport } from './report';
 
 /**
  * Platform E2E orchestrator - single entry for `make test-platform-e2e`.
@@ -68,7 +69,7 @@ export interface OrchestratorOptions {
   hostPreflight?: (project: DemoProject) => Promise<void>;
   /** Inject Playwright runner (tests). */
   runPlaywright?: (project: DemoProject, env: OrchestratorEnv) => Promise<number>;
-  /** When true, skip writing artifacts/orchestrator-result.json. */
+  /** When true, skip writing artifacts/orchestrator-result.json and report. */
   skipResultWrite?: boolean;
   /** Timeout for deploy/seed/teardown scripts. */
   timeoutMs?: number;
@@ -529,8 +530,10 @@ function writeResultArtifact(
   options: OrchestratorOptions,
 ): void {
   if (options.skipResultWrite) return;
-  const outPath = path.join(e2eRoot(), 'artifacts/orchestrator-result.json');
-  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  const artifactsDir = path.join(e2eRoot(), 'artifacts');
+  const outPath = path.join(artifactsDir, 'orchestrator-result.json');
+  fs.mkdirSync(artifactsDir, { recursive: true });
+  const report = writeReport(result, { artifactsDir });
   const serializable = {
     ok: result.ok,
     exitCode: result.exitCode,
@@ -542,6 +545,7 @@ function writeResultArtifact(
       error: p.error,
       playwrightCode: p.playwrightCode,
       durationMs: p.durationMs,
+      services: p.project.services,
       steps: p.lifecycle?.steps.map((s) => ({
         command: s.command,
         code: s.code,
@@ -549,9 +553,21 @@ function writeResultArtifact(
       })),
     })),
     findingsSummary: result.findings.summary,
-    // Full report formatting lands in 50.06 (report.ts).
+    coverage: {
+      covered: report.coverage.covered,
+      uncovered: report.coverage.uncovered,
+      total: report.coverage.total,
+    },
+    report: {
+      markdown: path.relative(e2eRoot(), report.markdownPath),
+      html: path.relative(e2eRoot(), report.htmlPath),
+    },
   };
   fs.writeFileSync(outPath, `${JSON.stringify(serializable, null, 2)}\n`, 'utf8');
+  process.stdout.write(
+    `[orchestrator] report: ${report.markdownPath}` +
+      ` (coverage ${report.coverage.covered}/${report.coverage.total})\n`,
+  );
 }
 
 async function main(): Promise<void> {

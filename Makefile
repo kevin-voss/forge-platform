@@ -18,7 +18,7 @@ SHUTDOWN_TIMEOUT ?= 10s
 	build build-cli test test-unit test-integration test-e2e test-infrastructure \
 	contract-validate lint-openapi \
 	lint format clean reset demo demo-accept demo-full service-test service-run wait \
-	e2e-install test-platform-e2e
+	e2e-install test-platform-e2e e2e-report
 
 HEADLESS ?=
 PROJECTS ?=
@@ -60,6 +60,7 @@ help:
 	@echo "  make service-run SERVICE=  Run one service locally"
 	@echo "  make e2e-install           Install Playwright browsers for tests/e2e"
 	@echo "  make test-platform-e2e     Run platform E2E orchestrator (HEADLESS/PROJECTS/KEEP)"
+	@echo "  make e2e-report            Open the last platform E2E HTML report"
 	@echo "  make demo DEMO=5X          Demo product (demo.json → orchestrator lifecycle)"
 
 setup: env-check
@@ -154,6 +155,11 @@ test-platform-e2e:
 	@cd tests/e2e && npm run build
 	@cd tests/e2e && HEADLESS="$(HEADLESS)" PROJECTS="$(PROJECTS)" KEEP="$(KEEP)" FINDINGS_ONLY="$(FINDINGS_ONLY)" \
 		node harness/orchestrator.js
+
+# Open artifacts/report.html from the last orchestrator run (written by report.ts).
+e2e-report:
+	@cd tests/e2e && npm run build
+	@cd tests/e2e && node harness/report.js --open
 
 test-infrastructure: env-check
 	@./tests/infrastructure/test_infrastructure.sh
