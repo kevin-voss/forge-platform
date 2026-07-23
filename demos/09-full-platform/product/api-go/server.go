@@ -155,6 +155,13 @@ func (s *server) handleLive(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *server) handleReady(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.CapstoneBreak {
+		writeJSON(w, http.StatusServiceUnavailable, healthResponse{
+			Status: "not_ready",
+			Error:  "capstone_break",
+		})
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	if err := s.store.Ready(ctx); err != nil {

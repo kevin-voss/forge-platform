@@ -51,6 +51,36 @@ func TestHealthEndpoints(t *testing.T) {
 	}
 }
 
+func TestCapstoneBreakFailsReadiness(t *testing.T) {
+	srv := testServer(t)
+	srv.cfg.CapstoneBreak = true
+	handler := srv.routes()
+
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+	var body healthResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Status != "not_ready" {
+		t.Fatalf("status = %q, want not_ready", body.Status)
+	}
+	if body.Error != "capstone_break" {
+		t.Fatalf("error = %q, want capstone_break", body.Error)
+	}
+
+	// Liveness must remain healthy so Runtime can still observe the probe failure.
+	live := httptest.NewRecorder()
+	handler.ServeHTTP(live, httptest.NewRequest(http.MethodGet, "/health/live", nil))
+	if live.Code != http.StatusOK {
+		t.Fatalf("live status = %d, want 200", live.Code)
+	}
+}
+
 func TestIdentityEndpoint(t *testing.T) {
 	srv := testServer(t)
 	srv.startedAt = time.Now().UTC().Add(-2 * time.Second)

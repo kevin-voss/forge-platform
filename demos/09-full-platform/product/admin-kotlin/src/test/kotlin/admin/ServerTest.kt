@@ -46,6 +46,26 @@ class ServerTest {
     }
 
     @Test
+    fun capstoneBreakFailsReady() = testApplication {
+        val broken = cfg.copy(capstoneBreak = true)
+        application {
+            configureContractRoutes(broken)
+        }
+        val client = createClient {
+            install(ContentNegotiation) {
+                json(Json { ignoreUnknownKeys = true })
+            }
+        }
+        val ready = client.get("/health/ready")
+        assertEquals(HttpStatusCode.ServiceUnavailable, ready.status)
+        val body = ready.body<HealthResponse>()
+        assertEquals("not_ready", body.status)
+        assertEquals("capstone_break", body.error)
+        val live = client.get("/health/live")
+        assertEquals(HttpStatusCode.OK, live.status)
+    }
+
+    @Test
     fun identity() = testApplication {
         val startedAt = AtomicLong(System.currentTimeMillis() - 2_000)
         application {

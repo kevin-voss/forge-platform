@@ -11,7 +11,13 @@ defmodule NotifyElixir.Router do
   end
 
   get "/health/ready" do
-    send_json(conn, 200, %{status: "ok"})
+    case Application.get_env(:notify_elixir, :runtime_config) do
+      %{capstone_break: true} ->
+        send_json(conn, 503, %{status: "not_ready", error: "capstone_break"})
+
+      _ ->
+        send_json(conn, 200, %{status: "ok"})
+    end
   end
 
   get "/" do

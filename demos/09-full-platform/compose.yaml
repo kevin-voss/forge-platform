@@ -172,5 +172,29 @@ services:
       forge-memory:
         condition: service_healthy
 
+  # 19.05 — Workflows incident-response (approval-gated Control rollback).
+  forge-workflows:
+    environment:
+      FORGE_WORKFLOWS_DEFS_DIR: /app/definitions
+      FORGE_AGENTS_URL: http://forge-agents:8080
+      FORGE_CONTROL_URL: http://forge-control:4001
+      FORGE_EVENTS_URL: http://forge-events:4105
+      FORGE_WORKFLOWS_EVENTS_ENABLED: ${FORGE_WORKFLOWS_EVENTS_ENABLED:-false}
+      FORGE_WORKFLOWS_AGENTS_MODE: ${FORGE_WORKFLOWS_AGENTS_MODE:-fake}
+      FORGE_WORKFLOWS_CONTROL_MODE: ${FORGE_WORKFLOWS_CONTROL_MODE:-fake}
+      FORGE_WORKFLOWS_AGENT_POLL_MS: ${FORGE_WORKFLOWS_AGENT_POLL_MS:-50}
+      FORGE_WORKFLOWS_AGENT_STEP_TIMEOUT: ${FORGE_WORKFLOWS_AGENT_STEP_TIMEOUT:-30000}
+      FORGE_WORKFLOWS_APPROVAL_TTL_SECONDS: ${FORGE_WORKFLOWS_APPROVAL_TTL_SECONDS:-86400}
+      FORGE_WORKFLOWS_DEFAULT_PROJECT: ${FORGE_WORKFLOWS_DEFAULT_PROJECT:-capstone}
+      FORGE_WORKFLOWS_REPORT_BUCKET: ${FORGE_WORKFLOWS_REPORT_BUCKET:-wf-reports}
+      FORGE_WORKFLOWS_CONTROL_HTTP_TIMEOUT_MS: ${FORGE_WORKFLOWS_CONTROL_HTTP_TIMEOUT_MS:-2000}
+    volumes:
+      - ./demos/09-full-platform/scenario:/app/definitions:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      forge-agents:
+        condition: service_healthy
+
 volumes:
   forge-capstone-db-backups:

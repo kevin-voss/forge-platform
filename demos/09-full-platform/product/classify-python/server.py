@@ -40,7 +40,10 @@ class ContractHandler(BaseHTTPRequestHandler):
             self._write_json(200, {"status": "ok"})
             return
         if path == "/health/ready":
-            self._write_json(200, {"status": "ok"})
+            if self.cfg.capstone_break:
+                self._write_json(503, {"status": "not_ready", "error": "capstone_break"})
+            else:
+                self._write_json(200, {"status": "ok"})
             return
         if path == "/":
             self._write_json(

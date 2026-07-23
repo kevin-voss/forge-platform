@@ -13,6 +13,11 @@ class Config:
     service_version: str
     log_level: str
     env: str
+    capstone_break: bool = False
+
+
+def _truthy(raw: str | None) -> bool:
+    return (raw or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def load_config() -> Config:
@@ -40,4 +45,5 @@ def load_config() -> Config:
         service_version=version,
         log_level=level,
         env=env,
+        capstone_break=_truthy(os.environ.get("CAPSTONE_BREAK")),
     )

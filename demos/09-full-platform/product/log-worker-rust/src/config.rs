@@ -11,6 +11,8 @@ pub struct Config {
     pub events_consumer: String,
     pub events_subject: String,
     pub events_poll_ms: u64,
+    /// When true, /health/ready fails (capstone broken-release injection).
+    pub capstone_break: bool,
 }
 
 impl Config {
@@ -105,6 +107,14 @@ impl Config {
             .parse()
             .map_err(|_| format!("FORGE_EVENTS_POLL_MS must be an integer, got {poll_raw:?}"))?;
 
+        let capstone_break = match env::var("CAPSTONE_BREAK") {
+            Ok(v) => matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            ),
+            Err(_) => false,
+        };
+
         Ok(Self {
             port,
             service_name,
@@ -115,6 +125,7 @@ impl Config {
             events_consumer,
             events_subject,
             events_poll_ms,
+            capstone_break,
         })
     }
 }
@@ -142,6 +153,7 @@ mod tests {
             "FORGE_EVENTS_CONSUMER",
             "FORGE_EVENTS_SUBJECT",
             "FORGE_EVENTS_POLL_MS",
+            "CAPSTONE_BREAK",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()

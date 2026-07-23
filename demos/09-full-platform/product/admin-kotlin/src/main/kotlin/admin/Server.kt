@@ -1,5 +1,6 @@
 package admin
 
+import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCallPipeline
@@ -22,7 +23,10 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.max
 
 @Serializable
-data class HealthResponse(val status: String)
+data class HealthResponse(
+    val status: String,
+    val error: String? = null,
+)
 
 @Serializable
 data class IdentityResponse(
@@ -86,8 +90,13 @@ fun Application.configureContractRoutes(
             call.respond(HealthResponse(status = "ok"))
         }
         get("/health/ready") {
-            call.attributes.put(statusAttr, 200)
-            call.respond(HealthResponse(status = "ok"))
+            if (cfg.capstoneBreak) {
+                call.attributes.put(statusAttr, 503)
+                call.respond(HttpStatusCode.ServiceUnavailable, HealthResponse(status = "not_ready", error = "capstone_break"))
+            } else {
+                call.attributes.put(statusAttr, 200)
+                call.respond(HealthResponse(status = "ok"))
+            }
         }
         get("/") {
             val uptime = max(0.0, (System.currentTimeMillis() - startedAtMs.get()) / 1000.0)

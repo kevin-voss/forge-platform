@@ -1,0 +1,38 @@
+# Capstone 19.05 — incident-response recovery workflow.
+# Triggered by deployment.failed → collect diagnostics (parallel) → Memory-assisted
+# investigator agent → human approval → Control rollback → final report.
+name: incident-response
+trigger:
+  event: deployment.failed
+steps:
+  - id: collect-diagnostics
+    type: parallel
+    branches:
+      - id: collect-logs
+        type: task
+        action: noop
+      - id: collect-metrics
+        type: task
+        action: noop
+  - id: diagnose
+    type: agent
+    agent: deployment-investigator
+    input:
+      deployment: "${event.deployment_id}"
+  - id: prepare-rollback
+    type: task
+    action: noop
+    compensate: control.rollback_deployment
+  - id: approve-rollback
+    type: approval
+    prompt: "Approve rollback of ${event.deployment_id}?"
+    on_deny: close
+  - id: do-rollback
+    type: task
+    action: rollback
+  - id: finalize
+    type: task
+    action: report.store
+  - id: close
+    type: log
+    message: closed-denied

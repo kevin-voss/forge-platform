@@ -2,14 +2,15 @@ defmodule NotifyElixir.Config do
   @moduledoc false
 
   @enforce_keys [:port, :service_name, :service_version, :log_level, :env]
-  defstruct [:port, :service_name, :service_version, :log_level, :env]
+  defstruct [:port, :service_name, :service_version, :log_level, :env, capstone_break: false]
 
   @type t :: %__MODULE__{
           port: pos_integer(),
           service_name: String.t(),
           service_version: String.t(),
           log_level: String.t(),
-          env: String.t()
+          env: String.t(),
+          capstone_break: boolean()
         }
 
   @allowed_levels ~w(debug info warn error)
@@ -24,8 +25,16 @@ defmodule NotifyElixir.Config do
       service_name: blank_default(System.get_env("FORGE_SERVICE_NAME"), "incident-notify"),
       service_version: blank_default(System.get_env("FORGE_SERVICE_VERSION"), "0.1.0"),
       log_level: level,
-      env: blank_default(System.get_env("FORGE_ENV"), "development")
+      env: blank_default(System.get_env("FORGE_ENV"), "development"),
+      capstone_break: truthy?(System.get_env("CAPSTONE_BREAK"))
     }
+  end
+
+  defp truthy?(nil), do: false
+  defp truthy?(""), do: false
+
+  defp truthy?(raw) do
+    String.downcase(String.trim(raw)) in ~w(1 true yes on)
   end
 
   defp parse_port!(nil), do: raise(ArgumentError, "PORT is required")

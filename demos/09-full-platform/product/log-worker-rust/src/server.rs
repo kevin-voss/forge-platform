@@ -20,6 +20,8 @@ pub struct AppState {
 #[derive(Debug, Serialize, PartialEq)]
 pub struct HealthResponse {
     pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -61,17 +63,29 @@ async fn handle_live() -> impl IntoResponse {
         StatusCode::OK,
         Json(HealthResponse {
             status: "ok".into(),
+            error: None,
         }),
     )
 }
 
-async fn handle_ready() -> impl IntoResponse {
-    (
-        StatusCode::OK,
-        Json(HealthResponse {
-            status: "ok".into(),
-        }),
-    )
+async fn handle_ready(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    if state.cfg.capstone_break {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(HealthResponse {
+                status: "not_ready".into(),
+                error: Some("capstone_break".into()),
+            }),
+        )
+    } else {
+        (
+            StatusCode::OK,
+            Json(HealthResponse {
+                status: "ok".into(),
+                error: None,
+            }),
+        )
+    }
 }
 
 async fn handle_identity(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -165,6 +179,7 @@ mod tests {
                 events_consumer: "incident-log-worker".into(),
                 events_subject: "incident.created".into(),
                 events_poll_ms: 500,
+                capstone_break: false,
             },
             started_at: Instant::now()
                 .checked_sub(std::time::Duration::from_secs(2))
@@ -198,6 +213,17 @@ mod tests {
             assert_eq!(status, StatusCode::OK);
             assert_eq!(body["status"], "ok");
         }
+    }
+
+    #[tokio::test]
+    async fn capstone_break_fails_ready() {
+        let mut state = test_state();
+        state.cfg.capstone_break = true;
+        let app = router(state);
+        let (status, body) = get_json(app, "/health/ready").await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["status"], "not_ready");
+        assert_eq!(body["error"], "capstone_break");
     }
 
     #[tokio::test]

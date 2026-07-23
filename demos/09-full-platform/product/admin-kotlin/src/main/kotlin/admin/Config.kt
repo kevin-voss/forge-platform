@@ -6,6 +6,8 @@ data class Config(
     val serviceVersion: String,
     val logLevel: String,
     val env: String,
+    /** When true, /health/ready fails (capstone broken-release injection). */
+    val capstoneBreak: Boolean = false,
 )
 
 fun loadConfig(env: Map<String, String> = System.getenv()): Config {
@@ -27,6 +29,7 @@ fun loadConfig(env: Map<String, String> = System.getenv()): Config {
     val name = env["FORGE_SERVICE_NAME"]?.trim().orEmpty().ifEmpty { "incident-admin" }
     val version = env["FORGE_SERVICE_VERSION"]?.trim().orEmpty().ifEmpty { "0.1.0" }
     val forgeEnv = env["FORGE_ENV"]?.trim().orEmpty().ifEmpty { "development" }
+    val capstoneBreak = env["CAPSTONE_BREAK"]?.trim()?.lowercase() in setOf("1", "true", "yes", "on")
 
     return Config(
         port = port,
@@ -34,5 +37,6 @@ fun loadConfig(env: Map<String, String> = System.getenv()): Config {
         serviceVersion = version,
         logLevel = level,
         env = forgeEnv,
+        capstoneBreak = capstoneBreak,
     )
 }

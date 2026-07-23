@@ -35,6 +35,18 @@ defmodule NotifyElixir.RouterTest do
     end
   end
 
+  test "capstone break fails ready" do
+    cfg = Application.fetch_env!(:notify_elixir, :runtime_config)
+    Application.put_env(:notify_elixir, :runtime_config, %{cfg | capstone_break: true})
+
+    conn = conn(:get, "/health/ready") |> Router.call([])
+    assert conn.status == 503
+    assert Jason.decode!(conn.resp_body) == %{"status" => "not_ready", "error" => "capstone_break"}
+
+    live = conn(:get, "/health/live") |> Router.call([])
+    assert live.status == 200
+  end
+
   test "identity" do
     conn = conn(:get, "/") |> Router.call([])
     assert conn.status == 200

@@ -32,6 +32,8 @@ type config struct {
 	// Injected product config/secret names (presence only in status endpoints).
 	AppSharedSecret string
 	ProductMode     string
+	// CapstoneBreak forces /health/ready to fail (broken v2 release injection).
+	CapstoneBreak bool
 }
 
 func loadConfig() (config, error) {
@@ -144,6 +146,7 @@ func loadConfig() (config, error) {
 		StorageBucket:   storageBucket,
 		AppSharedSecret: os.Getenv("APP_SHARED_SECRET"),
 		ProductMode:     strings.TrimSpace(os.Getenv("PRODUCT_MODE")),
+		CapstoneBreak:   parseBool(os.Getenv("CAPSTONE_BREAK"), false),
 	}, nil
 }
 

@@ -1,7 +1,7 @@
 # Demo 09 — Full platform (capstone)
 
 Polyglot incident-management product deployed through the real Forge path, with
-platform foundations and the AI diagnosis loop wired:
+platform foundations, AI diagnosis, and the approval-gated recovery loop:
 
 ```text
 Identity (enforce) → Control authz (viewer denied / developer deploy)
@@ -11,6 +11,7 @@ Storage            → project bucket artifact via incident-api
 Managed Postgres   → forge database create/attach → incidents table
 Models + Memory    → historical incidents embedded; NN retrieval
 Agents             → deployment-investigator (telemetry + memory.search)
+Workflows          → incident-response (failure → diagnose → approve → rollback)
 ```
 
 This folder is the **thematic** north-star demo (`demos/09-full-platform`). It is
@@ -23,8 +24,9 @@ This folder is the **thematic** north-star demo (`demos/09-full-platform`). It i
 | **19.01** | Product services under `product/` (complete) |
 | **19.02** | Deploy path Build→Runtime→Gateway→Events (complete) |
 | **19.03** | Identity / Secrets / Observe / Storage / managed DB (complete) |
-| **19.04** | Models / Agents / Memory diagnosis (**this README**) |
-| 19.05+ | Failure injection + Workflows approval/rollback; acceptance suite |
+| **19.04** | Models / Agents / Memory diagnosis (complete) |
+| **19.05** | Failure injection + Workflows approval/rollback (**this README**) |
+| 19.06 | Acceptance suite packaging |
 
 ## Auth
 
@@ -72,19 +74,43 @@ What `deploy.sh` does:
    Tempo distributed trace across ≥3 product services, log masking
 7. Seeds Memory + runs the investigator diagnosis loop (19.04)
 
+## Failure injection + recovery (19.05)
+
+Broken release flag (any product service):
+
+```text
+CAPSTONE_BREAK=true   # /health/ready → 503 {status:not_ready, error:capstone_break}
+```
+
+North-star recovery loop (CI subset with fake Control/Agents):
+
+```bash
+./scenario/break-release.sh
+```
+
+What it proves:
+
+1. `CAPSTONE_BREAK` fails readiness deterministically (unit-tested)
+2. Readiness failure → `deployment.failed` → `incident-response` workflow starts
+3. Parallel diagnostics + Memory-assisted investigator diagnosis
+4. Human approval required; mid-run workflows restart resumes without repeating steps
+5. On **approve** → Control rollback → report stored → `deployment.completed` completion event
+6. On **deny** → no rollback (hold/escalate via `on_deny: close`)
+
+Manual (stack already up with workflows defs mounted):
+
+```bash
+./scenario/break-release.sh accept
+# observe awaiting_approval, then:
+# curl -X POST "$FORGE_WORKFLOWS_URL/v1/approvals/<id>/approve" \
+#   -H "X-Forge-Project: capstone" -H 'content-type: application/json' \
+#   -d '{"decided_by":"operator","reason":"rollback"}'
+```
+
 AI-only acceptance (Models/Memory/Agents, fake tools — CI path):
 
 ```bash
 ./ai/verify-diagnosis.sh
-```
-
-Manual AI checks (stack already up):
-
-```bash
-./ai/seed-memory.sh
-forge agent run deployment-investigator --project capstone --deployment dep-capstone --dry-run
-# diagnosis cites Observe telemetry + historical Memory incident;
-# runtime.restart remains awaiting_approval (not executed)
 ```
 
 Unit tests:
@@ -92,6 +118,7 @@ Unit tests:
 ```bash
 python3 -m unittest discover -s lib -p 'test_*.py' -v
 cd product/api-go && go test ./...
+./scenario/break-release.sh unit
 ```
 
 ## AI layer (19.04)
@@ -103,16 +130,27 @@ cd product/api-go && go test ./...
 | [`ai/seed-memory.sh`](ai/seed-memory.sh) | Create collection + upsert incidents |
 | [`ai/verify-diagnosis.sh`](ai/verify-diagnosis.sh) | NN + investigator citation acceptance |
 
+## Scenario layer (19.05)
+
+| Path | Purpose |
+|---|---|
+| [`scenario/incident-response.yaml`](scenario/incident-response.yaml) | Capstone workflow: event → diagnose → approve → rollback → report |
+| [`scenario/expected-report.md`](scenario/expected-report.md) | Final report shape |
+| [`scenario/break-release.sh`](scenario/break-release.sh) | Failure injection + approval/rollback acceptance |
+
 Configuration:
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `CAPSTONE_BREAK` | unset/`false` | Product readiness failure (broken v2) |
 | `FORGE_MODELS_BACKEND` | `fake` | Deterministic embeddings in CI |
-| `FORGE_AGENTS_TOOLS_MODE` | `fake` | Deterministic tool fixtures in CI (`live` optional locally) |
-| `FORGE_MEMORY_URL` | `http://127.0.0.1:4303` | Memory API |
-| `FORGE_MODELS_URL` | `http://127.0.0.1:4300` | Models API |
+| `FORGE_AGENTS_TOOLS_MODE` | `fake` | Deterministic tool fixtures in CI |
+| `FORGE_WORKFLOWS_AGENTS_MODE` | `fake` | Workflow agent client (fake in CI) |
+| `FORGE_WORKFLOWS_CONTROL_MODE` | `fake` | Workflow Control rollback (fake in CI) |
+| `FORGE_WORKFLOWS_URL` | `http://127.0.0.1:4302` | Workflows API |
 | `FORGE_AGENTS_URL` | `http://127.0.0.1:4301` | Agents API |
-| `FORGE_OBSERVE_URL` | `http://127.0.0.1:4106` | Observe (live tools) |
+| `FORGE_CONTROL_URL` | `http://127.0.0.1:4001` | Control (live rollback) |
+| `FORGE_EVENTS_URL` | `http://127.0.0.1:4105` | Events (completion publish when up) |
 
 ## Product endpoints (api-go)
 
@@ -126,7 +164,9 @@ Configuration:
 ## Contracts used
 
 Documented platform APIs only: Identity auth/tokens, Secrets set/bindings,
-Control hierarchy + deployments + managed DB, Runtime injection, Gateway proxy,
-Events publish/consume, Observe/Tempo traces, Storage buckets/objects, Models
-embed, Memory upsert/query, Agents runs/tools/approvals. CLI:
+Control hierarchy + deployments + managed DB + reconcile/rollback, Runtime
+injection, Gateway proxy, Events publish/consume (`deployment.failed` /
+`deployment.completed`), Observe/Tempo traces, Storage buckets/objects, Models
+embed, Memory upsert/query, Agents runs/tools/approvals, Workflows runs/approvals/
+triggers. CLI:
 `forge login|project|env|app|service|deployment|secret|config|database|agent`.

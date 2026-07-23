@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-import os
 import threading
 import time
 import unittest
+import urllib.error
 import urllib.request
 from unittest import mock
 
@@ -17,13 +17,14 @@ from server import make_server
 
 
 class _LiveServer:
-    def __init__(self) -> None:
+    def __init__(self, *, capstone_break: bool = False) -> None:
         cfg = Config(
             port=0,
             service_name="incident-classify",
             service_version="0.1.0",
             log_level="error",
             env="test",
+            capstone_break=capstone_break,
         )
         self.httpd = make_server(cfg, Logger("incident-classify", "error"))
         handler_cls = self.httpd.RequestHandlerClass
@@ -69,6 +70,21 @@ class TestHealthEndpoints(unittest.TestCase):
                 self.assertEqual(status, 200)
                 self.assertEqual(ct, "application/json")
                 self.assertEqual(body, {"status": "ok"})
+
+    def test_capstone_break_fails_ready(self) -> None:
+        with _LiveServer(capstone_break=True) as srv:
+            # urlopen raises on 5xx — use opener that returns the response.
+            url = f"http://127.0.0.1:{srv.port}/health/ready"
+            try:
+                urllib.request.urlopen(url, timeout=2)
+                self.fail("expected HTTPError 503")
+            except urllib.error.HTTPError as exc:
+                self.assertEqual(exc.code, 503)
+                body = json.loads(exc.read().decode())
+                self.assertEqual(body["status"], "not_ready")
+                self.assertEqual(body["error"], "capstone_break")
+            live_status, _, _ = srv.get("/health/live")
+            self.assertEqual(live_status, 200)
 
 
 class TestIdentityEndpoint(unittest.TestCase):
