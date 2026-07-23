@@ -140,10 +140,13 @@ func TestQueueRespectsConcurrencyLimit(t *testing.T) {
 func TestTimeoutCancelsLongBuild(t *testing.T) {
 	wsRoot := t.TempDir()
 	repo := initFixtureRepo(t)
+	// BuildTimeout covers clone + build. Keep it long enough for local-file
+	// clone under CI load, but shorter than the fake builder delay so the
+	// timeout hits during build (not clone).
 	fb := &fakeBuilder{delay: 5 * time.Second}
 	mgr := newMgr(t, wsRoot, fb, stubPublisher(), jobs.Config{
 		MaxConcurrency: 1,
-		BuildTimeout:   200 * time.Millisecond,
+		BuildTimeout:   2 * time.Second,
 		PushLatest:     true,
 	})
 	mgr.Start()
@@ -153,7 +156,7 @@ func TestTimeoutCancelsLongBuild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec := waitTerminal(t, mgr, acc.BuildID, 5*time.Second)
+	rec := waitTerminal(t, mgr, acc.BuildID, 10*time.Second)
 	if rec.Status != jobs.StatusFailed {
 		t.Fatalf("status = %s, want failed", rec.Status)
 	}
