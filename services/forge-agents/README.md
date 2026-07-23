@@ -4,9 +4,10 @@ Python/FastAPI agent runtime service (epic 15). Host port **4301**.
 
 Skeleton (15.01), agent registry (15.02), tool registry with per-call
 permission checks (15.03), bounded run engine with audit history (15.04),
-platform tools (15.05), and human approval for destructive tools (15.06).
-Fake tool mode (`FORGE_AGENTS_TOOLS_MODE=fake`) is the CI default.
-Seed agents/CLI and the epic gate (`make demo DEMO=15`) arrive in later steps.
+platform tools (15.05), human approval for destructive tools (15.06), and
+seed agents plus `forge agent` CLI (15.07). Fake tool mode
+(`FORGE_AGENTS_TOOLS_MODE=fake`) is the CI default. The epic gate
+(`make demo DEMO=15`) arrives in 15.08.
 
 ## Local
 
@@ -50,6 +51,34 @@ curl -fsS localhost:4301/v1/approvals -H 'X-Forge-Project: proj-a'
 ```
 
 OpenAPI (canonical): [`contracts/openapi/forge-agents.openapi.yaml`](../../contracts/openapi/forge-agents.openapi.yaml).
+
+## Seed agents (15.07)
+
+Five least-privilege seed definitions ship beside `fixture-echo`:
+
+| Agent | Tools | Destructive |
+|---|---|---|
+| `deployment-investigator` | `deployment.read`, `logs.search`, `metrics.query`, `runtime.restart` | `runtime.restart` (approval-gated) |
+| `log-summarizer` | `logs.search`, `models.generate` | — |
+| `docs-assistant` | `storage.get`, `models.generate` | — |
+| `release-reviewer` | `deployment.read`, `logs.search`, `models.generate` | — |
+| `infra-health` | `metrics.query`, `deployment.read`, `logs.search` | — |
+
+Docs: [`docs/agents/seed-agents.md`](../../docs/agents/seed-agents.md).
+
+CLI (`FORGE_AGENTS_URL`, default `http://127.0.0.1:4301`):
+
+```bash
+forge agent list
+forge agent run log-summarizer --project proj-a --input "errors x3" --dry-run --json
+forge agent run deployment-investigator --project proj-a --deployment dep-1 \
+  --tool runtime.restart --dry-run
+forge agent deny <approval-id> --project proj-a --reason "not yet"
+forge agent status <run-id> --project proj-a
+```
+
+`forge agent run` defaults to `--wait` (poll until terminal or `awaiting_approval`).
+Awaiting approval exits non-zero with a clear message; use `approve` / `deny` next.
 
 ## Agent registry
 
@@ -190,7 +219,7 @@ Metrics: `agent_approvals_total{status}`, time-to-decision histogram.
 
 ```text
 services/forge-agents/
-├── agents/                 # YAML agent definitions (fixture-echo for tests)
+├── agents/                 # YAML agent definitions (seeds + fixture-echo)
 ├── migrations/             # SQLite schema (runs, approvals, run_resume)
 ├── app/
 │   ├── main.py             # FastAPI factory + lifespan + approval sweeper

@@ -55,6 +55,8 @@ test-integration: run
 	@curl -sf "http://127.0.0.1:$(HOST_PORT)/" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["service"]=="forge-agents"; assert d["language"]=="python"; assert d["status"]=="running"; assert "version" in d'
 	@# Agent registry (15.02)
 	@curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/agents" | grep -q 'fixture-echo'
+	@curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/agents" | grep -q 'deployment-investigator'
+	@curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/agents" | grep -q 'log-summarizer'
 	@code="$$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$(HOST_PORT)/v1/agents/nope")"; test "$$code" = "404"
 	@# Tool registry (15.03) + platform tools (15.05)
 	@curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/tools" | grep -q '"required_permissions"'

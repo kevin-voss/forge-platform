@@ -25,6 +25,9 @@ const (
 	Timeout  = 5
 )
 
+// AwaitingApprovalExit is the exit code when a waited agent run pauses for approval.
+const AwaitingApprovalExit = Generic
+
 // ExitCode maps a command error to the Forge CLI exit-code taxonomy.
 func ExitCode(err error) int {
 	if err == nil {
@@ -93,11 +96,23 @@ func ExitCode(err error) int {
 		}
 	}
 
+	var agentsError *sharedclient.AgentsAPIError
+	if errors.As(err, &agentsError) {
+		switch agentsError.Status {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return Auth
+		case http.StatusNotFound:
+			return NotFound
+		case http.StatusConflict:
+			return Conflict
+		}
+	}
+
 	var networkError net.Error
 	if errors.As(err, &networkError) && (networkError.Timeout() || control.IsNetworkError(err)) {
 		return Timeout
 	}
-	if control.IsNetworkError(err) || identity.IsNetworkError(err) || sharedclient.IsSecretsNetworkError(err) {
+	if control.IsNetworkError(err) || identity.IsNetworkError(err) || sharedclient.IsSecretsNetworkError(err) || sharedclient.IsAgentsNetworkError(err) {
 		return Timeout
 	}
 	return Generic

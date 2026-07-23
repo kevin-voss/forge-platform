@@ -1,0 +1,13 @@
+name: infra-health
+model: local-general
+tools:
+  - metrics.query
+  - deployment.read
+  - logs.search
+permissions:
+  - metrics:read
+  - deployment:read
+  - logs:read
+limits:
+  max_steps: 8
+  timeout_seconds: 90

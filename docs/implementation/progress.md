@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 105`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 106`**.
 
 ## Epics
 
@@ -23,7 +23,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [12](epics/12-forge-observe.md) | Forge Observe | Complete | 7/7 steps; demo 12 observability acceptance gate passed |
 | [13](epics/13-forge-storage.md) | Forge Storage | Complete | 7/7 steps; demo 13 object-storage acceptance gate passed |
 | [14](epics/14-forge-models.md) | Forge Models | Complete | 7/7 steps; demo 14 model-serving acceptance gate passed |
-| [15](epics/15-forge-agents.md) | Forge Agents | In progress | 6/8 steps; human approval gate for destructive tools |
+| [15](epics/15-forge-agents.md) | Forge Agents | In progress | 7/8 steps; seed agents + `forge agent` CLI |
 | [16](epics/16-forge-workflows.md) | Forge Workflows | Planning | 7 steps |
 | [17](epics/17-forge-memory.md) | Forge Memory | Planning | 6 steps |
 | [18](epics/18-managed-postgresql.md) | Managed PostgreSQL | Planning | 6 steps |
@@ -138,7 +138,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **102** | [Run engine: max steps, timeouts, history](steps/15-forge-agents/15.04-run-engine.md) | Complete |  | Bounded model+tool loop; SQLite audit; dry-run; cancel |
 | **103** | [Platform tools](steps/15-forge-agents/15.05-platform-tools.md) | Complete |  | Control/Runtime/Observe/Storage/Models/Events tools; fake fixtures; `runtime.restart` destructive |
 | **104** | [Human approval for destructive tools](steps/15-forge-agents/15.06-human-approval.md) | Complete |  | Approval→`awaiting_approval`; approve/deny/expire; restart-safe |
-| **105** | [Seed agents + CLI `forge agent`](steps/15-forge-agents/15.07-seed-agents-cli.md) | Not started |  |  |
+| **105** | [Seed agents + CLI `forge agent`](steps/15-forge-agents/15.07-seed-agents-cli.md) | Complete |  | Five seed YAMLs; forge agent list/run/status/approve/deny; docs |
 | **106** | [Demo `15-agent-runtime` + gate](steps/15-forge-agents/15.08-demo-and-gate.md) | Not started |  |  |
 | **107** | [Skeleton OTP + health](steps/16-forge-workflows/16.01-skeleton-otp-health.md) | Not started |  |  |
 | **108** | [Definitions + durable run state](steps/16-forge-workflows/16.02-definitions-durable-state.md) | Not started |  |  |

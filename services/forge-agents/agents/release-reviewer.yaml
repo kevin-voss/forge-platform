@@ -1,0 +1,13 @@
+name: release-reviewer
+model: local-general
+tools:
+  - deployment.read
+  - logs.search
+  - models.generate
+permissions:
+  - deployment:read
+  - logs:read
+  - models:generate
+limits:
+  max_steps: 10
+  timeout_seconds: 120

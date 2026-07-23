@@ -37,7 +37,16 @@ def test_loads_valid_directory(tmp_path: Path) -> None:
 def test_default_packaged_fixture_loads() -> None:
     assert DEFAULT_AGENTS_DIR.is_dir()
     registry = load_registry(None)
-    assert "fixture-echo" in {a.name for a in registry.list()}
+    names = {a.name for a in registry.list()}
+    assert "fixture-echo" in names
+    for seed in (
+        "deployment-investigator",
+        "log-summarizer",
+        "docs-assistant",
+        "release-reviewer",
+        "infra-health",
+    ):
+        assert seed in names
     echo = registry.get("fixture-echo")
     assert echo is not None
     assert echo.model == "local-general"

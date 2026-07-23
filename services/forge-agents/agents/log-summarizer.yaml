@@ -1,0 +1,11 @@
+name: log-summarizer
+model: local-general
+tools:
+  - logs.search
+  - models.generate
+permissions:
+  - logs:read
+  - models:generate
+limits:
+  max_steps: 8
+  timeout_seconds: 90

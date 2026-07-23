@@ -199,3 +199,23 @@ stdout). `FORGE_LOGS_RECONNECT_MS` (default `1000`) sets backoff.
 `FORGE_LOGS_FALLBACK` is `observe|runtime|auto` (default `auto`): when Loki is
 unavailable and a single `--service` is set, the CLI falls back to Runtime
 `GET /v1/workloads/{service}/logs?follow=true`. Ctrl-C exits `0`.
+
+## Agents
+
+Thin client for Forge Agents (`list`, `run`, `status`, `approve`, `deny`).
+Uses `FORGE_AGENTS_URL` (default `http://127.0.0.1:4301`) and does not require
+a Control profile. Run/status/approve/deny need `--project` or `FORGE_PROJECT`.
+
+```bash
+export FORGE_AGENTS_URL=http://127.0.0.1:4301
+forge agent list
+forge agent run log-summarizer --project proj-a --input "errors x3" --dry-run --json
+forge agent run deployment-investigator --project proj-a --deployment dep-1 \
+  --tool runtime.restart --dry-run
+forge agent deny <approval-id> --project proj-a --reason "not yet"
+forge agent status <run-id> --project proj-a
+```
+
+`--dry-run` sets `context.dry_run=true` (deterministic fake model). `--wait`
+(default true) polls until a terminal status or `awaiting_approval` (exit `1`
+with a clear message). Seed agent docs: [`docs/agents/seed-agents.md`](../../docs/agents/seed-agents.md).

@@ -1,0 +1,11 @@
+name: docs-assistant
+model: local-general
+tools:
+  - storage.get
+  - models.generate
+permissions:
+  - storage:read
+  - models:generate
+limits:
+  max_steps: 8
+  timeout_seconds: 90

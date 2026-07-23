@@ -55,6 +55,10 @@ func NewRootCommand(version string) *cobra.Command {
 			if isModelCommand(cmd) {
 				return nil
 			}
+			// forge agent talks to forge-agents via FORGE_AGENTS_URL; no Control profile required.
+			if isAgentCommand(cmd) {
+				return nil
+			}
 			return state.resolve()
 		},
 	}
@@ -84,6 +88,7 @@ func NewRootCommand(version string) *cobra.Command {
 		newSecretCommand(state),
 		newLogsCommand(state),
 		newModelCommand(state),
+		newAgentCommand(state),
 	)
 	return root
 }

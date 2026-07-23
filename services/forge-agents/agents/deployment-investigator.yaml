@@ -1,0 +1,16 @@
+name: deployment-investigator
+model: local-general
+tools:
+  - deployment.read
+  - logs.search
+  - metrics.query
+  - runtime.restart
+permissions:
+  - project:read
+  - deployment:read
+  - logs:read
+  - metrics:read
+  - runtime:restart
+limits:
+  max_steps: 10
+  timeout_seconds: 120
