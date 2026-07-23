@@ -83,6 +83,14 @@ pub struct Config {
     pub max_object_bytes: Option<u64>,
     /// Re-hash on-disk blobs during GET when `full` (default `off`).
     pub verify_on_read: VerifyOnRead,
+    /// HMAC signing key for object access tokens (required in enforce mode).
+    pub signing_key: Option<Vec<u8>>,
+    /// Previous signing key accepted for verify-only during rotation.
+    pub signing_key_prev: Option<Vec<u8>>,
+    /// Maximum TTL accepted by `POST .../sign` (default 3600).
+    pub max_ttl_seconds: u64,
+    /// Clock-skew tolerance for token expiry (default 30).
+    pub clock_skew_seconds: i64,
 }
 
 impl Config {
@@ -196,6 +204,32 @@ impl Config {
             &env::var("FORGE_STORAGE_VERIFY_ON_READ").unwrap_or_else(|_| "off".into()),
         )?;
 
+        let signing_key = env::var("FORGE_STORAGE_SIGNING_KEY")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.into_bytes());
+
+        let signing_key_prev = env::var("FORGE_STORAGE_SIGNING_KEY_PREV")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.into_bytes());
+
+        if auth_mode == AuthMode::Enforce && signing_key.is_none() {
+            return Err(
+                "FORGE_STORAGE_SIGNING_KEY is required when FORGE_AUTH_MODE=enforce".into(),
+            );
+        }
+
+        let max_ttl_seconds = parse_u64_env("FORGE_STORAGE_MAX_TTL_SECONDS", 3600)?;
+        if max_ttl_seconds == 0 {
+            return Err("FORGE_STORAGE_MAX_TTL_SECONDS must be a positive integer".into());
+        }
+
+        let clock_skew_seconds =
+            parse_u64_env("FORGE_STORAGE_CLOCK_SKEW_SECONDS", 30)? as i64;
+
         Ok(Self {
             port,
             service_name,
@@ -214,6 +248,10 @@ impl Config {
             stream_buffer_bytes,
             max_object_bytes,
             verify_on_read,
+            signing_key,
+            signing_key_prev,
+            max_ttl_seconds,
+            clock_skew_seconds,
         })
     }
 }
@@ -273,6 +311,10 @@ mod tests {
             "FORGE_STORAGE_STREAM_BUFFER_BYTES",
             "FORGE_STORAGE_MAX_OBJECT_BYTES",
             "FORGE_STORAGE_VERIFY_ON_READ",
+            "FORGE_STORAGE_SIGNING_KEY",
+            "FORGE_STORAGE_SIGNING_KEY_PREV",
+            "FORGE_STORAGE_MAX_TTL_SECONDS",
+            "FORGE_STORAGE_CLOCK_SKEW_SECONDS",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()
@@ -313,7 +355,25 @@ mod tests {
             assert_eq!(cfg.stream_buffer_bytes, DEFAULT_STREAM_BUFFER_BYTES);
             assert_eq!(cfg.max_object_bytes, None);
             assert_eq!(cfg.verify_on_read, VerifyOnRead::Off);
+            assert!(cfg.signing_key.is_none());
+            assert_eq!(cfg.max_ttl_seconds, 3600);
+            assert_eq!(cfg.clock_skew_seconds, 30);
         });
+    }
+
+    #[test]
+    fn enforce_requires_signing_key() {
+        with_env(
+            &[
+                ("FORGE_AUTH_MODE", Some("enforce")),
+                ("FORGE_IDENTITY_URL", Some("http://identity:8080")),
+                ("FORGE_STORAGE_SIGNING_KEY", None),
+            ],
+            || {
+                let err = Config::from_env().expect_err("missing signing key");
+                assert!(err.contains("FORGE_STORAGE_SIGNING_KEY"), "{err}");
+            },
+        );
     }
 
     #[test]
@@ -374,10 +434,12 @@ mod tests {
             &[
                 ("FORGE_AUTH_MODE", Some("enforced")),
                 ("FORGE_IDENTITY_URL", Some("http://identity:8080")),
+                ("FORGE_STORAGE_SIGNING_KEY", Some("test-signing-key")),
             ],
             || {
                 let cfg = Config::from_env().expect("config");
                 assert_eq!(cfg.auth_mode, AuthMode::Enforce);
+                assert_eq!(cfg.signing_key.as_deref(), Some(b"test-signing-key".as_slice()));
             },
         );
     }

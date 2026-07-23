@@ -1,13 +1,13 @@
 openapi: 3.0.3
 info:
   title: Forge Storage API
-  version: 0.4.0
+  version: 0.5.0
   description: |
     Platform object storage service (epic 13). Health/identity from 13.01;
     project-scoped bucket APIs and metadata index from 13.02; streamed object
     upload/download from 13.03; SHA-256 integrity, content-addressed layout,
-    and HTTP byte-range requests from 13.04. Signed tokens and quotas arrive
-    in later steps.
+    and HTTP byte-range requests from 13.04; HMAC-signed object access tokens
+    with expiry from 13.05. Quotas and delete arrive in later steps.
 servers:
   - url: http://127.0.0.1:4107
     description: Local Compose (host port 4107)
@@ -206,6 +206,69 @@ paths:
                 code: conflict
                 object_count: 1
 
+  /v1/buckets/{bucket}/objects/{key}/sign:
+    post:
+      operationId: signObjectAccess
+      summary: Issue a signed access token for an object
+      description: |
+        Returns a short-lived HMAC-SHA256 signed token scoped to a single
+        object and HTTP method (`GET` or `PUT`). Clients may then call GET/PUT
+        with `?token=` or `Authorization: Bearer <token>` without project
+        credentials. TTL is rejected when greater than
+        `FORGE_STORAGE_MAX_TTL_SECONDS`.
+      parameters:
+        - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/BucketName"
+        - $ref: "#/components/parameters/ObjectKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignObjectRequest"
+            example:
+              method: GET
+              ttl_seconds: 300
+      responses:
+        "200":
+          description: Token issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignObjectResponse"
+        "400":
+          description: Invalid method, TTL, or project context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                ttlTooLarge:
+                  value:
+                    error: "ttl_seconds exceeds maximum of 3600"
+                    code: ttl_too_large
+        "401":
+          description: Missing/invalid bearer token (enforce mode)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Bucket not found in caller's project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Signing key not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: signing key not configured
+                code: signing_unavailable
+
   /v1/buckets/{bucket}/objects/{key}:
     put:
       operationId: putObject
@@ -215,11 +278,14 @@ paths:
         fsyncs, then places the blob under the content-addressed path
         `objects/<aa>/<sha256>` (dedup when the blob already exists). Optional
         `X-Expected-SHA256` rejects mismatches with 422 without storing the object.
+        May be authorized with a PUT-scoped signed token via `?token=` or
+        `Authorization: Bearer`.
       parameters:
         - $ref: "#/components/parameters/ForgeProjectHeader"
         - $ref: "#/components/parameters/BucketName"
         - $ref: "#/components/parameters/ObjectKey"
         - $ref: "#/components/parameters/ExpectedSha256"
+        - $ref: "#/components/parameters/SignedAccessToken"
       requestBody:
         required: true
         content:
@@ -251,11 +317,27 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "401":
-          description: Missing/invalid bearer token (enforce mode)
+          description: |
+            Missing/invalid Identity bearer (enforce mode), or invalid/expired
+            signed access token (`invalid_token` / `token_expired`).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+              examples:
+                tokenExpired:
+                  value:
+                    error: token expired
+                    code: token_expired
+        "403":
+          description: Signed token method or scope mismatch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: token method does not match request
+                code: method_mismatch
         "404":
           description: Bucket not found in caller's project
           content:
@@ -285,12 +367,14 @@ paths:
         `X-Content-SHA256` and `Accept-Ranges: bytes`. Supports a single
         `Range: bytes=` request (`206 Partial Content`). When
         `FORGE_STORAGE_VERIFY_ON_READ=full`, re-hashes the on-disk blob and
-        returns `500` with `integrity_error` on mismatch.
+        returns `500` with `integrity_error` on mismatch. May be authorized
+        with a GET-scoped signed token via `?token=` or `Authorization: Bearer`.
       parameters:
         - $ref: "#/components/parameters/ForgeProjectHeader"
         - $ref: "#/components/parameters/BucketName"
         - $ref: "#/components/parameters/ObjectKey"
         - $ref: "#/components/parameters/Range"
+        - $ref: "#/components/parameters/SignedAccessToken"
       responses:
         "200":
           description: Full object bytes
@@ -357,7 +441,15 @@ paths:
                 type: string
                 format: binary
         "401":
-          description: Missing/invalid bearer token (enforce mode)
+          description: |
+            Missing/invalid Identity bearer (enforce mode), or invalid/expired
+            signed access token (`invalid_token` / `token_expired`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Signed token method or scope mismatch
           content:
             application/json:
               schema:
@@ -514,6 +606,16 @@ components:
       schema:
         type: string
         example: bytes=0-1023
+    SignedAccessToken:
+      name: token
+      in: query
+      required: false
+      description: |
+        HMAC-signed object access token from `POST .../sign`. Alternative to
+        project credentials for GET/PUT on the scoped object. May also be sent
+        as `Authorization: Bearer <token>`.
+      schema:
+        type: string
 
   schemas:
     HealthStatus:
@@ -585,6 +687,35 @@ components:
           items:
             $ref: "#/components/schemas/Bucket"
 
+    SignObjectRequest:
+      type: object
+      required: [method, ttl_seconds]
+      properties:
+        method:
+          type: string
+          enum: [GET, PUT]
+          example: GET
+        ttl_seconds:
+          type: integer
+          format: int64
+          minimum: 1
+          example: 300
+
+    SignObjectResponse:
+      type: object
+      required: [token, url, expires_at]
+      properties:
+        token:
+          type: string
+          description: URL-safe base64 payload + HMAC signature
+        url:
+          type: string
+          description: Path-absolute URL including `?token=`
+          example: /v1/buckets/artifacts/objects/big.bin?token=...
+        expires_at:
+          type: string
+          format: date-time
+
     Object:
       type: object
       required:
@@ -652,6 +783,15 @@ components:
             - integrity_error
             - unavailable
             - internal
+            - invalid_token
+            - token_expired
+            - method_mismatch
+            - scope_mismatch
+            - ttl_too_large
+            - invalid_method
+            - invalid_ttl
+            - signing_unavailable
+            - unauthenticated
         object_count:
           type: integer
           description: Present when deleting a non-empty bucket

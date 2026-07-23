@@ -35,6 +35,8 @@ async fn test_app() -> (tempfile::TempDir, axum::Router, Arc<LocalFsBackend>) {
         stream_buffer_bytes: 4096, // small buffer to exercise chunking
         max_object_bytes: None,
         verify_on_read: VerifyOnRead::Off,
+        signing: None,
+        clock: forge_storage::signing::system_clock(),
     };
     (dir, app(state), backend)
 }

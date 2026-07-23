@@ -2,13 +2,14 @@ use crate::backend::{BackendError, LocalFsBackend, StorageBackend};
 use crate::config::{AuthMode, Config, VerifyOnRead};
 use crate::identity::{HttpIdentityClient, IdentityClient};
 use crate::meta::MetadataStore;
+use crate::signing::{system_clock, Clock, SigningKeys};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
-/// Counters for storage observability (13.02 / 13.03 / 13.04).
+/// Counters for storage observability (13.02 / 13.03 / 13.04 / 13.05).
 #[derive(Debug, Default)]
 pub struct StorageMetrics {
     pub buckets_created: AtomicU64,
@@ -21,6 +22,8 @@ pub struct StorageMetrics {
     pub storage_dedup_hits_total: AtomicU64,
     pub storage_integrity_errors_total: AtomicU64,
     pub storage_range_requests_total: AtomicU64,
+    pub storage_tokens_issued_total: AtomicU64,
+    pub storage_token_rejections_total: AtomicU64,
 }
 
 impl StorageMetrics {
@@ -45,6 +48,8 @@ pub struct AppState {
     pub stream_buffer_bytes: usize,
     pub max_object_bytes: Option<u64>,
     pub verify_on_read: VerifyOnRead,
+    pub signing: Option<Arc<SigningKeys>>,
+    pub clock: Clock,
 }
 
 impl AppState {
@@ -68,6 +73,16 @@ impl AppState {
             );
         }
     }
+}
+
+fn signing_from_config(cfg: &Config) -> Option<Arc<SigningKeys>> {
+    let key = cfg.signing_key.clone()?;
+    Some(Arc::new(SigningKeys {
+        key,
+        key_prev: cfg.signing_key_prev.clone(),
+        max_ttl_seconds: cfg.max_ttl_seconds,
+        clock_skew_seconds: cfg.clock_skew_seconds,
+    }))
 }
 
 /// Bootstrap the local FS backend and metadata SQLite index.
@@ -99,7 +114,13 @@ pub async fn bootstrap(cfg: &Config) -> Result<AppState, String> {
         }
     };
 
+    let signing = signing_from_config(cfg);
+    if signing.is_none() {
+        warn!("FORGE_STORAGE_SIGNING_KEY unset — signed token issue/verify disabled");
+    }
+
     let metrics = StorageMetrics::new();
+    let clock = system_clock();
 
     match backend.init().await {
         Ok(()) => {
@@ -123,6 +144,8 @@ pub async fn bootstrap(cfg: &Config) -> Result<AppState, String> {
                 stream_buffer_bytes: cfg.stream_buffer_bytes,
                 max_object_bytes: cfg.max_object_bytes,
                 verify_on_read: cfg.verify_on_read,
+                signing,
+                clock,
             };
             info!(
                 storage_root = %state.backend.root().display(),
@@ -154,6 +177,8 @@ pub async fn bootstrap(cfg: &Config) -> Result<AppState, String> {
                 stream_buffer_bytes: cfg.stream_buffer_bytes,
                 max_object_bytes: cfg.max_object_bytes,
                 verify_on_read: cfg.verify_on_read,
+                signing,
+                clock,
             })
         }
         Err(err) => {

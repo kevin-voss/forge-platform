@@ -101,6 +101,8 @@ mod tests {
             stream_buffer_bytes: crate::backend::DEFAULT_STREAM_BUFFER_BYTES,
             max_object_bytes: None,
             verify_on_read: crate::config::VerifyOnRead::Off,
+            signing: None,
+            clock: crate::signing::system_clock(),
         }
     }
 

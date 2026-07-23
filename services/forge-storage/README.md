@@ -2,17 +2,17 @@
 
 Rust/Axum object storage service (epic 13). Host port **4107**.
 
-## Step 13.04 — SHA-256 integrity + byte-range requests
+## Step 13.05 — Signed access tokens + expiry
 
-* `PUT` hashes while streaming; response includes `sha256`
-* Blobs stored content-addressed: `objects/<aa>/<sha256>` (identical content → dedup hit)
-* Optional `X-Expected-SHA256` → `422 checksum_mismatch` when content differs
-* `GET`/`HEAD` return `ETag: "<sha256>"`, `X-Content-SHA256`, `Accept-Ranges: bytes`
-* `Range: bytes=` → `206` + `Content-Range`; unsatisfiable → `416`
-* `FORGE_STORAGE_VERIFY_ON_READ=full` re-hashes on read → `500 integrity_error` on corruption
+* `POST /v1/buckets/{bucket}/objects/{key}/sign` with `{method, ttl_seconds}` → `{token, url, expires_at}`
+* Token = URL-safe base64 JSON claims + HMAC-SHA256 over canonical `(method, project_id, bucket, key, exp)`
+* GET/PUT accept `?token=` or `Authorization: Bearer <token>` without project credentials
+* Expired → `401 token_expired`; method/scope mismatch → `403`; tampered → `401 invalid_token`
+* TTL rejected above `FORGE_STORAGE_MAX_TTL_SECONDS` (`ttl_too_large`)
+* Optional `FORGE_STORAGE_SIGNING_KEY_PREV` for verify-only during key rotation
 * OpenAPI: [`contracts/openapi/forge-storage.openapi.yaml`](../../contracts/openapi/forge-storage.openapi.yaml)
 
-Signed tokens and quotas land in later steps.
+Quotas and hard delete land in 13.06.
 
 ### Local
 
@@ -22,23 +22,20 @@ make service-run SERVICE=forge-storage
 make service-test SERVICE=forge-storage
 ```
 
-### Upload / checksum / range (dev mode)
+### Sign + download (dev mode)
 
 ```bash
 BASE=localhost:4107
 P='-H X-Forge-Project:proj-a'
-curl -fsS -XPOST $BASE/v1/buckets -H 'X-Forge-Project: proj-a' \
-  -H 'content-type: application/json' -d '{"name":"artifacts"}'
-head -c 5000000 /dev/urandom > /tmp/big.bin
-curl -fsS $P -XPUT --data-binary @/tmp/big.bin \
-  -H 'content-type: application/octet-stream' \
-  "$BASE/v1/buckets/artifacts/objects/big.bin" | grep -o '"sha256":"[0-9a-f]*"'
-LOCAL=$(shasum -a 256 /tmp/big.bin | awk '{print $1}')
-SRV=$(curl -fsSI $P "$BASE/v1/buckets/artifacts/objects/big.bin" | tr -d '\r' | awk -F'"' '/ETag/{print $2}')
-test "$LOCAL" = "$SRV" && echo "checksum OK"
-curl -fsS $P -H 'Range: bytes=0-1023' \
-  "$BASE/v1/buckets/artifacts/objects/big.bin" -o /tmp/range.bin -w '%{http_code}\n'
-test "$(wc -c < /tmp/range.bin | tr -d ' ')" = 1024 && echo "range OK"
+export FORGE_STORAGE_SIGNING_KEY=dev-only-signing-key-change-me
+# ensure bucket + object exist first (see 13.04 examples)
+TOK=$(curl -fsS $P -XPOST -H 'content-type: application/json' \
+  -d '{"method":"GET","ttl_seconds":2}' \
+  "$BASE/v1/buckets/artifacts/objects/big.bin/sign" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+curl -fsS "$BASE/v1/buckets/artifacts/objects/big.bin?token=$TOK" -o /dev/null && echo "valid token OK"
+sleep 3
+code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/v1/buckets/artifacts/objects/big.bin?token=$TOK")
+test "$code" = 401 && echo "expired token rejected OK"
 ```
 
 ### Configuration
@@ -52,6 +49,10 @@ test "$(wc -c < /tmp/range.bin | tr -d ' ')" = 1024 && echo "range OK"
 | `FORGE_STORAGE_STREAM_BUFFER_BYTES` | `65536` | Upload/download chunk size |
 | `FORGE_STORAGE_MAX_OBJECT_BYTES` | unset | Optional hard upload cap (quotas in 13.06) |
 | `FORGE_STORAGE_VERIFY_ON_READ` | `off` | `off` or `full` (re-hash on GET) |
+| `FORGE_STORAGE_SIGNING_KEY` | — | HMAC secret; required when `FORGE_AUTH_MODE=enforce` |
+| `FORGE_STORAGE_SIGNING_KEY_PREV` | — | Optional previous key (verify only) |
+| `FORGE_STORAGE_MAX_TTL_SECONDS` | `3600` | Max TTL for `POST .../sign` |
+| `FORGE_STORAGE_CLOCK_SKEW_SECONDS` | `30` | Expiry tolerance |
 | `FORGE_AUTH_MODE` | `dev` | `dev` (header) or `enforce`/`enforced` (Identity) |
 | `FORGE_IDENTITY_URL` | — | Required when `FORGE_AUTH_MODE=enforce` |
 | `FORGE_LOG_LEVEL` | `info` | `debug\|info\|warn\|error` |

@@ -1,5 +1,6 @@
 //! Streamed object upload / download / HEAD with SHA-256 + Range (13.03 / 13.04).
 
+use crate::api::sign::post_sign;
 use crate::api::validate::{validate_bucket_name, validate_object_key};
 use crate::backend::BackendError;
 use crate::config::VerifyOnRead;
@@ -11,7 +12,6 @@ use axum::body::Body;
 use axum::extract::{Extension, Path, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::put;
 use axum::{Json, Router};
 use bytes::Bytes;
 use futures_util::StreamExt;
@@ -32,7 +32,10 @@ struct ErrorBody {
 pub fn router() -> Router<AppState> {
     Router::new().route(
         "/v1/buckets/{bucket}/objects/{*key}",
-        put(put_object).get(get_object).head(head_object),
+        axum::routing::put(put_object)
+            .get(get_object)
+            .head(head_object)
+            .post(post_sign),
     )
 }
 

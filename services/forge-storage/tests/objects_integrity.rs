@@ -34,6 +34,8 @@ async fn test_app(verify: VerifyOnRead) -> (tempfile::TempDir, axum::Router, Arc
         stream_buffer_bytes: 4096,
         max_object_bytes: None,
         verify_on_read: verify,
+        signing: None,
+        clock: forge_storage::signing::system_clock(),
     };
     (dir, app(state), backend)
 }

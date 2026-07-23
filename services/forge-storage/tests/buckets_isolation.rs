@@ -34,6 +34,8 @@ async fn test_app(auth_mode: AuthMode) -> (tempfile::TempDir, axum::Router) {
         stream_buffer_bytes: forge_storage::backend::DEFAULT_STREAM_BUFFER_BYTES,
         max_object_bytes: None,
         verify_on_read: VerifyOnRead::Off,
+        signing: None,
+        clock: forge_storage::signing::system_clock(),
     };
     (dir, app(state))
 }
@@ -170,6 +172,8 @@ async fn delete_non_empty_returns_409() {
         stream_buffer_bytes: forge_storage::backend::DEFAULT_STREAM_BUFFER_BYTES,
         max_object_bytes: None,
         verify_on_read: VerifyOnRead::Off,
+        signing: None,
+        clock: forge_storage::signing::system_clock(),
     };
     let app = app(state);
     let (status, body) = request(

@@ -7,6 +7,7 @@ pub mod identity;
 pub mod integrity;
 pub mod meta;
 pub mod project;
+pub mod signing;
 pub mod state;
 
 use crate::project::require_project;
