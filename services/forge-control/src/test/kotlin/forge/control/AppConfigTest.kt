@@ -67,7 +67,7 @@ class AppConfigTest {
         assertEquals("127.0.0.1", cfg.dbEndpointHost)
         assertEquals("volume", cfg.dbBackupTarget)
         assertEquals("db-backups", cfg.dbBackupBucket)
-        assertEquals("/var/forge/db-backups", cfg.dbBackupDir)
+        assertEquals("/app/data/db-backups", cfg.dbBackupDir)
         assertEquals("", cfg.storageUrl)
         assertEquals(60L, cfg.dbRotationGraceSeconds)
         assertEquals(true, cfg.dbPredeleteBackup)

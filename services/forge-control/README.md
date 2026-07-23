@@ -156,7 +156,7 @@ make dev
 | `FORGE_DB_DEFAULT_ENV_VAR` | `DATABASE_URL` | Default env var name when attaching a managed database |
 | `FORGE_DB_BACKUP_TARGET` | `storage` if `FORGE_STORAGE_URL` set, else `volume` | `storage` \| `volume` for backup archives |
 | `FORGE_DB_BACKUP_BUCKET` | `db-backups` | Forge Storage bucket when target=`storage` |
-| `FORGE_DB_BACKUP_DIR` | `/var/forge/db-backups` | Local volume path when target=`volume` |
+| `FORGE_DB_BACKUP_DIR` | `/app/data/db-backups` | Local volume path when target=`volume` (must be writable by the service user) |
 | `FORGE_DB_ROTATION_GRACE_SECONDS` | `60` | Seconds old credentials remain valid after new secrets are delivered |
 | `FORGE_DB_PREDELETE_BACKUP` | `true` | Take a safety dump before forced deletes |
 | `FORGE_STORAGE_URL` | _(empty)_ | Enables storage-backed backups when set |

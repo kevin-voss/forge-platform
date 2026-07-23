@@ -314,6 +314,10 @@ services:
       FORGE_NODE_HEARTBEAT_TIMEOUT_S: ${FORGE_NODE_HEARTBEAT_TIMEOUT_S:-15}
       FORGE_LIVENESS_INTERVAL_MS: ${FORGE_LIVENESS_INTERVAL_MS:-5000}
       FORGE_NODE_STRICT_REGISTER: ${FORGE_NODE_STRICT_REGISTER:-false}
+      # Managed-db backup archives (18.04); must be writable by the service user.
+      FORGE_DB_BACKUP_DIR: ${FORGE_DB_BACKUP_DIR:-/app/data/db-backups}
+    volumes:
+      - forge-control-db-backups:/app/data/db-backups
     depends_on:
       postgres:
         condition: service_healthy
@@ -802,3 +806,4 @@ volumes:
   forge-storage-data:
   forge-memory-data:
   forge-agents-data:
+  forge-control-db-backups:

@@ -30,7 +30,9 @@ RUN apt-get update \
 COPY --from=build /src/build/libs/forge-control-0.1.0.jar /app/forge-control.jar
 # Ship SQL migrations on the filesystem so Flyway can discover them from the fat jar image.
 COPY --from=build /src/src/main/resources/db/migration /app/db/migration
-RUN chown -R appuser:appuser /app
+# Writable backup archive root for FORGE_DB_BACKUP_TARGET=volume (appuser cannot create /var/forge).
+RUN mkdir -p /app/data/db-backups \
+	&& chown -R appuser:appuser /app
 
 USER appuser:appuser
 
@@ -48,6 +50,7 @@ ENV PORT=8080 \
 	DATABASE_PASSWORD=forge \
 	DATABASE_SCHEMA=control \
 	DATABASE_POOL_MAX=10 \
-	DATABASE_MIGRATE_ON_START=true
+	DATABASE_MIGRATE_ON_START=true \
+	FORGE_DB_BACKUP_DIR=/app/data/db-backups
 
 ENTRYPOINT ["java", "-jar", "/app/forge-control.jar"]

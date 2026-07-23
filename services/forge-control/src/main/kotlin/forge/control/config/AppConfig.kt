@@ -67,7 +67,7 @@ data class AppConfig(
     /** Forge Storage bucket for backups when target=storage. */
     val dbBackupBucket: String = "db-backups",
     /** Local volume directory for backups when target=volume. */
-    val dbBackupDir: String = "/var/forge/db-backups",
+    val dbBackupDir: String = "/app/data/db-backups",
     /** Base URL for forge-storage (empty disables storage-backed backups). */
     val storageUrl: String = "",
     /** Seconds to keep old credentials valid after new secrets are delivered (rotation). */
@@ -455,7 +455,7 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         throw IllegalArgumentException("FORGE_DB_BACKUP_BUCKET must not be blank")
     }
     val dbBackupDir = env["FORGE_DB_BACKUP_DIR"]?.trim().orEmpty()
-        .ifEmpty { "/var/forge/db-backups" }
+        .ifEmpty { "/app/data/db-backups" }
     if (dbBackupDir.isBlank()) {
         throw IllegalArgumentException("FORGE_DB_BACKUP_DIR must not be blank")
     }
