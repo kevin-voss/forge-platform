@@ -1,0 +1,12 @@
+name: fixture-retry
+steps:
+  - id: flaky
+    type: task
+    action: fail_until
+    succeed_on_attempt: 3
+    retry:
+      max_attempts: 5
+      backoff: fixed
+      base_ms: 100
+  - id: done
+    type: noop

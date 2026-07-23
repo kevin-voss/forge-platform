@@ -53,6 +53,33 @@ defmodule ForgeWorkflowsWeb.Router do
               }
               |> maybe_put("message", Map.get(step, :message))
               |> maybe_put("delay_ms", Map.get(step, :delay_ms))
+              |> maybe_put("action", Map.get(step, :action))
+              |> maybe_put("timeout_ms", Map.get(step, :timeout_ms))
+              |> maybe_put("when", Map.get(step, :when))
+              |> maybe_put("then", Map.get(step, :then))
+              |> maybe_put("else", Map.get(step, :else))
+              |> maybe_put(
+                "branches",
+                case Map.get(step, :branches) do
+                  list when is_list(list) ->
+                    Enum.map(list, fn b ->
+                      %{"id" => b.id, "type" => b.type}
+                    end)
+
+                  _ ->
+                    nil
+                end
+              )
+              |> maybe_put(
+                "retry",
+                case Map.get(step, :retry) do
+                  %{max_attempts: max, backoff: backoff, base_ms: base} ->
+                    %{"max_attempts" => max, "backoff" => backoff, "base_ms" => base}
+
+                  _ ->
+                    nil
+                end
+              )
             end)
         }
       end)

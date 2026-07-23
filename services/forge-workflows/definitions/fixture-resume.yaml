@@ -4,8 +4,7 @@ steps:
     type: log
     message: "before delay"
   - id: slow
-    type: log
-    message: "slow step"
+    type: delay
     delay_ms: 8000
   - id: after
     type: noop

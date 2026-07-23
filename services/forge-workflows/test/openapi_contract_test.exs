@@ -21,6 +21,11 @@ defmodule ForgeWorkflows.OpenAPIContractTest do
       assert text =~ "/v1/runs"
       assert text =~ "WorkflowRun"
       assert text =~ "WorkflowStep"
+      assert text =~ "wake_at"
+      assert text =~ "parent_step_id"
+      assert text =~ "parallel"
+      assert text =~ "conditional"
+      assert text =~ "RetryPolicy"
     end
   end
 

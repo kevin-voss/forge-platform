@@ -27,6 +27,31 @@ defmodule ForgeWorkflows.Metrics do
     :ok
   end
 
+  def inc_retry do
+    ensure_table!()
+    :ets.update_counter(@table, :workflow_step_retries_total, {2, 1}, {:workflow_step_retries_total, 0})
+    :ok
+  end
+
+  def inc_parallel_branches(n) when is_integer(n) and n >= 0 do
+    ensure_table!()
+
+    :ets.update_counter(
+      @table,
+      :workflow_parallel_branches,
+      {2, n},
+      {:workflow_parallel_branches, 0}
+    )
+
+    :ok
+  end
+
+  def inc_timeout do
+    ensure_table!()
+    :ets.update_counter(@table, :workflow_timeouts_total, {2, 1}, {:workflow_timeouts_total, 0})
+    :ok
+  end
+
   def snapshot do
     ensure_table!()
 

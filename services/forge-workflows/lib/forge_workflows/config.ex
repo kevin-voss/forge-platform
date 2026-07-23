@@ -9,7 +9,10 @@ defmodule ForgeWorkflows.Config do
     :env,
     :shutdown_grace_ms,
     :database_url,
-    :defs_dir
+    :defs_dir,
+    :max_parallelism,
+    :default_step_timeout_ms,
+    :scheduler_tick_ms
   ]
   defstruct [
     :port,
@@ -19,7 +22,10 @@ defmodule ForgeWorkflows.Config do
     :env,
     :shutdown_grace_ms,
     :database_url,
-    :defs_dir
+    :defs_dir,
+    :max_parallelism,
+    :default_step_timeout_ms,
+    :scheduler_tick_ms
   ]
 
   @type t :: %__MODULE__{
@@ -30,7 +36,10 @@ defmodule ForgeWorkflows.Config do
           env: String.t(),
           shutdown_grace_ms: pos_integer(),
           database_url: String.t(),
-          defs_dir: String.t()
+          defs_dir: String.t(),
+          max_parallelism: pos_integer(),
+          default_step_timeout_ms: pos_integer(),
+          scheduler_tick_ms: pos_integer()
         }
 
   @allowed_levels ~w(debug info warn error)
@@ -51,7 +60,17 @@ defmodule ForgeWorkflows.Config do
       env: blank_default(System.get_env("FORGE_ENV"), "development"),
       shutdown_grace_ms: grace * 1_000,
       database_url: database_url,
-      defs_dir: defs_dir
+      defs_dir: defs_dir,
+      max_parallelism: parse_pos_int!(System.get_env("FORGE_WORKFLOWS_MAX_PARALLELISM"), 8, 1, 64),
+      default_step_timeout_ms:
+        parse_pos_int!(
+          System.get_env("FORGE_WORKFLOWS_DEFAULT_STEP_TIMEOUT"),
+          300_000,
+          1,
+          3_600_000
+        ),
+      scheduler_tick_ms:
+        parse_pos_int!(System.get_env("FORGE_WORKFLOWS_SCHEDULER_TICK_MS"), 1_000, 50, 60_000)
     }
   end
 
@@ -79,6 +98,20 @@ defmodule ForgeWorkflows.Config do
       _ ->
         raise ArgumentError,
               "FORGE_SHUTDOWN_GRACE_SECONDS must be an integer 1–300, got #{inspect(raw)}"
+    end
+  end
+
+  defp parse_pos_int!(nil, default, _min, _max), do: default
+  defp parse_pos_int!("", default, _min, _max), do: default
+
+  defp parse_pos_int!(raw, _default, min, max) do
+    case Integer.parse(String.trim(raw)) do
+      {n, ""} when n >= min and n <= max ->
+        n
+
+      _ ->
+        raise ArgumentError,
+              "expected integer #{min}–#{max}, got #{inspect(raw)}"
     end
   end
 

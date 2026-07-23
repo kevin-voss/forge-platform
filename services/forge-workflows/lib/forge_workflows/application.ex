@@ -6,6 +6,7 @@ defmodule ForgeWorkflows.Application do
   alias ForgeWorkflows.Definitions.Loader
   alias ForgeWorkflows.Engine.BootResumer
   alias ForgeWorkflows.Engine.RunSupervisor
+  alias ForgeWorkflows.Engine.Scheduler
   alias ForgeWorkflows.Metrics
   alias ForgeWorkflows.Repo
 
@@ -42,8 +43,12 @@ defmodule ForgeWorkflows.Application do
             "RunRegistry",
             "RunSupervisor",
             "BootResumer",
+            "Scheduler",
             "Bandit"
-          ]
+          ],
+          max_parallelism: cfg.max_parallelism,
+          default_step_timeout_ms: cfg.default_step_timeout_ms,
+          scheduler_tick_ms: cfg.scheduler_tick_ms
         })
 
         [
@@ -54,6 +59,7 @@ defmodule ForgeWorkflows.Application do
           {Registry, keys: :unique, name: ForgeWorkflows.RunRegistry},
           RunSupervisor,
           BootResumer,
+          Scheduler,
           {Bandit,
            plug: ForgeWorkflowsWeb.Router,
            scheme: :http,

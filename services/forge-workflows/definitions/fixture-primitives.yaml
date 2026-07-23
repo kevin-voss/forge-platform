@@ -1,0 +1,30 @@
+name: fixture-primitives
+steps:
+  - id: collect
+    type: task
+    action: noop
+    retry:
+      max_attempts: 3
+      backoff: exponential
+      base_ms: 50
+  - id: wait
+    type: delay
+    delay_ms: 500
+  - id: fanout
+    type: parallel
+    branches:
+      - id: logs
+        type: noop
+      - id: metrics
+        type: noop
+  - id: decide
+    type: conditional
+    when: "context.severity == 'high'"
+    then: escalate
+    else: close
+  - id: escalate
+    type: log
+    message: escalate
+  - id: close
+    type: log
+    message: close

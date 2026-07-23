@@ -67,7 +67,7 @@ test-integration: run
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"supervision"'
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"request_id":"integ-req-1"'
 	@grep -q '4302' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-workflows.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-workflows" in p; assert "elixir" in p; assert "/v1/workflows" in p; assert "/v1/runs" in p; assert "WorkflowRun" in p'
+	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-workflows.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-workflows" in p; assert "elixir" in p; assert "/v1/workflows" in p; assert "/v1/runs" in p; assert "WorkflowRun" in p; assert "wake_at" in p; assert "RetryPolicy" in p; assert "parallel" in p'
 	@$(MAKE) -C $(ROOT_DIR) lint-openapi
 	@# List definitions
 	@curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/workflows" | python3 -c 'import sys,json; d=json.load(sys.stdin); names={w["name"] for w in d["workflows"]}; assert "fixture-log" in names'
@@ -104,9 +104,49 @@ test-integration: run
 			if [ "$$STATUS" = "completed" ]; then break; fi; \
 			sleep 0.5; \
 		done; \
-		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="completed"; steps={s["id"]:s for s in d["steps"]}; assert steps["before"]["status"]=="completed"; assert steps["before"]["attempt"]==1, steps; assert steps["slow"]["status"]=="completed"; assert steps["after"]["status"]=="completed"'; \
+		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="completed"; steps={s["id"]:s for s in d["steps"]}; assert steps["before"]["status"]=="completed"; assert steps["before"]["attempt"]==1, steps; assert steps["slow"]["status"]=="completed"; assert steps["slow"]["attempt"]==1, steps; assert steps["after"]["status"]=="completed"'; \
 		$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q 'skipping completed step' || \
 			echo "note: skip log may be absent if slow step had not completed before restart (attempt still 1)"
+	@# Retry recovers transient-failing task
+	@RID=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' -H 'content-type: application/json' \
+		-XPOST "http://127.0.0.1:$(HOST_PORT)/v1/workflows/fixture-retry/runs" \
+		-d '{"input":{}}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])'); \
+		for i in $$(seq 1 60); do \
+			STATUS=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])'); \
+			if [ "$$STATUS" = "completed" ] || [ "$$STATUS" = "failed" ]; then break; fi; \
+			sleep 0.25; \
+		done; \
+		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="completed", d; steps={s["id"]:s for s in d["steps"]}; assert steps["flaky"]["attempt"]==3, steps; assert steps["flaky"]["status"]=="completed"'
+	@# Parallel branches join
+	@RID=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' -H 'content-type: application/json' \
+		-XPOST "http://127.0.0.1:$(HOST_PORT)/v1/workflows/fixture-primitives/runs" \
+		-d '{"input":{"severity":"high"}}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])'); \
+		for i in $$(seq 1 60); do \
+			STATUS=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])'); \
+			if [ "$$STATUS" = "completed" ] || [ "$$STATUS" = "failed" ]; then break; fi; \
+			sleep 0.25; \
+		done; \
+		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="completed", d; steps={s["id"]:s for s in d["steps"]}; assert steps["fanout"]["status"]=="completed"; assert "branches" in (steps["fanout"].get("output") or {}); assert steps["escalate"]["status"]=="completed"; assert steps["close"]["status"]=="skipped"'
+	@# Conditional routes on context (low severity → close)
+	@RID=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' -H 'content-type: application/json' \
+		-XPOST "http://127.0.0.1:$(HOST_PORT)/v1/workflows/fixture-conditional/runs" \
+		-d '{"input":{"severity":"low"}}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])'); \
+		for i in $$(seq 1 40); do \
+			STATUS=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])'); \
+			if [ "$$STATUS" = "completed" ] || [ "$$STATUS" = "failed" ]; then break; fi; \
+			sleep 0.25; \
+		done; \
+		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="completed", d; steps={s["id"]:s for s in d["steps"]}; assert steps["close"]["status"]=="completed"; assert steps["escalate"]["status"]=="skipped"'
+	@# Timeout marks step failed
+	@RID=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' -H 'content-type: application/json' \
+		-XPOST "http://127.0.0.1:$(HOST_PORT)/v1/workflows/fixture-timeout/runs" \
+		-d '{"input":{}}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])'); \
+		for i in $$(seq 1 40); do \
+			STATUS=$$(curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; print(json.load(sys.stdin)["status"])'); \
+			if [ "$$STATUS" = "failed" ] || [ "$$STATUS" = "completed" ]; then break; fi; \
+			sleep 0.25; \
+		done; \
+		curl -sf -H 'X-Forge-Project: $(PROJECT)' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$RID" | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["status"]=="failed", d; steps={s["id"]:s for s in d["steps"]}; assert steps["slow"]["status"]=="failed"; assert steps["slow"]["error"]=="timeout"'
 	@# Invalid PORT fails startup.
 	@docker rm -f forge-workflows-bad-port >/dev/null 2>&1 || true
 	@if docker run --name forge-workflows-bad-port \
@@ -127,7 +167,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (definitions, durable runs, resume, project isolation, OpenAPI)."
+	@echo "Integration checks passed (definitions, durable runs, resume, retry/delay/parallel/conditional/timeout, project isolation, OpenAPI)."
 
 docker-run: run
 

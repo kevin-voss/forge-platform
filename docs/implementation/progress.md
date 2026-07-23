@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 109`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 110`**.
 
 ## Epics
 
@@ -142,7 +142,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **106** | [Demo `15-agent-runtime` + gate](steps/15-forge-agents/15.08-demo-and-gate.md) | Complete |  | Demo 15: investigator diagnose→awaiting_approval; epic gate |
 | **107** | [Skeleton OTP + health](steps/16-forge-workflows/16.01-skeleton-otp-health.md) | Complete |  | Elixir/OTP on `4302`, health/identity, JSON logs, Compose |
 | **108** | [Definitions + durable run state](steps/16-forge-workflows/16.02-definitions-durable-state.md) | Complete |  | YAML defs; Ecto runs/steps; resume + `(run_id,step_id)` idempotency |
-| **109** | [Step primitives](steps/16-forge-workflows/16.03-step-primitives.md) | Not started |  |  |
+| **109** | [Step primitives](steps/16-forge-workflows/16.03-step-primitives.md) | Complete |  | retry/delay/timeout/parallel/conditional; durable wake_at scheduler |
 | **110** | [Event triggers + agent steps](steps/16-forge-workflows/16.04-event-triggers-agent-steps.md) | Not started |  |  |
 | **111** | [Human approval across restarts](steps/16-forge-workflows/16.05-human-approval-restarts.md) | Not started |  |  |
 | **112** | [Compensation/rollback via Control](steps/16-forge-workflows/16.06-compensation-rollback.md) | Not started |  |  |

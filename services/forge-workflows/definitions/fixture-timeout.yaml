@@ -1,0 +1,7 @@
+name: fixture-timeout
+steps:
+  - id: slow
+    type: task
+    action: sleep
+    delay_ms: 2000
+    timeout_ms: 100

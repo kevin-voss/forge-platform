@@ -84,5 +84,9 @@ defmodule ForgeWorkflows.ConfigTest do
     assert cfg.shutdown_grace_ms == 10_000
     assert String.contains?(cfg.database_url, "forge_workflows")
     assert File.dir?(cfg.defs_dir)
+    assert cfg.max_parallelism == 8
+    assert cfg.default_step_timeout_ms == 300_000
+    assert cfg.scheduler_tick_ms == 1_000
   end
 end
+

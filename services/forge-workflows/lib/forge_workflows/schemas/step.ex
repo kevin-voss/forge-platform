@@ -16,6 +16,8 @@ defmodule ForgeWorkflows.Schemas.Step do
     field :output, :map
     field :error, :string
     field :attempt, :integer, default: 0
+    field :wake_at, :utc_datetime_usec
+    field :parent_step_id, :string
 
     belongs_to :run, ForgeWorkflows.Schemas.Run,
       define_field: false,
@@ -25,11 +27,22 @@ defmodule ForgeWorkflows.Schemas.Step do
     timestamps(inserted_at: :inserted_at, updated_at: :updated_at)
   end
 
-  @statuses ~w(pending running completed failed skipped)
+  @statuses ~w(pending running waiting completed failed skipped)
 
   def changeset(step, attrs) do
     step
-    |> cast(attrs, [:id, :run_id, :step_id, :type, :status, :output, :error, :attempt])
+    |> cast(attrs, [
+      :id,
+      :run_id,
+      :step_id,
+      :type,
+      :status,
+      :output,
+      :error,
+      :attempt,
+      :wake_at,
+      :parent_step_id
+    ])
     |> validate_required([:id, :run_id, :step_id, :type, :status])
     |> validate_inclusion(:status, @statuses)
     |> unique_constraint([:run_id, :step_id], name: :workflow_steps_run_id_step_id_index)

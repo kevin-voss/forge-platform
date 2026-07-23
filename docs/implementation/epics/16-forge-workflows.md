@@ -56,7 +56,7 @@ make demo DEMO=16
 |---|---|---|---|
 | [16.01](../steps/16-forge-workflows/16.01-skeleton-otp-health.md) | Skeleton OTP + health | Complete | Elixir/OTP, health, port 4302 |
 | [16.02](../steps/16-forge-workflows/16.02-definitions-durable-state.md) | Definitions + durable run state | Complete | Depends on 16.01; resume across restart |
-| [16.03](../steps/16-forge-workflows/16.03-step-primitives.md) | Step primitives | Not started | Depends on 16.02; retry/delay/timeout/parallel/conditional |
+| [16.03](../steps/16-forge-workflows/16.03-step-primitives.md) | Step primitives | Complete | retry/delay/timeout/parallel/conditional; durable wake_at |
 | [16.04](../steps/16-forge-workflows/16.04-event-triggers-agent-steps.md) | Event triggers + agent steps | Not started | Depends on 16.03; Events 11, Agents 15 |
 | [16.05](../steps/16-forge-workflows/16.05-human-approval-restarts.md) | Human approval across restarts | Not started | Depends on 16.04 |
 | [16.06](../steps/16-forge-workflows/16.06-compensation-rollback.md) | Compensation/rollback via Control | Not started | Depends on 16.05; Control/07 rollback |
@@ -79,4 +79,4 @@ make demo DEMO=16
 
 ## Next step to implement
 
-**[16.03](../steps/16-forge-workflows/16.03-step-primitives.md) — Step primitives** (retry/delay/timeout/parallel/conditional).
+**[16.04](../steps/16-forge-workflows/16.04-event-triggers-agent-steps.md) — Event triggers + agent steps**.

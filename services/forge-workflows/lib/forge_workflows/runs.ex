@@ -25,6 +25,8 @@ defmodule ForgeWorkflows.Runs do
         run_id = Ecto.UUID.generate()
         now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
+        # Top-level definition steps (including conditional targets and parallel
+        # string-ref branches). Inline parallel branches are created at fan-out.
         step_rows =
           Enum.map(workflow.steps, fn step ->
             %{
@@ -34,6 +36,8 @@ defmodule ForgeWorkflows.Runs do
               type: step.type,
               status: "pending",
               attempt: 0,
+              wake_at: nil,
+              parent_step_id: parent_for_ref_branch(workflow.steps, step.id),
               inserted_at: now,
               updated_at: now
             }
@@ -103,6 +107,45 @@ defmodule ForgeWorkflows.Runs do
     |> Repo.one()
   end
 
+  @spec list_due_waiting_steps(DateTime.t()) :: [Step.t()]
+  def list_due_waiting_steps(now \\ DateTime.utc_now()) do
+    now = DateTime.truncate(now, :microsecond)
+
+    from(s in Step,
+      where: s.status == "waiting" and not is_nil(s.wake_at) and s.wake_at <= ^now,
+      order_by: [asc: s.wake_at]
+    )
+    |> Repo.all()
+  end
+
+  @spec ensure_child_step(String.t(), String.t(), String.t(), String.t()) ::
+          {:ok, Step.t()} | {:error, term()}
+  def ensure_child_step(run_id, parent_step_id, step_id, type)
+      when is_binary(run_id) and is_binary(parent_step_id) and is_binary(step_id) and
+             is_binary(type) do
+    case get_step(run_id, step_id) do
+      %Step{} = step ->
+        {:ok, step}
+
+      nil ->
+        now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+        %Step{}
+        |> Step.changeset(%{
+          id: Ecto.UUID.generate(),
+          run_id: run_id,
+          step_id: step_id,
+          type: type,
+          status: "pending",
+          attempt: 0,
+          parent_step_id: parent_step_id,
+          inserted_at: now,
+          updated_at: now
+        })
+        |> Repo.insert()
+    end
+  end
+
   @spec mark_run_running(String.t(), String.t() | nil) :: {:ok, Run.t()} | {:error, term()}
   def mark_run_running(run_id, current_step) do
     case Repo.get(Run, run_id) do
@@ -123,7 +166,6 @@ defmodule ForgeWorkflows.Runs do
           other ->
             other
         end
-
     end
   end
 
@@ -168,7 +210,10 @@ defmodule ForgeWorkflows.Runs do
   end
 
   @spec begin_step(String.t(), String.t()) ::
-          {:ok, :execute, Step.t()} | {:ok, :skip, Step.t()} | {:error, term()}
+          {:ok, :execute, Step.t()}
+          | {:ok, :skip, Step.t()}
+          | {:ok, :wake, Step.t()}
+          | {:error, term()}
   def begin_step(run_id, step_id) do
     Repo.transaction(fn ->
       step =
@@ -182,8 +227,11 @@ defmodule ForgeWorkflows.Runs do
         is_nil(step) ->
           Repo.rollback(:not_found)
 
-        step.status == "completed" ->
+        step.status in ["completed", "skipped"] ->
           {:skip, step}
+
+        step.status == "waiting" ->
+          {:wake, step}
 
         true ->
           {:ok, updated} =
@@ -191,7 +239,8 @@ defmodule ForgeWorkflows.Runs do
             |> Step.changeset(%{
               status: "running",
               attempt: step.attempt + 1,
-              error: nil
+              error: nil,
+              wake_at: nil
             })
             |> Repo.update()
 
@@ -201,8 +250,88 @@ defmodule ForgeWorkflows.Runs do
     end)
     |> case do
       {:ok, {:skip, step}} -> {:ok, :skip, step}
+      {:ok, {:wake, step}} -> {:ok, :wake, step}
       {:ok, {:execute, step}} -> {:ok, :execute, step}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @spec rebegin_after_wait(String.t(), String.t()) :: {:ok, Step.t()} | {:error, term()}
+  def rebegin_after_wait(run_id, step_id) do
+    Repo.transaction(fn ->
+      step =
+        from(s in Step,
+          where: s.run_id == ^run_id and s.step_id == ^step_id,
+          lock: "FOR UPDATE"
+        )
+        |> Repo.one()
+
+      cond do
+        is_nil(step) ->
+          Repo.rollback(:not_found)
+
+        step.status == "completed" ->
+          step
+
+        true ->
+          {:ok, updated} =
+            step
+            |> Step.changeset(%{
+              status: "running",
+              attempt: step.attempt + 1,
+              error: nil,
+              wake_at: nil
+            })
+            |> Repo.update()
+
+          Metrics.inc_step("running")
+          updated
+      end
+    end)
+  end
+
+  @spec mark_step_waiting(String.t(), String.t(), DateTime.t()) ::
+          {:ok, Step.t()} | {:error, term()}
+  def mark_step_waiting(run_id, step_id, wake_at) do
+    case get_step(run_id, step_id) do
+      nil ->
+        {:error, :not_found}
+
+      step ->
+        step
+        |> Step.changeset(%{status: "waiting", wake_at: wake_at, error: nil})
+        |> Repo.update()
+        |> case do
+          {:ok, _} = ok ->
+            Metrics.inc_step("waiting")
+            ok
+
+          other ->
+            other
+        end
+    end
+  end
+
+  @spec skip_step(String.t(), String.t(), map() | nil) :: {:ok, Step.t()} | {:error, term()}
+  def skip_step(run_id, step_id, output \\ %{"skipped" => true}) do
+    case get_step(run_id, step_id) do
+      nil ->
+        {:error, :not_found}
+
+      %Step{status: status} = step when status in ["completed", "skipped"] ->
+        {:ok, step}
+
+      step ->
+        case step
+             |> Step.changeset(%{status: "skipped", output: output, error: nil, wake_at: nil})
+             |> Repo.update() do
+          {:ok, _} = ok ->
+            Metrics.inc_step("skipped")
+            ok
+
+          other ->
+            other
+        end
     end
   end
 
@@ -217,7 +346,7 @@ defmodule ForgeWorkflows.Runs do
 
       step ->
         case step
-             |> Step.changeset(%{status: "completed", output: output, error: nil})
+             |> Step.changeset(%{status: "completed", output: output, error: nil, wake_at: nil})
              |> Repo.update() do
           {:ok, _} = ok ->
             Metrics.inc_step("completed")
@@ -237,7 +366,7 @@ defmodule ForgeWorkflows.Runs do
 
       step ->
         case step
-             |> Step.changeset(%{status: "failed", error: error})
+             |> Step.changeset(%{status: "failed", error: error, wake_at: nil})
              |> Repo.update() do
           {:ok, _} = ok ->
             Metrics.inc_step("failed")
@@ -262,6 +391,8 @@ defmodule ForgeWorkflows.Runs do
         }
         |> maybe_put("output", step.output)
         |> maybe_put("error", step.error)
+        |> maybe_put("wake_at", step.wake_at && DateTime.to_iso8601(step.wake_at))
+        |> maybe_put("parent_step_id", step.parent_step_id)
       end)
 
     %{
@@ -279,4 +410,14 @@ defmodule ForgeWorkflows.Runs do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp parent_for_ref_branch(steps, step_id) do
+    Enum.find_value(steps, fn
+      %{type: "parallel", id: parent_id, branches: branches} ->
+        if Enum.any?(branches || [], &(&1.type == "ref" and &1.id == step_id)), do: parent_id
+
+      _ ->
+        nil
+    end)
+  end
 end

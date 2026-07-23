@@ -37,6 +37,50 @@ defmodule ForgeWorkflows.Definitions.LoaderTest do
     assert Map.has_key?(defs, "fixture-log")
   end
 
+  test "loads primitive step types" do
+    path = Path.join(@tmp_root, "primitives.yaml")
+
+    File.write!(path, """
+    name: primitives
+    steps:
+      - id: collect
+        type: task
+        action: noop
+        retry: { max_attempts: 3, backoff: exponential, base_ms: 200 }
+      - id: wait
+        type: delay
+        delay_ms: 5000
+      - id: fanout
+        type: parallel
+        branches:
+          - id: logs
+            type: noop
+          - id: metrics
+            type: noop
+      - id: decide
+        type: conditional
+        when: "context.severity == 'high'"
+        then: escalate
+        else: close
+      - id: escalate
+        type: noop
+      - id: close
+        type: noop
+    """)
+
+    assert {:ok, %Workflow{steps: steps}} = Loader.load_file(path)
+    types = Enum.map(steps, & &1.type)
+    assert "task" in types
+    assert "delay" in types
+    assert "parallel" in types
+    assert "conditional" in types
+
+    fanout = Enum.find(steps, &(&1.id == "fanout"))
+    assert length(fanout.branches) == 2
+    collect = Enum.find(steps, &(&1.id == "collect"))
+    assert collect.retry.max_attempts == 3
+  end
+
   test "rejects malformed definitions" do
     path = Path.join(@tmp_root, "bad.yaml")
     File.write!(path, "name: bad\nsteps: []\n")
@@ -74,6 +118,7 @@ defmodule ForgeWorkflows.Definitions.LoaderTest do
       defs = Loader.load_dir!(dir)
       assert Map.has_key?(defs, "fixture-log")
       assert Map.has_key?(defs, "fixture-resume")
+      assert Map.has_key?(defs, "fixture-primitives")
     else
       assert true
     end

@@ -1,0 +1,13 @@
+name: fixture-conditional
+steps:
+  - id: decide
+    type: conditional
+    when: "context.severity == 'high'"
+    then: escalate
+    else: close
+  - id: escalate
+    type: log
+    message: escalate-high
+  - id: close
+    type: log
+    message: close-low

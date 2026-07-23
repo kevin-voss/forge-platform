@@ -1,11 +1,13 @@
 openapi: 3.0.3
 info:
   title: Forge Workflows API
-  version: 0.2.0
+  version: 0.3.0
   description: |
     Durable workflow orchestration service (epic 16). Definitions load from YAML;
     runs and step state persist in Postgres and resume across restarts without
     re-executing completed steps (idempotency key: run_id + step_id).
+    Step primitives: retry (persisted attempts + backoff), durable delay timers,
+    step/run timeouts, parallel fan-out/fan-in, and safe conditional branching.
     Runs are project-scoped via `X-Forge-Project`.
 servers:
   - url: http://127.0.0.1:4302
@@ -255,6 +257,23 @@ components:
           type: string
           example: running
 
+    RetryPolicy:
+      type: object
+      required:
+        - max_attempts
+        - backoff
+        - base_ms
+      properties:
+        max_attempts:
+          type: integer
+          minimum: 1
+        backoff:
+          type: string
+          enum: [fixed, exponential]
+        base_ms:
+          type: integer
+          minimum: 0
+
     WorkflowStepDef:
       type: object
       required:
@@ -265,12 +284,33 @@ components:
           type: string
         type:
           type: string
-          enum: [log, noop]
+          enum: [log, noop, task, delay, timeout, parallel, conditional, retry]
         message:
           type: string
         delay_ms:
           type: integer
           minimum: 0
+          description: For type=delay, durable wake_at timer; for log/noop short in-process sleep
+        action:
+          type: string
+          description: Task action (noop|fail|fail_until|sleep)
+        timeout_ms:
+          type: integer
+          minimum: 1
+        retry:
+          $ref: "#/components/schemas/RetryPolicy"
+        when:
+          type: string
+          description: Safe conditional expression over context (e.g. context.severity == 'high')
+        then:
+          type: string
+        else:
+          type: string
+        branches:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowStepDef"
+          description: Parallel fan-out branch step definitions (or string id refs)
 
     WorkflowDefinition:
       type: object
@@ -280,6 +320,10 @@ components:
       properties:
         name:
           type: string
+        timeout_ms:
+          type: integer
+          minimum: 1
+          description: Optional run-level deadline from run start
         steps:
           type: array
           items:
@@ -309,10 +353,20 @@ components:
           type: string
         status:
           type: string
-          enum: [pending, running, completed, failed, skipped]
+          enum: [pending, running, waiting, completed, failed, skipped]
         attempt:
           type: integer
           minimum: 0
+          description: Persisted attempt count (retry policy)
+        wake_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Durable timer deadline for delay/retry backoff
+        parent_step_id:
+          type: string
+          nullable: true
+          description: Parent step id for parallel child rows
         output:
           type: object
           additionalProperties: true

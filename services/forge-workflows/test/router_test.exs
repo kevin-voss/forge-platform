@@ -16,7 +16,10 @@ defmodule ForgeWorkflowsWeb.RouterTest do
       env: "test",
       shutdown_grace_ms: 10_000,
       database_url: "postgres://forge:forge@localhost:5432/forge_workflows",
-      defs_dir: Path.expand("../definitions", __DIR__)
+      defs_dir: Path.expand("../definitions", __DIR__),
+      max_parallelism: 8,
+      default_step_timeout_ms: 300_000,
+      scheduler_tick_ms: 1_000
     }
 
     Application.put_env(:forge_workflows, :runtime_config, cfg)
