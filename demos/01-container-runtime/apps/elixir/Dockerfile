@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
-ARG ELIXIR_IMAGE=hexpm/elixir:1.18.4-erlang-27.3.4-debian-bookworm-20250610-slim
-ARG RUNTIME_IMAGE=debian:bookworm-20250610-slim
+ARG ELIXIR_IMAGE=hexpm/elixir:1.18.4-erlang-27.3.4.2-debian-bookworm-20250811-slim
+ARG RUNTIME_IMAGE=debian:bookworm-20250811-slim
 
 FROM ${ELIXIR_IMAGE} AS build
 ENV MIX_ENV=prod \

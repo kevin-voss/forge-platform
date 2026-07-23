@@ -5,7 +5,7 @@ COMPOSE := docker compose -f $(ROOT_DIR)/compose.yaml --project-directory $(ROOT
 SERVICE := forge-workflows
 IMAGE := forge/forge-workflows:local
 HOST_PORT ?= 4302
-ELIXIR_IMAGE ?= hexpm/elixir:1.18.4-erlang-27.3.4-debian-bookworm-20250610-slim
+ELIXIR_IMAGE ?= hexpm/elixir:1.18.4-erlang-27.3.4.2-debian-bookworm-20250811-slim
 PROJECT ?= proj-a
 
 .PHONY: compile test test-unit test-integration run wait docker-build docker-run clean dev ensure-db
