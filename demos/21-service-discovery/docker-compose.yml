@@ -1,0 +1,151 @@
+# Demo 21 overlay — Discovery gate with dual Runtime agents + Discovery route source.
+# Used with the root compose file:
+#   docker compose -f compose.yaml -f demos/21-service-discovery/docker-compose.yml up -d ...
+
+services:
+  forge-control:
+    environment:
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+      FORGE_RECONCILE_INTERVAL_MS: ${FORGE_RECONCILE_INTERVAL_MS:-1000}
+      FORGE_READINESS_POLL_MS: ${FORGE_READINESS_POLL_MS:-500}
+      FORGE_READINESS_MAX_WAIT_S: ${FORGE_READINESS_MAX_WAIT_S:-90}
+      FORGE_ROLLOUT_TIMEOUT_S: ${FORGE_ROLLOUT_TIMEOUT_S:-180}
+      FORGE_RESOURCE_API_ENABLED: ${FORGE_RESOURCE_API_ENABLED:-true}
+      FORGE_SCHEDULER_STRATEGY: ${FORGE_SCHEDULER_STRATEGY:-least-allocated}
+      FORGE_ANTI_AFFINITY_DEFAULT: ${FORGE_ANTI_AFFINITY_DEFAULT:-soft}
+      FORGE_SCHEDULER_ENABLED: "true"
+      FORGE_RESCHEDULE_ENABLED: "true"
+      FORGE_NODE_HEARTBEAT_TIMEOUT_S: ${FORGE_NODE_HEARTBEAT_TIMEOUT_S:-8}
+      FORGE_RESCHEDULE_GRACE_S: ${FORGE_RESCHEDULE_GRACE_S:-3}
+      FORGE_LIVENESS_INTERVAL_MS: ${FORGE_LIVENESS_INTERVAL_MS:-2000}
+      FORGE_RUNTIME_URL: ${FORGE_RUNTIME_URL:-http://forge-runtime:8080}
+      FORGE_SECRETS_URL: ${FORGE_SECRETS_URL:-disabled}
+
+  forge-discovery:
+    environment:
+      FORGE_DISCOVERY_LEASE_SECONDS_DEFAULT: ${FORGE_DISCOVERY_LEASE_SECONDS_DEFAULT:-8}
+      FORGE_DISCOVERY_SWEEP_INTERVAL_SECONDS: ${FORGE_DISCOVERY_SWEEP_INTERVAL_SECONDS:-2}
+      FORGE_DISCOVERY_DNS_TTL_SECONDS: ${FORGE_DISCOVERY_DNS_TTL_SECONDS:-2}
+      FORGE_DISCOVERY_DNS_NEGATIVE_TTL_SECONDS: ${FORGE_DISCOVERY_DNS_NEGATIVE_TTL_SECONDS:-1}
+      FORGE_OTEL_ENABLED: ${FORGE_OTEL_ENABLED:-false}
+
+  forge-runtime:
+    container_name: forge-runtime-a
+    environment:
+      FORGE_NODE_ID: node-a
+      FORGE_NODE_SLOTS: ${FORGE_NODE_SLOTS_A:-4}
+      FORGE_NODE_ADDRESS: http://forge-runtime:8080
+      FORGE_HEARTBEAT_INTERVAL_MS: ${FORGE_HEARTBEAT_INTERVAL_MS:-2000}
+      FORGE_LIFECYCLE_OWNER: ${FORGE_LIFECYCLE_OWNER:-control}
+      FORGE_PROBE_INTERVAL_SECONDS: ${FORGE_PROBE_INTERVAL_SECONDS:-2}
+      FORGE_PROBE_FAILURE_THRESHOLD: ${FORGE_PROBE_FAILURE_THRESHOLD:-2}
+      FORGE_STOP_GRACE_SECONDS: ${FORGE_STOP_GRACE_SECONDS:-2}
+      FORGE_DISCOVERY_URL: ${FORGE_DISCOVERY_URL:-http://forge-discovery:8080}
+      FORGE_DISCOVERY_REGISTER_ENABLED: ${FORGE_DISCOVERY_REGISTER_ENABLED:-true}
+      FORGE_DISCOVERY_LEASE_SECONDS: ${FORGE_DISCOVERY_LEASE_SECONDS:-8}
+      FORGE_DISCOVERY_DEFAULT_PROJECT: ${FORGE_DISCOVERY_DEFAULT_PROJECT:-demo}
+      FORGE_DISCOVERY_DEFAULT_ENVIRONMENT: ${FORGE_DISCOVERY_DEFAULT_ENVIRONMENT:-local}
+      FORGE_RUNTIME_DATA_DIR: /var/lib/forge-runtime-a
+      FORGE_OTEL_ENABLED: ${FORGE_OTEL_ENABLED:-false}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - forge-runtime-a-data:/var/lib/forge-runtime-a
+    dns:
+      - 172.30.0.53
+
+  forge-runtime-b:
+    build:
+      context: ./services/forge-runtime
+    image: forge/forge-runtime:local
+    container_name: forge-runtime-b
+    restart: unless-stopped
+    dns:
+      - 172.30.0.53
+    ports:
+      - "4112:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: forge-runtime
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-info}
+      FORGE_ENV: ${FORGE_ENV:-development}
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+      DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
+      FORGE_SHUTDOWN_GRACE_SECONDS: ${FORGE_SHUTDOWN_GRACE_SECONDS:-10}
+      FORGE_DOCKER_STARTUP_RETRIES: ${FORGE_DOCKER_STARTUP_RETRIES:-5}
+      FORGE_DOCKER_STARTUP_RETRY_DELAY_MS: ${FORGE_DOCKER_STARTUP_RETRY_DELAY_MS:-500}
+      FORGE_RUNTIME_DATA_DIR: /var/lib/forge-runtime-b
+      FORGE_HEARTBEAT_INTERVAL_SECONDS: ${FORGE_HEARTBEAT_INTERVAL_SECONDS:-10}
+      FORGE_NODE_ID: node-b
+      FORGE_NODE_SLOTS: ${FORGE_NODE_SLOTS_B:-4}
+      FORGE_NODE_ADDRESS: http://forge-runtime-b:8080
+      FORGE_HEARTBEAT_INTERVAL_MS: ${FORGE_HEARTBEAT_INTERVAL_MS:-2000}
+      FORGE_PULL_TIMEOUT_SECONDS: ${FORGE_PULL_TIMEOUT_SECONDS:-120}
+      FORGE_DEFAULT_REGISTRY: ${FORGE_DEFAULT_REGISTRY:-localhost:5000}
+      FORGE_PROBE_INTERVAL_SECONDS: ${FORGE_PROBE_INTERVAL_SECONDS:-2}
+      FORGE_PROBE_TIMEOUT_SECONDS: ${FORGE_PROBE_TIMEOUT_SECONDS:-2}
+      FORGE_PROBE_FAILURE_THRESHOLD: ${FORGE_PROBE_FAILURE_THRESHOLD:-2}
+      FORGE_PROBE_READY_PATH: ${FORGE_PROBE_READY_PATH:-/health/ready}
+      FORGE_PROBE_LIVE_PATH: ${FORGE_PROBE_LIVE_PATH:-/health/live}
+      FORGE_PROBE_HOST: ${FORGE_PROBE_HOST:-host.docker.internal}
+      FORGE_LOG_DEFAULT_TAIL: ${FORGE_LOG_DEFAULT_TAIL:-100}
+      FORGE_LOG_STREAM_BUFFER: ${FORGE_LOG_STREAM_BUFFER:-8192}
+      FORGE_STOP_GRACE_SECONDS: ${FORGE_STOP_GRACE_SECONDS:-2}
+      FORGE_ON_CONFIG_CONFLICT: ${FORGE_ON_CONFIG_CONFLICT:-recreate}
+      FORGE_CONTROL_URL: ${FORGE_CONTROL_URL-http://forge-control:8080}
+      FORGE_RECONCILE_INTERVAL_SECONDS: ${FORGE_RECONCILE_INTERVAL_SECONDS:-10}
+      FORGE_CONTROL_REPORT_MODE: ${FORGE_CONTROL_REPORT_MODE:-push}
+      FORGE_LIFECYCLE_OWNER: ${FORGE_LIFECYCLE_OWNER:-control}
+      FORGE_DISCOVERY_URL: ${FORGE_DISCOVERY_URL:-http://forge-discovery:8080}
+      FORGE_DISCOVERY_REGISTER_ENABLED: ${FORGE_DISCOVERY_REGISTER_ENABLED:-true}
+      FORGE_DISCOVERY_LEASE_SECONDS: ${FORGE_DISCOVERY_LEASE_SECONDS:-8}
+      FORGE_DISCOVERY_DEFAULT_PROJECT: ${FORGE_DISCOVERY_DEFAULT_PROJECT:-demo}
+      FORGE_DISCOVERY_DEFAULT_ENVIRONMENT: ${FORGE_DISCOVERY_DEFAULT_ENVIRONMENT:-local}
+      FORGE_OTEL_ENABLED: ${FORGE_OTEL_ENABLED:-false}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - forge-runtime-b-data:/var/lib/forge-runtime-b
+    user: "0:0"
+    group_add:
+      - "${DOCKER_GID:-0}"
+    depends_on:
+      forge-control:
+        condition: service_healthy
+      forge-discovery:
+        condition: service_healthy
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health/live | grep -q ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  forge-gateway:
+    environment:
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+      FORGE_ROUTE_SOURCE: ${FORGE_ROUTE_SOURCE:-discovery}
+      FORGE_DISCOVERY_URL: ${FORGE_DISCOVERY_URL:-http://forge-discovery:8080}
+      FORGE_HOST_PATTERN: "{service}.demo.localhost"
+      FORGE_ROUTE_SYNC_INTERVAL_SECONDS: ${FORGE_ROUTE_SYNC_INTERVAL_SECONDS:-2}
+      FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS: ${FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS:-2}
+      FORGE_UPSTREAM_FAILURE_THRESHOLD: ${FORGE_UPSTREAM_FAILURE_THRESHOLD:-1}
+      FORGE_UPSTREAM_SUCCESS_THRESHOLD: ${FORGE_UPSTREAM_SUCCESS_THRESHOLD:-1}
+      FORGE_UPSTREAM_TRUST_RUNTIME_STATUS: "true"
+      FORGE_RUNTIME_URL: ${FORGE_RUNTIME_URL:-http://forge-runtime:8080}
+      FORGE_OTEL_ENABLED: ${FORGE_OTEL_ENABLED:-false}
+    depends_on:
+      forge-control:
+        condition: service_healthy
+      forge-runtime:
+        condition: service_healthy
+      forge-runtime-b:
+        condition: service_healthy
+      forge-discovery:
+        condition: service_healthy
+
+volumes:
+  forge-runtime-a-data:
+  forge-runtime-b-data:

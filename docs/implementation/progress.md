@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 145`** (epic 21 in progress; `21.05` complete).
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 146`** (epic 21 complete; epic 22 next).
 
 ## Epics
 
@@ -182,7 +182,7 @@ next implementable step is still the one named at the top of this file. Plan:
 | Epic | Title | Milestone | Status | Notes |
 |---|---|---|---|---|
 | [20](epics/20-declarative-resource-api.md) | Declarative resource API | M1 | Complete | 8/8 steps; demo 20 declarative-resources acceptance gate passed |
-| [21](epics/21-forge-discovery.md) | Forge Discovery | M1 | In progress | 5/6 steps (`21.05` complete; `N = 145` remains) |
+| [21](epics/21-forge-discovery.md) | Forge Discovery | M1 | Complete | 6/6 steps; demo 21 service-discovery acceptance gate passed |
 | [22](epics/22-forge-network.md) | Forge Network | M1 | Planning | 7 steps (`N = 146`–`152`) |
 | [23](epics/23-forge-infrastructure.md) | Forge Infrastructure | M1 | Planning | 7 steps (`N = 153`–`159`); Docker/SSH/bare-metal/Hetzner/AWS/Azure |
 | [24](epics/24-forge-autoscaler.md) | Forge Autoscaler | M1 | Planning | 8 steps (`N = 160`–`167`); workload + worker + node scaling |
@@ -223,7 +223,7 @@ next implementable step is still the one named at the top of this file. Plan:
 | **142** | [Readiness-aware selection + endpoint watch](steps/21-forge-discovery/21.03-readiness-selection-and-watch.md) | Complete |  | Ready-only list; SSE watch; watchhub; forge-discovery-client |
 | **143** | [Internal authoritative DNS for `.svc.forge`](steps/21-forge-discovery/21.04-internal-dns-zone.md) | Complete |  | UDP 5053; A/AAAA/SRV; lease TTLs; forward; Compose dns wiring |
 | **144** | [Gateway integration + aliases](steps/21-forge-discovery/21.05-gateway-and-client-integration.md) | Complete |  | `FORGE_ROUTE_SOURCE=discovery`; alias hostnames; epic 05 sync unchanged |
-| **145** | Epic 21 — Forge Discovery (`21.06`) | Not started |  | |
+| **145** | [Demo `21-service-discovery` + epic gate](steps/21-forge-discovery/21.06-demo-21-service-discovery.md) | Complete |  | `make demo DEMO=21`; Ready/DNS/watch; Gateway discovery flip; lease/node-loss |
 | **146**–**152** | Epic 22 — Forge Network (`22.01`–`22.07`) | Not started |  | |
 | **153**–**159** | Epic 23 — Forge Infrastructure (`23.01`–`23.07`) | Not started |  | |
 | **160**–**167** | Epic 24 — Forge Autoscaler (`24.01`–`24.08`) | Not started |  | |

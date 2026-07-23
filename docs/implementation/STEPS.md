@@ -138,7 +138,7 @@ Foundation `00.01` is already complete and has no `N`.
 | **130** | Failure injection + Workflows approval/rollback | 19 | [19.05-failure-injection-workflow.md](steps/19-full-platform-demo/19.05-failure-injection-workflow.md) |
 | **131** | `demos/09-full-platform` acceptance suite + docs | 19 | [19.06-acceptance-suite-and-gate.md](steps/19-full-platform-demo/19.06-acceptance-suite-and-gate.md) |
 
-Current-roadmap steps: **131** (`N = 1` … `N = 131`). **Complete.** Future queue through **`N = 139`** (epic 20) complete. Next: **`N = 140`**.
+Current-roadmap steps: **131** (`N = 1` … `N = 131`). **Complete.** Future queue through **`N = 145`** (epic 21) complete. Next: **`N = 146`**.
 
 ---
 

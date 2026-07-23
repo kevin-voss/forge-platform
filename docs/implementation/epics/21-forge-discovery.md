@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Milestone
 
@@ -105,7 +105,7 @@ Failure flow (the epic gate):
 | [21.03](../steps/21-forge-discovery/21.03-readiness-selection-and-watch.md) | 142 | Readiness-aware selection + endpoint watch | Complete | Ready-only reads, SSE watch, client library |
 | [21.04](../steps/21-forge-discovery/21.04-internal-dns-zone.md) | 143 | Internal authoritative DNS for `.svc.forge` | Complete | A/AAAA/SRV, TTLs tied to lease state, local resolver wiring |
 | [21.05](../steps/21-forge-discovery/21.05-gateway-and-client-integration.md) | 144 | Gateway integration + aliases | Complete | Flagged Gateway source; epic 05 tests unchanged |
-| [21.06](../steps/21-forge-discovery/21.06-demo-21-service-discovery.md) | 145 | Demo `21-service-discovery` + epic gate | Not started | Full failure-flow acceptance gate |
+| [21.06](../steps/21-forge-discovery/21.06-demo-21-service-discovery.md) | 145 | Demo `21-service-discovery` + epic gate | Complete | Full failure-flow acceptance gate |
 
 ## Assumptions
 
@@ -127,4 +127,4 @@ Failure flow (the epic gate):
 
 ## Next step to implement
 
-**[21.06](../steps/21-forge-discovery/21.06-demo-21-service-discovery.md) — Demo `21-service-discovery` + epic gate** (`N = 145`).
+Epic complete. Next future-queue step: **[22.01](../steps/22-forge-network/22.01-skeleton-and-address-allocation.md)** (`N = 146`).

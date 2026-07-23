@@ -1,0 +1,47 @@
+# Service manifests for demo 21 (placeholders filled by run.sh).
+# Applied via Discovery register + alias update; portable shape for forge.dev/v1.
+apiVersion: forge.dev/v1
+kind: Service
+metadata:
+  name: demo-echo
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    demo: "21"
+spec:
+  ports:
+    - name: http
+      port: 8080
+      protocol: TCP
+  aliases:
+    - echo
+---
+apiVersion: forge.dev/v1
+kind: Service
+metadata:
+  name: users-api
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    demo: "21"
+spec:
+  ports:
+    - name: http
+      port: 8080
+      protocol: TCP
+  aliases: []
+---
+apiVersion: forge.dev/v1
+kind: Service
+metadata:
+  name: orders-api
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    demo: "21"
+spec:
+  ports:
+    - name: http
+      port: 8080
+      protocol: TCP
+  aliases: []

@@ -42,6 +42,7 @@ help:
 	@echo "  make reset                 Destroy local volumes and restart clean"
 	@echo "  make demo DEMO=00          Run a numbered demo (e.g. DEMO=12 observability)"
 	@echo "  make demo DEMO=20          Declarative resource API gate (epic 20)"
+	@echo "  make demo DEMO=21          Service discovery gate (epic 21)"
 	@echo "  make demo DEMO=09-full-platform  Start capstone (start.sh)"
 	@echo "  make demo-accept DEMO=...  Run demo acceptance suite (capstone accept.sh)"
 	@echo "  make demo-full             Alias: demo DEMO=09-full-platform"
@@ -50,6 +51,7 @@ help:
 
 setup: env-check
 	@chmod +x scripts/*.sh scripts/lib/*.sh demos/*/run.sh \
+		demos/21-service-discovery/run.sh \
 		demos/09-full-platform/start.sh demos/09-full-platform/accept.sh \
 		demos/09-full-platform/tests/*.sh \
 		demos/09-full-platform/ai/*.sh demos/09-full-platform/scenario/*.sh \
