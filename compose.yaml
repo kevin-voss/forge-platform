@@ -874,6 +874,52 @@ services:
       retries: 10
       start_period: 30s
 
+  forge-network:
+    build:
+      context: ./services/forge-network
+    image: forge/forge-network:local
+    container_name: forge-network
+    restart: unless-stopped
+    ports:
+      - "4110:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: forge-network
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-info}
+      FORGE_ENV: ${FORGE_ENV:-development}
+      FORGE_SHUTDOWN_GRACE_SECONDS: ${FORGE_SHUTDOWN_GRACE_SECONDS:-10}
+      # Hardcoded docker DNS — do not interpolate host .env FORGE_DATABASE_URL (localhost:5001).
+      FORGE_DATABASE_URL: postgres://forge:forge@postgres:5432/forge?sslmode=disable
+      FORGE_DATABASE_SCHEMA: network
+      FORGE_DATABASE_POOL_MAX: ${FORGE_DATABASE_POOL_MAX:-10}
+      FORGE_DATABASE_MIGRATE_ON_START: ${FORGE_DATABASE_MIGRATE_ON_START:-true}
+      FORGE_NETWORK_CLUSTER_CIDR: ${FORGE_NETWORK_CLUSTER_CIDR:-10.100.0.0/16}
+      FORGE_NETWORK_NODE_PREFIX_LEN: ${FORGE_NETWORK_NODE_PREFIX_LEN:-24}
+      FORGE_NETWORK_IPV6_ENABLED: ${FORGE_NETWORK_IPV6_ENABLED:-false}
+      FORGE_NETWORK_LEASE_RECLAIM_INTERVAL_S: ${FORGE_NETWORK_LEASE_RECLAIM_INTERVAL_S:-60}
+      # Declared install-target private CIDR(s) for collision checks (comma-separated).
+      FORGE_NETWORK_PROVIDER_CIDRS: ${FORGE_NETWORK_PROVIDER_CIDRS:-10.255.0.0/16}
+      FORGE_NETWORK_DOCKER_COLLISION_CHECK: ${FORGE_NETWORK_DOCKER_COLLISION_CHECK:-true}
+      DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
+    volumes:
+      # Optional: Docker bridge/IPAM collision detection (22.01). Soft-fails if unreadable.
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Socket is typically root:root mode 660; match forge-runtime local-dev privilege.
+    user: "0:0"
+    group_add:
+      - "${DOCKER_GID:-0}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health/live | grep -q ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
 volumes:
   forge-postgres-data:
   forge-nats-data:

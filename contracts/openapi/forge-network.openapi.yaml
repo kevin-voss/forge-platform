@@ -1,0 +1,384 @@
+openapi: 3.0.3
+info:
+  title: Forge Network API
+  version: 0.1.0
+  description: |
+    Provider-independent cluster address plan and lease API (epic 22 / step 22.01).
+    Owns cluster CIDR → per-node blocks → per-workload addresses.
+servers:
+  - url: http://127.0.0.1:4110
+    description: Local Compose (host port 4110)
+
+paths:
+  /health/live:
+    get:
+      operationId: getHealthLive
+      security: []
+      responses:
+        "200":
+          description: Process is up
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: ok
+
+  /health/ready:
+    get:
+      operationId: getHealthReady
+      security: []
+      responses:
+        "200":
+          description: Ready to serve
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: ok
+        "503":
+          description: Not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: not_ready
+
+  /v1/networks:
+    get:
+      operationId: listNetworks
+      summary: List Network resources
+      responses:
+        "200":
+          description: Network list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Network"
+    post:
+      operationId: createNetwork
+      summary: Create a cluster Network address plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateNetworkRequest"
+            example:
+              name: cluster-overlay
+              spec:
+                clusterCidr: "10.100.0.0/16"
+                nodePrefixLength: 24
+                ipv6Cidr: null
+      responses:
+        "201":
+          description: Network created (Ready)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Network"
+        "409":
+          description: CIDR collision or name conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                CidrCollision:
+                  value:
+                    error:
+                      code: CidrCollision
+                      message: "cluster CIDR 10.100.0.0/16 overlaps 172.17.0.0/16"
+                      requestId: req_example
+
+  /v1/networks/{name}:
+    parameters:
+      - $ref: "#/components/parameters/NetworkName"
+    get:
+      operationId: getNetwork
+      summary: Get a Network by name
+      responses:
+        "200":
+          description: Network
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Network"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/networks/{name}/node-leases:
+    parameters:
+      - $ref: "#/components/parameters/NetworkName"
+    post:
+      operationId: allocateNodeLease
+      summary: Allocate a node address block
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AllocateNodeLeaseRequest"
+            example:
+              node_id: node-a
+      responses:
+        "200":
+          description: Node lease (idempotent)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NodeLease"
+              example:
+                node_id: node-a
+                cidr: "10.100.1.0/24"
+                gateway: "10.100.1.1"
+        "409":
+          description: No address space or network not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                NoAddressSpaceAvailable:
+                  value:
+                    error:
+                      code: NoAddressSpaceAvailable
+                      message: cluster CIDR has no free node blocks
+                      requestId: req_example
+
+  /v1/networks/{name}/node-leases/{id}:
+    parameters:
+      - $ref: "#/components/parameters/NetworkName"
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: node_id
+    delete:
+      operationId: releaseNodeLease
+      summary: Release a node address block
+      responses:
+        "204":
+          description: Released
+        "404":
+          description: Not found
+
+  /v1/networks/{name}/workload-leases:
+    parameters:
+      - $ref: "#/components/parameters/NetworkName"
+    post:
+      operationId: allocateWorkloadLease
+      summary: Allocate a workload address inside a node block
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AllocateWorkloadLeaseRequest"
+            example:
+              node_id: node-a
+              workload_id: wl_123
+      responses:
+        "200":
+          description: Workload lease (idempotent)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkloadLease"
+              example:
+                workload_id: wl_123
+                address: "10.100.1.5"
+        "409":
+          description: Node block exhausted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                NodeBlockExhausted:
+                  value:
+                    error:
+                      code: NodeBlockExhausted
+                      message: node block has no free addresses
+                      requestId: req_example
+
+  /v1/networks/{name}/workload-leases/{id}:
+    parameters:
+      - $ref: "#/components/parameters/NetworkName"
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: workload_id
+    delete:
+      operationId: releaseWorkloadLease
+      summary: Release a workload address
+      responses:
+        "204":
+          description: Released
+        "404":
+          description: Not found
+
+components:
+  parameters:
+    NetworkName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+      example: cluster-overlay
+
+  schemas:
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, not_ready]
+
+    CreateNetworkRequest:
+      type: object
+      required: [name, spec]
+      properties:
+        name:
+          type: string
+          example: cluster-overlay
+        spec:
+          $ref: "#/components/schemas/NetworkSpec"
+
+    NetworkSpec:
+      type: object
+      required: [clusterCidr]
+      properties:
+        clusterCidr:
+          type: string
+          example: "10.100.0.0/16"
+        nodePrefixLength:
+          type: integer
+          default: 24
+          example: 24
+        ipv6Cidr:
+          type: string
+          nullable: true
+          description: Reserved for a later epic; unused in 22.x
+
+    Network:
+      type: object
+      required: [apiVersion, kind, metadata, spec, status]
+      properties:
+        apiVersion:
+          type: string
+          example: network.forge.local/v1
+        kind:
+          type: string
+          example: Network
+        metadata:
+          type: object
+          properties:
+            id:
+              type: string
+              example: net_01HZKexample
+            name:
+              type: string
+            generation:
+              type: integer
+            resourceVersion:
+              type: string
+        spec:
+          $ref: "#/components/schemas/NetworkSpec"
+        status:
+          type: object
+          properties:
+            phase:
+              type: string
+              enum: [Ready, Failed]
+            observedGeneration:
+              type: integer
+            conditions:
+              type: array
+              items:
+                type: object
+
+    AllocateNodeLeaseRequest:
+      type: object
+      required: [node_id]
+      properties:
+        node_id:
+          type: string
+          example: node-a
+
+    NodeLease:
+      type: object
+      required: [node_id, cidr, gateway]
+      properties:
+        node_id:
+          type: string
+        cidr:
+          type: string
+          example: "10.100.1.0/24"
+        gateway:
+          type: string
+          example: "10.100.1.1"
+
+    AllocateWorkloadLeaseRequest:
+      type: object
+      required: [node_id, workload_id]
+      properties:
+        node_id:
+          type: string
+        workload_id:
+          type: string
+          example: wl_123
+
+    WorkloadLease:
+      type: object
+      required: [workload_id, address]
+      properties:
+        workload_id:
+          type: string
+        address:
+          type: string
+          example: "10.100.1.5"
+
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code:
+              type: string
+              enum:
+                - CidrCollision
+                - NoAddressSpaceAvailable
+                - NodeBlockExhausted
+                - NetworkNotReady
+                - not_found
+                - invalid_request
+                - already_exists
+                - internal_error
+            message:
+              type: string
+            requestId:
+              type: string
+            details:
+              type: object
+              additionalProperties:
+                type: string
