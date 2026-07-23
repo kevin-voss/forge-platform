@@ -2,10 +2,9 @@
 
 Platform service discovery directory (epic 21). Host port `4109` / container `8080`.
 
-Step `21.02` adds endpoint registration with TTL leases, a background sweeper that
-expires unrenewed leases, a node-watch path that marks all endpoints on an
-unreachable node `Unready` in one transaction, an async Control mirror worker,
-and Runtime's outbound register/renew/deregister client.
+Step `21.03` adds readiness-filtered endpoint selection (`Ready`-only by default), a
+scoped SSE watch with `since` replay and resync-on-miss, and the Go client library
+`pkg/discoveryclient` for product code that resolves peers directly.
 
 ## Quick start
 
@@ -22,6 +21,12 @@ curl -s -X POST localhost:4109/v1/projects/demo/environments/local/services/demo
 
 curl -s -X POST localhost:4109/v1/projects/demo/environments/local/endpoints/demo-echo-abc123-0/renew \
   -H 'content-type: application/json' -d '{"ready":true,"leaseSeconds":20}' | jq '.phase'
+
+# Ready-only list (default)
+curl -s 'localhost:4109/v1/projects/demo/environments/local/services/demo-echo/endpoints' | jq
+
+# SSE watch
+curl -N 'localhost:4109/v1/projects/demo/environments/local/services/demo-echo/endpoints/watch?since=0'
 ```
 
 ## Configuration
@@ -44,15 +49,36 @@ curl -s -X POST localhost:4109/v1/projects/demo/environments/local/endpoints/dem
 | `FORGE_DISCOVERY_SWEEP_INTERVAL_SECONDS` | `5` | Expire/reap loop cadence |
 | `FORGE_DISCOVERY_REAP_AFTER_SECONDS` | `300` | GC long-`Unready` endpoints |
 | `FORGE_DISCOVERY_NODE_WATCH_RESYNC_SECONDS` | `30` | Full resync if watch drops |
+| `FORGE_DISCOVERY_WATCH_BUFFER_SIZE` | `500` | Per-service ring for `since` replay |
+| `FORGE_DISCOVERY_WATCH_MAX_CONNECTIONS` | `1000` | SSE connection cap |
+| `FORGE_DISCOVERY_WATCH_HEARTBEAT_SECONDS` | `15` | SSE keep-alive comment ping |
 | `FORGE_OTEL_ENABLED` | `true` | OTLP export |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel-collector:4317` | OTLP gRPC |
 
-## HTTP API (21.02)
+## HTTP API (21.03)
 
 * `POST /v1/projects/{project}/environments/{environment}/services/{service}/endpoints` — register (idempotent upsert by replica id)
 * `POST /v1/projects/{project}/environments/{environment}/endpoints/{id}/renew` — renew lease + readiness
 * `DELETE /v1/projects/{project}/environments/{environment}/endpoints/{id}` — deregister (`204`)
-* `GET /v1/projects/{project}/environments/{environment}/services/{service}/endpoints` — list (all phases; readiness-filtered selection is 21.03)
+* `GET /v1/projects/{project}/environments/{environment}/services/{service}/endpoints` — list (`Ready`-only by default; `?ready=false`, `?revision=`)
+* `GET /v1/projects/{project}/environments/{environment}/services/{service}/endpoints/watch?since=` — SSE (`added`/`updated`/`removed`)
+
+### Epic 20 generic watch
+
+Control's `GET /v1/watch/endpoints?since=&labelSelector=service=X` remains available via the
+async Control mirror (21.02). Prefer Discovery's scoped watch when Control may be down or
+latency matters; prefer Control's generic watch for uniform multi-kind tooling.
+
+## Go client
+
+```go
+import "forge.local/services/forge-discovery/pkg/discoveryclient"
+
+c, _ := discoveryclient.New(discoveryclient.Config{
+  BaseURL: "http://127.0.0.1:4109", Project: "demo", Environment: "local",
+})
+addrs, _ := c.Resolve(ctx, "demo-echo")
+```
 
 ## Health
 

@@ -129,12 +129,12 @@ func TestExpireLeasesOncePastExpiresAt(t *testing.T) {
 	})
 
 	past := now.Add(21 * time.Second)
-	ids, err := db.ExpireLeases(ctx, past)
+	expired, err := db.ExpireLeases(ctx, past)
 	if err != nil {
 		t.Fatalf("expire: %v", err)
 	}
-	if len(ids) != 1 || ids[0] != id {
-		t.Fatalf("expired ids = %v", ids)
+	if len(expired) != 1 || expired[0].ID != id {
+		t.Fatalf("expired = %v", expired)
 	}
 	row, err := db.GetEndpoint(ctx, "demo", "local", id)
 	if err != nil {
@@ -148,7 +148,7 @@ func TestExpireLeasesOncePastExpiresAt(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, got := range ids2 {
-		if got == id {
+		if got.ID == id {
 			t.Fatal("expired same endpoint twice")
 		}
 	}
@@ -179,12 +179,12 @@ func TestMarkNodeUnreadyScopedToNode(t *testing.T) {
 		}
 	}
 
-	n, err := db.MarkNodeUnready(ctx, "node-a", now)
+	affected, err := db.MarkNodeUnready(ctx, "node-a", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 1 {
-		t.Fatalf("affected = %d", n)
+	if len(affected) != 1 {
+		t.Fatalf("affected = %d", len(affected))
 	}
 	ra, _ := db.GetEndpoint(ctx, "demo", "local", a)
 	rb, _ := db.GetEndpoint(ctx, "demo", "local", b)

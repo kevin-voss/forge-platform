@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestOpenAPIDeclaresHealthAndLeaseEndpoints(t *testing.T) {
+func TestOpenAPIDeclaresHealthLeaseListAndWatch(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed")
@@ -32,11 +32,24 @@ func TestOpenAPIDeclaresHealthAndLeaseEndpoints(t *testing.T) {
 		"registerEndpoint",
 		"renewEndpoint",
 		"deregisterEndpoint",
+		"listServiceEndpoints",
+		"watchServiceEndpoints",
 		"/renew:",
 		"leaseSeconds",
 		"expiresAt",
 		"RegisterEndpointRequest",
 		"RenewEndpointRequest",
+		"name: ready",
+		"name: revision",
+		"name: since",
+		"text/event-stream",
+		"endpoints/watch:",
+		"event: added",
+		"event: updated",
+		"event: removed",
+		"EndpointWatchEventPayload",
+		"resourceVersion",
+		"GET /v1/watch/endpoints",
 	} {
 		if !strings.Contains(text, needle) {
 			t.Fatalf("openapi missing %q", needle)

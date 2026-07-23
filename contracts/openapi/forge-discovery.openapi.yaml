@@ -1,10 +1,15 @@
 openapi: 3.0.3
 info:
   title: Forge Discovery API
-  version: 0.2.0
+  version: 0.3.0
   description: |
-    Forge Discovery (epic 21). Step 21.02 adds endpoint registration, lease renew,
-    and deregister. Selection/watch and DNS land in later steps.
+    Forge Discovery (epic 21). Step 21.03 adds readiness-filtered endpoint selection,
+    a scoped SSE watch, and the Go `forge-discovery-client` library.
+
+    Relationship to epic 20: Control's generic `GET /v1/watch/endpoints` (mirrored from
+    Discovery writes in 21.02) remains available for uniform tooling even when Discovery's
+    own watch is down. The scoped `.../endpoints/watch` path here is the low-latency,
+    Discovery-native alternative that does not require Control to be up.
 servers:
   - url: http://127.0.0.1:4109
     description: Local Compose (host port 4109)
@@ -90,7 +95,25 @@ paths:
                 expiresAt: "2026-07-22T10:00:20Z"
     get:
       operationId: listServiceEndpoints
-      summary: List endpoints for a service (all phases)
+      summary: List endpoints for a service (Ready-only by default)
+      description: |
+        Defaults to `phase=Ready` only. Pass `ready=false` to include all phases.
+        Optional `revision` filters by the revision label. Never leaks endpoints
+        outside the project/environment/service path.
+      parameters:
+        - name: ready
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: true
+          description: When false, include Unready/Pending/Terminating endpoints.
+        - name: revision
+          in: query
+          required: false
+          schema:
+            type: string
+          description: When set, only endpoints with this revision label.
       responses:
         "200":
           description: Endpoint list
@@ -100,6 +123,80 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/EndpointListItem"
+              example:
+                - id: invoice-api-7f3a2b1c-0
+                  address:
+                    ip: 172.20.0.14
+                    port: 8080
+                  node: node-b
+                  revision: v2
+                  phase: Ready
+                - id: invoice-api-91ffae02-1
+                  address:
+                    ip: 172.20.0.19
+                    port: 8080
+                  node: node-a
+                  revision: v2
+                  phase: Ready
+        "503":
+          description: List query unavailable; retry after Retry-After
+          headers:
+            Retry-After:
+              schema:
+                type: string
+
+  /v1/projects/{project}/environments/{environment}/services/{service}/endpoints/watch:
+    parameters:
+      - $ref: "#/components/parameters/Project"
+      - $ref: "#/components/parameters/Environment"
+      - $ref: "#/components/parameters/Service"
+      - name: since
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 0
+        description: |
+          Watch cursor (broker stream resourceVersion). Events with version > since
+          are replayed. When since is older than the retained buffer, the server
+          performs a full Ready resync (synthetic `added` events) instead of an error.
+    get:
+      operationId: watchServiceEndpoints
+      summary: SSE watch for one service's endpoints
+      description: |
+        Scoped, Discovery-native SSE stream of `added` / `updated` / `removed` events,
+        consistent with epic 20's `since` cursor convention. Heartbeat comments keep
+        idle connections alive.
+      responses:
+        "200":
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/EndpointWatchSSE"
+              examples:
+                added:
+                  summary: Endpoint added
+                  value: |
+                    event: added
+                    id: 4822
+                    data: {"id":"invoice-api-a1b2c3-2","phase":"Ready","resourceVersion":"4822","address":{"ip":"172.20.0.20","port":8080},"node":"node-a"}
+                updated:
+                  summary: Endpoint updated
+                  value: |
+                    event: updated
+                    id: 4823
+                    data: {"id":"invoice-api-7f3a2b1c-0","phase":"Unready","resourceVersion":"4823"}
+                removed:
+                  summary: Endpoint removed
+                  value: |
+                    event: removed
+                    id: 4824
+                    data: {"id":"invoice-api-91ffae02-1","resourceVersion":"4824"}
+        "400":
+          description: Missing or invalid since
+        "503":
+          description: Watch connection limit reached
 
   /v1/projects/{project}/environments/{environment}/endpoints/{id}/renew:
     parameters:
@@ -268,5 +365,40 @@ components:
           type: string
         revision:
           type: string
+        resourceVersion:
+          type: string
         unreadyReason:
           type: string
+
+    EndpointWatchEventPayload:
+      type: object
+      required: [id, resourceVersion]
+      properties:
+        id:
+          type: string
+        service:
+          type: string
+        node:
+          type: string
+        phase:
+          type: string
+        ready:
+          type: boolean
+        revision:
+          type: string
+        protocol:
+          type: string
+        resourceVersion:
+          type: string
+          description: Broker stream cursor for this event
+        unreadyReason:
+          type: string
+        address:
+          $ref: "#/components/schemas/EndpointAddress"
+
+    EndpointWatchSSE:
+      type: string
+      description: |
+        Server-Sent Events. Each frame uses `event:` of `added`|`updated`|`removed`,
+        optional `id:` equal to the stream resourceVersion, and `data:` as JSON
+        EndpointWatchEventPayload. Comment lines (`: heartbeat`) keep the stream alive.

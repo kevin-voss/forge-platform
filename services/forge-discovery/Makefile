@@ -25,6 +25,9 @@ dev:
 	FORGE_DISCOVERY_SWEEP_INTERVAL_SECONDS=$${FORGE_DISCOVERY_SWEEP_INTERVAL_SECONDS:-5} \
 	FORGE_DISCOVERY_REAP_AFTER_SECONDS=$${FORGE_DISCOVERY_REAP_AFTER_SECONDS:-300} \
 	FORGE_DISCOVERY_NODE_WATCH_RESYNC_SECONDS=$${FORGE_DISCOVERY_NODE_WATCH_RESYNC_SECONDS:-30} \
+	FORGE_DISCOVERY_WATCH_BUFFER_SIZE=$${FORGE_DISCOVERY_WATCH_BUFFER_SIZE:-500} \
+	FORGE_DISCOVERY_WATCH_MAX_CONNECTIONS=$${FORGE_DISCOVERY_WATCH_MAX_CONNECTIONS:-1000} \
+	FORGE_DISCOVERY_WATCH_HEARTBEAT_SECONDS=$${FORGE_DISCOVERY_WATCH_HEARTBEAT_SECONDS:-15} \
 	FORGE_OTEL_ENABLED=$${FORGE_OTEL_ENABLED:-false} \
 	go run .
 
@@ -66,7 +69,34 @@ test-integration: run
 		-d '{"id":"demo-echo-itest-0","node":"node-a","address":{"ip":"172.20.0.10","port":8080},"leaseSeconds":20}' >/dev/null
 	@count="$$(curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/services/demo-echo/endpoints" | grep -o 'demo-echo-itest-0' | wc -l | tr -d ' ')"; \
 		test "$$count" = "1"
+	@# Ready-only list: second endpoint left Pending must not appear.
+	@curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/services/demo-echo/endpoints" \
+		-H 'content-type: application/json' \
+		-d '{"id":"demo-echo-itest-1","node":"node-a","address":{"ip":"172.20.0.11","port":8080},"leaseSeconds":20}' >/dev/null
+	@ready_count="$$(curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/services/demo-echo/endpoints" | grep -o '"id"' | wc -l | tr -d ' ')"; \
+		test "$$ready_count" = "1"
+	@all_count="$$(curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/services/demo-echo/endpoints?ready=false" | grep -o '"id"' | wc -l | tr -d ' ')"; \
+		test "$$all_count" = "2"
+	@# Watch: register a third Ready endpoint and expect an added SSE event.
+	@rm -f /tmp/forge-discovery-watch.out
+	@curl -Ns "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/services/demo-echo/endpoints/watch?since=0" >/tmp/forge-discovery-watch.out & \
+		watch_pid=$$!; \
+		sleep 0.5; \
+		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/services/demo-echo/endpoints" \
+			-H 'content-type: application/json' \
+			-d '{"id":"demo-echo-itest-2","node":"node-a","address":{"ip":"172.20.0.12","port":8080},"leaseSeconds":20}' >/dev/null; \
+		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/endpoints/demo-echo-itest-2/renew" \
+			-H 'content-type: application/json' -d '{"ready":true,"leaseSeconds":20}' >/dev/null; \
+		for i in 1 2 3 4 5 6 7 8 9 10; do \
+			if grep -q 'demo-echo-itest-2' /tmp/forge-discovery-watch.out 2>/dev/null; then break; fi; \
+			sleep 0.3; \
+		done; \
+		kill $$watch_pid 2>/dev/null || true; \
+		wait $$watch_pid 2>/dev/null || true; \
+		grep -q 'demo-echo-itest-2' /tmp/forge-discovery-watch.out
 	@curl -sf -X DELETE "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/endpoints/demo-echo-itest-0" -o /dev/null -w '%{http_code}' | grep -q 204
+	@curl -sf -X DELETE "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/endpoints/demo-echo-itest-1" -o /dev/null -w '%{http_code}' | grep -q 204
+	@curl -sf -X DELETE "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/endpoints/demo-echo-itest-2" -o /dev/null -w '%{http_code}' | grep -q 204
 	@# Restart re-registers kinds idempotently.
 	@$(COMPOSE) restart $(SERVICE) >/dev/null
 	@$(MAKE) wait
@@ -79,7 +109,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (health + kinds + register/renew/deregister + graceful SIGTERM)."
+	@echo "Integration checks passed (health + kinds + register/renew/list/watch + graceful SIGTERM)."
 
 lint:
 	@go vet ./...

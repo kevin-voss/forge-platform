@@ -4,30 +4,32 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"forge.local/services/forge-discovery/internal/store"
 )
 
 type memStore struct {
-	expired []string
+	expired []store.EndpointRow
 	calls   int
-	reaped  int64
+	reaped  []store.EndpointRow
 }
 
-func (m *memStore) ExpireLeases(_ context.Context, _ time.Time) ([]string, error) {
+func (m *memStore) ExpireLeases(_ context.Context, _ time.Time) ([]store.EndpointRow, error) {
 	m.calls++
 	if m.calls == 1 {
-		out := append([]string{}, m.expired...)
+		out := append([]store.EndpointRow{}, m.expired...)
 		m.expired = nil
 		return out, nil
 	}
 	return nil, nil
 }
 
-func (m *memStore) ReapUnready(_ context.Context, _ time.Time) (int64, error) {
+func (m *memStore) ReapUnready(_ context.Context, _ time.Time) ([]store.EndpointRow, error) {
 	return m.reaped, nil
 }
 
 func TestSweepOnceExpiresOnce(t *testing.T) {
-	st := &memStore{expired: []string{"ep-1"}}
+	st := &memStore{expired: []store.EndpointRow{{ID: "ep-1"}}}
 	r := &Runner{
 		Store: st,
 		Cfg:   Config{Interval: time.Second, ReapAfter: time.Minute},

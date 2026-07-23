@@ -4,20 +4,22 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"forge.local/services/forge-discovery/internal/store"
 )
 
 type memStore struct {
 	calls  []string
-	affect int64
+	affect []store.EndpointRow
 }
 
-func (m *memStore) MarkNodeUnready(_ context.Context, nodeID string, _ time.Time) (int64, error) {
+func (m *memStore) MarkNodeUnready(_ context.Context, nodeID string, _ time.Time) ([]store.EndpointRow, error) {
 	m.calls = append(m.calls, nodeID)
 	return m.affect, nil
 }
 
 func TestHandleWatchPayloadReachableFalse(t *testing.T) {
-	st := &memStore{affect: 3}
+	st := &memStore{affect: []store.EndpointRow{{ID: "a"}, {ID: "b"}, {ID: "c"}}}
 	s := &Subscriber{
 		Store: st,
 		Now:   func() time.Time { return time.Unix(0, 0).UTC() },
@@ -40,7 +42,7 @@ func TestHandleWatchPayloadReachableFalse(t *testing.T) {
 }
 
 func TestHandleWatchPayloadIgnoresReachableTrue(t *testing.T) {
-	st := &memStore{affect: 1}
+	st := &memStore{affect: []store.EndpointRow{{ID: "a"}}}
 	s := &Subscriber{Store: st, Now: time.Now}
 	payload := `{
 	  "type":"MODIFIED",

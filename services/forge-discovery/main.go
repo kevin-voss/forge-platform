@@ -21,6 +21,7 @@ import (
 	"forge.local/services/forge-discovery/internal/observability"
 	"forge.local/services/forge-discovery/internal/store"
 	"forge.local/services/forge-discovery/internal/sweeper"
+	"forge.local/services/forge-discovery/internal/watchhub"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -68,12 +69,18 @@ func run() error {
 	mirror := controlmirror.NewWorker(cfg.ControlURL, log)
 	go mirror.Run(bgCtx)
 
+	broker := watchhub.New(watchhub.Config{
+		BufferSize:     cfg.WatchBufferSize,
+		MaxConnections: cfg.WatchMaxConnections,
+	})
 	ready := httpapi.NewReadiness(db)
 	endpoints := &httpapi.EndpointsHandler{
-		Store:        db,
-		Log:          log,
-		DefaultLease: cfg.LeaseSecondsDefault,
-		Mirror:       mirror,
+		Store:          db,
+		Log:            log,
+		DefaultLease:   cfg.LeaseSecondsDefault,
+		Mirror:         mirror,
+		Watch:          broker,
+		WatchHeartbeat: cfg.WatchHeartbeat,
 	}
 	mux := httpapi.NewRouterWith(httpapi.RouterDeps{
 		Ready:     ready,
@@ -127,6 +134,7 @@ func run() error {
 			ReapAfter: cfg.ReapAfter,
 		},
 		Mirror: mirror,
+		Watch:  endpoints,
 	}
 	go sweep.Run(bgCtx)
 
@@ -137,6 +145,7 @@ func run() error {
 			ControlURL:  cfg.ControlURL,
 			ResyncEvery: cfg.NodeWatchResync,
 		},
+		Watch:  endpoints,
 		Tracer: otelProvider.Tracer,
 	}
 	go nodes.Run(bgCtx)
@@ -154,6 +163,9 @@ func run() error {
 		"lease_seconds_default", cfg.LeaseSecondsDefault,
 		"sweep_interval_seconds", int(cfg.SweepInterval.Seconds()),
 		"reap_after_seconds", int(cfg.ReapAfter.Seconds()),
+		"watch_buffer_size", cfg.WatchBufferSize,
+		"watch_max_connections", cfg.WatchMaxConnections,
+		"watch_heartbeat_seconds", int(cfg.WatchHeartbeat.Seconds()),
 	)
 
 	sigCh := make(chan os.Signal, 1)

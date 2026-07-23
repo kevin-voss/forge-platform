@@ -29,6 +29,10 @@ type Config struct {
 	SweepInterval       time.Duration
 	ReapAfter           time.Duration
 	NodeWatchResync     time.Duration
+
+	WatchBufferSize     int
+	WatchMaxConnections int
+	WatchHeartbeat      time.Duration
 }
 
 // Load reads configuration from the process environment.
@@ -122,6 +126,18 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	watchBuf, err := positiveIntEnv("FORGE_DISCOVERY_WATCH_BUFFER_SIZE", 500)
+	if err != nil {
+		return Config{}, err
+	}
+	watchMax, err := positiveIntEnv("FORGE_DISCOVERY_WATCH_MAX_CONNECTIONS", 1000)
+	if err != nil {
+		return Config{}, err
+	}
+	watchHB, err := positiveIntEnv("FORGE_DISCOVERY_WATCH_HEARTBEAT_SECONDS", 15)
+	if err != nil {
+		return Config{}, err
+	}
 
 	return Config{
 		Port:                   port,
@@ -140,6 +156,9 @@ func Load() (Config, error) {
 		SweepInterval:          time.Duration(sweepSecs) * time.Second,
 		ReapAfter:              time.Duration(reapSecs) * time.Second,
 		NodeWatchResync:        time.Duration(resyncSecs) * time.Second,
+		WatchBufferSize:        watchBuf,
+		WatchMaxConnections:    watchMax,
+		WatchHeartbeat:         time.Duration(watchHB) * time.Second,
 	}, nil
 }
 

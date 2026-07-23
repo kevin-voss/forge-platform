@@ -10,13 +10,19 @@ import (
 
 // Store is the persistence surface used by the lease sweeper.
 type Store interface {
-	ExpireLeases(ctx context.Context, now time.Time) ([]string, error)
-	ReapUnready(ctx context.Context, cutoff time.Time) (int64, error)
+	ExpireLeases(ctx context.Context, now time.Time) ([]store.EndpointRow, error)
+	ReapUnready(ctx context.Context, cutoff time.Time) ([]store.EndpointRow, error)
 }
 
 // MirrorNotifier receives expiry notifications for async Control projection.
 type MirrorNotifier interface {
 	NotifyEndpointUnready(id, reason string)
+}
+
+// WatchPublisher receives watch events for expired/reaped endpoints.
+type WatchPublisher interface {
+	PublishUpdated(row store.EndpointRow)
+	PublishRemoved(row store.EndpointRow)
 }
 
 // Metrics records sweeper counters (optional).
@@ -36,6 +42,7 @@ type Runner struct {
 	Log    *slog.Logger
 	Cfg    Config
 	Mirror MirrorNotifier
+	Watch  WatchPublisher
 	Metric Metrics
 	Now    func() time.Time
 }
@@ -72,39 +79,47 @@ func (r *Runner) SweepOnce(ctx context.Context) {
 
 func (r *Runner) sweepOnce(ctx context.Context) {
 	now := r.Now().UTC()
-	ids, err := r.Store.ExpireLeases(ctx, now)
+	rows, err := r.Store.ExpireLeases(ctx, now)
 	if err != nil {
 		if r.Log != nil {
 			r.Log.Error("lease expiry failed", "error", err.Error())
 		}
 	} else {
-		if r.Metric != nil && len(ids) > 0 {
-			r.Metric.IncLeaseExpirations(len(ids))
+		if r.Metric != nil && len(rows) > 0 {
+			r.Metric.IncLeaseExpirations(len(rows))
 		}
-		for _, id := range ids {
+		for _, row := range rows {
 			if r.Log != nil {
 				r.Log.Info("endpoint unready",
 					"event", "discovery.endpoint.unready",
-					"id", id,
+					"id", row.ID,
 					"reason", "LeaseExpired",
 				)
 			}
 			if r.Mirror != nil {
-				r.Mirror.NotifyEndpointUnready(id, "LeaseExpired")
+				r.Mirror.NotifyEndpointUnready(row.ID, "LeaseExpired")
+			}
+			if r.Watch != nil {
+				r.Watch.PublishUpdated(row)
 			}
 		}
 	}
 
 	cutoff := now.Add(-r.Cfg.ReapAfter)
-	n, err := r.Store.ReapUnready(ctx, cutoff)
+	reaped, err := r.Store.ReapUnready(ctx, cutoff)
 	if err != nil {
 		if r.Log != nil {
 			r.Log.Error("reap unready failed", "error", err.Error())
 		}
 		return
 	}
-	if n > 0 && r.Log != nil {
-		r.Log.Info("reaped unready endpoints", "count", n, "reap_after", r.Cfg.ReapAfter.String())
+	if len(reaped) > 0 && r.Log != nil {
+		r.Log.Info("reaped unready endpoints", "count", len(reaped), "reap_after", r.Cfg.ReapAfter.String())
+	}
+	if r.Watch != nil {
+		for _, row := range reaped {
+			r.Watch.PublishRemoved(row)
+		}
 	}
 }
 

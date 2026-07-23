@@ -6,6 +6,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 COPY main.go ./
 COPY internal ./internal
+COPY pkg ./pkg
 
 RUN CGO_ENABLED=0 GOOS=linux go test ./... \
 	&& CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/forge-discovery .

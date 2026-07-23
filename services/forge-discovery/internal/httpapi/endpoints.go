@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"forge.local/services/forge-discovery/internal/store"
+	"forge.local/services/forge-discovery/internal/watchhub"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -19,8 +20,10 @@ import (
 // EndpointStore is the persistence surface used by registration handlers.
 type EndpointStore interface {
 	Register(ctx context.Context, in store.RegisterInput) (store.EndpointRow, error)
+	RegisterWithAction(ctx context.Context, in store.RegisterInput) (store.EndpointRow, store.RegisterAction, error)
 	Renew(ctx context.Context, in store.RenewInput) (store.EndpointRow, error)
 	Deregister(ctx context.Context, project, environment, id string) error
+	DeregisterReturning(ctx context.Context, project, environment, id string) (store.EndpointRow, error)
 	ListServiceEndpoints(ctx context.Context, project, environment, service string) ([]store.EndpointRow, error)
 }
 
@@ -31,18 +34,28 @@ type MirrorNotifier interface {
 	NotifyServiceUpsert(project, environment, service string)
 }
 
-// EndpointsHandler serves register / renew / deregister / list.
+// EndpointMetrics records list/watch counters (optional).
+type EndpointMetrics interface {
+	IncListRequests(service string)
+	IncWatchEvent(eventType string)
+}
+
+// EndpointsHandler serves register / renew / deregister / list / watch.
 type EndpointsHandler struct {
 	Store          EndpointStore
 	Log            *slog.Logger
 	DefaultLease   int
 	Mirror         MirrorNotifier
+	Watch          *watchhub.Broker
+	WatchHeartbeat time.Duration
+	Metrics        EndpointMetrics
 	TracerProvider trace.TracerProvider
 }
 
 // Register mounts endpoint routes.
 func (h *EndpointsHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/projects/{project}/environments/{environment}/services/{service}/endpoints", h.handleRegister)
+	mux.HandleFunc("GET /v1/projects/{project}/environments/{environment}/services/{service}/endpoints/watch", h.handleWatch)
 	mux.HandleFunc("GET /v1/projects/{project}/environments/{environment}/services/{service}/endpoints", h.handleList)
 	mux.HandleFunc("POST /v1/projects/{project}/environments/{environment}/endpoints/{id}/renew", h.handleRenew)
 	mux.HandleFunc("DELETE /v1/projects/{project}/environments/{environment}/endpoints/{id}", h.handleDeregister)
@@ -79,14 +92,15 @@ type renewResponse struct {
 }
 
 type endpointListItem struct {
-	ID            string  `json:"id"`
-	Service       string  `json:"service"`
-	Node          string  `json:"node"`
-	Phase         string  `json:"phase"`
-	Ready         bool    `json:"ready"`
-	ExpiresAt     string  `json:"expiresAt"`
-	UnreadyReason *string `json:"unreadyReason,omitempty"`
-	Address       struct {
+	ID              string  `json:"id"`
+	Service         string  `json:"service"`
+	Node            string  `json:"node"`
+	Phase           string  `json:"phase"`
+	Ready           bool    `json:"ready"`
+	ExpiresAt       string  `json:"expiresAt"`
+	UnreadyReason   *string `json:"unreadyReason,omitempty"`
+	ResourceVersion string  `json:"resourceVersion,omitempty"`
+	Address         struct {
 		IP   string `json:"ip"`
 		Port int    `json:"port"`
 	} `json:"address"`
@@ -137,7 +151,7 @@ func (h *EndpointsHandler) handleRegister(w http.ResponseWriter, r *http.Request
 		attribute.String("node", req.Node),
 	)
 
-	row, err := h.Store.Register(ctx, store.RegisterInput{
+	row, action, err := h.Store.RegisterWithAction(ctx, store.RegisterInput{
 		ID:           req.ID,
 		Project:      project,
 		Environment:  environment,
@@ -169,6 +183,12 @@ func (h *EndpointsHandler) handleRegister(w http.ResponseWriter, r *http.Request
 	if h.Mirror != nil {
 		h.Mirror.NotifyServiceUpsert(project, environment, service)
 		h.Mirror.NotifyEndpointUpsert(row)
+	}
+	switch action {
+	case store.RegisterCreated:
+		h.PublishAdded(row)
+	case store.RegisterUpdated:
+		h.PublishUpdated(row)
 	}
 
 	writeJSON(w, http.StatusOK, registerResponse{
@@ -227,6 +247,7 @@ func (h *EndpointsHandler) handleRenew(w http.ResponseWriter, r *http.Request) {
 	if h.Mirror != nil {
 		h.Mirror.NotifyEndpointUpsert(row)
 	}
+	h.PublishUpdated(row)
 	writeJSON(w, http.StatusOK, renewResponse{
 		ID:        row.ID,
 		Phase:     row.Phase,
@@ -243,7 +264,7 @@ func (h *EndpointsHandler) handleDeregister(w http.ResponseWriter, r *http.Reque
 		writeErr(w, http.StatusBadRequest, "project, environment, and id are required")
 		return
 	}
-	err := h.Store.Deregister(ctx, project, environment, id)
+	row, err := h.Store.DeregisterReturning(ctx, project, environment, id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "endpoint not found")
 		return
@@ -255,36 +276,8 @@ func (h *EndpointsHandler) handleDeregister(w http.ResponseWriter, r *http.Reque
 	if h.Mirror != nil {
 		h.Mirror.NotifyEndpointDelete(project, environment, id)
 	}
+	h.PublishRemoved(row)
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (h *EndpointsHandler) handleList(w http.ResponseWriter, r *http.Request) {
-	project := r.PathValue("project")
-	environment := r.PathValue("environment")
-	service := r.PathValue("service")
-	rows, err := h.Store.ListServiceEndpoints(r.Context(), project, environment, service)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "list failed")
-		return
-	}
-	out := make([]endpointListItem, 0, len(rows))
-	for _, row := range rows {
-		item := endpointListItem{
-			ID:            row.ID,
-			Service:       row.Service,
-			Node:          row.NodeID,
-			Phase:         row.Phase,
-			Ready:         row.Ready,
-			ExpiresAt:     row.ExpiresAt.UTC().Format(time.RFC3339),
-			UnreadyReason: row.UnreadyReason,
-			Protocol:      row.Protocol,
-			Revision:      row.Revision,
-		}
-		item.Address.IP = row.AddressIP
-		item.Address.Port = row.AddressPort
-		out = append(out, item)
-	}
-	writeJSON(w, http.StatusOK, out)
 }
 
 func (h *EndpointsHandler) tracer() trace.Tracer {

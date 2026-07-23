@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"forge.local/services/forge-discovery/internal/store"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -18,7 +19,12 @@ import (
 
 // Store applies node-level unready transitions.
 type Store interface {
-	MarkNodeUnready(ctx context.Context, nodeID string, now time.Time) (int64, error)
+	MarkNodeUnready(ctx context.Context, nodeID string, now time.Time) ([]store.EndpointRow, error)
+}
+
+// WatchPublisher receives updated events after node-loss transitions.
+type WatchPublisher interface {
+	PublishUpdated(row store.EndpointRow)
 }
 
 // Config controls watch reconnect / resync.
@@ -33,6 +39,7 @@ type Subscriber struct {
 	Store  Store
 	Log    *slog.Logger
 	Cfg    Config
+	Watch  WatchPublisher
 	Now    func() time.Time
 	Tracer trace.Tracer
 }
@@ -174,10 +181,11 @@ func (s *Subscriber) ApplyNodeUnreachable(ctx context.Context, nodeID string) er
 	)
 	defer span.End()
 
-	n, err := s.Store.MarkNodeUnready(ctx, nodeID, nowFn().UTC())
+	rows, err := s.Store.MarkNodeUnready(ctx, nodeID, nowFn().UTC())
 	if err != nil {
 		return err
 	}
+	n := int64(len(rows))
 	if s.Log != nil {
 		s.Log.Info("node unreachable",
 			"event", "discovery.node.unreachable",
@@ -191,6 +199,11 @@ func (s *Subscriber) ApplyNodeUnreachable(ctx context.Context, nodeID string) er
 				"reason", "NodeUnreachable",
 				"count", n,
 			)
+		}
+	}
+	if s.Watch != nil {
+		for _, row := range rows {
+			s.Watch.PublishUpdated(row)
 		}
 	}
 	span.SetAttributes(attribute.Int64("endpoints_affected", n))

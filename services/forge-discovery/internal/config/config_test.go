@@ -22,6 +22,9 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FORGE_DISCOVERY_SWEEP_INTERVAL_SECONDS", "")
 	t.Setenv("FORGE_DISCOVERY_REAP_AFTER_SECONDS", "")
 	t.Setenv("FORGE_DISCOVERY_NODE_WATCH_RESYNC_SECONDS", "")
+	t.Setenv("FORGE_DISCOVERY_WATCH_BUFFER_SIZE", "")
+	t.Setenv("FORGE_DISCOVERY_WATCH_MAX_CONNECTIONS", "")
+	t.Setenv("FORGE_DISCOVERY_WATCH_HEARTBEAT_SECONDS", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -50,6 +53,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.ReapAfter != 300*time.Second {
 		t.Fatalf("ReapAfter = %v", cfg.ReapAfter)
+	}
+	if cfg.WatchBufferSize != 500 || cfg.WatchMaxConnections != 1000 || cfg.WatchHeartbeat != 15*time.Second {
+		t.Fatalf("watch cfg = %+v", cfg)
 	}
 }
 

@@ -59,9 +59,24 @@ type EndpointRow struct {
 	UpdatedAt       time.Time
 }
 
+// RegisterAction describes whether Register created, mutated, or left a row unchanged.
+type RegisterAction string
+
+const (
+	RegisterCreated   RegisterAction = "created"
+	RegisterUpdated   RegisterAction = "updated"
+	RegisterUnchanged RegisterAction = "unchanged"
+)
+
 // Register upserts a service (auto-vivify) and endpoint by replica id.
 // Identical re-registration leaves resource_version unchanged.
 func (db *DB) Register(ctx context.Context, in RegisterInput) (EndpointRow, error) {
+	row, _, err := db.RegisterWithAction(ctx, in)
+	return row, err
+}
+
+// RegisterWithAction is Register plus an action discriminator for watch publishing.
+func (db *DB) RegisterWithAction(ctx context.Context, in RegisterInput) (EndpointRow, RegisterAction, error) {
 	if in.Protocol == "" {
 		in.Protocol = "http"
 	}
@@ -75,10 +90,11 @@ func (db *DB) Register(ctx context.Context, in RegisterInput) (EndpointRow, erro
 		now = now.UTC()
 	}
 	expires := now.Add(time.Duration(in.LeaseSeconds) * time.Second)
+	action := RegisterUnchanged
 
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
-		return EndpointRow{}, fmt.Errorf("begin register: %w", err)
+		return EndpointRow{}, action, fmt.Errorf("begin register: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
@@ -87,7 +103,7 @@ INSERT INTO discovery.services (id, project, environment, name, ports, aliases, 
 VALUES ($1, $2, $3, $4, '[]'::jsonb, '[]'::jsonb, '1', $5, $5)
 ON CONFLICT (project, environment, name) DO NOTHING
 `, "svc_"+in.Project+"_"+in.Environment+"_"+in.Service, in.Project, in.Environment, in.Service, now); err != nil {
-		return EndpointRow{}, fmt.Errorf("vivify service: %w", err)
+		return EndpointRow{}, action, fmt.Errorf("vivify service: %w", err)
 	}
 
 	var existing EndpointRow
@@ -100,6 +116,7 @@ SELECT id, project, environment, service, node_id, address_ip, address_port, pro
 `, in.ID), &existing)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
+		action = RegisterCreated
 		rv := "1"
 		_, err = tx.Exec(ctx, `
 INSERT INTO discovery.endpoints (
@@ -112,10 +129,10 @@ INSERT INTO discovery.endpoints (
 			in.Protocol, in.Revision, in.LeaseSeconds, expires, rv, now,
 		)
 		if err != nil {
-			return EndpointRow{}, fmt.Errorf("insert endpoint: %w", err)
+			return EndpointRow{}, action, fmt.Errorf("insert endpoint: %w", err)
 		}
 	case err != nil:
-		return EndpointRow{}, fmt.Errorf("select endpoint: %w", err)
+		return EndpointRow{}, action, fmt.Errorf("select endpoint: %w", err)
 	default:
 		identical := existing.Project == in.Project &&
 			existing.Environment == in.Environment &&
@@ -127,6 +144,7 @@ INSERT INTO discovery.endpoints (
 			existing.Revision == in.Revision &&
 			existing.LeaseSeconds == in.LeaseSeconds
 		if identical {
+			action = RegisterUnchanged
 			// Refresh lease clock only; keep resource_version and phase.
 			_, err = tx.Exec(ctx, `
 UPDATE discovery.endpoints
@@ -134,9 +152,10 @@ UPDATE discovery.endpoints
  WHERE id = $1
 `, in.ID, expires, now)
 			if err != nil {
-				return EndpointRow{}, fmt.Errorf("refresh identical endpoint: %w", err)
+				return EndpointRow{}, action, fmt.Errorf("refresh identical endpoint: %w", err)
 			}
 		} else {
+			action = RegisterUpdated
 			nextRV := bumpResourceVersion(existing.ResourceVersion)
 			_, err = tx.Exec(ctx, `
 UPDATE discovery.endpoints
@@ -150,19 +169,19 @@ UPDATE discovery.endpoints
 				in.Protocol, in.Revision, in.LeaseSeconds, expires, nextRV, now,
 			)
 			if err != nil {
-				return EndpointRow{}, fmt.Errorf("update endpoint: %w", err)
+				return EndpointRow{}, action, fmt.Errorf("update endpoint: %w", err)
 			}
 		}
 	}
 
 	row, err := getEndpointTx(ctx, tx, in.ID)
 	if err != nil {
-		return EndpointRow{}, err
+		return EndpointRow{}, action, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return EndpointRow{}, fmt.Errorf("commit register: %w", err)
+		return EndpointRow{}, action, fmt.Errorf("commit register: %w", err)
 	}
-	return row, nil
+	return row, action, nil
 }
 
 // Renew resets expires_at and flips phase based on ready.
@@ -203,17 +222,27 @@ UPDATE discovery.endpoints
 
 // Deregister removes an endpoint immediately.
 func (db *DB) Deregister(ctx context.Context, project, environment, id string) error {
-	tag, err := db.Pool.Exec(ctx, `
+	_, err := db.DeregisterReturning(ctx, project, environment, id)
+	return err
+}
+
+// DeregisterReturning deletes an endpoint and returns the removed row.
+func (db *DB) DeregisterReturning(ctx context.Context, project, environment, id string) (EndpointRow, error) {
+	var row EndpointRow
+	err := scanEndpoint(db.Pool.QueryRow(ctx, `
 DELETE FROM discovery.endpoints
  WHERE id = $1 AND project = $2 AND environment = $3
-`, id, project, environment)
+RETURNING id, project, environment, service, node_id, address_ip, address_port, protocol,
+          COALESCE(revision, ''), phase, ready, lease_seconds, expires_at, unready_reason,
+          resource_version, created_at, updated_at
+`, id, project, environment), &row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return EndpointRow{}, ErrNotFound
+	}
 	if err != nil {
-		return fmt.Errorf("deregister: %w", err)
+		return EndpointRow{}, fmt.Errorf("deregister: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return row, nil
 }
 
 // GetEndpoint loads one endpoint by scope + id.
@@ -235,16 +264,43 @@ SELECT id, project, environment, service, node_id, address_ip, address_port, pro
 	return row, nil
 }
 
+// ListFilter controls readiness/revision selection for a service endpoint list.
+type ListFilter struct {
+	Project     string
+	Environment string
+	Service     string
+	// ReadyOnly when true restricts to phase='Ready'.
+	ReadyOnly bool
+	// Revision when non-empty restricts to that revision label.
+	Revision string
+}
+
 // ListServiceEndpoints returns all endpoints for a service (unfiltered).
 func (db *DB) ListServiceEndpoints(ctx context.Context, project, environment, service string) ([]EndpointRow, error) {
-	rows, err := db.Pool.Query(ctx, `
+	return db.ListEndpoints(ctx, ListFilter{
+		Project: project, Environment: environment, Service: service, ReadyOnly: false,
+	})
+}
+
+// ListEndpoints returns endpoints for a service with optional ready/revision filters.
+func (db *DB) ListEndpoints(ctx context.Context, f ListFilter) ([]EndpointRow, error) {
+	q := `
 SELECT id, project, environment, service, node_id, address_ip, address_port, protocol,
        COALESCE(revision, ''), phase, ready, lease_seconds, expires_at, unready_reason,
        resource_version, created_at, updated_at
   FROM discovery.endpoints
- WHERE project = $1 AND environment = $2 AND service = $3
- ORDER BY id
-`, project, environment, service)
+ WHERE project = $1 AND environment = $2 AND service = $3`
+	args := []any{f.Project, f.Environment, f.Service}
+	if f.ReadyOnly {
+		q += ` AND phase = 'Ready'`
+	}
+	if f.Revision != "" {
+		args = append(args, f.Revision)
+		q += fmt.Sprintf(` AND revision = $%d`, len(args))
+	}
+	q += ` ORDER BY id`
+
+	rows, err := db.Pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -261,8 +317,8 @@ SELECT id, project, environment, service, node_id, address_ip, address_port, pro
 }
 
 // ExpireLeases marks expired non-Unready endpoints as Unready (LeaseExpired).
-// Returns ids that transitioned.
-func (db *DB) ExpireLeases(ctx context.Context, now time.Time) ([]string, error) {
+// Returns rows that transitioned.
+func (db *DB) ExpireLeases(ctx context.Context, now time.Time) ([]EndpointRow, error) {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	} else {
@@ -274,37 +330,53 @@ UPDATE discovery.endpoints
        resource_version = (COALESCE(NULLIF(resource_version, ''), '0')::bigint + 1)::text,
        updated_at = $1
  WHERE expires_at < $1 AND phase <> 'Unready'
- RETURNING id
+ RETURNING id, project, environment, service, node_id, address_ip, address_port, protocol,
+           COALESCE(revision, ''), phase, ready, lease_seconds, expires_at, unready_reason,
+           resource_version, created_at, updated_at
 `, now)
 	if err != nil {
 		return nil, fmt.Errorf("expire leases: %w", err)
 	}
 	defer rows.Close()
-	var ids []string
+	var out []EndpointRow
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var row EndpointRow
+		if err := scanEndpoint(rows, &row); err != nil {
 			return nil, err
 		}
-		ids = append(ids, id)
+		out = append(out, row)
 	}
-	return ids, rows.Err()
+	return out, rows.Err()
 }
 
 // ReapUnready deletes Unready endpoints whose updated_at is older than cutoff.
-func (db *DB) ReapUnready(ctx context.Context, cutoff time.Time) (int64, error) {
-	tag, err := db.Pool.Exec(ctx, `
+// Returns the deleted rows (for watch removed events).
+func (db *DB) ReapUnready(ctx context.Context, cutoff time.Time) ([]EndpointRow, error) {
+	rows, err := db.Pool.Query(ctx, `
 DELETE FROM discovery.endpoints
  WHERE phase = 'Unready' AND updated_at < $1
+ RETURNING id, project, environment, service, node_id, address_ip, address_port, protocol,
+           COALESCE(revision, ''), phase, ready, lease_seconds, expires_at, unready_reason,
+           resource_version, created_at, updated_at
 `, cutoff.UTC())
 	if err != nil {
-		return 0, fmt.Errorf("reap unready: %w", err)
+		return nil, fmt.Errorf("reap unready: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	defer rows.Close()
+	var out []EndpointRow
+	for rows.Next() {
+		var row EndpointRow
+		if err := scanEndpoint(rows, &row); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
 }
 
 // MarkNodeUnready marks every non-Unready endpoint on a node Unready in one transaction.
-func (db *DB) MarkNodeUnready(ctx context.Context, nodeID string, now time.Time) (int64, error) {
+// Returns the rows that transitioned.
+func (db *DB) MarkNodeUnready(ctx context.Context, nodeID string, now time.Time) ([]EndpointRow, error) {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	} else {
@@ -312,24 +384,40 @@ func (db *DB) MarkNodeUnready(ctx context.Context, nodeID string, now time.Time)
 	}
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	tag, err := tx.Exec(ctx, `
+	rows, err := tx.Query(ctx, `
 UPDATE discovery.endpoints
    SET phase = 'Unready', ready = false, unready_reason = 'NodeUnreachable',
        resource_version = (COALESCE(NULLIF(resource_version, ''), '0')::bigint + 1)::text,
        updated_at = $2
  WHERE node_id = $1 AND phase <> 'Unready'
+ RETURNING id, project, environment, service, node_id, address_ip, address_port, protocol,
+           COALESCE(revision, ''), phase, ready, lease_seconds, expires_at, unready_reason,
+           resource_version, created_at, updated_at
 `, nodeID, now)
 	if err != nil {
-		return 0, fmt.Errorf("mark node unready: %w", err)
+		return nil, fmt.Errorf("mark node unready: %w", err)
+	}
+	var out []EndpointRow
+	for rows.Next() {
+		var row EndpointRow
+		if err := scanEndpoint(rows, &row); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return 0, err
+		return nil, err
 	}
-	return tag.RowsAffected(), nil
+	return out, nil
 }
 
 // CountByPhase returns endpoint counts keyed by phase.

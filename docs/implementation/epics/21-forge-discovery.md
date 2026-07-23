@@ -102,7 +102,7 @@ Failure flow (the epic gate):
 |---|---:|---|---|---|
 | [21.01](../steps/21-forge-discovery/21.01-skeleton-and-registry-model.md) | 140 | Service skeleton + Service/Endpoint resource model | Complete | New Go service, port 4109; kind registration; persistence choice |
 | [21.02](../steps/21-forge-discovery/21.02-endpoint-registration-and-leases.md) | 141 | Endpoint registration + TTL leases | Complete | Runtime registers/renews; node-loss transactional unready |
-| [21.03](../steps/21-forge-discovery/21.03-readiness-selection-and-watch.md) | 142 | Readiness-aware selection + endpoint watch | Not started | Ready-only reads, SSE watch, client library |
+| [21.03](../steps/21-forge-discovery/21.03-readiness-selection-and-watch.md) | 142 | Readiness-aware selection + endpoint watch | Complete | Ready-only reads, SSE watch, client library |
 | [21.04](../steps/21-forge-discovery/21.04-internal-dns-zone.md) | 143 | Internal authoritative DNS for `.svc.forge` | Not started | A/AAAA/SRV, TTLs tied to lease state, local resolver wiring |
 | [21.05](../steps/21-forge-discovery/21.05-gateway-and-client-integration.md) | 144 | Gateway integration + aliases | Not started | Flagged Gateway source; epic 05 tests unchanged |
 | [21.06](../steps/21-forge-discovery/21.06-demo-21-service-discovery.md) | 145 | Demo `21-service-discovery` + epic gate | Not started | Full failure-flow acceptance gate |
@@ -127,4 +127,4 @@ Failure flow (the epic gate):
 
 ## Next step to implement
 
-**[21.03](../steps/21-forge-discovery/21.03-readiness-selection-and-watch.md) — Readiness-aware selection + endpoint watch** (`N = 142`).
+**[21.04](../steps/21-forge-discovery/21.04-internal-dns-zone.md) — Internal authoritative DNS for `.svc.forge`** (`N = 143`).
