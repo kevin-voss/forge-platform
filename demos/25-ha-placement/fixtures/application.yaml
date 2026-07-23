@@ -1,0 +1,74 @@
+# Portable HA Application for demo 25 (M1 exit gate).
+# Placeholders filled by run.sh: ${PROJECT_NAME} ${PROJECT_SLUG} ${DEMO_IMAGE} ${APP_NAME}
+# No provider-specific fields — no machine types, regions, networks, disks, or managed-service names.
+apiVersion: forge.dev/v1
+kind: Project
+metadata:
+  name: ${PROJECT_NAME}
+spec:
+  slug: ${PROJECT_SLUG}
+---
+apiVersion: forge.dev/v1
+kind: Environment
+metadata:
+  name: production
+  project: ${PROJECT_SLUG}
+spec: {}
+---
+apiVersion: forge.dev/v1
+kind: Application
+metadata:
+  name: ${APP_NAME}
+  project: ${PROJECT_SLUG}
+  environment: production
+  labels:
+    app: ${APP_NAME}
+    demo: "25"
+    tier: api
+spec:
+  image: ${DEMO_IMAGE}
+  resources:
+    cpu: 100m
+    memory: 128Mi
+  priorityClassName: high
+  placement:
+    antiAffinity: hard
+    topologySpreadConstraints:
+      - topologyKey: node
+        minimumDistinctNodes: 3
+        whenUnsatisfiable: DoNotSchedule
+      - topologyKey: zone
+        minimumDistinctNodes: 2
+        whenUnsatisfiable: DoNotSchedule
+  scaling:
+    minReplicas: 3
+    maxReplicas: 3
+    desiredReplicas: 3
+  disruptionBudget:
+    minAvailable: 2
+---
+apiVersion: forge.dev/v1
+kind: Service
+metadata:
+  name: ${APP_NAME}
+  project: ${PROJECT_SLUG}
+  annotations:
+    forge.dev/parent: ${APP_NAME}
+spec:
+  port: 8080
+---
+apiVersion: forge.dev/v1
+kind: Deployment
+metadata:
+  name: ${APP_NAME}
+  project: ${PROJECT_SLUG}
+  environment: production
+  annotations:
+    forge.dev/parent: ${APP_NAME}
+  labels:
+    app: ${APP_NAME}
+    demo: "25"
+spec:
+  service: ${APP_NAME}
+  image: ${DEMO_IMAGE}
+  replicas: 3

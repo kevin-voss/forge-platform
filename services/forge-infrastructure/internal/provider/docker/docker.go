@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -231,6 +232,21 @@ func (p *Provider) CreateNode(ctx context.Context, opID string, req provider.Cre
 		// Overlay join uses the same Control URL host network namespace as compose.
 		env = append(env, "FORGE_NETWORK_URL=http://forge-network:8080")
 		env = append(env, "FORGE_NETWORK_NAME=cluster-overlay")
+	}
+	// Optional Discovery registration for provider-created agents (M1 HA demo).
+	// Inherited from forge-infrastructure process env when set; req.Env wins.
+	for _, key := range []string{
+		"FORGE_DISCOVERY_URL",
+		"FORGE_DISCOVERY_REGISTER_ENABLED",
+		"FORGE_DISCOVERY_LEASE_SECONDS",
+		"FORGE_DISCOVERY_DEFAULT_PROJECT",
+		"FORGE_DISCOVERY_DEFAULT_ENVIRONMENT",
+	} {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			if req.Env == nil || strings.TrimSpace(req.Env[key]) == "" {
+				env = append(env, key+"="+v)
+			}
+		}
 	}
 	if tok := strings.TrimSpace(req.BootstrapToken); tok != "" {
 		env = append(env, "FORGE_NODE_BOOTSTRAP_TOKEN="+tok)

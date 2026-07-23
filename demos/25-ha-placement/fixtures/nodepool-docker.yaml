@@ -1,0 +1,23 @@
+# Operator-owned Docker pool for demo 25. Product manifests never name providers.
+apiVersion: forge.dev/v1
+kind: InfrastructureProvider
+metadata:
+  name: docker-local
+spec:
+  type: docker
+---
+apiVersion: forge.dev/v1
+kind: NodePool
+metadata:
+  name: ha-docker-pool
+  labels:
+    demo: "25"
+spec:
+  providerRef: docker-local
+  replicas: 3
+  machineType: docker-small
+  region: local
+  priority: 10
+  scaling:
+    minNodes: 3
+    maxNodes: 4

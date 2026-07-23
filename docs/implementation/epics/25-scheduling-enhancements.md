@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Milestone
 
@@ -105,7 +105,7 @@ Stop node-a (simulated node loss)
 | [25.03](../steps/25-scheduling-enhancements/25.03-affinity-and-topology-spread.md) | 170 | Workload affinity/anti-affinity + topology spreading | Complete | Hard/soft affinity; node/zone/region/provider; `minimumDistinctNodes`; HA flow |
 | [25.04](../steps/25-scheduling-enhancements/25.04-priority-preemption-and-disruption-budgets.md) | 171 | Priority classes, preemption, disruption budgets | Complete | Victim selection; graceful eviction; budgets honored by drains/rollouts; anti-starvation |
 | [25.05](../steps/25-scheduling-enhancements/25.05-gpu-and-stateful-placement.md) | 172 | GPU, reservations, and stateful placement constraints | Complete | GPU requests; TTL reservations; volume affinity; primary protection |
-| [25.06](../steps/25-scheduling-enhancements/25.06-demo-25-ha-placement.md) | 173 | Demo `25-ha-placement` + epic gate | Not started | HA spread + reschedule + preemption; epic gate; M1 exit gate |
+| [25.06](../steps/25-scheduling-enhancements/25.06-demo-25-ha-placement.md) | 173 | Demo `25-ha-placement` + epic gate | Complete | HA spread + reschedule; epic gate; M1 exit gate (`make demo DEMO=25`) |
 
 ## Assumptions
 
@@ -126,4 +126,5 @@ Stop node-a (simulated node loss)
 
 ## Next step to implement
 
-**[25.06](../steps/25-scheduling-enhancements/25.06-demo-25-ha-placement.md) — Demo `25-ha-placement` + epic gate**
+Epic complete. Platform capability queue finished at `N = 173` (M1 exit).
+Continue at verification track **`N = 174`** when ready — see [`../progress.md`](../progress.md).

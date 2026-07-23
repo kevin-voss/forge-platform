@@ -9,7 +9,7 @@ Atomic steps for [Scheduling enhancements](../../epics/25-scheduling-enhancement
 | 25.03 | 170 | [25.03-affinity-and-topology-spread.md](25.03-affinity-and-topology-spread.md) | Complete |
 | 25.04 | 171 | [25.04-priority-preemption-and-disruption-budgets.md](25.04-priority-preemption-and-disruption-budgets.md) | Complete |
 | 25.05 | 172 | [25.05-gpu-and-stateful-placement.md](25.05-gpu-and-stateful-placement.md) | Complete |
-| 25.06 | 173 | [25.06-demo-25-ha-placement.md](25.06-demo-25-ha-placement.md) | Not started |
+| 25.06 | 173 | [25.06-demo-25-ha-placement.md](25.06-demo-25-ha-placement.md) | Complete |
 
 Implement with [`../../IMPLEMENT_STEP.md`](../../IMPLEMENT_STEP.md) (`STEP_ID=25.01` first).
 

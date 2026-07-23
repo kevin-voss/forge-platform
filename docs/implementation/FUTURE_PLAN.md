@@ -36,7 +36,7 @@ Reference documents:
 
 | Milestone | Epics | Exit gate | Forge can then… |
 |---|---|---|---|
-| **M1 — Standalone cloud core** | `20`–`25` | `demos/25-ha-placement` + portability check | declarative resources, service discovery, multi-node network, infrastructure on any provider, workload + node autoscaling, workload recovery after node loss — same manifest on Docker, Hetzner, AWS, Azure |
+| **M1 — Standalone cloud core** | `20`–`25` | `demos/25-ha-placement` + portability check (**executable:** `make demo DEMO=25`) | declarative resources, service discovery, multi-node network, infrastructure on any provider, workload + node autoscaling, workload recovery after node loss — same manifest on Docker, Hetzner, AWS, Azure |
 | **M2 — Production platform** | `26`–`37` | `demos/37-incident-response` | registry, canary/blue-green deploys, durable queues, HA PostgreSQL, volumes, distributed object storage, HA secrets, policy, DNS + TLS, HA control plane, backups, incidents |
 | **M3 — Global platform** | `38`–`43` | `demos/43-full-standalone-platform` | GPU/model scheduling, multi-region, console, usage and cost, self-upgrade, signed plugins |
 
@@ -251,11 +251,14 @@ Every future step must satisfy these before its gate passes:
 | Artifact | Status |
 |---|---|
 | This `FUTURE_PLAN.md` | Done |
-| `epics/20`–`43` docs | Done (Status: Planning) |
-| `steps/20`–`25` step files (`N = 132`–`173`) | Done |
-| `steps/26`–`43` step files | Deferred — materialize with `PLAN_STEPS.md` at M1 exit |
+| `epics/20`–`43` docs | Done (`20`–`25` Complete; `26`–`43` Catalog) |
+| `steps/20`–`25` step files (`N = 132`–`173`) | Done — M1 exit gate executable |
+| `demos/25-ha-placement` | Done — `make demo DEMO=25` |
+| `steps/26`–`43` step files | Deferred — materialize with `PLAN_STEPS.md` after M1 |
 | `STEPS.md` future queue section | Done |
 | `progress.md` future sections | Done |
 | Architecture / concepts / ADR docs | Done |
 
-**Current work is unchanged: next implementable step remains `N = 50`.**
+**M1 platform queue is complete (`N = 173`).** Next implementable global step is
+**`N = 174`** (verification track / epic 50 harness) when that work is claimed —
+see [`progress.md`](progress.md) and [`STEPS.md`](STEPS.md).

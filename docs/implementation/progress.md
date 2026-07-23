@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 173`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 174`** (verification track; platform queue complete at 173).
 
 ## Epics
 
@@ -186,7 +186,7 @@ next implementable step is still the one named at the top of this file. Plan:
 | [22](epics/22-forge-network.md) | Forge Network | M1 | Complete | 7/7 steps; demo 22 forge-network acceptance gate passed |
 | [23](epics/23-forge-infrastructure.md) | Forge Infrastructure | M1 | Complete | 7/7 steps; demo 23 local-cloud-simulation gate passed |
 | [24](epics/24-forge-autoscaler.md) | Forge Autoscaler | M1 | Complete | 8/8 steps; `make demo DEMO=24` autoscaling gate passed |
-| [25](epics/25-scheduling-enhancements.md) | Scheduling enhancements | M1 | In progress | 5/6 steps (`N = 168`–`172` complete); next `25.06` (`N = 173`) |
+| [25](epics/25-scheduling-enhancements.md) | Scheduling enhancements | M1 | Complete | 6/6 steps; `make demo DEMO=25` HA placement M1 exit gate passed |
 | [26](epics/26-forge-registry.md) | Forge Registry | M2 | Catalog | steps not yet materialized |
 | [27](epics/27-deployment-strategies.md) | Deployment strategies | M2 | Catalog | canary, blue-green, traffic shifting |
 | [28](epics/28-forge-queue.md) | Forge Queue | M2 | Catalog | job semantics over Forge Events |
@@ -251,14 +251,16 @@ next implementable step is still the one named at the top of this file. Plan:
 | **170** | [Workload affinity/anti-affinity + topology spreading](steps/25-scheduling-enhancements/25.03-affinity-and-topology-spread.md) | Complete |  | Topology columns; affinity/spread filters + scorers; legacy anti_affinity sugar; HA 3-replica/2-zone flow |
 | **171** | [Priority classes, preemption, disruption budgets](steps/25-scheduling-enhancements/25.04-priority-preemption-and-disruption-budgets.md) | Complete |  | PriorityClass; preemption+audit; disruption budgets; pending aging |
 | **172** | [GPU, reservations, and stateful placement](steps/25-scheduling-enhancements/25.05-gpu-and-stateful-placement.md) | Complete |  | GPU match; TTL reservations; volume locality; primary protection |
-| **173** | Epic 25 — Scheduling enhancements (`25.06`) | Not started |  | |
+| **173** | [Demo `25-ha-placement` + epic gate (M1 exit)](steps/25-scheduling-enhancements/25.06-demo-25-ha-placement.md) | Complete |  | `make demo DEMO=25`; HA spread + Discovery/Gateway + node-loss recovery; M1 exit |
 
 Per-step rows live in each epic's steps README; the global lookup is
 [`STEPS.md`](STEPS.md#future-queue--standalone-cloud-epics-2025).
 
-> Next: **N = 173** (`25.06` demo 25-ha-placement).
+> Platform capability queue complete at **N = 173** (M1 exit). Next: **N = 174**
+> (verification & demo-projects track, epic 50 harness) — already documented below;
+> do not invent new epic-50 scope here.
 
-> Planned steps including the future queue: **173** (`N = 1` … `N = 173`).
+> Planned platform steps: **173** (`N = 1` … `N = 173`).
 
 ---
 
