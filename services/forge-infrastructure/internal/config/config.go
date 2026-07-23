@@ -41,6 +41,10 @@ type Config struct {
 	BootstrapOrganization   string
 	RuntimeImage            string
 	EventsURL               string
+
+	SSHConnectTimeoutSeconds int
+	SSHProbeIntervalSeconds  int
+	SecretsURL               string
 }
 
 // Load reads configuration from the process environment.
@@ -194,34 +198,47 @@ func Load() (Config, error) {
 	}
 	eventsURL := strings.TrimSpace(os.Getenv("FORGE_EVENTS_URL"))
 
+	sshConnectTO, err := envIntDefault("FORGE_INFRA_SSH_CONNECT_TIMEOUT_SECONDS", 10)
+	if err != nil {
+		return Config{}, err
+	}
+	sshProbeInterval, err := envIntDefault("FORGE_INFRA_SSH_PROBE_INTERVAL_SECONDS", 60)
+	if err != nil {
+		return Config{}, err
+	}
+	secretsURL := strings.TrimSpace(os.Getenv("FORGE_SECRETS_URL"))
+
 	return Config{
-		Port:                    port,
-		ServiceName:             name,
-		ServiceVersion:          version,
-		LogLevel:                level,
-		Env:                     env,
-		AuthMode:                authMode,
-		ShutdownGrace:           time.Duration(graceSecs) * time.Second,
-		DatabaseURL:             dbURL,
-		DatabaseSchema:          schema,
-		DatabasePoolMax:         poolMax,
-		DatabaseMigrateOnStart:  migrateOnStart,
-		RegistryURL:             strings.TrimRight(registryURL, "/"),
-		ReconcileInterval:       time.Duration(intervalMs) * time.Millisecond,
-		DockerSocket:            dockerSocket,
-		DockerNetwork:           dockerNetwork,
-		DockerImage:             dockerImage,
-		DockerHostAddress:       dockerHostAddr,
-		OrphanScanInterval:      time.Duration(orphanSecs) * time.Second,
-		ControlURLForNodes:      strings.TrimRight(controlURLNodes, "/"),
-		ProvisionTimeoutSeconds: provisionTO,
-		BootstrapTimeoutSeconds: bootstrapTO,
-		JoinTimeoutSeconds:      joinTO,
-		DrainTimeoutSeconds:     drainTO,
-		BootstrapTokenURL:       strings.TrimRight(tokenURL, "/"),
-		BootstrapOrganization:   org,
-		RuntimeImage:            runtimeImage,
-		EventsURL:               strings.TrimRight(eventsURL, "/"),
+		Port:                     port,
+		ServiceName:              name,
+		ServiceVersion:           version,
+		LogLevel:                 level,
+		Env:                      env,
+		AuthMode:                 authMode,
+		ShutdownGrace:            time.Duration(graceSecs) * time.Second,
+		DatabaseURL:              dbURL,
+		DatabaseSchema:           schema,
+		DatabasePoolMax:          poolMax,
+		DatabaseMigrateOnStart:   migrateOnStart,
+		RegistryURL:              strings.TrimRight(registryURL, "/"),
+		ReconcileInterval:        time.Duration(intervalMs) * time.Millisecond,
+		DockerSocket:             dockerSocket,
+		DockerNetwork:            dockerNetwork,
+		DockerImage:              dockerImage,
+		DockerHostAddress:        dockerHostAddr,
+		OrphanScanInterval:       time.Duration(orphanSecs) * time.Second,
+		ControlURLForNodes:       strings.TrimRight(controlURLNodes, "/"),
+		ProvisionTimeoutSeconds:  provisionTO,
+		BootstrapTimeoutSeconds:  bootstrapTO,
+		JoinTimeoutSeconds:       joinTO,
+		DrainTimeoutSeconds:      drainTO,
+		BootstrapTokenURL:        strings.TrimRight(tokenURL, "/"),
+		BootstrapOrganization:    org,
+		RuntimeImage:             runtimeImage,
+		EventsURL:                strings.TrimRight(eventsURL, "/"),
+		SSHConnectTimeoutSeconds: sshConnectTO,
+		SSHProbeIntervalSeconds:  sshProbeInterval,
+		SecretsURL:               strings.TrimRight(secretsURL, "/"),
 	}, nil
 }
 

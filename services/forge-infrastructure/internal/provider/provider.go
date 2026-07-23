@@ -11,6 +11,15 @@ var ErrProviderNotConfigured = errors.New("provider not configured")
 // ErrNotSupported is returned when a provider does not implement an optional capability.
 var ErrNotSupported = errors.New("not supported")
 
+// ErrInventoryExhausted is returned when an adopt/release provider has no free hosts.
+// Controllers must surface this as a NodePool status condition, not crash-loop.
+var ErrInventoryExhausted = errors.New("inventory exhausted")
+
+// InventoryCapacitor is optionally implemented by finite-inventory providers (ssh, bare-metal).
+type InventoryCapacitor interface {
+	MaxReplicas() int
+}
+
 // Provider is the seam every cloud/local adapter (23.02–23.06) implements.
 // Exactly 16 methods.
 type Provider interface {

@@ -14,6 +14,7 @@ import (
 	"forge.local/services/forge-infrastructure/internal/bootstraptoken"
 	"forge.local/services/forge-infrastructure/internal/operations"
 	"forge.local/services/forge-infrastructure/internal/provider"
+	"forge.local/services/forge-infrastructure/internal/provider/inventory"
 	"forge.local/services/forge-infrastructure/internal/registryclient"
 )
 
@@ -174,7 +175,15 @@ func (c *NodePoolController) Reconcile(ctx context.Context, pool registryclient.
 		return nil
 	}
 
+	maxReplicas := inventoryCeiling(provRes, cfg, provType)
+
 	if ready < replicas {
+		// Finite inventory: stop CreateNode retries once every host is claimed.
+		// Do not busy-loop or fabricate capacity when desired exceeds ceiling.
+		if maxReplicas >= 0 && ready >= maxReplicas {
+			return c.writeInventoryExhausted(ctx, pool, ready, maxReplicas, replicas, "inventory_exhausted")
+		}
+
 		slot := nextSlot(nodes, replicas)
 		naturalKey := fmt.Sprintf("%s#%d", name, slot)
 		req := provider.CreateNodeRequest{
@@ -216,10 +225,26 @@ func (c *NodePoolController) Reconcile(ctx context.Context, pool registryclient.
 				return err
 			}
 			if callErr != nil {
-				if errors.Is(callErr, provider.ErrProviderNotConfigured) || !c.Providers.Has(provType) {
-					return c.writeProviderNotConfigured(ctx, pool, ready, callErr)
+				if errors.Is(callErr, provider.ErrInventoryExhausted) {
+					ceiling := maxReplicas
+					if ceiling < 0 {
+						ceiling = ready
+					}
+					return c.writeInventoryExhausted(ctx, pool, ready, ceiling, replicas, "create_node_exhausted")
 				}
-				return c.writeDegraded(ctx, pool, ready, callErr)
+				if errors.Is(callErr, provider.ErrNotSupported) {
+					// Unsupported mutating capability — skip, do not fail the pool.
+					if c.Log != nil {
+						c.Log.Info("provider capability skipped",
+							"nodepool", name,
+							"error", callErr.Error(),
+						)
+					}
+				} else if errors.Is(callErr, provider.ErrProviderNotConfigured) || !c.Providers.Has(provType) {
+					return c.writeProviderNotConfigured(ctx, pool, ready, callErr)
+				} else {
+					return c.writeDegraded(ctx, pool, ready, callErr)
+				}
 			}
 			if node != nil {
 				_, _ = c.ensureNodeResource(ctx, name, req.Name, node)
@@ -271,8 +296,10 @@ func (c *NodePoolController) Reconcile(ctx context.Context, pool registryclient.
 	if ready == 0 && replicas > 0 {
 		phase = "Progressing"
 	}
-	// cfg retained for future credential wiring.
-	_ = cfg
+	inventoryExhausted := maxReplicas >= 0 && replicas > maxReplicas
+	if inventoryExhausted {
+		phase = "Degraded"
+	}
 
 	status := map[string]any{
 		"phase":              phase,
@@ -286,6 +313,20 @@ func (c *NodePoolController) Reconcile(ctx context.Context, pool registryclient.
 				"lastTransitionTime": time.Now().UTC().Format(time.RFC3339),
 			},
 		},
+	}
+	if maxReplicas >= 0 {
+		status["maxReplicas"] = maxReplicas
+	}
+	if inventoryExhausted {
+		status["conditions"] = []map[string]any{
+			{
+				"type":               "Available",
+				"status":             "False",
+				"reason":             "InventoryExhausted",
+				"message":            fmt.Sprintf("requested replicas=%d exceeds inventory size=%d", replicas, maxReplicas),
+				"lastTransitionTime": time.Now().UTC().Format(time.RFC3339),
+			},
+		}
 	}
 	// Even when type resolves to noop fallback, surface ProviderNotConfigured.
 	if !c.Providers.Has(provType) {
@@ -363,6 +404,53 @@ func (c *NodePoolController) writeDegraded(ctx context.Context, pool registrycli
 	return putErr
 }
 
+func (c *NodePoolController) writeInventoryExhausted(ctx context.Context, pool registryclient.Resource, ready, maxReplicas, replicas int, action string) error {
+	status := map[string]any{
+		"phase":              "Degraded",
+		"readyNodes":         ready,
+		"maxReplicas":        maxReplicas,
+		"observedGeneration": pool.Metadata.Generation,
+		"conditions": []map[string]any{
+			{
+				"type":               "Available",
+				"status":             "False",
+				"reason":             "InventoryExhausted",
+				"message":            fmt.Sprintf("requested replicas=%d exceeds inventory size=%d", replicas, maxReplicas),
+				"lastTransitionTime": time.Now().UTC().Format(time.RFC3339),
+			},
+		},
+	}
+	_, putErr := c.Registry.PutStatus(ctx, "nodepools", pool.Metadata.Name, pool.Metadata.ResourceVersion, status)
+	if c.Log != nil {
+		c.Log.Info("nodepool reconcile",
+			"nodepool", pool.Metadata.Name,
+			"desired_replicas", replicas,
+			"ready_nodes", ready,
+			"max_replicas", maxReplicas,
+			"action", action,
+			"op_id", "",
+		)
+	}
+	return putErr
+}
+
+// inventoryCeiling returns the finite capacity for ssh/bare-metal providers, or -1 if unlimited.
+func inventoryCeiling(p provider.Provider, cfg map[string]any, typeName string) int {
+	if cap, ok := p.(provider.InventoryCapacitor); ok {
+		return cap.MaxReplicas()
+	}
+	switch typeName {
+	case provider.TypeSSH, provider.TypeBareMetal:
+		hosts, err := inventory.ParseConfig(cfg)
+		if err != nil {
+			return 0
+		}
+		return len(hosts)
+	default:
+		return -1
+	}
+}
+
 func (c *NodePoolController) resolveProvider(ctx context.Context, providerRef string) (provider.Provider, string, map[string]any, error) {
 	if providerRef == "" {
 		return nil, "", nil, fmt.Errorf("%w: empty providerRef", provider.ErrProviderNotConfigured)
@@ -378,7 +466,15 @@ func (c *NodePoolController) resolveProvider(ctx context.Context, providerRef st
 	cfg, _ := res.Spec["config"].(map[string]any)
 	if cfg == nil {
 		cfg = map[string]any{}
+	} else {
+		// Shallow copy so we can inject providerName without mutating the resource.
+		cp := make(map[string]any, len(cfg)+1)
+		for k, v := range cfg {
+			cp[k] = v
+		}
+		cfg = cp
 	}
+	cfg["providerName"] = res.Metadata.Name
 	p, err := c.Providers.Resolve(typeName, cfg)
 	if err != nil {
 		return nil, typeName, cfg, err

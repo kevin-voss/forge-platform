@@ -2,26 +2,30 @@
 
 Go service (host port **4111**) that turns declared `NodePool` resources into real machines via pluggable provider adapters.
 
-## Step 23.03 (current)
+## Step 23.04 (current)
 
 * Health: `GET /health/live`, `GET /health/ready`
 * Debug: `GET /v1/operations/{opId}` (operation ledger)
+* Admission: `POST /v1/admission/infrastructureproviders` (duplicate host + inventory schema)
 * `Provider` interface (16 methods) + registry
 * **`docker` provider** — starts `forge-runtime` containers as independent nodes
+* **`ssh` / `bare-metal` providers** — adopt/release from static inventory (`CreateNode`/`DeleteNode` never provision/destroy hardware)
+* Finite capacity: `NodePool.status.maxReplicas` + `False/InventoryExhausted` when `replicas` exceeds inventory
 * **`NodeController`** — `Provisioning → Bootstrapping → Joining → Ready → Draining → Deleting`
 * Bootstrap payload templating (cloud-init + SSH script) + epic-22 bootstrap token client
 * `node_bootstrap_timers` deadlines; automatic delete on bootstrap/join timeout
 * Drain-before-delete (epic 08 reschedule hook); drain timeout deletes with stranded workload log
 * Cluster-scoped kinds: `InfrastructureProvider`, `NodePool`, `Node`
 * `provider_operations` ledger (`op_<ULID>`) for idempotent mutating calls
+* `ssh_inventory_claims` table for exclusive host claim/release
 
 ## Configuration
 
 | Env | Default | Purpose |
 |---|---|---|
 | `PORT` | `8080` | In-container listen port (host `4111`) |
-| `FORGE_INFRA_DB_URL` / `FORGE_DATABASE_URL` | local Postgres | Ledger + timers DB |
-| `FORGE_DATABASE_SCHEMA` | `infrastructure` | Schema for ledger/timers |
+| `FORGE_INFRA_DB_URL` / `FORGE_DATABASE_URL` | local Postgres | Ledger + timers + inventory claims DB |
+| `FORGE_DATABASE_SCHEMA` | `infrastructure` | Schema for ledger/timers/claims |
 | `FORGE_REGISTRY_URL` | `http://forge-control:8080` | Epic-20 resource API |
 | `FORGE_INFRA_RECONCILE_INTERVAL_MS` | `2000` | NodePool reconcile period |
 | `FORGE_AUTH_MODE` | `dev` | Service-to-service until mTLS |
@@ -30,6 +34,8 @@ Go service (host port **4111**) that turns declared `NodePool` resources into re
 | `FORGE_INFRA_DOCKER_IMAGE` | `forge/forge-runtime:local` | Image started per node |
 | `FORGE_INFRA_DOCKER_HOST_ADDRESS` | `127.0.0.1` | Returned by `CreatePublicIP` |
 | `FORGE_INFRA_ORPHAN_SCAN_INTERVAL_S` | `30` | Orphan container cleanup period |
+| `FORGE_INFRA_SSH_CONNECT_TIMEOUT_SECONDS` | `10` | SSH dial timeout for ssh/bare-metal |
+| `FORGE_INFRA_SSH_PROBE_INTERVAL_SECONDS` | `60` | Periodic ValidateCredentials sweep |
 | `FORGE_CONTROL_URL` | `http://forge-control:8080` | Injected into node containers; fleet/join observe |
 | `FORGE_NODE_PROVISION_TIMEOUT_SECONDS` | `180` | Provisioning deadline |
 | `FORGE_NODE_BOOTSTRAP_TIMEOUT_SECONDS` | `600` | Bootstrapping deadline |
@@ -39,13 +45,28 @@ Go service (host port **4111**) that turns declared `NodePool` resources into re
 | `FORGE_BOOTSTRAP_ORGANIZATION` | `forge` | Token scope organization |
 | `FORGE_EVENTS_URL` | _(unset)_ | Optional `resource.node.phasechanged` publish |
 
-### Local machine types
+### Local machine types (docker)
 
 | Type | CPU | Memory | Slots |
 |---|---:|---:|---:|
 | `docker-small` | 1 | 1024 MiB | 2 |
 | `docker-medium` | 2 | 2048 MiB | 4 |
 | `docker-large` | 4 | 4096 MiB | 8 |
+
+### SSH / bare-metal inventory
+
+```yaml
+apiVersion: forge.dev/v1
+kind: InfrastructureProvider
+metadata: { name: rack1-baremetal }
+spec:
+  type: bare-metal   # or ssh
+  config:
+    inventory:
+      - { address: 10.0.4.11, sshUser: forge, sshKeySecretRef: { name: rack1-ssh-key } }
+```
+
+SSH keys are always resolved via `sshKeySecretRef` (never inline). Unsupported mutating methods (`CreateNetwork`, disks, public IPs) return typed `ErrNotSupported`.
 
 ## Local commands
 

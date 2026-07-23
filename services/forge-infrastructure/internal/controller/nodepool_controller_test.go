@@ -344,3 +344,117 @@ func TestReconcileUnknownProviderCondition(t *testing.T) {
 		t.Fatalf("unexpected condition: %#v", conds[0])
 	}
 }
+
+type exhaustedProvider struct {
+	provider.Provider
+	creates int
+	max     int
+}
+
+func (p *exhaustedProvider) MaxReplicas() int { return p.max }
+
+func (p *exhaustedProvider) CreateNode(ctx context.Context, opID string, req provider.CreateNodeRequest) (*provider.ProviderNode, error) {
+	p.creates++
+	return nil, provider.ErrInventoryExhausted
+}
+
+func TestReconcileInventoryExhaustedStopsRetry(t *testing.T) {
+	ep := &exhaustedProvider{Provider: &noop.Provider{}, max: 1}
+	reg := &fakeRegistry{
+		providers: map[string]registryclient.Resource{
+			"rack1": {
+				Metadata: registryclient.Metadata{Name: "rack1"},
+				Spec: map[string]any{
+					"type": "bare-metal",
+					"config": map[string]any{
+						"inventory": []any{
+							map[string]any{
+								"address":         "10.0.4.11",
+								"sshUser":         "forge",
+								"sshKeySecretRef": map[string]any{"name": "rack1-ssh-key"},
+							},
+						},
+					},
+				},
+			},
+		},
+		pools: map[string]registryclient.Resource{
+			"rack1-pool": {
+				Metadata: registryclient.Metadata{Name: "rack1-pool", Generation: 1, ResourceVersion: "1"},
+				Spec: map[string]any{
+					"providerRef": "rack1",
+					"replicas":    3,
+				},
+			},
+		},
+		nodes: []registryclient.Resource{
+			{
+				Metadata: registryclient.Metadata{Name: "rack1-pool-0", Labels: map[string]string{"forge.local/node-pool": "rack1-pool"}},
+				Spec:     map[string]any{"nodePoolRef": "rack1-pool", "providerNodeId": "bare-metal:10.0.4.11"},
+				Status:   map[string]any{"phase": "Ready"},
+			},
+		},
+	}
+	ctrl := &controller.NodePoolController{
+		Registry:  reg,
+		Ledger:    newMemLedger(),
+		Providers: &fixedResolver{p: ep, typeName: "bare-metal", has: true},
+	}
+	for i := 0; i < 5; i++ {
+		if err := ctrl.Reconcile(context.Background(), reg.pools["rack1-pool"]); err != nil {
+			t.Fatalf("reconcile %d: %v", i, err)
+		}
+	}
+	if ep.creates != 0 {
+		t.Fatalf("expected no CreateNode retries once inventory is full, got %d", ep.creates)
+	}
+	if len(reg.statuses) == 0 {
+		t.Fatal("expected status writes")
+	}
+	last := reg.statuses[len(reg.statuses)-1]
+	if last["phase"] != "Degraded" {
+		t.Fatalf("phase=%v", last["phase"])
+	}
+	if last["maxReplicas"] != 1 {
+		t.Fatalf("maxReplicas=%v", last["maxReplicas"])
+	}
+	conds, _ := last["conditions"].([]map[string]any)
+	if len(conds) == 0 || conds[0]["reason"] != "InventoryExhausted" || conds[0]["status"] != "False" {
+		t.Fatalf("unexpected conditions: %#v", last["conditions"])
+	}
+}
+
+func TestReconcileInventoryExhaustedFromCreateNode(t *testing.T) {
+	ep := &exhaustedProvider{Provider: &noop.Provider{}, max: 2}
+	reg := &fakeRegistry{
+		providers: map[string]registryclient.Resource{
+			"rack1": {
+				Metadata: registryclient.Metadata{Name: "rack1"},
+				Spec:     map[string]any{"type": "ssh", "config": map[string]any{"inventory": []any{}}},
+			},
+		},
+		pools: map[string]registryclient.Resource{
+			"pool-x": {
+				Metadata: registryclient.Metadata{Name: "pool-x", Generation: 1, ResourceVersion: "1"},
+				Spec:     map[string]any{"providerRef": "rack1", "replicas": 2},
+			},
+		},
+	}
+	// max=2 but CreateNode always returns exhausted (race / all unreachable).
+	ctrl := &controller.NodePoolController{
+		Registry:  reg,
+		Ledger:    newMemLedger(),
+		Providers: &fixedResolver{p: ep, typeName: "ssh", has: true},
+	}
+	if err := ctrl.Reconcile(context.Background(), reg.pools["pool-x"]); err != nil {
+		t.Fatal(err)
+	}
+	if ep.creates != 1 {
+		t.Fatalf("expected one CreateNode attempt, got %d", ep.creates)
+	}
+	last := reg.statuses[len(reg.statuses)-1]
+	conds, _ := last["conditions"].([]map[string]any)
+	if len(conds) == 0 || conds[0]["reason"] != "InventoryExhausted" {
+		t.Fatalf("expected InventoryExhausted, got %#v", last)
+	}
+}

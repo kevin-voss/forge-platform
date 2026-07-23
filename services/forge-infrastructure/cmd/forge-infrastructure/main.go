@@ -20,8 +20,11 @@ import (
 	"forge.local/services/forge-infrastructure/internal/health"
 	"forge.local/services/forge-infrastructure/internal/operations"
 	"forge.local/services/forge-infrastructure/internal/provider"
+	"forge.local/services/forge-infrastructure/internal/provider/baremetal"
 	"forge.local/services/forge-infrastructure/internal/provider/docker"
+	"forge.local/services/forge-infrastructure/internal/provider/inventory"
 	"forge.local/services/forge-infrastructure/internal/provider/noop"
+	"forge.local/services/forge-infrastructure/internal/provider/ssh"
 	"forge.local/services/forge-infrastructure/internal/registryclient"
 )
 
@@ -73,12 +76,25 @@ func run() error {
 		})
 	}
 
+	invStore := inventory.NewPGStore(db.Pool, cfg.DatabaseSchema)
+	sshDefaults := ssh.Config{
+		ConnectTimeout: time.Duration(cfg.SSHConnectTimeoutSeconds) * time.Second,
+		Store:          invStore,
+		Log:            log,
+		RuntimeImage:   cfg.RuntimeImage,
+		ControlURL:     cfg.ControlURLForNodes,
+		Secrets:        &ssh.MapSecrets{Keys: map[string][]byte{}},
+	}
+	reg.Register(provider.TypeSSH, ssh.Factory(sshDefaults))
+	reg.Register(provider.TypeBareMetal, baremetal.Factory(sshDefaults))
+
 	registryClient := registryclient.New(cfg.RegistryURL, log)
 	ready := health.NewReadiness(db)
 
 	mux := http.NewServeMux()
 	health.NewHandler(ready).Register(mux)
 	(&api.Handler{Ledger: ledger}).Register(mux)
+	(&inventory.AdmissionHandler{Lister: &admissionLister{client: registryClient}}).Register(mux)
 
 	timers := &controller.PGTimers{Pool: db.Pool, Schema: cfg.DatabaseSchema}
 	tokenClient := bootstraptoken.New(cfg.BootstrapTokenURL, cfg.BootstrapOrganization, cfg.AuthMode)
@@ -191,6 +207,36 @@ func run() error {
 
 type registryNodeLister struct {
 	client *registryclient.Client
+}
+
+type admissionLister struct {
+	client *registryclient.Client
+}
+
+func (a *admissionLister) List(ctx context.Context, plural, labelSelector string) ([]inventory.AdmissionResource, error) {
+	items, err := a.client.List(ctx, plural, labelSelector)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]inventory.AdmissionResource, 0, len(items))
+	for _, it := range items {
+		typeName := ""
+		cfg := map[string]any{}
+		if it.Spec != nil {
+			if v, ok := it.Spec["type"].(string); ok {
+				typeName = v
+			}
+			if c, ok := it.Spec["config"].(map[string]any); ok && c != nil {
+				cfg = c
+			}
+		}
+		out = append(out, inventory.AdmissionResource{
+			Name: it.Metadata.Name,
+			Type: typeName,
+			Cfg:  cfg,
+		})
+	}
+	return out, nil
 }
 
 func (r *registryNodeLister) ListNodes(ctx context.Context) ([]docker.NodeResource, error) {
