@@ -4,6 +4,8 @@ import forge.control.logging.JsonLog
 import forge.control.scheduler.model.AntiAffinity
 import forge.control.scheduler.model.PlacementDecision
 import forge.control.scheduler.model.PlacementRequest
+import forge.control.scheduler.model.PlacementSpec
+import forge.control.scheduler.model.PlatformSpec
 import forge.control.scheduler.model.ResourceRequirements
 import forge.control.telemetry.Telemetry
 import io.opentelemetry.api.common.AttributeKey
@@ -36,6 +38,8 @@ class PlacementService(
         requirements: ResourceRequirements? = null,
         antiAffinity: AntiAffinity? = null,
         rescheduledFromNode: String? = null,
+        placement: PlacementSpec = PlacementSpec(),
+        platform: PlatformSpec? = null,
     ): PlaceResult {
         store.find(deploymentId, replicaIndex)?.let { existing ->
             return when (existing.status) {
@@ -54,6 +58,8 @@ class PlacementService(
             serviceId = serviceId,
             requirements = resolvedReqs.toResourceRequirements(),
             antiAffinity = affinity,
+            placement = placement,
+            platform = platform,
         )
         val decision = telemetry.inSpan("scheduler.place") {
             val result = scheduler.place(request)
@@ -64,6 +70,13 @@ class PlacementService(
             resolvedReqs.memoryMb?.let {
                 span.setAttribute(AttributeKey.longKey("requested_memory_mb"), it.toLong())
             }
+            val decisionTrace = when (result) {
+                is PlacementDecision.Assigned -> result.trace
+                is PlacementDecision.NoNodeAvailable -> result.trace
+            }
+            decisionTrace?.filterNames()?.let { names ->
+                span.setAttribute(AttributeKey.stringArrayKey("filters_applied"), names)
+            }
             when (result) {
                 is PlacementDecision.Assigned -> {
                     span.setAttribute(AttributeKey.stringKey("strategy"), result.strategy)
@@ -73,6 +86,11 @@ class PlacementService(
                 is PlacementDecision.NoNodeAvailable -> {
                     span.setAttribute(AttributeKey.stringKey("strategy"), "none")
                     span.setAttribute(AttributeKey.longKey("candidates"), 0)
+                    decisionTrace?.filters?.forEach { filter ->
+                        if (filter.eliminated.isNotEmpty()) {
+                            telemetry.recordPlacementFiltered(filter.name)
+                        }
+                    }
                     result.unschedulableReasons.forEach { entry ->
                         telemetry.recordPlacementUnschedulable(entry.reason)
                     }
@@ -107,6 +125,9 @@ class PlacementService(
                             .takeIf { resolvedReqs.requestsAuthoritative && !it.isEmpty() },
                         limits = resolvedReqs.limits,
                         trace = decision.trace,
+                        nodeSelector = placement.nodeSelector.takeIf { it.isNotEmpty() },
+                        tolerations = placement.tolerations,
+                        platform = platform,
                     )
                     telemetry.setPlacementsPending(queue.count())
                     log.info(
@@ -149,6 +170,9 @@ class PlacementService(
                             .takeIf { resolvedReqs.requestsAuthoritative && !it.isEmpty() },
                         limits = resolvedReqs.limits,
                         trace = decision.trace,
+                        nodeSelector = placement.nodeSelector.takeIf { it.isNotEmpty() },
+                        tolerations = placement.tolerations,
+                        platform = platform,
                     ),
                 )
                 log.info(

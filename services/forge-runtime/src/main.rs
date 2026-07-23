@@ -231,6 +231,12 @@ async fn run() -> Result<(), String> {
                 .as_ref()
                 .map(|k| k.as_str().to_string()),
             Arc::clone(&docker) as Arc<dyn docker::DockerEngine>,
+            cfg.node_labels.clone(),
+            cfg.node_taints.clone(),
+            cfg.node_provider.clone(),
+            node::host_architecture(),
+            node::host_os(),
+            cfg.node_pool_id.clone(),
         ) {
             Ok(reporter) => {
                 info!(

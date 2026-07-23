@@ -57,6 +57,14 @@ pub struct Config {
     pub enforce_limits: bool,
     /// Optional advertised address for Control registration.
     pub node_address: Option<String>,
+    /// Operator labels `k=v,k2=v2` (`FORGE_NODE_LABELS`).
+    pub node_labels: std::collections::HashMap<String, String>,
+    /// Operator taints `key=value:Effect,...` (`FORGE_NODE_TAINTS`).
+    pub node_taints: Vec<NodeTaintConfig>,
+    /// Optional provider label value (`FORGE_NODE_PROVIDER`).
+    pub node_provider: Option<String>,
+    /// Optional NodePool id (`FORGE_NODE_POOL_ID`).
+    pub node_pool_id: Option<String>,
     /// Single-use bootstrap token for join handshake (`FORGE_NODE_BOOTSTRAP_TOKEN`).
     pub bootstrap_token: Option<String>,
     /// Directory for WireGuard key pair; defaults to `data_dir`.
@@ -117,6 +125,14 @@ pub struct Config {
     pub network_drift_poll_interval: Duration,
     /// When true and network_url is set, register Discovery endpoints with overlay leases (22.06).
     pub network_overlay_register: bool,
+}
+
+/// Parsed Runtime taint from `FORGE_NODE_TAINTS` (`key=value:Effect` or `key:Effect`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeTaintConfig {
+    pub key: String,
+    pub value: Option<String>,
+    pub effect: String,
 }
 
 impl Config {
@@ -352,6 +368,17 @@ impl Config {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
 
+        let node_labels = parse_node_labels(env::var("FORGE_NODE_LABELS").ok().as_deref())?;
+        let node_taints = parse_node_taints(env::var("FORGE_NODE_TAINTS").ok().as_deref())?;
+        let node_provider = env::var("FORGE_NODE_PROVIDER")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let node_pool_id = env::var("FORGE_NODE_POOL_ID")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
         let bootstrap_token = env::var("FORGE_NODE_BOOTSTRAP_TOKEN")
             .ok()
             .map(|s| s.trim().to_string())
@@ -556,6 +583,10 @@ impl Config {
             node_capacity_source,
             enforce_limits,
             node_address,
+            node_labels,
+            node_taints,
+            node_provider,
+            node_pool_id,
             bootstrap_token,
             key_dir,
             control_heartbeat_interval: Duration::from_millis(control_hb_ms),
@@ -598,6 +629,70 @@ fn non_empty_env(key: &str, default: &str) -> String {
     } else {
         trimmed.to_string()
     }
+}
+
+fn parse_node_labels(raw: Option<&str>) -> Result<std::collections::HashMap<String, String>, String> {
+    let mut out = std::collections::HashMap::new();
+    let Some(raw) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(out);
+    };
+    for part in raw.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let (k, v) = part.split_once('=').ok_or_else(|| {
+            format!("FORGE_NODE_LABELS entry must be key=value, got {part:?}")
+        })?;
+        let k = k.trim();
+        let v = v.trim();
+        if k.is_empty() {
+            return Err(format!(
+                "FORGE_NODE_LABELS entry key must not be empty, got {part:?}"
+            ));
+        }
+        out.insert(k.to_string(), v.to_string());
+    }
+    Ok(out)
+}
+
+fn parse_node_taints(raw: Option<&str>) -> Result<Vec<NodeTaintConfig>, String> {
+    let mut out = Vec::new();
+    let Some(raw) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(out);
+    };
+    for part in raw.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        // Formats: key=value:Effect  OR  key:Effect
+        let (left, effect) = part.split_once(':').ok_or_else(|| {
+            format!("FORGE_NODE_TAINTS entry must be key[=value]:Effect, got {part:?}")
+        })?;
+        let effect = effect.trim();
+        if effect != "NoSchedule" && effect != "NoExecute" {
+            return Err(format!(
+                "FORGE_NODE_TAINTS effect must be NoSchedule|NoExecute, got {effect:?}"
+            ));
+        }
+        let (key, value) = if let Some((k, v)) = left.split_once('=') {
+            (k.trim().to_string(), Some(v.trim().to_string()))
+        } else {
+            (left.trim().to_string(), None)
+        };
+        if key.is_empty() {
+            return Err(format!(
+                "FORGE_NODE_TAINTS entry key must not be empty, got {part:?}"
+            ));
+        }
+        out.push(NodeTaintConfig {
+            key,
+            value,
+            effect: effect.to_string(),
+        });
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -644,6 +739,12 @@ mod tests {
             "FORGE_NODE_ID",
             "FORGE_NODE_SLOTS",
             "FORGE_NODE_ADDRESS",
+            "FORGE_NODE_LABELS",
+            "FORGE_NODE_TAINTS",
+            "FORGE_NODE_PROVIDER",
+            "FORGE_NODE_POOL_ID",
+            "FORGE_NODE_CAPACITY_SOURCE",
+            "FORGE_ENFORCE_LIMITS",
             "FORGE_NODE_BOOTSTRAP_TOKEN",
             "FORGE_NODE_KEY_DIR",
             "FORGE_HEARTBEAT_INTERVAL_MS",

@@ -9,6 +9,7 @@ import forge.control.scheduler.BootstrapTokenStore
 import forge.control.scheduler.NodeJoinOrchestrator
 import forge.control.scheduler.NodeStore
 import forge.control.scheduler.PlacementService
+import forge.control.scheduler.TaintChangeHandler
 import forge.control.service.ApplicationService
 import forge.control.service.DeploymentService
 import forge.control.service.EnvironmentService
@@ -38,6 +39,7 @@ data class ControlServices(
     val nodeStrictRegister: Boolean = false,
     /** Invoked after a successful node registration (capacity may have increased). */
     val onNodeRegistered: (() -> Unit)? = null,
+    val taintChangeHandler: TaintChangeHandler? = null,
     val bootstrapTokenStore: BootstrapTokenStore? = null,
     val nodeJoinOrchestrator: NodeJoinOrchestrator? = null,
     val bootstrapTokenTtlSeconds: Long = 900,

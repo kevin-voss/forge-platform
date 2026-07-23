@@ -7,6 +7,7 @@ import forge.control.scheduler.PlaceResult
 import forge.control.scheduler.PlacementService
 import forge.control.scheduler.RequirementsResolver
 import forge.control.scheduler.model.AntiAffinity
+import forge.control.scheduler.model.PlacementSpec
 import forge.control.scheduler.model.ResourceRequirements
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.request.receive
@@ -66,6 +67,10 @@ fun Route.placementRoutes(placements: PlacementService) {
                 )
             }
 
+            val placementSpec = PlacementSpec(
+                nodeSelector = body.placement?.resolvedNodeSelector().orEmpty(),
+                tolerations = body.placement?.resolvedTolerations().orEmpty(),
+            )
             val result = try {
                 placements.placeAndPersist(
                     deploymentId = deploymentId,
@@ -73,6 +78,8 @@ fun Route.placementRoutes(placements: PlacementService) {
                     serviceId = body.serviceId?.trim()?.takeIf { it.isNotEmpty() },
                     requirements = requirements,
                     antiAffinity = antiAffinity,
+                    placement = placementSpec,
+                    platform = body.platform,
                 )
             } catch (_: RepositoryException.ConstraintViolation) {
                 throw ApiException.NotFound(

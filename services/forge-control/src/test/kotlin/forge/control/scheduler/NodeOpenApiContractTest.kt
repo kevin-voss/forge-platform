@@ -40,6 +40,10 @@ class NodeOpenApiContractTest {
         assertTrue(yaml.contains("wireguard_public_key"))
         assertTrue(yaml.contains("pending-network") || yaml.contains("joining"))
         assertTrue(yaml.contains("InvalidBootstrapToken"))
+        assertTrue(yaml.contains("labels"))
+        assertTrue(yaml.contains("taints") || yaml.contains("NodeTaint"))
+        assertTrue(yaml.contains("architecture"))
+        assertTrue(yaml.contains("NodeTaint") || yaml.contains("NoSchedule"))
     }
 
     @Test
@@ -59,6 +63,24 @@ class NodeOpenApiContractTest {
         assertTrue(registerDto.capacity?.slots == 4)
         assertTrue(registerDto.bootstrapToken == "bst_8f2a9c...")
         assertTrue(registerDto.wireguardPublicKey == "b64:9fQ3z...")
+        assertTrue(registerDto.labels == null)
+        assertTrue(registerDto.taints == null)
+
+        val registerWithLabels = """
+            {
+              "node_id": "node-b",
+              "address": "http://runtime-b:4102",
+              "capacity": { "slots": 2 },
+              "labels": { "disk": "ssd" },
+              "taints": [ { "key": "dedicated", "value": "db", "effect": "NoSchedule" } ],
+              "architecture": "arm64",
+              "os": "linux"
+            }
+        """.trimIndent()
+        val labeled = json.decodeFromString(RegisterNodeRequest.serializer(), registerWithLabels)
+        assertTrue(labeled.labels?.get("disk") == "ssd")
+        assertTrue(labeled.architecture == "arm64")
+        assertTrue(labeled.taints?.size == 1)
 
         val heartbeat = """
             {

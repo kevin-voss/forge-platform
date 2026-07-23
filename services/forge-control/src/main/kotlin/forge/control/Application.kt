@@ -303,6 +303,7 @@ fun main() {
         schedulerEnabled = cfg.schedulerEnabled,
         placementStore = placementStore,
         telemetry = telemetry,
+        strictNodeSelector = cfg.strictNodeSelector,
     )
     val pendingQueue = if (cfg.schedulerEnabled) {
         PendingQueue(store = placementStore, maxLen = cfg.queueMaxLen)
@@ -343,6 +344,18 @@ fun main() {
             history = deploymentHistory,
             telemetry = telemetry,
             nodeStore = nodeStore,
+        )
+    } else {
+        null
+    }
+    val taintChangeHandler = if (cfg.schedulerEnabled) {
+        forge.control.scheduler.TaintChangeHandler(
+            store = placementStore,
+            placementService = placementService,
+            reservation = capacityReservation,
+            deploymentStore = deploymentStore,
+            log = log,
+            telemetry = telemetry,
         )
     } else {
         null
@@ -452,6 +465,7 @@ fun main() {
         nodeStore = nodeStore,
         nodeStrictRegister = cfg.nodeStrictRegister,
         onNodeRegistered = { placementService.drainQueue() },
+        taintChangeHandler = taintChangeHandler,
         bootstrapTokenStore = bootstrapTokenStore,
         nodeJoinOrchestrator = nodeJoinOrchestrator,
         bootstrapTokenTtlSeconds = cfg.bootstrapTokenTtlSeconds,
@@ -736,6 +750,7 @@ fun Application.forgeControlModule(
                     telemetry = telemetry,
                     onRegistered = services.onNodeRegistered,
                     joinOrchestrator = services.nodeJoinOrchestrator,
+                    taintChangeHandler = services.taintChangeHandler,
                 )
                 val bootstrapTokens = services.bootstrapTokenStore
                 if (bootstrapTokens != null) {

@@ -47,6 +47,8 @@ data class AppConfig(
     val nodeHeartbeatTimeoutSeconds: Long = 15,
     val livenessIntervalMs: Long = 5_000,
     val nodeStrictRegister: Boolean = false,
+    /** When true, empty nodeSelector is a hard error rather than match-all. */
+    val strictNodeSelector: Boolean = false,
     /** Base URL for forge-network (empty disables join lease allocation). */
     val networkUrl: String = "",
     /** Default Network resource name for node-block leases. */
@@ -421,6 +423,16 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         )
     }
 
+    val strictSelectorRaw = env["FORGE_STRICT_NODE_SELECTOR"]?.trim()?.lowercase().orEmpty()
+        .ifEmpty { "false" }
+    val strictNodeSelector = when (strictSelectorRaw) {
+        "true", "1", "yes" -> true
+        "false", "0", "no" -> false
+        else -> throw IllegalArgumentException(
+            "FORGE_STRICT_NODE_SELECTOR must be true|false, got '$strictSelectorRaw'",
+        )
+    }
+
     val antiAffinityDefault = env["FORGE_ANTI_AFFINITY_DEFAULT"]?.trim()?.lowercase().orEmpty()
         .ifEmpty { "soft" }
     if (antiAffinityDefault !in setOf("soft", "hard")) {
@@ -700,6 +712,7 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         nodeHeartbeatTimeoutSeconds = nodeHeartbeatTimeoutSeconds,
         livenessIntervalMs = livenessIntervalMs,
         nodeStrictRegister = nodeStrictRegister,
+        strictNodeSelector = strictNodeSelector,
         networkUrl = networkUrl,
         networkName = networkName,
         bootstrapTokenTtlSeconds = bootstrapTokenTtlSeconds,

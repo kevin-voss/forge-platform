@@ -11,6 +11,7 @@ data class JoinRegisterCommand(
     val capacity: NodeCapacity,
     val bootstrapToken: String?,
     val wireguardPublicKey: String?,
+    val facts: NodeSchedulingFacts = NodeSchedulingFacts(),
 )
 
 data class JoinRegisterResult(
@@ -94,6 +95,7 @@ class NodeJoinOrchestrator(
                 joinedAt = existing.joinedAt,
                 at = at,
                 clearKeyRevocation = false,
+                facts = cmd.facts,
             )
             log.info(
                 "node join resume (no token)",
@@ -111,7 +113,7 @@ class NodeJoinOrchestrator(
             }
             // Legacy 08.02 path (docker / single Compose network).
             val created = existing == null
-            val node = nodes.register(nodeId, address, cmd.capacity, at)
+            val node = nodes.register(nodeId, address, cmd.capacity, at, facts = cmd.facts)
             return JoinRegisterResult(node = node, created = created)
         }
 
@@ -136,6 +138,7 @@ class NodeJoinOrchestrator(
             joinedAt = null,
             at = at,
             clearKeyRevocation = true,
+            facts = cmd.facts,
         )
         logJoinTransition(nodeId, existing?.status, "pending-network")
         telemetry.recordNodeStatus("pending-network")
@@ -157,6 +160,7 @@ class NodeJoinOrchestrator(
                     joinedAt = at,
                     at = at,
                     clearKeyRevocation = true,
+                    facts = cmd.facts,
                 )
                 logJoinTransition(nodeId, "pending-network", "joining")
                 telemetry.recordNodeStatus("joining")

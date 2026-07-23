@@ -101,7 +101,7 @@ Stop node-a (simulated node loss)
 | Step | N | Title | Status | Notes |
 |---|---:|---|---|---|
 | [25.01](../steps/25-scheduling-enhancements/25.01-resource-requests-limits-and-capacity.md) | 168 | CPU/memory/disk requests and limits + real capacity accounting | Complete | Slots become a derived view; overcommit config; limit enforcement; unschedulable reasons |
-| [25.02](../steps/25-scheduling-enhancements/25.02-labels-selectors-taints-tolerations.md) | 169 | Node labels, selectors, taints, tolerations, architecture/OS constraints | Not started | NodePool-propagated labels; `placement.nodeSelector`; taint effects; mixed-arch fleet |
+| [25.02](../steps/25-scheduling-enhancements/25.02-labels-selectors-taints-tolerations.md) | 169 | Node labels, selectors, taints, tolerations, architecture/OS constraints | Complete | Label merger; nodeSelector/platform/taints filters + trace; NoExecute eviction; Runtime FORGE_NODE_LABELS/TAINTS |
 | [25.03](../steps/25-scheduling-enhancements/25.03-affinity-and-topology-spread.md) | 170 | Workload affinity/anti-affinity + topology spreading | Not started | Hard/soft affinity; node/zone/region/provider; `minimumDistinctNodes`; HA flow |
 | [25.04](../steps/25-scheduling-enhancements/25.04-priority-preemption-and-disruption-budgets.md) | 171 | Priority classes, preemption, disruption budgets | Not started | Victim selection; graceful eviction; budgets honored by drains/rollouts; anti-starvation |
 | [25.05](../steps/25-scheduling-enhancements/25.05-gpu-and-stateful-placement.md) | 172 | GPU, reservations, and stateful placement constraints | Not started | GPU requests/device exposure; reservations; volume affinity; pinning |
@@ -126,4 +126,4 @@ Stop node-a (simulated node loss)
 
 ## Next step to implement
 
-**[25.02](../steps/25-scheduling-enhancements/25.02-labels-selectors-taints-tolerations.md) — Node labels, selectors, taints, tolerations, architecture/OS constraints**
+**[25.03](../steps/25-scheduling-enhancements/25.03-affinity-and-topology-spread.md) — Workload affinity/anti-affinity + topology spreading**

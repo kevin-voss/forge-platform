@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 169`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 170`**.
 
 ## Epics
 
@@ -247,10 +247,13 @@ next implementable step is still the one named at the top of this file. Plan:
 | **166** | [Scale down, draining, and safeguards](steps/24-forge-autoscaler/24.07-scale-down-draining-and-safeguards.md) | Complete |  | Underutil scoring; cordon/drain via desiredNodes; disruption/stateful guards; idempotent delete |
 | **167** | [Demo `24-autoscaling` + epic gate](steps/24-forge-autoscaler/24.08-demo-24-autoscaling.md) | Complete |  | `make demo DEMO=24`; HTTP/queue/node up+down; override + outage hold |
 | **168** | [CPU/memory/disk requests and limits + real capacity accounting](steps/25-scheduling-enhancements/25.01-resource-requests-limits-and-capacity.md) | Complete |  | Slots derived view; allocatable/overcommit; unschedulable reasons; Runtime limit enforcement |
-| **169**–**173** | Epic 25 — Scheduling enhancements (`25.02`–`25.06`) | Not started |  | |
+| **169** | [Node labels, selectors, taints, tolerations, architecture/OS](steps/25-scheduling-enhancements/25.02-labels-selectors-taints-tolerations.md) | Complete |  | Label merger; nodeSelector/platform/taints filters + trace; NoExecute eviction; Runtime FORGE_NODE_LABELS/TAINTS |
+| **170**–**173** | Epic 25 — Scheduling enhancements (`25.03`–`25.06`) | Not started |  | |
 
 Per-step rows live in each epic's steps README; the global lookup is
 [`STEPS.md`](STEPS.md#future-queue--standalone-cloud-epics-2025).
+
+> Next: **N = 170** (`25.03` affinity and topology spread).
 
 > Planned steps including the future queue: **173** (`N = 1` … `N = 173`).
 

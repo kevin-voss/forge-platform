@@ -2,7 +2,9 @@ package forge.control.scheduler.api
 
 import forge.control.scheduler.Placement
 import forge.control.scheduler.model.PlacementTrace
+import forge.control.scheduler.model.PlatformSpec
 import forge.control.scheduler.model.ResourceBundle
+import forge.control.scheduler.model.Toleration
 import forge.control.scheduler.model.UnschedulableReasonEntry
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -14,7 +16,21 @@ data class CreatePlacementRequest(
     val requirements: PlacementRequirementsDto? = null,
     @SerialName("anti_affinity") val antiAffinity: String? = null,
     @SerialName("service_id") val serviceId: String? = null,
+    val placement: PlacementConstraintsDto? = null,
+    val platform: PlatformSpec? = null,
 )
+
+@Serializable
+data class PlacementConstraintsDto(
+    val nodeSelector: Map<String, String>? = null,
+    @SerialName("node_selector") val nodeSelectorSnake: Map<String, String>? = null,
+    val tolerations: List<Toleration>? = null,
+) {
+    fun resolvedNodeSelector(): Map<String, String> =
+        nodeSelector ?: nodeSelectorSnake ?: emptyMap()
+
+    fun resolvedTolerations(): List<Toleration> = tolerations.orEmpty()
+}
 
 @Serializable
 data class PlacementRequirementsDto(
@@ -40,6 +56,8 @@ data class PlacementResponse(
     val limits: ResourceBundle? = null,
     val trace: PlacementTrace? = null,
     @SerialName("unschedulable_reasons") val unschedulableReasons: List<UnschedulableReasonEntry>? = null,
+    val placement: PlacementConstraintsDto? = null,
+    val platform: PlatformSpec? = null,
 )
 
 fun Placement.toResponse(): PlacementResponse =
@@ -59,4 +77,13 @@ fun Placement.toResponse(): PlacementResponse =
         limits = limits,
         trace = trace,
         unschedulableReasons = unschedulableReasons.takeIf { it.isNotEmpty() },
+        placement = if (!nodeSelector.isNullOrEmpty() || tolerations.isNotEmpty()) {
+            PlacementConstraintsDto(
+                nodeSelector = nodeSelector,
+                tolerations = tolerations.takeIf { it.isNotEmpty() },
+            )
+        } else {
+            null
+        },
+        platform = platform,
     )

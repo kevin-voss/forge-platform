@@ -144,6 +144,21 @@ pub fn advertise_address(override_addr: Option<&str>, port: u16) -> String {
     format!("http://{}:{}", hostname(), port)
 }
 
+/// Host CPU architecture for scheduling (`amd64` / `arm64` / raw uname).
+pub fn host_architecture() -> String {
+    let raw = std::env::consts::ARCH;
+    match raw {
+        "x86_64" => "amd64".into(),
+        "aarch64" => "arm64".into(),
+        other => other.to_string(),
+    }
+}
+
+/// Host OS for scheduling (lowercase; typically `linux`).
+pub fn host_os() -> String {
+    std::env::consts::OS.to_ascii_lowercase()
+}
+
 pub fn load_or_create_node_id(data_dir: &Path) -> Result<(String, bool), String> {
     let path = data_dir.join(NODE_ID_FILENAME);
     if path.exists() {

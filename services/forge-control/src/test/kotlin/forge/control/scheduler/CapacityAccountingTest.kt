@@ -66,8 +66,8 @@ class CapacityAccountingTest {
         val assigned = assertIs<PlacementDecision.Assigned>(decision)
         assertEquals("node-b", assigned.nodeId)
         val trace = assertNotNull(assigned.trace)
-        assertEquals("capacity", trace.filters.single().name)
-        assertTrue(trace.filters.single().eliminated.any { it.reason == "InsufficientCPU" })
+        val capacity = assertNotNull(trace.filters.firstOrNull { it.name == "capacity" })
+        assertTrue(capacity.eliminated.any { it.reason == "InsufficientCPU" })
     }
 
     @Test
@@ -105,7 +105,7 @@ class CapacityAccountingTest {
         assertTrue(pending.unschedulableReasons.isNotEmpty())
         assertTrue(pending.unschedulableReasons.all { it.nodeId in setOf("node-a", "node-b") })
         assertNotNull(pending.trace)
-        assertEquals("capacity", pending.trace!!.filters.single().name)
+        assertTrue(pending.trace!!.filters.any { it.name == "capacity" })
     }
 
     @Test

@@ -27,9 +27,14 @@ data class PlacementTrace(
     val scores: List<PlacementTraceScore> = emptyList(),
 ) {
     fun withCapacityFilter(eliminated: List<UnschedulableReasonEntry>): PlacementTrace =
+        withFilter("capacity", eliminated)
+
+    fun withFilter(name: String, eliminated: List<UnschedulableReasonEntry>): PlacementTrace =
         copy(
-            filters = filters + PlacementTraceFilter(name = "capacity", eliminated = eliminated),
+            filters = filters + PlacementTraceFilter(name = name, eliminated = eliminated),
         )
 
     fun withStrategy(strategy: String): PlacementTrace = copy(strategy = strategy)
+
+    fun filterNames(): List<String> = filters.map { it.name }
 }

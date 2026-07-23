@@ -3,14 +3,43 @@ package forge.control.scheduler
 import forge.control.repo.instant
 import forge.control.repo.runSql
 import forge.control.repo.withConnection
+import forge.control.scheduler.model.NodeTaint
 import forge.control.scheduler.model.ResourceRequirements
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import javax.sql.DataSource
+
+/** Optional scheduling identity supplied at node registration (25.02). */
+data class NodeSchedulingFacts(
+    val agentLabels: Map<String, String> = emptyMap(),
+    val poolLabels: Map<String, String> = emptyMap(),
+    val taints: List<NodeTaint> = emptyList(),
+    val architecture: String = "amd64",
+    val os: String = "linux",
+    val provider: String = "unknown",
+) {
+    /** True when the agent sent no operator labels/taints (safe to preserve prior). */
+    fun lacksOperatorIdentity(): Boolean =
+        agentLabels.isEmpty() && poolLabels.isEmpty() && taints.isEmpty()
+
+    fun withPreservedOperatorIdentity(node: FleetNode): NodeSchedulingFacts =
+        copy(
+            agentLabels = node.labels.filterKeys { !it.startsWith("forge.dev/") },
+            taints = node.taints,
+            provider = if (provider == "unknown") {
+                node.labels[NodeLabelMerger.LABEL_PROVIDER] ?: "unknown"
+            } else {
+                provider
+            },
+        )
+}
 
 @Serializable
 data class NodeCapacity(
@@ -44,6 +73,10 @@ data class FleetNode(
     val keyRevokedAt: Instant? = null,
     val allocatable: NodeCapacity? = null,
     val reserved: NodeReserved = NodeReserved(),
+    val labels: Map<String, String> = emptyMap(),
+    val taints: List<NodeTaint> = emptyList(),
+    val architecture: String = "amd64",
+    val os: String = "linux",
 ) {
     val keyRevoked: Boolean get() = keyRevokedAt != null
 }
@@ -56,6 +89,7 @@ interface NodeStore {
         capacity: NodeCapacity,
         at: Instant = Instant.now(),
         reserved: NodeReserved = NodeReserved(),
+        facts: NodeSchedulingFacts = NodeSchedulingFacts(),
     ): FleetNode
 
     /**
@@ -74,6 +108,7 @@ interface NodeStore {
         at: Instant = Instant.now(),
         clearKeyRevocation: Boolean = false,
         reserved: NodeReserved = NodeReserved(),
+        facts: NodeSchedulingFacts = NodeSchedulingFacts(),
     ): FleetNode
 
     fun heartbeat(
@@ -126,6 +161,7 @@ class JdbcNodeStore(
         capacity: NodeCapacity,
         at: Instant,
         reserved: NodeReserved,
+        facts: NodeSchedulingFacts,
     ): FleetNode = runSql {
         dataSource.withConnection { conn ->
             val capacityJson = json.encodeToString(capacity)
@@ -133,19 +169,47 @@ class JdbcNodeStore(
             val allocatableJson = json.encodeToString(
                 CapacityAccounting.allocatable(capacity, reserved, overcommit),
             )
+            val existing = find(conn, id)
+            val effective = if (facts.lacksOperatorIdentity() && existing != null) {
+                facts.withPreservedOperatorIdentity(existing)
+            } else {
+                facts
+            }
+            val arch = effective.architecture.ifBlank { "amd64" }
+            val os = effective.os.ifBlank { "linux" }
+            val merged = NodeLabelMerger.merge(
+                nodeId = id,
+                architecture = arch,
+                os = os,
+                provider = effective.provider,
+                poolLabels = effective.poolLabels,
+                agentLabels = effective.agentLabels,
+            )
+            val labelsJson = json.encodeToString(
+                MapSerializer(String.serializer(), String.serializer()),
+                merged.labels,
+            )
+            val taintsJson = json.encodeToString(
+                ListSerializer(NodeTaint.serializer()),
+                effective.taints,
+            )
             conn.prepareStatement(
                 """
                 INSERT INTO nodes (
                     id, address, capacity_json, allocation_json, status, last_heartbeat_at, registered_at,
-                    allocatable_json, reserved_json
-                ) VALUES (?, ?, ?::jsonb, '{}'::jsonb, 'online', ?, ?, ?::jsonb, ?::jsonb)
+                    allocatable_json, reserved_json, labels_json, taints_json, architecture, os
+                ) VALUES (?, ?, ?::jsonb, '{}'::jsonb, 'online', ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?)
                 ON CONFLICT (id) DO UPDATE SET
                     address = EXCLUDED.address,
                     capacity_json = EXCLUDED.capacity_json,
                     status = 'online',
                     last_heartbeat_at = EXCLUDED.last_heartbeat_at,
                     allocatable_json = EXCLUDED.allocatable_json,
-                    reserved_json = EXCLUDED.reserved_json
+                    reserved_json = EXCLUDED.reserved_json,
+                    labels_json = EXCLUDED.labels_json,
+                    taints_json = EXCLUDED.taints_json,
+                    architecture = EXCLUDED.architecture,
+                    os = EXCLUDED.os
                 """.trimIndent(),
             ).use { ps ->
                 ps.setString(1, id)
@@ -155,6 +219,10 @@ class JdbcNodeStore(
                 ps.setTimestamp(5, java.sql.Timestamp.from(at))
                 ps.setString(6, allocatableJson)
                 ps.setString(7, reservedJson)
+                ps.setString(8, labelsJson)
+                ps.setString(9, taintsJson)
+                ps.setString(10, arch)
+                ps.setString(11, os)
                 ps.executeUpdate()
             }
             find(conn, id) ?: error("node missing after register")
@@ -173,6 +241,7 @@ class JdbcNodeStore(
         at: Instant,
         clearKeyRevocation: Boolean,
         reserved: NodeReserved,
+        facts: NodeSchedulingFacts,
     ): FleetNode = runSql {
         dataSource.withConnection { conn ->
             val capacityJson = json.encodeToString(capacity)
@@ -180,18 +249,42 @@ class JdbcNodeStore(
             val allocatableJson = json.encodeToString(
                 CapacityAccounting.allocatable(capacity, reserved, overcommit),
             )
+            val existing = find(conn, id)
+            val effective = if (facts.lacksOperatorIdentity() && existing != null) {
+                facts.withPreservedOperatorIdentity(existing)
+            } else {
+                facts
+            }
+            val arch = effective.architecture.ifBlank { "amd64" }
+            val os = effective.os.ifBlank { "linux" }
+            val merged = NodeLabelMerger.merge(
+                nodeId = id,
+                architecture = arch,
+                os = os,
+                provider = effective.provider,
+                poolLabels = effective.poolLabels,
+                agentLabels = effective.agentLabels,
+            )
+            val labelsJson = json.encodeToString(
+                MapSerializer(String.serializer(), String.serializer()),
+                merged.labels,
+            )
+            val taintsJson = json.encodeToString(
+                ListSerializer(NodeTaint.serializer()),
+                effective.taints,
+            )
             conn.prepareStatement(
                 """
                 INSERT INTO nodes (
                     id, address, capacity_json, allocation_json, status,
                     last_heartbeat_at, registered_at,
                     wireguard_public_key, network_cidr, network_gateway, joined_at, key_revoked_at,
-                    allocatable_json, reserved_json
+                    allocatable_json, reserved_json, labels_json, taints_json, architecture, os
                 ) VALUES (
                     ?, ?, ?::jsonb, '{}'::jsonb, ?,
                     ?, ?,
                     ?, ?::cidr, ?::inet, ?, NULL,
-                    ?::jsonb, ?::jsonb
+                    ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?
                 )
                 ON CONFLICT (id) DO UPDATE SET
                     address = EXCLUDED.address,
@@ -207,7 +300,11 @@ class JdbcNodeStore(
                         ELSE nodes.key_revoked_at
                     END,
                     allocatable_json = EXCLUDED.allocatable_json,
-                    reserved_json = EXCLUDED.reserved_json
+                    reserved_json = EXCLUDED.reserved_json,
+                    labels_json = EXCLUDED.labels_json,
+                    taints_json = EXCLUDED.taints_json,
+                    architecture = EXCLUDED.architecture,
+                    os = EXCLUDED.os
                 """.trimIndent(),
             ).use { ps ->
                 ps.setString(1, id)
@@ -226,7 +323,11 @@ class JdbcNodeStore(
                 }
                 ps.setString(11, allocatableJson)
                 ps.setString(12, reservedJson)
-                ps.setBoolean(13, clearKeyRevocation)
+                ps.setString(13, labelsJson)
+                ps.setString(14, taintsJson)
+                ps.setString(15, arch)
+                ps.setString(16, os)
+                ps.setBoolean(17, clearKeyRevocation)
                 ps.executeUpdate()
             }
             find(conn, id) ?: error("node missing after join register")
@@ -306,7 +407,8 @@ class JdbcNodeStore(
                 SELECT id, address, capacity_json, allocation_json, status,
                        last_heartbeat_at, registered_at,
                        wireguard_public_key, network_cidr::text, network_gateway::text,
-                       joined_at, key_revoked_at, allocatable_json, reserved_json
+                       joined_at, key_revoked_at, allocatable_json, reserved_json,
+                       labels_json, taints_json, architecture, os
                 FROM nodes
                 ORDER BY id
                 """.trimIndent(),
@@ -468,7 +570,8 @@ class JdbcNodeStore(
             SELECT id, address, capacity_json, allocation_json, status,
                    last_heartbeat_at, registered_at,
                    wireguard_public_key, network_cidr::text, network_gateway::text,
-                   joined_at, key_revoked_at, allocatable_json, reserved_json
+                   joined_at, key_revoked_at, allocatable_json, reserved_json,
+                   labels_json, taints_json, architecture, os
             FROM nodes
             WHERE id = ?
             """.trimIndent(),
@@ -497,6 +600,12 @@ class JdbcNodeStore(
         } else {
             json.decodeFromString(NodeCapacity.serializer(), allocatableRaw)
         }
+        val labelsRaw = runCatching { rs.getString("labels_json") }.getOrNull()
+        val taintsRaw = runCatching { rs.getString("taints_json") }.getOrNull()
+        val architecture = runCatching { rs.getString("architecture") }.getOrNull()
+            ?.takeIf { it.isNotBlank() } ?: "amd64"
+        val os = runCatching { rs.getString("os") }.getOrNull()
+            ?.takeIf { it.isNotBlank() } ?: "linux"
         return FleetNode(
             id = rs.getString("id"),
             address = rs.getString("address"),
@@ -516,6 +625,10 @@ class JdbcNodeStore(
             keyRevokedAt = rs.getTimestamp("key_revoked_at")?.toInstant(),
             allocatable = allocatable,
             reserved = reserved,
+            labels = decodeLabels(labelsRaw),
+            taints = decodeTaints(taintsRaw),
+            architecture = architecture,
+            os = os,
         )
     }
 }
@@ -532,8 +645,24 @@ class InMemoryNodeStore(
         capacity: NodeCapacity,
         at: Instant,
         reserved: NodeReserved,
+        facts: NodeSchedulingFacts,
     ): FleetNode {
         val existing = rows[id]
+        val effective = if (facts.lacksOperatorIdentity() && existing != null) {
+            facts.withPreservedOperatorIdentity(existing)
+        } else {
+            facts
+        }
+        val arch = effective.architecture.ifBlank { "amd64" }
+        val os = effective.os.ifBlank { "linux" }
+        val merged = NodeLabelMerger.merge(
+            nodeId = id,
+            architecture = arch,
+            os = os,
+            provider = effective.provider,
+            poolLabels = effective.poolLabels,
+            agentLabels = effective.agentLabels,
+        )
         val node = FleetNode(
             id = id,
             address = address,
@@ -549,6 +678,10 @@ class InMemoryNodeStore(
             keyRevokedAt = existing?.keyRevokedAt,
             allocatable = CapacityAccounting.allocatable(capacity, reserved, overcommit),
             reserved = reserved,
+            labels = merged.labels,
+            taints = effective.taints,
+            architecture = arch,
+            os = os,
         )
         rows[id] = node
         return node
@@ -566,8 +699,24 @@ class InMemoryNodeStore(
         at: Instant,
         clearKeyRevocation: Boolean,
         reserved: NodeReserved,
+        facts: NodeSchedulingFacts,
     ): FleetNode {
         val existing = rows[id]
+        val effectiveFacts = if (facts.lacksOperatorIdentity() && existing != null) {
+            facts.withPreservedOperatorIdentity(existing)
+        } else {
+            facts
+        }
+        val arch = effectiveFacts.architecture.ifBlank { "amd64" }
+        val os = effectiveFacts.os.ifBlank { "linux" }
+        val merged = NodeLabelMerger.merge(
+            nodeId = id,
+            architecture = arch,
+            os = os,
+            provider = effectiveFacts.provider,
+            poolLabels = effectiveFacts.poolLabels,
+            agentLabels = effectiveFacts.agentLabels,
+        )
         val node = FleetNode(
             id = id,
             address = address,
@@ -583,6 +732,10 @@ class InMemoryNodeStore(
             keyRevokedAt = if (clearKeyRevocation) null else existing?.keyRevokedAt,
             allocatable = CapacityAccounting.allocatable(capacity, reserved, overcommit),
             reserved = reserved,
+            labels = merged.labels,
+            taints = effectiveFacts.taints,
+            architecture = arch,
+            os = os,
         )
         rows[id] = node
         return node
@@ -694,6 +847,20 @@ class InMemoryNodeStore(
             return true
         }
     }
+}
+
+private fun decodeLabels(raw: String?): Map<String, String> {
+    if (raw.isNullOrBlank() || raw == "{}") return emptyMap()
+    return runCatching {
+        json.decodeFromString(MapSerializer(String.serializer(), String.serializer()), raw)
+    }.getOrDefault(emptyMap())
+}
+
+private fun decodeTaints(raw: String?): List<NodeTaint> {
+    if (raw.isNullOrBlank() || raw == "[]") return emptyList()
+    return runCatching {
+        json.decodeFromString(ListSerializer(NodeTaint.serializer()), raw)
+    }.getOrDefault(emptyList())
 }
 
 private fun bumpAllocation(

@@ -25,6 +25,7 @@ object SchedulerFactory {
         schedulerEnabled: Boolean,
         placementStore: PlacementStore? = null,
         telemetry: Telemetry = Telemetry.current(),
+        strictNodeSelector: Boolean = false,
     ): Scheduler {
         if (!schedulerEnabled) {
             return SingleNodeScheduler(nodeId = null)
@@ -38,12 +39,14 @@ object SchedulerFactory {
                 reservation,
                 antiAffinity,
                 onSoftFallback,
+                strictNodeSelector,
             )
             STRATEGY_LEAST_ALLOCATED -> LeastAllocatedScheduler(
                 nodeStore,
                 reservation,
                 antiAffinity,
                 onSoftFallback,
+                strictNodeSelector,
             )
             STRATEGY_SINGLE_NODE -> SingleNodeScheduler(
                 availableNodes = {

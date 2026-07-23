@@ -1,5 +1,7 @@
+use crate::config::NodeTaintConfig;
 use crate::docker::DockerEngine;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
@@ -18,6 +20,14 @@ pub struct CapacityReport {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
+struct TaintReport {
+    key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    value: Option<String>,
+    effect: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
 struct RegisterBody {
     node_id: String,
     address: String,
@@ -26,6 +36,18 @@ struct RegisterBody {
     bootstrap_token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     wireguard_public_key: Option<String>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    labels: HashMap<String, String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    taints: Vec<TaintReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    architecture: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    os: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pool_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -48,6 +70,12 @@ pub struct HeartbeatReporter {
     capacity: CapacityReport,
     bootstrap_token: Option<String>,
     wireguard_public_key: Option<String>,
+    labels: HashMap<String, String>,
+    taints: Vec<TaintReport>,
+    architecture: String,
+    os: String,
+    provider: Option<String>,
+    pool_id: Option<String>,
     docker: Arc<dyn DockerEngine>,
     http: reqwest::Client,
 }
@@ -60,9 +88,24 @@ impl HeartbeatReporter {
         capacity: CapacityReport,
         docker: Arc<dyn DockerEngine>,
     ) -> Result<Self, String> {
-        Self::new_with_join(control_url, node_id, address, capacity, None, None, docker)
+        Self::new_with_join(
+            control_url,
+            node_id,
+            address,
+            capacity,
+            None,
+            None,
+            docker,
+            HashMap::new(),
+            Vec::new(),
+            None,
+            crate::node::host_architecture(),
+            crate::node::host_os(),
+            None,
+        )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_join(
         control_url: impl Into<String>,
         node_id: impl Into<String>,
@@ -71,6 +114,12 @@ impl HeartbeatReporter {
         bootstrap_token: Option<String>,
         wireguard_public_key: Option<String>,
         docker: Arc<dyn DockerEngine>,
+        labels: HashMap<String, String>,
+        taints: Vec<NodeTaintConfig>,
+        provider: Option<String>,
+        architecture: String,
+        os: String,
+        pool_id: Option<String>,
     ) -> Result<Self, String> {
         let base_url = control_url.into().trim().trim_end_matches('/').to_string();
         if base_url.is_empty() {
@@ -87,6 +136,19 @@ impl HeartbeatReporter {
             capacity,
             bootstrap_token,
             wireguard_public_key,
+            labels,
+            taints: taints
+                .into_iter()
+                .map(|t| TaintReport {
+                    key: t.key,
+                    value: t.value,
+                    effect: t.effect,
+                })
+                .collect(),
+            architecture,
+            os,
+            provider,
+            pool_id,
             docker,
             http,
         })
@@ -107,6 +169,12 @@ impl HeartbeatReporter {
             capacity: self.capacity.clone(),
             bootstrap_token: self.bootstrap_token.clone(),
             wireguard_public_key: self.wireguard_public_key.clone(),
+            labels: self.labels.clone(),
+            taints: self.taints.clone(),
+            architecture: Some(self.architecture.clone()),
+            os: Some(self.os.clone()),
+            provider: self.provider.clone(),
+            pool_id: self.pool_id.clone(),
         };
         let payload =
             serde_json::to_string(&body).map_err(|e| format!("register encode: {e}"))?;
@@ -127,6 +195,10 @@ impl HeartbeatReporter {
                 slots = self.capacity.slots,
                 has_bootstrap_token = self.bootstrap_token.is_some(),
                 has_wireguard_public_key = self.wireguard_public_key.is_some(),
+                architecture = %self.architecture,
+                os = %self.os,
+                labels = ?self.labels,
+                taints = self.taints.len(),
                 "registered node with control"
             );
             Ok(())
@@ -288,11 +360,9 @@ mod tests {
             when.method(POST)
                 .path("/v1/nodes/register")
                 .header("content-type", "application/json")
-                .json_body(serde_json::json!({
-                    "node_id": "node-a",
-                    "address": "http://runtime-a:4102",
-                    "capacity": {"slots": 4, "cpu_millis": 4000, "mem_mb": 4096}
-                }));
+                .body_contains(r#""node_id":"node-a""#)
+                .body_contains(r#""capacity":{"slots":4,"cpu_millis":4000,"mem_mb":4096}"#)
+                .body_contains(r#""architecture":"#);
             then.status(201).json_body(serde_json::json!({"ok": true}));
         });
         let heartbeat = server.mock(|when, then| {

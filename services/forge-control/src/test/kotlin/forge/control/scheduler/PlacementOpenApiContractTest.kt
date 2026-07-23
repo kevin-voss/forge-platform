@@ -44,6 +44,9 @@ class PlacementOpenApiContractTest {
         assertTrue(yaml.contains("/v1/placements/{placementId}") || yaml.contains("getPlacement"))
         assertTrue(yaml.contains("allocatable"))
         assertTrue(yaml.contains("\"slots\": 1") || yaml.contains("slots: 1") || yaml.contains("legacySlots"))
+        assertTrue(yaml.contains("nodeSelector") || yaml.contains("PlacementConstraints"))
+        assertTrue(yaml.contains("tolerations") || yaml.contains("Toleration"))
+        assertTrue(yaml.contains("platform") || yaml.contains("PlatformSpec"))
     }
 
     @Test

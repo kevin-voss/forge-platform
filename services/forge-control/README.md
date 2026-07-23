@@ -168,6 +168,7 @@ make dev
 | `FORGE_SCHEDULER_ENABLED` | `true` | Reconciler delegates placement before starting replicas |
 | `FORGE_SCHEDULER_STRATEGY` | `least-allocated` | `first-fit` \| `least-allocated` \| `single-node` |
 | `FORGE_SCHEDULER_LOCAL_NODE_ID` | `node-local` | Fallback sole node for `single-node` when the fleet is empty |
+| `FORGE_STRICT_NODE_SELECTOR` | `false` | When true, empty `placement.nodeSelector` is a hard error instead of match-all |
 | `FORGE_NETWORK_URL` | _(empty)_ | `forge-network` base URL for join leases (`22.02`); empty keeps legacy docker register path |
 | `FORGE_NETWORK_NAME` | `cluster-overlay` | Network resource name used for node-block leases |
 | `FORGE_BOOTSTRAP_TOKEN_TTL_S` | `900` | Default TTL for issued bootstrap tokens |

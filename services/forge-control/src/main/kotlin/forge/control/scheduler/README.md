@@ -36,6 +36,13 @@ overcommit − reserved). Placement filters emit structured
 `GET /v1/placements/{id}` returns requests/limits/trace. Runtime reports host
 capacity and optionally enforces Docker limits (`FORGE_ENFORCE_LIMITS`).
 
+**Labels / taints / platform (25.02):** Nodes carry merged labels (`forge.dev/*`
+reserved + pool + agent), taints, and architecture/OS. Placement applies
+`node_selector` → `platform` → `taints` filters after capacity and records each
+in `trace.filters`. `NoExecute` taint additions evict non-tolerating placements
+via the 08.05 reschedule path. Runtime sets labels/taints via
+`FORGE_NODE_LABELS` / `FORGE_NODE_TAINTS` and reports host arch/OS.
+
 **Demo gate (08.06):** `make demo DEMO=08` (`demos/08-multi-node`) runs two
 Runtime agents, asserts 2+2 placement distribution, then stops `node-b` and
 checks reschedule onto `node-a` via `/v1/nodes` + `/v1/placements`.

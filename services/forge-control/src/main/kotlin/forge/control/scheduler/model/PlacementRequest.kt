@@ -10,6 +10,8 @@ data class PlacementRequest(
     val serviceId: String? = null,
     val requirements: ResourceRequirements = ResourceRequirements(),
     val antiAffinity: AntiAffinity = AntiAffinity.Soft,
+    val placement: PlacementSpec = PlacementSpec(),
+    val platform: PlatformSpec? = null,
 ) {
     init {
         require(deploymentId.isNotBlank()) { "deploymentId must not be blank" }

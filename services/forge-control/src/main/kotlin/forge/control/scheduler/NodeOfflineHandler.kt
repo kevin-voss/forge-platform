@@ -5,6 +5,7 @@ import forge.control.reconcile.DeploymentEvent
 import forge.control.reconcile.DeploymentHistory
 import forge.control.reconcile.DeploymentStore
 import forge.control.scheduler.model.AntiAffinity
+import forge.control.scheduler.model.PlacementSpec
 import forge.control.telemetry.Telemetry
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.trace.Span
@@ -170,6 +171,21 @@ class NodeOfflineHandler(
             slots = lost.slots,
             antiAffinity = affinity,
             rescheduledFromNode = fromNode,
+            requirements = when {
+                lost.requests != null && !lost.requests.isEmpty() ->
+                    forge.control.scheduler.model.ResourceRequirements(
+                        slots = lost.slots.coerceAtLeast(1),
+                        requests = lost.requests,
+                        limits = lost.limits,
+                        slotsExplicit = true,
+                    )
+                else -> null
+            },
+            placement = PlacementSpec(
+                nodeSelector = lost.nodeSelector.orEmpty(),
+                tolerations = lost.tolerations,
+            ),
+            platform = lost.platform,
         )
         val (toNode, resultLabel) = when (result) {
             is PlaceResult.Ok -> result.placement.nodeId to "placed"

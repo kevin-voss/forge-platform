@@ -4,6 +4,7 @@ import forge.control.logging.JsonLog
 import forge.control.scheduler.model.AntiAffinity
 import forge.control.scheduler.model.PlacementDecision
 import forge.control.scheduler.model.PlacementRequest
+import forge.control.scheduler.model.PlacementSpec
 import forge.control.scheduler.model.ResourceRequirements
 import forge.control.telemetry.Telemetry
 import io.opentelemetry.api.common.AttributeKey
@@ -98,6 +99,11 @@ class QueueProcessor(
             serviceId = pending.serviceId,
             requirements = requirements,
             antiAffinity = AntiAffinity.parse(pending.antiAffinity),
+            placement = PlacementSpec(
+                nodeSelector = pending.nodeSelector.orEmpty(),
+                tolerations = pending.tolerations,
+            ),
+            platform = pending.platform,
         )
         return when (val decision = scheduler.place(request)) {
             is PlacementDecision.NoNodeAvailable -> false

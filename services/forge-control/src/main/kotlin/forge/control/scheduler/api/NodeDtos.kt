@@ -5,6 +5,7 @@ import forge.control.scheduler.LivenessMonitor
 import forge.control.scheduler.NodeAllocation
 import forge.control.scheduler.NodeCapacity
 import forge.control.scheduler.PeerInfo
+import forge.control.scheduler.model.NodeTaint
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -15,6 +16,12 @@ data class RegisterNodeRequest(
     val capacity: NodeCapacityDto? = null,
     @SerialName("bootstrap_token") val bootstrapToken: String? = null,
     @SerialName("wireguard_public_key") val wireguardPublicKey: String? = null,
+    val labels: Map<String, String>? = null,
+    val taints: List<NodeTaint>? = null,
+    val architecture: String? = null,
+    val os: String? = null,
+    val provider: String? = null,
+    @SerialName("pool_id") val poolId: String? = null,
 )
 
 @Serializable
@@ -70,6 +77,10 @@ data class NodeResponse(
     val network: NetworkAssignmentDto? = null,
     val peers: List<PeerDto>? = null,
     @SerialName("wireguard_public_key") val wireguardPublicKey: String? = null,
+    val labels: Map<String, String> = emptyMap(),
+    val taints: List<NodeTaint> = emptyList(),
+    val architecture: String = "amd64",
+    val os: String = "linux",
 )
 
 fun NodeCapacityDto.toModel(): NodeCapacity? {
@@ -129,6 +140,10 @@ fun FleetNode.toResponse(peers: List<PeerInfo> = emptyList()): NodeResponse {
             else -> null
         },
         wireguardPublicKey = wireguardPublicKey,
+        labels = labels,
+        taints = taints,
+        architecture = architecture,
+        os = os,
     )
 }
 

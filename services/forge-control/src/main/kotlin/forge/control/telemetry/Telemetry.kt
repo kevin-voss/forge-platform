@@ -66,6 +66,8 @@ class Telemetry private constructor(
     private val rescheduleTotal: LongCounter,
     private val nodeOfflineTotal: LongCounter,
     private val staleReplicasFenced: LongCounter,
+    private val placementFiltered: LongCounter,
+    private val taintEvictions: LongCounter,
     private val managedDbInstances: LongCounter,
     private val managedDbProvisionDuration: DoubleHistogram,
     private val managedDbProvisionErrors: LongCounter,
@@ -303,6 +305,29 @@ class Telemetry private constructor(
 
     fun recordStaleReplicaFenced() {
         staleReplicasFenced.add(1)
+    }
+
+    fun recordPlacementFiltered(filter: String) {
+        placementFiltered.add(
+            1,
+            Attributes.of(AttributeKey.stringKey("filter"), filter),
+        )
+    }
+
+    fun recordTaintEviction() {
+        taintEvictions.add(1)
+    }
+
+    fun recordNodeArchOs(architecture: String, os: String) {
+        nodesTotal.add(
+            1,
+            Attributes.of(
+                AttributeKey.stringKey("architecture"),
+                architecture,
+                AttributeKey.stringKey("os"),
+                os,
+            ),
+        )
     }
 
     fun recordManagedDbInstance(status: String) {
@@ -556,6 +581,12 @@ class Telemetry private constructor(
                 nodeOfflineTotal = meter.counterBuilder("forge_node_offline_total").build(),
                 staleReplicasFenced = meter
                     .counterBuilder("forge_stale_replicas_fenced_total")
+                    .build(),
+                placementFiltered = meter
+                    .counterBuilder("forge_placement_filtered_total")
+                    .build(),
+                taintEvictions = meter
+                    .counterBuilder("forge_taint_evictions_total")
                     .build(),
                 managedDbInstances = meter.counterBuilder("managed_db_instances_total").build(),
                 managedDbProvisionDuration = meter

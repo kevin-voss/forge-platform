@@ -6,7 +6,11 @@ import forge.control.scheduler.JoinRegisterCommand
 import forge.control.scheduler.LivenessMonitor
 import forge.control.scheduler.NodeCapacity
 import forge.control.scheduler.NodeJoinOrchestrator
+import forge.control.scheduler.NodeLabelMerger
+import forge.control.scheduler.NodeSchedulingFacts
 import forge.control.scheduler.NodeStore
+import forge.control.scheduler.TaintChangeHandler
+import forge.control.scheduler.model.NodeTaint
 import forge.control.telemetry.Telemetry
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.request.receive
@@ -24,6 +28,7 @@ fun Route.nodeRegistrationRoutes(
     clock: () -> Instant = { Instant.now() },
     onRegistered: (() -> Unit)? = null,
     joinOrchestrator: NodeJoinOrchestrator? = null,
+    taintChangeHandler: TaintChangeHandler? = null,
 ) {
     route("/v1/nodes") {
         post("/register") {
@@ -54,6 +59,9 @@ fun Route.nodeRegistrationRoutes(
                 )
             }
 
+            val facts = body.toSchedulingFacts()
+            val previousTaints = store.find(nodeId)?.taints.orEmpty()
+
             val orchestrator = joinOrchestrator
             if (orchestrator != null) {
                 val result = orchestrator.register(
@@ -63,16 +71,13 @@ fun Route.nodeRegistrationRoutes(
                         capacity = capacity,
                         bootstrapToken = body.bootstrapToken,
                         wireguardPublicKey = body.wireguardPublicKey,
+                        facts = facts,
                     ),
                 )
-                log.info(
-                    if (result.created) "node registered" else "node registration idempotent",
-                    "node_id" to result.node.id,
-                    "address" to result.node.address,
-                    "slots" to result.node.capacity.slots,
-                    "status" to result.node.status,
-                )
+                logRegistration(log, result.created, result.node, facts)
                 telemetry.recordNodeStatus(result.node.status)
+                telemetry.recordNodeArchOs(result.node.architecture, result.node.os)
+                taintChangeHandler?.onTaintsChanged(nodeId, previousTaints, result.node.taints)
                 if (result.created) {
                     try {
                         onRegistered?.invoke()
@@ -95,15 +100,12 @@ fun Route.nodeRegistrationRoutes(
                 address = address,
                 capacity = capacity,
                 at = clock(),
+                facts = facts,
             )
-            log.info(
-                if (created) "node registered" else "node registration idempotent",
-                "node_id" to node.id,
-                "address" to node.address,
-                "slots" to node.capacity.slots,
-                "status" to node.status,
-            )
+            logRegistration(log, created, node, facts)
             telemetry.recordNodeStatus(node.status)
+            telemetry.recordNodeArchOs(node.architecture, node.os)
+            taintChangeHandler?.onTaintsChanged(nodeId, previousTaints, node.taints)
             if (created) {
                 try {
                     onRegistered?.invoke()
@@ -213,4 +215,63 @@ fun Route.nodeRegistrationRoutes(
             call.respond(HttpStatusCode.OK, revoked.toResponse())
         }
     }
+}
+
+private fun RegisterNodeRequest.toSchedulingFacts(): NodeSchedulingFacts {
+    val arch = architecture?.trim()?.takeIf { it.isNotEmpty() } ?: "amd64"
+    val nodeOs = os?.trim()?.takeIf { it.isNotEmpty() } ?: "linux"
+    val providerLabel = provider?.trim()?.takeIf { it.isNotEmpty() }
+        ?: labels?.get(NodeLabelMerger.LABEL_PROVIDER)
+        ?: "unknown"
+    val agentLabels = labels.orEmpty().filterKeys { it.isNotBlank() }
+    val parsedTaints = taints.orEmpty().mapNotNull { taint ->
+        val key = taint.key.trim()
+        if (key.isEmpty()) return@mapNotNull null
+        val effect = taint.effect.trim()
+        if (effect != "NoSchedule" && effect != "NoExecute") return@mapNotNull null
+        NodeTaint(key = key, value = taint.value, effect = effect)
+    }
+    return NodeSchedulingFacts(
+        agentLabels = agentLabels,
+        taints = parsedTaints,
+        architecture = arch,
+        os = nodeOs.lowercase(),
+        provider = providerLabel,
+    )
+}
+
+private fun logRegistration(
+    log: JsonLog,
+    created: Boolean,
+    node: forge.control.scheduler.FleetNode,
+    facts: NodeSchedulingFacts,
+) {
+    val conflicts = NodeLabelMerger.merge(
+        nodeId = node.id,
+        architecture = node.architecture,
+        os = node.os,
+        provider = facts.provider,
+        poolLabels = facts.poolLabels,
+        agentLabels = facts.agentLabels,
+    ).conflicts
+    for (conflict in conflicts) {
+        log.info(
+            "node label conflict",
+            "node_id" to node.id,
+            "key" to conflict.key,
+            "pool_value" to conflict.poolValue,
+            "node_value" to conflict.nodeValue,
+        )
+    }
+    log.info(
+        if (created) "node registered" else "node registration idempotent",
+        "node_id" to node.id,
+        "address" to node.address,
+        "slots" to node.capacity.slots,
+        "status" to node.status,
+        "labels" to node.labels.toString(),
+        "taints" to node.taints.toString(),
+        "architecture" to node.architecture,
+        "os" to node.os,
+    )
 }

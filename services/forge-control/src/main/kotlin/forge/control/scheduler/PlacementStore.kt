@@ -5,8 +5,13 @@ import forge.control.repo.runSql
 import forge.control.repo.uuid
 import forge.control.repo.withConnection
 import forge.control.scheduler.model.PlacementTrace
+import forge.control.scheduler.model.PlatformSpec
 import forge.control.scheduler.model.ResourceBundle
+import forge.control.scheduler.model.Toleration
 import forge.control.scheduler.model.UnschedulableReasonEntry
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.time.Instant
@@ -36,11 +41,13 @@ data class Placement(
     val requests: ResourceBundle? = null,
     val limits: ResourceBundle? = null,
     val trace: PlacementTrace? = null,
+    val nodeSelector: Map<String, String>? = null,
+    val tolerations: List<Toleration> = emptyList(),
+    val platform: PlatformSpec? = null,
 ) {
     val unschedulableReasons: List<UnschedulableReasonEntry>
         get() = trace?.filters
-            ?.firstOrNull { it.name == "capacity" }
-            ?.eliminated
+            ?.flatMap { it.eliminated }
             .orEmpty()
 }
 
@@ -99,8 +106,12 @@ class JdbcPlacementStore(
                 INSERT INTO placements (
                     id, deployment_id, replica_index, node_id, strategy, reason, created_at,
                     status, anti_affinity, slots, service_id, rescheduled_from_node,
-                    requests_json, limits_json, trace_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb)
+                    requests_json, limits_json, trace_json,
+                    node_selector_json, tolerations_json, platform_json
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb
+                )
                 ON CONFLICT (deployment_id, replica_index)
                     WHERE status IN ('placed', 'pending')
                 DO NOTHING
@@ -121,6 +132,23 @@ class JdbcPlacementStore(
                 ps.setString(13, placement.requests?.let { placementJson.encodeToString(it) })
                 ps.setString(14, placement.limits?.let { placementJson.encodeToString(it) })
                 ps.setString(15, placement.trace?.let { placementJson.encodeToString(it) })
+                ps.setString(
+                    16,
+                    placement.nodeSelector?.takeIf { it.isNotEmpty() }?.let {
+                        placementJson.encodeToString(
+                            MapSerializer(String.serializer(), String.serializer()),
+                            it,
+                        )
+                    },
+                )
+                ps.setString(
+                    17,
+                    placementJson.encodeToString(
+                        ListSerializer(Toleration.serializer()),
+                        placement.tolerations,
+                    ),
+                )
+                ps.setString(18, placement.platform?.let { placementJson.encodeToString(it) })
                 ps.executeUpdate()
             }
             find(conn, placement.deploymentId, placement.replicaIndex)
@@ -139,7 +167,8 @@ class JdbcPlacementStore(
                     """
                     SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
                            status, anti_affinity, slots, service_id, rescheduled_from_node,
-                           requests_json, limits_json, trace_json
+                           requests_json, limits_json, trace_json,
+                           node_selector_json, tolerations_json, platform_json
                     FROM placements
                     WHERE deployment_id = ?
                     """.trimIndent(),
@@ -204,7 +233,8 @@ class JdbcPlacementStore(
                 """
                 SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
                        status, anti_affinity, slots, service_id, rescheduled_from_node,
-                       requests_json, limits_json, trace_json
+                       requests_json, limits_json, trace_json,
+                       node_selector_json, tolerations_json, platform_json
                 FROM placements
                 WHERE status = 'pending'
                 ORDER BY created_at ASC, replica_index ASC
@@ -268,7 +298,8 @@ class JdbcPlacementStore(
                 """
                 SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
                        status, anti_affinity, slots, service_id, rescheduled_from_node,
-                       requests_json, limits_json, trace_json
+                       requests_json, limits_json, trace_json,
+                       node_selector_json, tolerations_json, platform_json
                 FROM placements
                 WHERE id = ?
                 ORDER BY created_at DESC
@@ -291,7 +322,8 @@ class JdbcPlacementStore(
                     """
                     SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
                            status, anti_affinity, slots, service_id, rescheduled_from_node,
-                           requests_json, limits_json, trace_json
+                           requests_json, limits_json, trace_json,
+                           node_selector_json, tolerations_json, platform_json
                     FROM placements
                     WHERE node_id = ?
                     """.trimIndent(),
@@ -334,7 +366,8 @@ class JdbcPlacementStore(
                 """
                 SELECT l.id, l.deployment_id, l.replica_index, l.node_id, l.strategy, l.reason,
                        l.created_at, l.status, l.anti_affinity, l.slots, l.service_id,
-                       l.rescheduled_from_node, l.requests_json, l.limits_json, l.trace_json
+                       l.rescheduled_from_node, l.requests_json, l.limits_json, l.trace_json,
+                       l.node_selector_json, l.tolerations_json, l.platform_json
                 FROM placements l
                 WHERE l.status = 'lost'
                   AND NOT EXISTS (
@@ -374,7 +407,8 @@ class JdbcPlacementStore(
                 """
                 SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
                        status, anti_affinity, slots, service_id, rescheduled_from_node,
-                       requests_json, limits_json, trace_json
+                       requests_json, limits_json, trace_json,
+                       node_selector_json, tolerations_json, platform_json
                 FROM placements
                 WHERE deployment_id = ? AND replica_index = ?
                 """.trimIndent(),
@@ -400,6 +434,9 @@ class JdbcPlacementStore(
         val requestsRaw = runCatching { rs.getString("requests_json") }.getOrNull()
         val limitsRaw = runCatching { rs.getString("limits_json") }.getOrNull()
         val traceRaw = runCatching { rs.getString("trace_json") }.getOrNull()
+        val selectorRaw = runCatching { rs.getString("node_selector_json") }.getOrNull()
+        val tolerationsRaw = runCatching { rs.getString("tolerations_json") }.getOrNull()
+        val platformRaw = runCatching { rs.getString("platform_json") }.getOrNull()
         return Placement(
             id = rs.getString("id"),
             deploymentId = rs.uuid("deployment_id"),
@@ -416,6 +453,9 @@ class JdbcPlacementStore(
             requests = decodeBundle(requestsRaw),
             limits = decodeBundle(limitsRaw),
             trace = decodeTrace(traceRaw),
+            nodeSelector = decodeSelector(selectorRaw),
+            tolerations = decodeTolerations(tolerationsRaw),
+            platform = decodePlatform(platformRaw),
         )
     }
 
@@ -430,6 +470,30 @@ class JdbcPlacementStore(
         if (raw.isNullOrBlank() || raw == "{}") return null
         return runCatching {
             placementJson.decodeFromString(PlacementTrace.serializer(), raw)
+        }.getOrNull()
+    }
+
+    private fun decodeSelector(raw: String?): Map<String, String>? {
+        if (raw.isNullOrBlank() || raw == "{}") return null
+        return runCatching {
+            placementJson.decodeFromString(
+                MapSerializer(String.serializer(), String.serializer()),
+                raw,
+            )
+        }.getOrNull()
+    }
+
+    private fun decodeTolerations(raw: String?): List<Toleration> {
+        if (raw.isNullOrBlank() || raw == "[]") return emptyList()
+        return runCatching {
+            placementJson.decodeFromString(ListSerializer(Toleration.serializer()), raw)
+        }.getOrDefault(emptyList())
+    }
+
+    private fun decodePlatform(raw: String?): PlatformSpec? {
+        if (raw.isNullOrBlank() || raw == "{}") return null
+        return runCatching {
+            placementJson.decodeFromString(PlatformSpec.serializer(), raw)
         }.getOrNull()
     }
 }

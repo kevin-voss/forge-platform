@@ -12,6 +12,7 @@ class LeastAllocatedScheduler(
     private val reservation: CapacityReservation,
     private val antiAffinity: AntiAffinityFilter = AntiAffinityFilter.noop(),
     private val onSoftFallback: (() -> Unit)? = null,
+    private val strictNodeSelector: Boolean = false,
 ) : Scheduler {
     override fun place(request: PlacementRequest): PlacementDecision =
         CapacityAwarePlacement.place(
@@ -30,6 +31,7 @@ class LeastAllocatedScheduler(
             reasonFor = { chosen, freeBefore ->
                 "least-allocated: ${chosen.id} free=$freeBefore"
             },
+            strictNodeSelector = strictNodeSelector,
         )
 
     companion object {
