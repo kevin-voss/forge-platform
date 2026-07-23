@@ -75,7 +75,7 @@ test-integration: run
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
 	@grep -q '4303' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-memory.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "/v1/collections" in p; assert "/upsert" in p and "/query" in p; assert "dimension_mismatch" in p; assert "namespace" in p; assert "bearerAuth" in p; assert "forge-memory" in p; paths=[l for l in p.splitlines() if l.startswith("  /")]; assert len(paths)>=8, paths'
+	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-memory.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "/v1/collections" in p; assert "/upsert" in p and "/query" in p; assert "dimension_mismatch" in p; assert "embedding_backend_unavailable" in p; assert "UpsertTextItem" in p; assert "text:" in p; assert "namespace" in p; assert "bearerAuth" in p; assert "forge-memory" in p; paths=[l for l in p.splitlines() if l.startswith("  /")]; assert len(paths)>=8, paths'
 	@BASE=http://127.0.0.1:$(HOST_PORT); P='-H X-Forge-Project:proj-a'; \
 		curl -fsS $$P -XPOST $$BASE/v1/collections -H 'content-type: application/json' \
 			-d '{"name":"incidents","dim":384,"distance":"cosine"}' | grep -q '"dim":384'; \

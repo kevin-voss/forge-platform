@@ -114,6 +114,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         storage_url=resolved.forge_storage_url,
         models_url=resolved.forge_models_url,
         events_url=resolved.forge_events_url,
+        memory_url=resolved.forge_memory_url,
         timeout_seconds=resolved.forge_agents_tool_timeout_seconds,
     )
     tool_registry = build_tool_registry(mode, config=tool_backend)

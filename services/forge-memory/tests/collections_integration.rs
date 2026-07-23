@@ -67,6 +67,8 @@ fn app_state(root: &std::path::Path, base: &std::path::Path) -> AppState {
         meta_path,
         auth_mode: forge_memory::config::AuthMode::Dev,
         identity: None,
+        models: None,
+        default_embed_model: "local-embed-small".into(),
     };
     state
 }

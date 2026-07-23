@@ -58,7 +58,7 @@ make demo DEMO=17
 | [17.02](../steps/17-forge-memory/17.02-collections-vectors-metadata.md) | Collections + fixed-dim vectors + metadata | Complete | Depends on 17.01 |
 | [17.03](../steps/17-forge-memory/17.03-upsert-cosine-nn.md) | Upsert + cosine NN query | Complete | Depends on 17.02; brute-force |
 | [17.04](../steps/17-forge-memory/17.04-namespace-acl.md) | Namespace/ACL via Identity project scope | Complete | Project+namespace; Identity enforce; cross-project 404 |
-| [17.05](../steps/17-forge-memory/17.05-models-embed-agents-tool.md) | Models embed + Agents retrieval tool | Not started | Depends on 17.04; 14, 15 |
+| [17.05](../steps/17-forge-memory/17.05-models-embed-agents-tool.md) | Models embed + Agents retrieval tool | Complete | Text upsert/query via Models; Agents `memory.*` tools |
 | [17.06](../steps/17-forge-memory/17.06-demo-and-gate.md) | Demo `17-agent-memory` + gate | Not started | Depends on 17.05 |
 
 ## Assumptions
@@ -78,4 +78,4 @@ make demo DEMO=17
 
 ## Next step to implement
 
-**[17.05](../steps/17-forge-memory/17.05-models-embed-agents-tool.md) — Models embed + Agents retrieval tool**
+**[17.06](../steps/17-forge-memory/17.06-demo-and-gate.md) — Demo `17-agent-memory` + gate**

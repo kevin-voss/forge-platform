@@ -54,6 +54,10 @@ class Settings(BaseSettings):
         default="http://forge-events:4105",
         alias="FORGE_EVENTS_URL",
     )
+    forge_memory_url: str = Field(
+        default="http://forge-memory:4303",
+        alias="FORGE_MEMORY_URL",
+    )
     forge_agents_defs_dir: str = Field(
         default="",
         alias="FORGE_AGENTS_DEFS_DIR",
@@ -114,6 +118,7 @@ class Settings(BaseSettings):
         "forge_observe_url",
         "forge_storage_url",
         "forge_events_url",
+        "forge_memory_url",
         mode="before",
     )
     @classmethod
@@ -151,6 +156,11 @@ class Settings(BaseSettings):
     @classmethod
     def validate_events_url(cls, value: str) -> str:
         return _validate_http_url(value, name="FORGE_EVENTS_URL")
+
+    @field_validator("forge_memory_url")
+    @classmethod
+    def validate_memory_url(cls, value: str) -> str:
+        return _validate_http_url(value, name="FORGE_MEMORY_URL")
 
     @field_validator("forge_agents_defs_dir", mode="before")
     @classmethod

@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 118`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 119`**.
 
 ## Epics
 
@@ -25,7 +25,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [14](epics/14-forge-models.md) | Forge Models | Complete | 7/7 steps; demo 14 model-serving acceptance gate passed |
 | [15](epics/15-forge-agents.md) | Forge Agents | Complete | 8/8 steps; demo 15 agent-runtime acceptance gate passed |
 | [16](epics/16-forge-workflows.md) | Forge Workflows | Complete | 7/7 steps; demo 16 agent-workflow acceptance gate passed |
-| [17](epics/17-forge-memory.md) | Forge Memory | In progress | 3/6 steps; upsert + brute-force cosine NN |
+| [17](epics/17-forge-memory.md) | Forge Memory | In progress | 5/6 steps; Models embed + Agents memory tools |
 | [18](epics/18-managed-postgresql.md) | Managed PostgreSQL | Planning | 6 steps |
 | [19](epics/19-full-platform-demo.md) | Full platform demo | Planning | 6 steps; capstone |
 
@@ -151,7 +151,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **115** | [Collections + fixed-dim vectors + metadata](steps/17-forge-memory/17.02-collections-vectors-metadata.md) | Complete |  | Collection CRUD; mmap `.vec` + SQLite meta; record get/list; dim `422` |
 | **116** | [Upsert + cosine NN query](steps/17-forge-memory/17.03-upsert-cosine-nn.md) | Complete |  | Upsert/query/delete; cosine top-k + filters; boot compaction; ~27ms @10k |
 | **117** | [Namespace/ACL via Identity project scope](steps/17-forge-memory/17.04-namespace-acl.md) | Complete |  | Project+namespace scope; Identity enforce; cross-project `404`; OpenAPI auth |
-| **118** | [Models embed + Agents retrieval tool](steps/17-forge-memory/17.05-models-embed-agents-tool.md) | Not started |  |  |
+| **118** | [Models embed + Agents retrieval tool](steps/17-forge-memory/17.05-models-embed-agents-tool.md) | Complete |  | Text upsert/query via Models; `memory.search`/`memory.upsert` tools; dim `422` |
 | **119** | [Demo `17-agent-memory` + gate](steps/17-forge-memory/17.06-demo-and-gate.md) | Not started |  |  |
 | **120** | [Control APIs + provisioner skeleton](steps/18-managed-postgresql/18.01-control-apis-provisioner-skeleton.md) | Not started |  |  |
 | **121** | [Create instance/database/credentials](steps/18-managed-postgresql/18.02-create-instance-db-credentials.md) | Not started |  |  |

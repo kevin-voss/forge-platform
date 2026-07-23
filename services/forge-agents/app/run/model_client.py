@@ -270,6 +270,24 @@ def _args_for_tool(tool: str, run_input: str, context: dict[str, Any]) -> dict[s
             "data": {"message": run_input or "ok"},
             "source": "forge-agents",
         }
+    if tool == "memory.search":
+        return {
+            "collection": str(context.get("collection") or "incidents"),
+            "query": str(context.get("query") or run_input or "database connection refused"),
+            "top_k": int(context.get("top_k") or 3),
+        }
+    if tool == "memory.upsert":
+        return {
+            "collection": str(context.get("collection") or "incidents"),
+            "items": context.get("items")
+            or [
+                {
+                    "id": str(context.get("item_id") or "note-1"),
+                    "text": run_input or "agent note",
+                    "metadata": {"source": "agent"},
+                }
+            ],
+        }
     if tool == "fail.raise":
         return {"reason": run_input or "fail"}
     return {}

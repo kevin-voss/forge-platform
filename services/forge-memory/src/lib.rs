@@ -1,5 +1,6 @@
 pub mod acl;
 pub mod api;
+pub mod clients;
 pub mod collections;
 pub mod config;
 pub mod health;

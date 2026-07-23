@@ -34,6 +34,8 @@ PLATFORM_TOOLS = [
     "models.generate",
     "models.embed",
     "events.publish",
+    "memory.search",
+    "memory.upsert",
 ]
 
 
@@ -82,6 +84,19 @@ def test_registry_lists_platform_tools_and_destructive_flag() -> None:
             "events.publish",
             {"subject": "application.diagnosed", "data": {"ok": True}},
             ["events:publish"],
+        ),
+        (
+            "memory.search",
+            {"collection": "incidents", "query": "db timeout", "top_k": 3},
+            ["memory:read"],
+        ),
+        (
+            "memory.upsert",
+            {
+                "collection": "incidents",
+                "items": [{"id": "n1", "text": "note", "metadata": {}}],
+            },
+            ["memory:write"],
         ),
     ],
 )

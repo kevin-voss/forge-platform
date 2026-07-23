@@ -65,6 +65,7 @@ def build_tool_registry(
             storage_url=resolved.storage_url,
             models_url=resolved.models_url,
             events_url=resolved.events_url,
+            memory_url=resolved.memory_url,
             timeout_seconds=resolved.timeout_seconds,
         )
 

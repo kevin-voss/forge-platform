@@ -53,6 +53,9 @@ pub struct Config {
     pub auth_mode: AuthMode,
     pub identity_url: Option<String>,
     pub identity_cache_ttl_secs: u64,
+    pub models_url: String,
+    pub default_embed_model: String,
+    pub models_timeout: Duration,
 }
 
 impl Config {
@@ -149,6 +152,16 @@ impl Config {
             return Err("FORGE_IDENTITY_URL is required when FORGE_AUTH_MODE=enforce".into());
         }
 
+        let models_url = non_empty_env("FORGE_MODELS_URL", "http://forge-models:4300");
+        if !(models_url.starts_with("http://") || models_url.starts_with("https://")) {
+            return Err(format!(
+                "FORGE_MODELS_URL must be an absolute http(s) URL, got {models_url:?}"
+            ));
+        }
+        let default_embed_model = non_empty_env("FORGE_MEMORY_DEFAULT_MODEL", "local-embed-small");
+        let models_timeout =
+            Duration::from_secs(parse_u64_env("FORGE_MEMORY_MODELS_TIMEOUT_SECONDS", 15)?.max(1));
+
         Ok(Self {
             port,
             service_name,
@@ -169,6 +182,9 @@ impl Config {
             auth_mode,
             identity_url,
             identity_cache_ttl_secs,
+            models_url,
+            default_embed_model,
+            models_timeout,
         })
     }
 }
@@ -247,6 +263,9 @@ mod tests {
             "FORGE_AUTH_MODE",
             "FORGE_IDENTITY_URL",
             "FORGE_INTROSPECT_CACHE_TTL_S",
+            "FORGE_MODELS_URL",
+            "FORGE_MEMORY_DEFAULT_MODEL",
+            "FORGE_MEMORY_MODELS_TIMEOUT_SECONDS",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()
@@ -283,6 +302,16 @@ mod tests {
             assert_eq!(cfg.allowed_base, PathBuf::from("/data"));
             assert_eq!(cfg.log_level, "info");
             assert_eq!(cfg.auth_mode, AuthMode::Dev);
+            assert_eq!(cfg.models_url, "http://forge-models:4300");
+            assert_eq!(cfg.default_embed_model, "local-embed-small");
+        });
+    }
+
+    #[test]
+    fn rejects_invalid_models_url() {
+        with_env(&[("FORGE_MODELS_URL", Some("not-a-url"))], || {
+            let err = Config::from_env().expect_err("bad models url");
+            assert!(err.contains("FORGE_MODELS_URL"), "{err}");
         });
     }
 

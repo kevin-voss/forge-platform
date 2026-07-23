@@ -44,6 +44,8 @@ fn base_state(store: Arc<LocalStore>, ready: bool) -> AppState {
         meta_path,
         auth_mode: forge_memory::config::AuthMode::Dev,
         identity: None,
+        models: None,
+        default_embed_model: "local-embed-small".into(),
     }
 }
 

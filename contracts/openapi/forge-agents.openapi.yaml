@@ -147,10 +147,12 @@ paths:
         Returns tools from the in-process registry (`FORGE_AGENTS_TOOLS_MODE`).
         Each entry includes JSON Schema input/output, `destructive` flag, and
         `required_permissions` checked before every invocation. Platform tools
-        (Control/Runtime/Observe/Storage/Models/Events) are always listed;
+        (Control/Runtime/Observe/Storage/Models/Events/Memory) are always listed;
         `runtime.restart` is `destructive: true` (approval gated in 15.06).
-        Live backends use service URLs + `FORGE_AGENTS_TOOL_TIMEOUT_SECONDS`;
-        tool execution errors normalize to `{tool,error_code,message}`.
+        Memory tools (`memory.search` read / `memory.upsert` write) call
+        `FORGE_MEMORY_URL` (17.05). Live backends use service URLs +
+        `FORGE_AGENTS_TOOL_TIMEOUT_SECONDS`; tool execution errors normalize to
+        `{tool,error_code,message}`.
       responses:
         "200":
           description: Tool registry listing

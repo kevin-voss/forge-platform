@@ -57,7 +57,8 @@ fn app_state(root: &std::path::Path, base: &std::path::Path, auth_mode: AuthMode
                 role: Some("developer".into()),
                 memberships: None,
             },
-        }) as Arc<dyn forge_memory::identity::IdentityClient>)
+        })
+            as Arc<dyn forge_memory::identity::IdentityClient>)
     } else {
         None
     };
@@ -78,6 +79,8 @@ fn app_state(root: &std::path::Path, base: &std::path::Path, auth_mode: AuthMode
         meta_path: root.join("meta/index.db"),
         auth_mode,
         identity,
+        models: None,
+        default_embed_model: "local-embed-small".into(),
     }
 }
 

@@ -5,8 +5,8 @@ info:
   description: |
     Platform semantic vector-memory service (epic 17). Health/identity, durable
     persistence root, collections with fixed-dimension vectors + metadata, batch
-    upsert, cosine nearest-neighbor query, and project namespaces with Identity
-    ACL (17.04).
+    upsert, cosine nearest-neighbor query, project namespaces with Identity ACL
+    (17.04), and text upsert/query via Forge Models embeddings (17.05).
 servers:
   - url: http://127.0.0.1:4303
     description: Local Compose (host port 4303)
@@ -205,10 +205,15 @@ paths:
   /v1/collections/{name}/upsert:
     post:
       operationId: upsertRecords
-      summary: Batch upsert vectors + metadata
+      summary: Batch upsert vectors or text (+ Models embed)
       description: |
-        Insert or update records by id. Vectors are L2-normalized before storage.
-        Batch size is capped by `FORGE_MEMORY_MAX_UPSERT_BATCH` (default 512).
+        Insert or update records by id. Provide either raw `records` with vectors
+        or text `items` plus optional `model` (defaults to
+        `FORGE_MEMORY_DEFAULT_MODEL`). Text path calls Forge Models `/embed`,
+        then stores L2-normalized vectors. Batch size is capped by
+        `FORGE_MEMORY_MAX_UPSERT_BATCH` (default 512). Model/collection dim
+        mismatch → `422 dimension_mismatch`. Models unavailable →
+        `503 embedding_backend_unavailable` (raw-vector path still works).
       security:
         - bearerAuth: []
         - {}
@@ -222,12 +227,24 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/UpsertRequest"
-            example:
-              records:
-                - id: i1
-                  vector: [0.1, 0.2, 0.3]
-                  metadata:
-                    type: deploy
+            examples:
+              vectors:
+                summary: Raw vectors
+                value:
+                  records:
+                    - id: i1
+                      vector: [0.1, 0.2, 0.3]
+                      metadata:
+                        type: deploy
+              text:
+                summary: Text via Models embed
+                value:
+                  model: local-embed-small
+                  items:
+                    - id: i1
+                      text: database connection refused
+                      metadata:
+                        type: deploy
       responses:
         "200":
           description: Upsert applied
@@ -255,15 +272,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "503":
+          description: Embedding backend unavailable (text path)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /v1/collections/{name}/query:
     post:
       operationId: queryCollection
       summary: Brute-force cosine nearest-neighbor query
       description: |
-        L2-normalizes the query vector, scores all live (non-tombstoned) records
-        with optional metadata filter (equality / `$in`), and returns top-k by
-        score descending. `top_k` is capped by `FORGE_MEMORY_MAX_TOP_K` (default 100).
+        Provide either a raw `vector` or `text` (+ optional `model`). Text path
+        embeds via Forge Models then scores. L2-normalizes the query vector,
+        scores all live (non-tombstoned) records with optional metadata filter
+        (equality / `$in`), and returns top-k by score descending. `top_k` is
+        capped by `FORGE_MEMORY_MAX_TOP_K` (default 100).
       security:
         - bearerAuth: []
         - {}
@@ -277,11 +302,20 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/QueryRequest"
-            example:
-              vector: [0.1, 0.2, 0.3]
-              top_k: 5
-              filter:
-                type: deploy
+            examples:
+              vector:
+                summary: Raw vector
+                value:
+                  vector: [0.1, 0.2, 0.3]
+                  top_k: 5
+                  filter:
+                    type: deploy
+              text:
+                summary: Text via Models embed
+                value:
+                  text: database connection refused
+                  model: local-embed-small
+                  top_k: 3
       responses:
         "200":
           description: Ranked results (may be empty)
@@ -296,7 +330,7 @@ paths:
                     metadata:
                       type: deploy
         "400":
-          description: Invalid top_k
+          description: Invalid top_k or missing vector/text
           content:
             application/json:
               schema:
@@ -309,6 +343,12 @@ paths:
                 $ref: "#/components/schemas/Error"
         "422":
           description: Dimension mismatch or top_k over cap
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Embedding backend unavailable (text path)
           content:
             application/json:
               schema:
@@ -580,7 +620,10 @@ components:
 
     UpsertRequest:
       type: object
-      required: [records]
+      description: |
+        Exactly one of non-empty `records` (raw vectors) or `items` (text to
+        embed) is required. When using `items`, `model` defaults to
+        `FORGE_MEMORY_DEFAULT_MODEL`.
       properties:
         records:
           type: array
@@ -588,6 +631,15 @@ components:
           maxItems: 512
           items:
             $ref: "#/components/schemas/UpsertRecord"
+        items:
+          type: array
+          minItems: 1
+          maxItems: 512
+          items:
+            $ref: "#/components/schemas/UpsertTextItem"
+        model:
+          type: string
+          description: Embed model id for the text (`items`) path
 
     UpsertRecord:
       type: object
@@ -607,6 +659,22 @@ components:
         document_ref:
           type: string
 
+    UpsertTextItem:
+      type: object
+      required: [id, text]
+      properties:
+        id:
+          type: string
+        text:
+          type: string
+          minLength: 1
+        metadata:
+          type: object
+          additionalProperties: true
+          default: {}
+        document_ref:
+          type: string
+
     UpsertResponse:
       type: object
       required: [upserted]
@@ -617,13 +685,23 @@ components:
 
     QueryRequest:
       type: object
-      required: [vector, top_k]
+      required: [top_k]
+      description: |
+        Exactly one of `vector` or non-empty `text` is required. `model` applies
+        to the text path (default `FORGE_MEMORY_DEFAULT_MODEL`).
       properties:
         vector:
           type: array
           items:
             type: number
             format: float
+        text:
+          type: string
+          minLength: 1
+          description: Text to embed via Forge Models before cosine query
+        model:
+          type: string
+          description: Embed model id for the text path
         top_k:
           type: integer
           minimum: 1
@@ -674,6 +752,7 @@ components:
             - invalid_project
             - dimension_mismatch
             - unavailable
+            - embedding_backend_unavailable
             - corrupt
             - internal
           description: Machine-readable error code

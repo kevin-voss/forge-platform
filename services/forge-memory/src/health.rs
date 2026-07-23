@@ -99,6 +99,8 @@ mod tests {
             meta_path: root.join("meta/index.db"),
             auth_mode: crate::config::AuthMode::Dev,
             identity: None,
+            models: None,
+            default_embed_model: "local-embed-small".into(),
         }
     }
 

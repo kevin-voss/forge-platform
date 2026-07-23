@@ -21,6 +21,7 @@ def test_parses_valid_env(clean_env: pytest.MonkeyPatch) -> None:
     assert settings.forge_observe_url == "http://forge-observe:4106"
     assert settings.forge_storage_url == "http://forge-storage:4107"
     assert settings.forge_events_url == "http://forge-events:4105"
+    assert settings.forge_memory_url == "http://forge-memory:4303"
     assert settings.forge_agents_tool_timeout_seconds == 15.0
     assert settings.forge_service_name == "forge-agents"
     assert settings.forge_agents_tools_mode == "fake"
@@ -54,6 +55,7 @@ def test_accepts_tool_backend_urls_and_timeout(clean_env: pytest.MonkeyPatch) ->
     clean_env.setenv("FORGE_OBSERVE_URL", "http://127.0.0.1:4106")
     clean_env.setenv("FORGE_STORAGE_URL", "http://127.0.0.1:4107")
     clean_env.setenv("FORGE_EVENTS_URL", "http://127.0.0.1:4105")
+    clean_env.setenv("FORGE_MEMORY_URL", "http://127.0.0.1:4303")
     clean_env.setenv("FORGE_AGENTS_TOOL_TIMEOUT_SECONDS", "7.5")
     settings = get_settings()
     assert settings.forge_control_url == "http://127.0.0.1:4001"
@@ -61,6 +63,7 @@ def test_accepts_tool_backend_urls_and_timeout(clean_env: pytest.MonkeyPatch) ->
     assert settings.forge_observe_url == "http://127.0.0.1:4106"
     assert settings.forge_storage_url == "http://127.0.0.1:4107"
     assert settings.forge_events_url == "http://127.0.0.1:4105"
+    assert settings.forge_memory_url == "http://127.0.0.1:4303"
     assert settings.forge_agents_tool_timeout_seconds == 7.5
 
 

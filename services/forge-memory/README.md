@@ -2,9 +2,9 @@
 
 Rust/Axum semantic vector-memory service (epic 17). Host port **4303**.
 
-Step `17.04` adds project namespaces and Identity-backed access control on top of
-upsert/query (17.03): every collection/record/query is scoped by `project_id`
-(+ optional `namespace`), with cross-project access returning `404`.
+Step `17.05` adds text upsert/query via Forge Models embeddings on top of
+project namespaces/ACL (17.04) and cosine NN (17.03). Agents consume Memory
+through `memory.search` / `memory.upsert` tools.
 
 ## Local
 
@@ -19,11 +19,19 @@ make service-test SERVICE=forge-memory
 ```bash
 docker compose up -d forge-memory
 BASE=localhost:4303
-curl -fsS -H 'X-Forge-Project: proj-a' -XPOST $BASE/v1/collections \
+P='-H X-Forge-Project:proj-a'
+curl -fsS $P -XPOST $BASE/v1/collections \
   -H 'content-type: application/json' \
   -d '{"name":"incidents","dim":3,"distance":"cosine"}'
-curl -fsS -H 'X-Forge-Project: proj-a' $BASE/v1/collections | grep -q incidents
-test "$(curl -fsS -H 'X-Forge-Project: proj-b' $BASE/v1/collections | grep -c incidents)" = 0
+# Raw-vector path (no Models required)
+curl -fsS $P -XPOST $BASE/v1/collections/incidents/upsert \
+  -H 'content-type: application/json' \
+  -d '{"records":[{"id":"i1","vector":[1,0,0],"metadata":{"type":"deploy"}}]}'
+# Text path (requires Models at FORGE_MODELS_URL)
+curl -fsS $P -XPOST $BASE/v1/collections/incidents/query \
+  -H 'content-type: application/json' \
+  -d '{"text":"database connection refused","model":"local-embed-small","top_k":3}' \
+  | grep -q '"results"' || true
 ```
 
 ### Configuration
@@ -33,6 +41,9 @@ test "$(curl -fsS -H 'X-Forge-Project: proj-b' $BASE/v1/collections | grep -c in
 | `PORT` | `4303` (Compose: `8080`) | Listen port |
 | `FORGE_MEMORY_ROOT` | `/data/memory` | Durable FS root |
 | `FORGE_MEMORY_ALLOWED_BASE` | parent of root | Root must resolve under this base |
+| `FORGE_MODELS_URL` | `http://forge-models:4300` | Embeddings for text upsert/query |
+| `FORGE_MEMORY_DEFAULT_MODEL` | `local-embed-small` | Default embed model when omitted |
+| `FORGE_MEMORY_MODELS_TIMEOUT_SECONDS` | `15` | Models HTTP timeout |
 | `FORGE_AUTH_MODE` | `dev` | `dev` (header) or `enforce`/`enforced` (Identity) |
 | `FORGE_IDENTITY_URL` | — | Required when `FORGE_AUTH_MODE=enforce` |
 | `FORGE_INTROSPECT_CACHE_TTL_S` | `10` | Introspect cache TTL |
@@ -72,7 +83,7 @@ $FORGE_MEMORY_ROOT/
 Readiness returns `200` only when the root is writable with `vectors/` and `meta/`
 present (not world-writable) and the SQLite metadata index is attached.
 
-### API (17.04)
+### API (17.05)
 
 | Method | Path | Notes |
 |---|---|---|
@@ -80,14 +91,18 @@ present (not world-writable) and the SQLite metadata index is attached.
 | `GET` | `/v1/collections` | List for project (`?namespace=` filters) |
 | `GET` | `/v1/collections/{name}` | Fetch (scoped) |
 | `DELETE` | `/v1/collections/{name}` | Delete collection + vector file |
-| `POST` | `/v1/collections/{name}/upsert` | Batch `{records:[{id,vector,metadata}]}` → `{upserted}` |
-| `POST` | `/v1/collections/{name}/query` | `{vector, top_k, filter?}` → ranked `{results}` |
+| `POST` | `/v1/collections/{name}/upsert` | `{records:[…]}` **or** `{items:[{id,text,metadata}], model?}` |
+| `POST` | `/v1/collections/{name}/query` | `{vector,top_k}` **or** `{text,model?,top_k}` → `{results}` |
 | `GET` | `/v1/collections/{name}/records` | Paginated live records |
 | `GET` | `/v1/collections/{name}/records/{id}` | Get record |
 | `DELETE` | `/v1/collections/{name}/records/{id}` | Tombstone (excluded from queries) |
 
-Duplicate collection → `409`; missing / cross-project → `404`; vector length ≠ dim
-or over-cap `top_k` / batch → `422`; enforce unauthenticated → `401`.
+Duplicate collection → `409`; missing / cross-project → `404`; vector/model dim ≠
+collection dim or over-cap `top_k` / batch → `422`; Models down on text path →
+`503 embedding_backend_unavailable` (raw-vector path unaffected); enforce
+unauthenticated → `401`.
+
+Metric: `memory_embed_calls_total` (text path).
 
 ### Benchmark (fixture scale)
 

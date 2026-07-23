@@ -1,4 +1,4 @@
-"""Assemble platform tools (Control/Runtime/Observe/Storage/Models/Events)."""
+"""Assemble platform tools (Control/Runtime/Observe/Storage/Models/Events/Memory)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from app.tools.base import Tool
 from app.tools.control import DeploymentReadTool
 from app.tools.events import EventsPublishTool
 from app.tools.http_backend import HttpBackend
+from app.tools.memory import MemorySearchTool, MemoryUpsertTool
 from app.tools.models import ModelsEmbedTool, ModelsGenerateTool
 from app.tools.observe import LogsSearchTool, MetricsQueryTool
 from app.tools.runtime import RuntimeRestartTool
@@ -24,6 +25,7 @@ def build_platform_tools(config: ToolBackendConfig) -> list[Tool]:
     storage_backend: HttpBackend | None = None
     models_backend: HttpBackend | None = None
     events_backend: HttpBackend | None = None
+    memory_backend: HttpBackend | None = None
 
     if mode == "live":
         control_backend = HttpBackend(
@@ -40,6 +42,7 @@ def build_platform_tools(config: ToolBackendConfig) -> list[Tool]:
         )
         models_backend = HttpBackend(config.models_url, timeout_seconds=timeout, service="models")
         events_backend = HttpBackend(config.events_url, timeout_seconds=timeout, service="events")
+        memory_backend = HttpBackend(config.memory_url, timeout_seconds=timeout, service="memory")
 
     return [
         DeploymentReadTool(mode=mode, backend=control_backend),
@@ -51,4 +54,6 @@ def build_platform_tools(config: ToolBackendConfig) -> list[Tool]:
         ModelsGenerateTool(mode=mode, backend=models_backend),
         ModelsEmbedTool(mode=mode, backend=models_backend),
         EventsPublishTool(mode=mode, backend=events_backend),
+        MemorySearchTool(mode=mode, backend=memory_backend),
+        MemoryUpsertTool(mode=mode, backend=memory_backend),
     ]

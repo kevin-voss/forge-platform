@@ -139,10 +139,14 @@ Live backends also record `agent_tool_backend_latency_seconds` and
 | `models.generate` | `models:generate` | no | Models |
 | `models.embed` | `models:embed` | no | Models |
 | `events.publish` | `events:publish` | no | Events |
+| `memory.search` | `memory:read` | no | Memory |
+| `memory.upsert` | `memory:write` | no | Memory |
 
 `FORGE_AGENTS_TOOLS_MODE=fake` returns deterministic fixtures under
 `app/tools/fixtures/`. `live` uses httpx clients against the service URLs
 below. Destructive tools never execute without a persisted approval.
+`memory.search` returns `{results:[{id,score,metadata}]}` for citation;
+`memory.upsert` is non-destructive write.
 
 ## Run engine
 
@@ -203,6 +207,7 @@ Metrics: `agent_approvals_total{status}`, time-to-decision histogram.
 | `FORGE_OBSERVE_URL` | `http://forge-observe:4106` | Observe (live tools) |
 | `FORGE_STORAGE_URL` | `http://forge-storage:4107` | Storage (live tools) |
 | `FORGE_EVENTS_URL` | `http://forge-events:4105` | Events (live tools) |
+| `FORGE_MEMORY_URL` | `http://forge-memory:4303` | Memory (live tools) |
 | `FORGE_AGENTS_DEFS_DIR` | packaged `agents/` | Directory of `*.yaml` / `*.yml` agent definitions |
 | `FORGE_AGENTS_TOOLS_MODE` | `fake` | `fake\|live` platform tool backends |
 | `FORGE_AGENTS_TOOL_TIMEOUT_SECONDS` | `15` | Per-tool HTTP timeout (live) |
@@ -234,6 +239,7 @@ services/forge-agents/
 │   │   ├── observe.py      # logs.search, metrics.query
 │   │   ├── runtime.py      # runtime.restart (destructive)
 │   │   ├── storage.py      # storage.get/put
+│   │   ├── memory.py       # memory.search/upsert
 │   │   ├── models.py       # models.generate/embed
 │   │   ├── events.py       # events.publish
 │   │   └── fixtures/       # deterministic fake responses

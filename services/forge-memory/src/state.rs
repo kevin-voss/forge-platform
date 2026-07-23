@@ -1,3 +1,4 @@
+use crate::clients::{HttpModelsClient, ModelsClient};
 use crate::collections::CollectionStore;
 use crate::config::{AuthMode, Config};
 use crate::identity::{HttpIdentityClient, IdentityClient};
@@ -18,6 +19,7 @@ pub struct MemoryMetrics {
     pub memory_query_latency_micros_total: AtomicU64,
     pub memory_query_count: AtomicU64,
     pub memory_acl_denied_total: AtomicU64,
+    pub memory_embed_calls_total: AtomicU64,
 }
 
 /// Shared application state for health, identity, and collection APIs.
@@ -39,6 +41,8 @@ pub struct AppState {
     pub meta_path: std::path::PathBuf,
     pub auth_mode: AuthMode,
     pub identity: Option<Arc<dyn IdentityClient>>,
+    pub models: Option<Arc<dyn ModelsClient>>,
+    pub default_embed_model: String,
 }
 
 impl AppState {
@@ -128,6 +132,14 @@ pub async fn bootstrap(cfg: &Config) -> Result<AppState, String> {
         }
     };
 
+    let models: Option<Arc<dyn ModelsClient>> =
+        Some(HttpModelsClient::new(&cfg.models_url, cfg.models_timeout)? as Arc<dyn ModelsClient>);
+    info!(
+        models_url = %cfg.models_url,
+        default_embed_model = %cfg.default_embed_model,
+        "models embed client configured"
+    );
+
     let state = AppState {
         service_name: cfg.service_name.clone(),
         service_version: cfg.service_version.clone(),
@@ -145,6 +157,8 @@ pub async fn bootstrap(cfg: &Config) -> Result<AppState, String> {
         meta_path,
         auth_mode: cfg.auth_mode,
         identity,
+        models,
+        default_embed_model: cfg.default_embed_model.clone(),
     };
 
     match store.init().await {

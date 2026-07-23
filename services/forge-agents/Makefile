@@ -61,7 +61,7 @@ test-integration: run
 	@# Tool registry (15.03) + platform tools (15.05)
 	@curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/tools" | grep -q '"required_permissions"'
 	@curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/tools" | grep -q 'echo.ping'
-	@curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/tools" | python3 -c 'import sys,json; tools=json.load(sys.stdin)["tools"]; assert any(t["name"]=="runtime.restart" and t["destructive"] for t in tools); assert any(t["name"]=="deployment.read" for t in tools); assert any(t["name"]=="logs.search" for t in tools)'
+	@curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/tools" | python3 -c 'import sys,json; tools=json.load(sys.stdin)["tools"]; assert any(t["name"]=="runtime.restart" and t["destructive"] for t in tools); assert any(t["name"]=="deployment.read" for t in tools); assert any(t["name"]=="logs.search" for t in tools); assert any(t["name"]=="memory.search" and "memory:read" in t["required_permissions"] for t in tools); assert any(t["name"]=="memory.upsert" and "memory:write" in t["required_permissions"] for t in tools)'
 	@# Run engine dry-run (15.04)
 	@rid="$$(curl -fsS -XPOST "http://127.0.0.1:$(HOST_PORT)/v1/agents/fixture-echo/runs" \
 		-H 'content-type: application/json' -H 'X-Forge-Project: integ' \
@@ -86,7 +86,7 @@ test-integration: run
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"agents_registry_size"'
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"tools_registry_size"'
 	@grep -q '4301' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-agents.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-agents" in p; assert "/v1/agents" in p; assert "Agent" in p; assert "agent_not_found" in p; assert "/v1/tools" in p; assert "ToolInvokeDenialReason" in p; assert "unknown_tool" in p; assert "/v1/runs" in p; assert "RunStep" in p; assert "max_steps_exceeded" in p; assert "/v1/approvals" in p; assert "awaiting_approval" in p; assert "ApprovalStatus" in p'
+	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-agents.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-agents" in p; assert "/v1/agents" in p; assert "Agent" in p; assert "agent_not_found" in p; assert "/v1/tools" in p; assert "memory.search" in p; assert "ToolInvokeDenialReason" in p; assert "unknown_tool" in p; assert "/v1/runs" in p; assert "RunStep" in p; assert "max_steps_exceeded" in p; assert "/v1/approvals" in p; assert "awaiting_approval" in p; assert "ApprovalStatus" in p'
 	@# Invalid MODELS_URL fails process startup (ephemeral container).
 	@docker rm -f forge-agents-bad-url >/dev/null 2>&1 || true
 	@if docker run --name forge-agents-bad-url \

@@ -19,4 +19,5 @@ class ToolBackendConfig:
     storage_url: str = "http://forge-storage:4107"
     models_url: str = "http://forge-models:4300"
     events_url: str = "http://forge-events:4105"
+    memory_url: str = "http://forge-memory:4303"
     timeout_seconds: float = 15.0

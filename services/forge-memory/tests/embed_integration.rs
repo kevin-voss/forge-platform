@@ -1,6 +1,7 @@
-//! Integration: upsert, cosine NN query, filter, delete, restart persistence, caps.
+//! Integration: text upsert/query via ModelsClient; dim guard; models-down path.
 
 use forge_memory::app;
+use forge_memory::clients::{FakeModelsClient, ModelsClient};
 use forge_memory::state::{AppState, MemoryMetrics};
 use forge_memory::store::{LocalStore, Store};
 use http_body_util::BodyExt;
@@ -39,7 +40,11 @@ async fn json_request(
     (status, json)
 }
 
-fn app_state(root: &std::path::Path, base: &std::path::Path) -> AppState {
+fn app_state(
+    root: &std::path::Path,
+    base: &std::path::Path,
+    models: Option<Arc<dyn ModelsClient>>,
+) -> AppState {
     AppState {
         service_name: "forge-memory".into(),
         service_version: "0.1.0".into(),
@@ -56,25 +61,123 @@ fn app_state(root: &std::path::Path, base: &std::path::Path) -> AppState {
         compact_on_boot: false,
         auth_mode: forge_memory::config::AuthMode::Dev,
         identity: None,
-        models: None,
+        models,
         default_embed_model: "local-embed-small".into(),
         meta_path: root.join("meta/index.db"),
     }
 }
 
-async fn ready_app(root: &std::path::Path, base: &std::path::Path) -> axum::Router {
+async fn ready_app(
+    root: &std::path::Path,
+    base: &std::path::Path,
+    models: Option<Arc<dyn ModelsClient>>,
+) -> axum::Router {
     let store = Arc::new(LocalStore::new(root, base));
     store.init().await.unwrap();
-    let state = app_state(root, base);
+    let state = app_state(root, base, models);
     state.ensure_collections().unwrap();
     app(state)
 }
 
 #[tokio::test]
-async fn upsert_query_filter_delete_and_restart() {
+async fn text_upsert_then_text_query_returns_neighbors() {
     let dir = tempdir().unwrap();
     let root = dir.path().join("memory");
-    let app = ready_app(&root, dir.path()).await;
+    let fake = FakeModelsClient::new(3);
+    // Orient vectors so "database connection refused" is nearest to incident-db.
+    fake.set_vector("db down", vec![1.0, 0.0, 0.0]);
+    fake.set_vector("dns failure", vec![0.0, 1.0, 0.0]);
+    fake.set_vector("database connection refused", vec![0.95, 0.05, 0.0]);
+
+    let app = ready_app(
+        &root,
+        dir.path(),
+        Some(fake.clone() as Arc<dyn ModelsClient>),
+    )
+    .await;
+
+    let (status, _) = json_request(
+        app.clone(),
+        axum::http::Method::POST,
+        "/v1/collections",
+        Some(serde_json::json!({"name":"incidents","dim":3,"distance":"cosine"})),
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::CREATED);
+
+    let (status, body) = json_request(
+        app.clone(),
+        axum::http::Method::POST,
+        "/v1/collections/incidents/upsert",
+        Some(serde_json::json!({
+            "model": "local-embed-small",
+            "items": [
+                {"id":"incident-db","text":"db down","metadata":{"type":"deploy"}},
+                {"id":"incident-dns","text":"dns failure","metadata":{"type":"net"}}
+            ]
+        })),
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+    assert_eq!(body["upserted"], 2);
+    assert_eq!(*fake.calls.lock().unwrap(), 1);
+
+    let (status, body) = json_request(
+        app.clone(),
+        axum::http::Method::POST,
+        "/v1/collections/incidents/query",
+        Some(serde_json::json!({
+            "text":"database connection refused",
+            "model":"local-embed-small",
+            "top_k": 2
+        })),
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+    let results = body["results"].as_array().unwrap();
+    assert!(!results.is_empty());
+    assert_eq!(results[0]["id"], "incident-db");
+    assert!(results[0]["score"].as_f64().unwrap() > 0.9);
+}
+
+#[tokio::test]
+async fn dim_mismatch_rejected_on_text_path() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("memory");
+    let fake = FakeModelsClient::new(8); // collection dim will be 3
+    let app = ready_app(&root, dir.path(), Some(fake as Arc<dyn ModelsClient>)).await;
+
+    let (status, _) = json_request(
+        app.clone(),
+        axum::http::Method::POST,
+        "/v1/collections",
+        Some(serde_json::json!({"name":"incidents","dim":3,"distance":"cosine"})),
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::CREATED);
+
+    let (status, body) = json_request(
+        app.clone(),
+        axum::http::Method::POST,
+        "/v1/collections/incidents/query",
+        Some(serde_json::json!({
+            "text":"anything",
+            "model":"local-embed-small",
+            "top_k": 1
+        })),
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(body["code"], "dimension_mismatch");
+}
+
+#[tokio::test]
+async fn models_down_errors_text_path_raw_vector_ok() {
+    let dir = tempdir().unwrap();
+    let root = dir.path().join("memory");
+    let fake = FakeModelsClient::new(3);
+    fake.set_unavailable();
+    let app = ready_app(&root, dir.path(), Some(fake as Arc<dyn ModelsClient>)).await;
 
     let (status, _) = json_request(
         app.clone(),
@@ -91,123 +194,34 @@ async fn upsert_query_filter_delete_and_restart() {
         "/v1/collections/incidents/upsert",
         Some(serde_json::json!({
             "records": [
-                {"id":"east","vector":[1.0,0.0,0.0],"metadata":{"type":"deploy"}},
-                {"id":"north","vector":[0.0,1.0,0.0],"metadata":{"type":"alert"}},
-                {"id":"diag","vector":[0.9,0.1,0.0],"metadata":{"type":"deploy"}}
+                {"id":"east","vector":[1.0,0.0,0.0],"metadata":{"type":"deploy"}}
             ]
         })),
     )
     .await;
-    assert_eq!(status, axum::http::StatusCode::OK);
-    assert_eq!(body["upserted"], 3);
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
 
     let (status, body) = json_request(
         app.clone(),
         axum::http::Method::POST,
         "/v1/collections/incidents/query",
-        Some(serde_json::json!({"vector":[1.0,0.0,0.0],"top_k":2})),
+        Some(serde_json::json!({"vector":[1.0,0.0,0.0],"top_k":1})),
     )
     .await;
-    assert_eq!(status, axum::http::StatusCode::OK);
-    let results = body["results"].as_array().unwrap();
-    assert_eq!(results.len(), 2);
-    assert_eq!(results[0]["id"], "east");
-    assert!((results[0]["score"].as_f64().unwrap() - 1.0).abs() < 1e-5);
-    assert_eq!(results[1]["id"], "diag");
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+    assert_eq!(body["results"][0]["id"], "east");
 
     let (status, body) = json_request(
         app.clone(),
         axum::http::Method::POST,
         "/v1/collections/incidents/query",
         Some(serde_json::json!({
-            "vector":[1.0,0.0,0.0],
-            "top_k":5,
-            "filter":{"type":"deploy"}
+            "text":"database connection refused",
+            "model":"local-embed-small",
+            "top_k": 1
         })),
     )
     .await;
-    assert_eq!(status, axum::http::StatusCode::OK);
-    let results = body["results"].as_array().unwrap();
-    assert_eq!(results.len(), 2);
-    assert!(results.iter().all(|r| r["metadata"]["type"] == "deploy"));
-
-    let (status, _) = json_request(
-        app.clone(),
-        axum::http::Method::DELETE,
-        "/v1/collections/incidents/records/diag",
-        None,
-    )
-    .await;
-    assert_eq!(status, axum::http::StatusCode::NO_CONTENT);
-
-    let (status, body) = json_request(
-        app.clone(),
-        axum::http::Method::POST,
-        "/v1/collections/incidents/query",
-        Some(serde_json::json!({"vector":[1.0,0.0,0.0],"top_k":5})),
-    )
-    .await;
-    assert_eq!(status, axum::http::StatusCode::OK);
-    let results = body["results"].as_array().unwrap();
-    assert_eq!(results.len(), 2);
-    assert!(results.iter().all(|r| r["id"] != "diag"));
-
-    // Dim mismatch / over-cap → 422
-    let (status, body) = json_request(
-        app.clone(),
-        axum::http::Method::POST,
-        "/v1/collections/incidents/query",
-        Some(serde_json::json!({"vector":[1.0,0.0],"top_k":1})),
-    )
-    .await;
-    assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(body["code"], "dimension_mismatch");
-
-    let (status, body) = json_request(
-        app.clone(),
-        axum::http::Method::POST,
-        "/v1/collections/incidents/query",
-        Some(serde_json::json!({"vector":[1.0,0.0,0.0],"top_k":101})),
-    )
-    .await;
-    assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(body["code"], "invalid");
-
-    // Restart: reopen store; nearest ids unchanged for remaining vectors.
-    let state = app_state(&root, dir.path());
-    state.ensure_collections().unwrap();
-    let restarted = forge_memory::app(state);
-    let (status, body) = json_request(
-        restarted,
-        axum::http::Method::POST,
-        "/v1/collections/incidents/query",
-        Some(serde_json::json!({"vector":[1.0,0.0,0.0],"top_k":1})),
-    )
-    .await;
-    assert_eq!(status, axum::http::StatusCode::OK);
-    assert_eq!(body["results"][0]["id"], "east");
-}
-
-#[tokio::test]
-async fn empty_collection_query_returns_empty() {
-    let dir = tempdir().unwrap();
-    let root = dir.path().join("memory");
-    let app = ready_app(&root, dir.path()).await;
-    let (status, _) = json_request(
-        app.clone(),
-        axum::http::Method::POST,
-        "/v1/collections",
-        Some(serde_json::json!({"name":"empty","dim":2,"distance":"cosine"})),
-    )
-    .await;
-    assert_eq!(status, axum::http::StatusCode::CREATED);
-    let (status, body) = json_request(
-        app,
-        axum::http::Method::POST,
-        "/v1/collections/empty/query",
-        Some(serde_json::json!({"vector":[1.0,0.0],"top_k":3})),
-    )
-    .await;
-    assert_eq!(status, axum::http::StatusCode::OK);
-    assert_eq!(body["results"].as_array().unwrap().len(), 0);
+    assert_eq!(status, axum::http::StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(body["code"], "embedding_backend_unavailable");
 }
