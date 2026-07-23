@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 127`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 128`**.
 
 ## Epics
 
@@ -27,7 +27,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [16](epics/16-forge-workflows.md) | Forge Workflows | Complete | 7/7 steps; demo 16 agent-workflow acceptance gate passed |
 | [17](epics/17-forge-memory.md) | Forge Memory | Complete | 6/6 steps; demo 17 agent-memory acceptance gate passed |
 | [18](epics/18-managed-postgresql.md) | Managed PostgreSQL | Complete | 6/6 steps; demo 18 managed-database acceptance gate passed |
-| [19](epics/19-full-platform-demo.md) | Full platform demo | In progress | 1/6 steps; polyglot product scaffolded |
+| [19](epics/19-full-platform-demo.md) | Full platform demo | In progress | 2/6 steps; deploy path Build→Runtime→Gateway→Events |
 
 ## Steps
 
@@ -160,7 +160,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **124** | [Credential rotation + deletion protection](steps/18-managed-postgresql/18.05-rotation-deletion-protection.md) | Complete |  | Rotation + Secrets update; deletion protection + force; pre-delete backup |
 | **125** | [CLI `forge database *` + demo + gate](steps/18-managed-postgresql/18.06-cli-demo-and-gate.md) | Complete |  | `forge database *` CLI; demo 18 create→attach→deploy→backup→restore gate |
 | **126** | [Polyglot sample product](steps/19-full-platform-demo/19.01-polyglot-product-scaffold.md) | Complete |  | Five product services under `demos/09-full-platform/product/`; contract + compose smoke |
-| **127** | [Deploy path: Build→Runtime→Gateway→Events](steps/19-full-platform-demo/19.02-deploy-path.md) | Not started |  |  |
+| **127** | [Deploy path: Build→Runtime→Gateway→Events](steps/19-full-platform-demo/19.02-deploy-path.md) | Complete |  | Capstone compose + deploy.sh; Gateway hostnames; incident.created Events path; forge deployment create |
 | **128** | [Identity, Secrets, Observe, Storage, managed DB](steps/19-full-platform-demo/19.03-identity-secrets-observe-storage-db.md) | Not started |  |  |
 | **129** | [Models + Agents + Memory for diagnosis](steps/19-full-platform-demo/19.04-models-agents-memory.md) | Not started |  |  |
 | **130** | [Failure injection + Workflows approval/rollback](steps/19-full-platform-demo/19.05-failure-injection-workflow.md) | Not started |  |  |

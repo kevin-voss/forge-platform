@@ -13,6 +13,9 @@ type config struct {
 	ServiceVersion string
 	LogLevel       string
 	Env            string
+	// EventsURL is the Forge Events base URL. Empty disables publish.
+	// Runtime workloads default to host.docker.internal:4105 when unset.
+	EventsURL string
 }
 
 func loadConfig() (config, error) {
@@ -48,11 +51,18 @@ func loadConfig() (config, error) {
 		env = "development"
 	}
 
+	eventsURL := strings.TrimSpace(os.Getenv("FORGE_EVENTS_URL"))
+	if eventsURL == "" {
+		// Reach host-published Events (Runtime workloads + Docker Desktop).
+		eventsURL = "http://host.docker.internal:4105"
+	}
+
 	return config{
 		Port:           port,
 		ServiceName:    name,
 		ServiceVersion: version,
 		LogLevel:       level,
 		Env:            env,
+		EventsURL:      eventsURL,
 	}, nil
 }

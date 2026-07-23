@@ -1,8 +1,10 @@
 mod config;
+mod events;
 mod log;
 mod server;
 
 use config::Config;
+use events::{run_consumer, EventsConfig, EventsStatus};
 use log::Logger;
 use serde_json::json;
 use server::{router, AppState};
@@ -22,12 +24,40 @@ async fn main() {
 async fn run() -> Result<(), String> {
     let cfg = Config::from_env()?;
     let logger = Logger::new(&cfg.service_name, &cfg.log_level);
+    let entries = Arc::new(Mutex::new(Vec::new()));
+    let events_status = Arc::new(Mutex::new(EventsStatus::default()));
     let state = AppState {
         cfg: cfg.clone(),
         started_at: Instant::now(),
-        entries: Arc::new(Mutex::new(Vec::new())),
+        entries: Arc::clone(&entries),
+        events_status: Arc::clone(&events_status),
     };
     let app = router(state);
+
+    if !cfg.events_url.is_empty() {
+        let events_cfg = EventsConfig {
+            events_url: cfg.events_url.clone(),
+            consumer_name: cfg.events_consumer.clone(),
+            identity: cfg.events_consumer.clone(),
+            subject: cfg.events_subject.clone(),
+            poll_ms: cfg.events_poll_ms,
+            ack_wait_s: 5,
+            max_deliveries: 3,
+        };
+        let consumer_logger = logger.clone();
+        tokio::spawn(async move {
+            run_consumer(events_cfg, consumer_logger, entries, events_status).await;
+        });
+        logger.info(
+            "events consumer started",
+            &[
+                ("events_url", json!(cfg.events_url)),
+                ("subject", json!(cfg.events_subject)),
+            ],
+        );
+    } else {
+        logger.info("events consumer disabled (FORGE_EVENTS_URL empty)", &[]);
+    }
 
     let addr = SocketAddr::from(([0, 0, 0, 0], cfg.port));
     let listener = tokio::net::TcpListener::bind(addr)

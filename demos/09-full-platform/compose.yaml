@@ -1,0 +1,59 @@
+# Capstone overlay — platform + product fixture mounts for Forge Build.
+# Used with the root compose file:
+#   docker compose -f compose.yaml -f demos/09-full-platform/compose.yaml --project-directory . up -d ...
+#
+# Auth: FORGE_AUTH_MODE=dev until 19.03 wires Identity (documented temporary).
+# Events: includes the `incident` stream family for product incident.created events.
+
+services:
+  forge-gateway:
+    environment:
+      # Pattern is set by deploy.sh (brace placeholders break ${VAR:-default} parsing).
+      FORGE_HOST_PATTERN: "${FORGE_HOST_PATTERN}"
+      FORGE_ROUTE_SYNC_INTERVAL_SECONDS: ${FORGE_ROUTE_SYNC_INTERVAL_SECONDS:-3}
+      FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS: ${FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS:-2}
+      FORGE_UPSTREAM_FAILURE_THRESHOLD: ${FORGE_UPSTREAM_FAILURE_THRESHOLD:-1}
+      FORGE_UPSTREAM_SUCCESS_THRESHOLD: ${FORGE_UPSTREAM_SUCCESS_THRESHOLD:-1}
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+
+  forge-control:
+    environment:
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+      FORGE_RECONCILE_INTERVAL_SECONDS: ${FORGE_RECONCILE_INTERVAL_SECONDS:-3}
+      FORGE_LIFECYCLE_OWNER: ${FORGE_LIFECYCLE_OWNER:-runtime}
+      # Control always initializes managed-db archive store (epic 18); mount a writable path.
+      FORGE_DB_BACKUP_TARGET: volume
+      FORGE_DB_BACKUP_DIR: /var/forge/db-backups
+    volumes:
+      - forge-capstone-db-backups:/var/forge/db-backups
+    # Writable archive dir + consistent with demo 18 LocalProvisioner socket pattern.
+    user: "0:0"
+
+  forge-runtime:
+    environment:
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+
+  forge-build:
+    environment:
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+      FORGE_BUILD_TIMEOUT_SECONDS: ${FORGE_BUILD_TIMEOUT_SECONDS:-1200}
+      FORGE_BUILD_MAX_CONCURRENCY: ${FORGE_BUILD_MAX_CONCURRENCY:-2}
+      FORGE_BUILD_AUTO_DEPLOY_DEFAULT: "false"
+    volumes:
+      - ./demos/09-full-platform/product/api-go:/fixtures/product/api-go
+      - ./demos/09-full-platform/product/admin-kotlin:/fixtures/product/admin-kotlin
+      - ./demos/09-full-platform/product/log-worker-rust:/fixtures/product/log-worker-rust
+      - ./demos/09-full-platform/product/classify-python:/fixtures/product/classify-python
+      - ./demos/09-full-platform/product/notify-elixir:/fixtures/product/notify-elixir
+
+  forge-events:
+    environment:
+      FORGE_AUTH_MODE: ${FORGE_EVENTS_AUTH_MODE:-dev}
+      FORGE_EVENTS_STREAMS: ${FORGE_EVENTS_STREAMS:-build,deployment,runtime,application,agent,incident}
+      FORGE_SCHEMA_VALIDATION: ${FORGE_SCHEMA_VALIDATION:-strict}
+      FORGE_DEFAULT_ACK_WAIT_S: ${FORGE_DEFAULT_ACK_WAIT_S:-5}
+      FORGE_DEFAULT_MAX_DELIVERIES: ${FORGE_DEFAULT_MAX_DELIVERIES:-3}
+      FORGE_CONSUME_WAIT_MS: ${FORGE_CONSUME_WAIT_MS:-1000}
+
+volumes:
+  forge-capstone-db-backups:

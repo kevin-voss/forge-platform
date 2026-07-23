@@ -1,3 +1,6 @@
+x-forge-deploy:
+  controlService: admin
+  hostname: admin.demo.localhost
 service:
   name: incident-admin
   port: 8080

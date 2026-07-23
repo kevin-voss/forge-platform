@@ -17,5 +17,6 @@ ENV PORT=8080 \
 	FORGE_SERVICE_NAME=incident-api \
 	FORGE_SERVICE_VERSION=0.1.0 \
 	FORGE_LOG_LEVEL=info \
-	FORGE_ENV=development
+	FORGE_ENV=development \
+	FORGE_EVENTS_URL=http://host.docker.internal:4105
 ENTRYPOINT ["/incident-api"]

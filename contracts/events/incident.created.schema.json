@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/contracts/events/incident.created/v1",
+  "title": "incident.created",
+  "description": "Emitted by the capstone incident-api when a new incident is created.",
+  "x-forge-subject": "incident.created",
+  "x-forge-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["incident_id", "title", "severity", "occurred_at"],
+  "properties": {
+    "incident_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque incident identifier"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Incident title"
+    },
+    "severity": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Severity label (e.g. low, medium, high, critical)"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the incident was created (RFC 3339)"
+    },
+    "source": {
+      "type": "string",
+      "description": "Producing service name"
+    },
+    "status": {
+      "type": "string",
+      "description": "Initial incident status"
+    }
+  }
+}

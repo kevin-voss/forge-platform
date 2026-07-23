@@ -1,3 +1,6 @@
+x-forge-deploy:
+  controlService: classify
+  hostname: classify.demo.localhost
 service:
   name: incident-classify
   port: 8080

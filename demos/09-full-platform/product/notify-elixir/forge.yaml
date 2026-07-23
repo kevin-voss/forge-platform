@@ -1,3 +1,6 @@
+x-forge-deploy:
+  controlService: notify
+  hostname: notify.demo.localhost
 service:
   name: incident-notify
   port: 8080

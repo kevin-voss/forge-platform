@@ -7,6 +7,10 @@ pub struct Config {
     pub service_version: String,
     pub log_level: String,
     pub env: String,
+    pub events_url: String,
+    pub events_consumer: String,
+    pub events_subject: String,
+    pub events_poll_ms: u64,
 }
 
 impl Config {
@@ -66,12 +70,51 @@ impl Config {
             env_name
         };
 
+        let mut events_url = env::var("FORGE_EVENTS_URL")
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if events_url.is_empty() {
+            // Reach host-published Events (Runtime workloads + Docker Desktop).
+            events_url = "http://host.docker.internal:4105".into();
+        }
+
+        let events_consumer = env::var("FORGE_EVENTS_CONSUMER")
+            .unwrap_or_else(|_| "incident-log-worker".into())
+            .trim()
+            .to_string();
+        let events_consumer = if events_consumer.is_empty() {
+            "incident-log-worker".into()
+        } else {
+            events_consumer
+        };
+
+        let events_subject = env::var("FORGE_EVENTS_SUBJECT")
+            .unwrap_or_else(|_| "incident.created".into())
+            .trim()
+            .to_string();
+        let events_subject = if events_subject.is_empty() {
+            "incident.created".into()
+        } else {
+            events_subject
+        };
+
+        let poll_raw = env::var("FORGE_EVENTS_POLL_MS").unwrap_or_else(|_| "500".into());
+        let events_poll_ms: u64 = poll_raw
+            .trim()
+            .parse()
+            .map_err(|_| format!("FORGE_EVENTS_POLL_MS must be an integer, got {poll_raw:?}"))?;
+
         Ok(Self {
             port,
             service_name,
             service_version,
             log_level,
             env: env_name,
+            events_url,
+            events_consumer,
+            events_subject,
+            events_poll_ms,
         })
     }
 }
@@ -94,6 +137,11 @@ mod tests {
             "FORGE_SERVICE_VERSION",
             "FORGE_LOG_LEVEL",
             "FORGE_ENV",
+            "FORGE_EVENTS_URL",
+            "FORGE_DEPLOYMENT_ID",
+            "FORGE_EVENTS_CONSUMER",
+            "FORGE_EVENTS_SUBJECT",
+            "FORGE_EVENTS_POLL_MS",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()
@@ -136,12 +184,14 @@ mod tests {
                 ("FORGE_SERVICE_NAME", None),
                 ("FORGE_SERVICE_VERSION", None),
                 ("FORGE_ENV", None),
+                ("FORGE_EVENTS_URL", None),
             ],
             || {
                 let cfg = Config::from_env().expect("config");
                 assert_eq!(cfg.port, 8080);
                 assert_eq!(cfg.service_name, "incident-log-worker");
                 assert_eq!(cfg.service_version, "0.1.0");
+                assert_eq!(cfg.events_url, "http://host.docker.internal:4105");
             },
         );
     }

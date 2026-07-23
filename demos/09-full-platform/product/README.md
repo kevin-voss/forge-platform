@@ -1,9 +1,9 @@
 # Capstone product (incident management)
 
-Polyglot sample product for epic `19` / `demos/09-full-platform`. This folder is
-**product-only**: five runtime-contract-compliant services with local Compose smoke
-checks. Platform deploy, Identity/Secrets/Observe wiring, and the north-star recovery
-scenario arrive in later `19.xx` steps.
+Polyglot sample product for epic `19` / `demos/09-full-platform`. Local Compose smoke
+lives here; the platform deploy path (Build→Runtime→Gateway→Events) is driven from
+the parent folder via `../deploy.sh` (step **19.02**). Identity/Secrets/Observe/DB
+and the north-star recovery scenario arrive in later `19.xx` steps.
 
 ## Services
 
@@ -24,9 +24,10 @@ Each service exposes the epic-01 runtime contract:
 * `Dockerfile` + `forge.yaml`
 * Graceful SIGTERM shutdown
 
-## Product API sketch (local / future Gateway)
+## Product API sketch (Gateway hostnames in 19.02)
 
-Contract-level only in this step — services are not yet wired through Gateway/Events.
+After `../deploy.sh`, services are reachable via Gateway (see `../routes.md`).
+`incident-api` publishes `incident.created` to Events; `incident-log-worker` consumes it.
 
 ```text
 incident-api

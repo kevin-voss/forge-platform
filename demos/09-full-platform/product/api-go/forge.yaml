@@ -1,3 +1,10 @@
+# Capstone deploy metadata (Control service name → Gateway hostname).
+# x-forge-deploy is documentation for 19.02; Build validates service/build only.
+x-forge-deploy:
+  controlService: api
+  hostname: api.demo.localhost
+  events:
+    publishes: [incident.created]
 service:
   name: incident-api
   port: 8080

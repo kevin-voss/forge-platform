@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::events::EventsStatus;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -13,6 +14,7 @@ pub struct AppState {
     pub cfg: Config,
     pub started_at: Instant,
     pub entries: Arc<Mutex<Vec<LogEntry>>>,
+    pub events_status: Arc<Mutex<EventsStatus>>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -50,6 +52,7 @@ pub fn router(state: AppState) -> Router {
         .route("/health/ready", get(handle_ready))
         .route("/", get(handle_identity))
         .route("/logs", post(handle_ingest).get(handle_list))
+        .route("/events/status", get(handle_events_status))
         .with_state(Arc::new(state))
 }
 
@@ -128,6 +131,22 @@ async fn handle_list(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     )
 }
 
+async fn handle_events_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let status = state.events_status.lock().expect("events status mutex");
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "ready": status.ready,
+            "processed_count": status.processed_count,
+            "last_incident_id": status.last_incident_id,
+            "last_error": status.last_error,
+            "subject": state.cfg.events_subject,
+            "consumer": state.cfg.events_consumer,
+            "events_url_configured": !state.cfg.events_url.is_empty(),
+        })),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,11 +161,16 @@ mod tests {
                 service_version: "0.1.0".into(),
                 log_level: "info".into(),
                 env: "development".into(),
+                events_url: String::new(),
+                events_consumer: "incident-log-worker".into(),
+                events_subject: "incident.created".into(),
+                events_poll_ms: 500,
             },
             started_at: Instant::now()
                 .checked_sub(std::time::Duration::from_secs(2))
                 .unwrap_or_else(Instant::now),
             entries: Arc::new(Mutex::new(Vec::new())),
+            events_status: Arc::new(Mutex::new(EventsStatus::default())),
         }
     }
 

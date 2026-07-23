@@ -1,3 +1,9 @@
+x-forge-deploy:
+  controlService: logs
+  hostname: logs.demo.localhost
+  events:
+    publishes: []
+    consumes: [incident.created]
 service:
   name: incident-log-worker
   port: 8080

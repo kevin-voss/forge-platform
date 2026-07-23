@@ -32,6 +32,10 @@ impl Logger {
         self.emit("info", message, fields);
     }
 
+    pub fn warn(&self, message: &str, fields: &[(&str, Value)]) {
+        self.emit("warn", message, fields);
+    }
+
     fn emit(&self, level: &str, message: &str, fields: &[(&str, Value)]) {
         let rank = LEVEL_RANK
             .iter()

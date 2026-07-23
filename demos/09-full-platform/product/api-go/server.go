@@ -13,6 +13,7 @@ import (
 type server struct {
 	cfg       config
 	log       *slog.Logger
+	events    eventsPublisher
 	startedAt time.Time
 	mu        sync.RWMutex
 	incidents map[string]incident
@@ -46,9 +47,14 @@ type createIncidentRequest struct {
 }
 
 func newServer(cfg config, log *slog.Logger) *server {
+	var pub eventsPublisher
+	if cfg.EventsURL != "" {
+		pub = newHTTPEventsPublisher(cfg.EventsURL, cfg.ServiceName)
+	}
 	return &server{
 		cfg:       cfg,
 		log:       log,
+		events:    pub,
 		startedAt: time.Now().UTC(),
 		incidents: make(map[string]incident),
 	}
@@ -112,6 +118,13 @@ func (s *server) handleCreateIncident(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	s.log.Info("incident created", "incident_id", inc.ID, "severity", inc.Severity)
+	if s.events != nil {
+		if err := s.events.PublishIncidentCreated(inc); err != nil {
+			s.log.Error("incident.created publish failed", "incident_id", inc.ID, "error", err.Error())
+		} else {
+			s.log.Info("incident.created published", "incident_id", inc.ID)
+		}
+	}
 	writeJSON(w, http.StatusCreated, inc)
 }
 
