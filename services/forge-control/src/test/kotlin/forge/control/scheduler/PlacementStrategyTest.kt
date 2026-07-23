@@ -197,4 +197,29 @@ class PlacementStrategyTest {
         assertEquals(null, placementStore.find(dpl, 0))
         assertEquals("least-allocated", ok.placement.strategy)
     }
+
+    @Test
+    fun releaseOrphanedAboveDesiredFreesReservedSlots() {
+        val store = InMemoryNodeStore()
+        store.register("node-a", "http://a", NodeCapacity(slots = 4), t0)
+        val reservation = CapacityReservation(store)
+        val service = PlacementService(
+            scheduler = LeastAllocatedScheduler(store, reservation),
+            store = InMemoryPlacementStore(),
+            log = forge.control.logging.JsonLog("test", "error"),
+            reservation = reservation,
+        )
+        val dpl = UUID.fromString("22222222-2222-2222-2222-222222222222")
+        repeat(4) { idx ->
+            assertIs<PlaceResult.Ok>(service.placeAndPersist(dpl, idx))
+        }
+        assertEquals(4, store.find("node-a")!!.allocation.slots)
+
+        val released = service.releaseOrphanedAboveDesired(dpl, desiredReplicas = 2)
+        assertEquals(2, released)
+        assertEquals(2, store.find("node-a")!!.allocation.slots)
+        assertEquals(null, service.list(dpl).find { it.replicaIndex == 2 })
+        assertEquals(null, service.list(dpl).find { it.replicaIndex == 3 })
+        assertEquals(2, service.list(dpl).size)
+    }
 }

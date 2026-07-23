@@ -171,10 +171,9 @@ func EvaluateScaleDown(in ScaleDownInput) ScaleDownDecision {
 			}
 		}
 
-		needed := victim.AllocatedSlots
-		if needed <= 0 {
-			needed = len(victim.RunningReplicas)
-		}
+		// Only live workloads need replacement capacity. Stale reserved slots on
+		// an empty victim must not block drain (Control heartbeats never shrink).
+		needed := len(victim.RunningReplicas)
 		if needed > 0 && FreeSlotsElsewhere(in.Fleet, victim.ID) < needed {
 			return ScaleDownDecision{
 				Action:         "canceled",
@@ -266,6 +265,11 @@ func poolsWithExcess(pools []actuate.NodePoolView) []poolCandidate {
 		if drainInFlight {
 			// Keep autoscaler-owned desiredNodes while a drain converges.
 			if desired == 0 {
+				desired = spec
+			}
+			// Once SetReplicas lowered the floor, prefer that target so status
+			// does not stay pinned at the pre-drain ready count.
+			if spec > 0 && (desired == 0 || spec < desired) {
 				desired = spec
 			}
 		} else {
@@ -380,10 +384,7 @@ func evaluateInProgress(pc poolCandidate, in ScaleDownInput) *ScaleDownDecision 
 				DrainCandidates: nil,
 			}
 		}
-		needed := victim.AllocatedSlots
-		if needed <= 0 {
-			needed = len(victim.RunningReplicas)
-		}
+		needed := len(victim.RunningReplicas)
 		if needed > 0 && FreeSlotsElsewhere(in.Fleet, victim.ID) < needed {
 			return &ScaleDownDecision{
 				Action:          "canceled",

@@ -11,6 +11,6 @@ Atomic steps for [Forge Autoscaler](../../epics/24-forge-autoscaler.md).
 | 24.05 | 164 | [24.05-scheduled-scaling-and-overrides.md](24.05-scheduled-scaling-and-overrides.md) | Complete |
 | 24.06 | 165 | [24.06-node-autoscaling-scale-up.md](24.06-node-autoscaling-scale-up.md) | Complete |
 | 24.07 | 166 | [24.07-scale-down-draining-and-safeguards.md](24.07-scale-down-draining-and-safeguards.md) | Complete |
-| 24.08 | 167 | [24.08-demo-24-autoscaling.md](24.08-demo-24-autoscaling.md) | Not started |
+| 24.08 | 167 | [24.08-demo-24-autoscaling.md](24.08-demo-24-autoscaling.md) | Complete |
 
 Implement with [`../../IMPLEMENT_STEP.md`](../../IMPLEMENT_STEP.md) (`STEP_ID=24.01` first).

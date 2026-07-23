@@ -45,6 +45,7 @@ help:
 	@echo "  make demo DEMO=21          Service discovery gate (epic 21)"
 	@echo "  make demo DEMO=22          Forge network gate (epic 22)"
 	@echo "  make demo DEMO=23          Local cloud infrastructure gate (epic 23)"
+	@echo "  make demo DEMO=24          Autoscaling gate (epic 24)"
 	@echo "  make demo DEMO=09-full-platform  Start capstone (start.sh)"
 	@echo "  make demo-accept DEMO=...  Run demo acceptance suite (capstone accept.sh)"
 	@echo "  make demo-full             Alias: demo DEMO=09-full-platform"
@@ -55,6 +56,7 @@ setup: env-check
 	@chmod +x scripts/*.sh scripts/lib/*.sh demos/*/run.sh \
 		demos/21-service-discovery/run.sh \
 		demos/22-forge-network/run.sh demos/22-forge-network/lib/verify.sh \
+		demos/24-autoscaling/run.sh \
 		demos/09-full-platform/start.sh demos/09-full-platform/accept.sh \
 		demos/09-full-platform/tests/*.sh \
 		demos/09-full-platform/ai/*.sh demos/09-full-platform/scenario/*.sh \

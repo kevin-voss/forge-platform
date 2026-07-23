@@ -49,6 +49,29 @@ func TestEvaluateScaleDownSuccessEmptyNode(t *testing.T) {
 	if d.DesiredNodes != 2 {
 		t.Fatalf("desired=%d", d.DesiredNodes)
 	}
+}
+
+func TestEvaluateScaleDownAllowsStaleReservedEmptyNode(t *testing.T) {
+	// Heartbeats never shrink reserved slots; empty victims must still drain.
+	pool := testPool(3)
+	fleet := []FleetNode{
+		{ID: "node-a", Status: "online", CapacitySlots: 2, AllocatedSlots: 2, RunningReplicas: []string{"r1"}},
+		{ID: "node-b", Status: "online", CapacitySlots: 2, AllocatedSlots: 2}, // stale reservation, no workloads
+		{ID: "node-c", Status: "online", CapacitySlots: 2, AllocatedSlots: 2, RunningReplicas: []string{"r2"}},
+	}
+	d := EvaluateScaleDown(ScaleDownInput{
+		Fleet:              fleet,
+		Pools:              []actuate.NodePoolView{pool},
+		UnderutilThreshold: 0.25,
+		UnderutilWindow:    time.Minute,
+		Now:                time.Now().UTC(),
+	})
+	if d.Action != "scale_down" {
+		t.Fatalf("action=%s reason=%s", d.Action, d.Reason)
+	}
+	if d.NodeID != "node-b" {
+		t.Fatalf("node=%s want node-b", d.NodeID)
+	}
 	if d.OperationID == "" {
 		t.Fatal("expected operation id")
 	}
@@ -62,7 +85,7 @@ func TestEvaluateScaleDownStatefulPrimaryBlocked(t *testing.T) {
 			ID: "node-primary", Status: "online", CapacitySlots: 2, AllocatedSlots: 0,
 			Labels: map[string]string{"forge.dev/stateful-role": "primary"},
 		},
-		{ID: "node-busy", Status: "online", CapacitySlots: 2, AllocatedSlots: 2},
+		{ID: "node-busy", Status: "online", CapacitySlots: 2, AllocatedSlots: 2, RunningReplicas: []string{"r1", "r2"}},
 	}
 	d := EvaluateScaleDown(ScaleDownInput{
 		Fleet:              fleet,

@@ -161,6 +161,12 @@ class ReconciliationController(
         }
 
         if (healthy) {
+            // Drop reserved capacity for replica indices the planner will never Stop
+            // (observation already lost them after a prior scale-up).
+            placementService?.releaseOrphanedAboveDesired(
+                deploymentId,
+                desiredWithSecrets.replicas,
+            )
             val fenced = reconciler.fenceStale(desiredWithSecrets, actualBefore)
             if (fenced.isNotEmpty()) {
                 try {

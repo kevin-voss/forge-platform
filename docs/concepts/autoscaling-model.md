@@ -14,7 +14,8 @@ underneath them.
 Workload autoscaling          Node autoscaling
 "how many replicas?"          "how many machines?"
         ↓                             ↓
- Application.spec.replicas      NodePool.spec.scaling
+ Application.spec.scaling       NodePool.status.desiredNodes
+   .desiredReplicas             (+ NodePool.spec.replicas)
         ↓                             ↓
  Reconciler → Scheduler         Infrastructure → provider adapter
         ↓                             ↓
@@ -37,7 +38,7 @@ metadata:
   name: invoice-api-autoscaling
 
 spec:
-  target:
+  targetRef:
     kind: Application
     name: invoice-api
 
@@ -45,20 +46,23 @@ spec:
   maxReplicas: 20
 
   metrics:
-    - { type: cpu,          target: 65 }
-    - { type: httpRequests, target: 150 }
+    - { type: cpu,          targetAverageUtilization: 65 }
+    - { type: httpRequests, targetValue: 150 }
 
   behavior:
     scaleUp:
-      stabilizationWindow: 30s
+      stabilizationWindowSeconds: 30
       maxReplicasPerMinute: 5
     scaleDown:
-      stabilizationWindow: 300s
+      stabilizationWindowSeconds: 300
       maxReplicasPerMinute: 2
 
   schedules:
     - { cron: "0 7 * * MON-FRI", minReplicas: 10 }
     - { cron: "0 20 * * *",      minReplicas: 2 }
+
+  metricOutageFallback:
+    mode: hold   # hold | floor | fixed
 ```
 
 Scaling can also be written inline in an `Application` (see
@@ -170,3 +174,28 @@ No active requests → model scales to zero
 → Runtime starts the model server
 → readiness check passes → request processed
 ```
+
+---
+
+## 7. Local gate and troubleshooting
+
+Acceptance gate (Docker provider, sequential Compose):
+
+```bash
+make demo DEMO=24
+```
+
+That run covers HTTP scale-up/down, a 20,000-job worker backlog, node
+scale-up from pending placements, safe drain/delete on scale-down, plus
+manual override and metric-outage fallback visibility on
+`ScalingPolicy.status`.
+
+| Symptom | Check |
+|---|---|
+| Replicas never leave `minReplicas` | Gateway/Events admin metrics reachable (`GET …/admin/metrics?application=` / `?queue=`); policy `status.lastRecommendation` / `metricOutageMode` |
+| Pending placements stuck | Eligible `NodePool` with room under `scaling.maxNodes`; Infrastructure Ready nodes joining Control |
+| Node never drains | Workload desired count actually lowered on the Deployment; underutilization window elapsed; no pending demand |
+| Override ignored | `PUT …/scalingpolicies/{name}/override` with current `resourceVersion`; status shows `manualOverride` until TTL |
+
+Operator override/schedule details:
+[docs/operations/autoscaler-overrides.md](../operations/autoscaler-overrides.md).

@@ -179,9 +179,10 @@ func (s *SignalSource) ClusterReservation(ctx context.Context) (ClusterReservati
 				r.CapacityGPU += n
 			}
 		}
+		allocatedSlots := 0
 		if alloc, ok := row["allocated"].(map[string]any); ok {
 			if n, ok := asInt(alloc["slots"]); ok {
-				r.AllocatedSlots += n
+				allocatedSlots = n
 			}
 			if n, ok := asInt(alloc["cpu_millis"]); ok {
 				r.AllocatedCPU += n
@@ -192,6 +193,18 @@ func (s *SignalSource) ClusterReservation(ctx context.Context) (ClusterReservati
 			if n, ok := asInt(alloc["gpu"]); ok {
 				r.AllocatedGPU += n
 			}
+		}
+		// Prefer live running count when Control CapacityReservation is stale
+		// (heartbeats never shrink reserved slots). Otherwise reservationBreach
+		// stays true after app scale-down and scale-up fights node scale-down.
+		live := 0
+		if reps, ok := row["running_replicas"].([]any); ok {
+			live = len(reps)
+		}
+		if live < allocatedSlots {
+			r.AllocatedSlots += live
+		} else {
+			r.AllocatedSlots += allocatedSlots
 		}
 	}
 	return r, nil

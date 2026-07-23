@@ -117,7 +117,7 @@ M3 — global platform
 | [21](epics/21-forge-discovery.md) | Forge Discovery | M1 | 04, 05 | Planned (6 steps, `N = 140`–`145`) |
 | [22](epics/22-forge-network.md) | Forge Network | M1 | 04, 08 | Planned (7 steps, `N = 146`–`152`) |
 | [23](epics/23-forge-infrastructure.md) | Forge Infrastructure | M1 | 04, 08 | Planned (7 steps, `N = 153`–`159`) |
-| [24](epics/24-forge-autoscaler.md) | Forge Autoscaler | M1 | 07, 08, 12 | Planned (8 steps, `N = 160`–`167`) |
+| [24](epics/24-forge-autoscaler.md) | Forge Autoscaler | M1 | 07, 08, 12 | Complete (8 steps, `N = 160`–`167`) |
 | [25](epics/25-scheduling-enhancements.md) | Scheduling enhancements | M1 | 08 | Planned (6 steps, `N = 168`–`173`) |
 | [26](epics/26-forge-registry.md) | Forge Registry | M2 | 06 | Catalog |
 | [27](epics/27-deployment-strategies.md) | Deployment strategies | M2 | 05, 07 | Catalog |

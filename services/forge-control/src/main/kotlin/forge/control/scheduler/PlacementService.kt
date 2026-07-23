@@ -177,6 +177,34 @@ class PlacementService(
         return deleted
     }
 
+    /**
+     * Release active placements whose replica index is at/above [desiredReplicas].
+     *
+     * Needed when observation already lost surplus replicas (so the planner never
+     * emits StopReplica) but CapacityReservation still holds their slots. Heartbeats
+     * never shrink reserved slots, so without this scale-down leaves every node full
+     * and the node autoscaler cannot find underutilized victims.
+     */
+    fun releaseOrphanedAboveDesired(deploymentId: UUID, desiredReplicas: Int): Int {
+        val floor = desiredReplicas.coerceAtLeast(0)
+        val orphans = store.listByDeployment(deploymentId).filter { it.replicaIndex >= floor }
+        var released = 0
+        for (orphan in orphans.sortedByDescending { it.replicaIndex }) {
+            if (releasePlacement(deploymentId, orphan.replicaIndex, orphan.slots) != null) {
+                released++
+            }
+        }
+        if (released > 0) {
+            log.info(
+                "orphaned placements released",
+                "deployment_id" to deploymentId.toString(),
+                "desired_replicas" to floor,
+                "released" to released,
+            )
+        }
+        return released
+    }
+
     /** Event-driven drain after capacity-freeing events (stop, new node). */
     fun drainQueue(): Int = queueProcessor?.processOnce() ?: 0
 }

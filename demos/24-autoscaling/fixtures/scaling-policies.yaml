@@ -1,0 +1,52 @@
+# ScalingPolicy fixtures for demo 24 (applied via autoscaler API by run.sh).
+# Placeholders: ${PROJECT_SLUG}
+apiVersion: forge.dev/v1
+kind: ScalingPolicy
+metadata:
+  name: invoice-api-scaling
+  project: ${PROJECT_SLUG}
+  environment: production
+spec:
+  targetRef:
+    kind: Application
+    name: invoice-api
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: httpRequests
+      targetValue: 150
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      maxReplicasPerMinute: 10
+    scaleDown:
+      stabilizationWindowSeconds: 0
+      maxReplicasPerMinute: 10
+  metricOutageFallback:
+    mode: hold
+---
+apiVersion: forge.dev/v1
+kind: ScalingPolicy
+metadata:
+  name: invoice-worker-scaling
+  project: ${PROJECT_SLUG}
+  environment: production
+spec:
+  targetRef:
+    kind: Worker
+    name: invoice-worker
+  minReplicas: 1
+  maxReplicas: 20
+  metrics:
+    - type: queueDepth
+      targetValue: 500
+      queue: invoice-jobs
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      maxReplicasPerMinute: 20
+    scaleDown:
+      stabilizationWindowSeconds: 0
+      maxReplicasPerMinute: 20
+  metricOutageFallback:
+    mode: hold

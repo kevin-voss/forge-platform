@@ -1,0 +1,24 @@
+# Docker provider pool for demo 24. Autoscaler owns status.desiredNodes;
+# Infrastructure owns Node lifecycle. Product manifests never name providers.
+apiVersion: forge.dev/v1
+kind: InfrastructureProvider
+metadata:
+  name: docker-local
+spec:
+  type: docker
+---
+apiVersion: forge.dev/v1
+kind: NodePool
+metadata:
+  name: docker-pool
+  labels:
+    demo: "24"
+spec:
+  providerRef: docker-local
+  replicas: 2
+  machineType: docker-small
+  region: local
+  priority: 10
+  scaling:
+    minNodes: 2
+    maxNodes: 3

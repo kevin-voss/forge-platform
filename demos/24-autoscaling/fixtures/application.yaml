@@ -1,0 +1,60 @@
+# Portable Application + Worker stack for demo 24.
+# Placeholders filled by run.sh: ${PROJECT_NAME} ${PROJECT_SLUG} ${DEMO_IMAGE}
+apiVersion: forge.dev/v1
+kind: Project
+metadata:
+  name: ${PROJECT_NAME}
+spec:
+  slug: ${PROJECT_SLUG}
+---
+apiVersion: forge.dev/v1
+kind: Environment
+metadata:
+  name: production
+  project: ${PROJECT_SLUG}
+spec: {}
+---
+apiVersion: forge.dev/v1
+kind: Application
+metadata:
+  name: invoice-api
+  project: ${PROJECT_SLUG}
+  environment: production
+  labels:
+    app: invoice-api
+    demo: "24"
+spec:
+  image: ${DEMO_IMAGE}
+  resources:
+    cpu: 100m
+    memory: 128Mi
+  scaling:
+    minReplicas: 2
+    maxReplicas: 6
+    desiredReplicas: 2
+---
+apiVersion: forge.dev/v1
+kind: Service
+metadata:
+  name: invoice-api
+  project: ${PROJECT_SLUG}
+  annotations:
+    forge.dev/parent: invoice-api
+spec:
+  port: 8080
+---
+apiVersion: forge.dev/v1
+kind: Deployment
+metadata:
+  name: invoice-api
+  project: ${PROJECT_SLUG}
+  environment: production
+  annotations:
+    forge.dev/parent: invoice-api
+  labels:
+    app: invoice-api
+    demo: "24"
+spec:
+  service: invoice-api
+  image: ${DEMO_IMAGE}
+  replicas: 2

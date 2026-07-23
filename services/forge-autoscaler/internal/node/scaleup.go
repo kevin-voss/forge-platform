@@ -251,7 +251,12 @@ func mergeScaleUpStatus(existing map[string]any, d ScaleUpDecision, now time.Tim
 	for k, v := range existing {
 		status[k] = v
 	}
-	if d.DesiredNodes > 0 {
+	// Do not clobber an in-flight scale-down target with a none/idempotent
+	// scale-up status write (readyNodes may still equal the old desired).
+	scaleDownPhase := strings.ToLower(asString(existing["scaleDownPhase"]))
+	drainInFlight := scaleDownPhase == "draining" || scaleDownPhase == "deleting" ||
+		scaleDownPhase == "delete_blocked" || asString(existing["drainCandidateNodeId"]) != ""
+	if d.DesiredNodes > 0 && !(drainInFlight && (d.Action == "none" || d.Action == "idempotent")) {
 		status["desiredNodes"] = d.DesiredNodes
 	}
 	status["currentNodes"] = d.ReadyNodes

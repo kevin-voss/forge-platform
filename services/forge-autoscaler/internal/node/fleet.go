@@ -26,11 +26,26 @@ type FleetNode struct {
 	RegisteredAt    time.Time
 }
 
+// EffectiveAllocatedSlots returns the slot count used for scale-down scoring.
+// When Control still holds CapacityReservation after workloads are gone (orphan
+// placements / heartbeat max-only updates), prefer the live running count so
+// empty nodes remain eligible victims.
+func (n FleetNode) EffectiveAllocatedSlots() int {
+	live := len(n.RunningReplicas)
+	if live < n.AllocatedSlots {
+		return live
+	}
+	if n.AllocatedSlots > 0 {
+		return n.AllocatedSlots
+	}
+	return live
+}
+
 // Utilization returns the highest allocation ratio among known dimensions (0–1).
 func (n FleetNode) Utilization() float64 {
 	var ratios []float64
 	if n.CapacitySlots > 0 {
-		ratios = append(ratios, float64(n.AllocatedSlots)/float64(n.CapacitySlots))
+		ratios = append(ratios, float64(n.EffectiveAllocatedSlots())/float64(n.CapacitySlots))
 	}
 	if n.CapacityCPU > 0 {
 		ratios = append(ratios, float64(n.AllocatedCPU)/float64(n.CapacityCPU))
@@ -46,7 +61,7 @@ func (n FleetNode) Utilization() float64 {
 	}
 	// Empty capacity with no allocations → fully idle.
 	if len(ratios) == 0 {
-		if len(n.RunningReplicas) == 0 && n.AllocatedSlots == 0 {
+		if n.IsEmpty() {
 			return 0
 		}
 		return 1
@@ -61,8 +76,9 @@ func (n FleetNode) IsReady() bool {
 }
 
 // IsEmpty reports whether the node has no running workloads.
+// Stale reserved slots alone do not count as occupancy for scale-down.
 func (n FleetNode) IsEmpty() bool {
-	return len(n.RunningReplicas) == 0 && n.AllocatedSlots == 0
+	return len(n.RunningReplicas) == 0
 }
 
 // ListFleetNodes loads Control GET /v1/nodes.
@@ -165,7 +181,7 @@ func FreeSlotsElsewhere(nodes []FleetNode, excludeID string) int {
 		if n.ID == excludeID || !n.IsReady() {
 			continue
 		}
-		free := n.CapacitySlots - n.AllocatedSlots
+		free := n.CapacitySlots - n.EffectiveAllocatedSlots()
 		if free > 0 {
 			total += free
 		}
