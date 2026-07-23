@@ -4,7 +4,7 @@ Atomic steps for [Declarative resource API](../../epics/20-declarative-resource-
 
 | Step | N | File | Status |
 |---|---:|---|---|
-| 20.01 | 132 | [20.01-resource-envelope-and-registry.md](20.01-resource-envelope-and-registry.md) | Not started |
+| 20.01 | 132 | [20.01-resource-envelope-and-registry.md](20.01-resource-envelope-and-registry.md) | Complete |
 | 20.02 | 133 | [20.02-generic-crud-and-concurrency.md](20.02-generic-crud-and-concurrency.md) | Not started |
 | 20.03 | 134 | [20.03-generation-status-and-conditions.md](20.03-generation-status-and-conditions.md) | Not started |
 | 20.04 | 135 | [20.04-labels-selectors-and-listing.md](20.04-labels-selectors-and-listing.md) | Not started |

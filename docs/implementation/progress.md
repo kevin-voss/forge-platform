@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 132`** (epic 20; current roadmap 1–131 complete).
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 133`** (epic 20; current roadmap 1–131 complete).
 
 ## Epics
 
@@ -181,7 +181,7 @@ next implementable step is still the one named at the top of this file. Plan:
 
 | Epic | Title | Milestone | Status | Notes |
 |---|---|---|---|---|
-| [20](epics/20-declarative-resource-api.md) | Declarative resource API | M1 | Planning | 8 steps (`N = 132`–`139`); facade keeps epics 02/07 APIs intact |
+| [20](epics/20-declarative-resource-api.md) | Declarative resource API | M1 | In progress | 1/8 steps (`N = 132` complete); facade keeps epics 02/07 APIs intact |
 | [21](epics/21-forge-discovery.md) | Forge Discovery | M1 | Planning | 6 steps (`N = 140`–`145`) |
 | [22](epics/22-forge-network.md) | Forge Network | M1 | Planning | 7 steps (`N = 146`–`152`) |
 | [23](epics/23-forge-infrastructure.md) | Forge Infrastructure | M1 | Planning | 7 steps (`N = 153`–`159`); Docker/SSH/bare-metal/Hetzner/AWS/Azure |
@@ -208,18 +208,24 @@ next implementable step is still the one named at the top of this file. Plan:
 
 ## Future steps (M1)
 
-| N | Title | Status |
-|---:|---|---|
-| **132**–**139** | Epic 20 — declarative resource API (`20.01`–`20.08`) | Not started |
-| **140**–**145** | Epic 21 — Forge Discovery (`21.01`–`21.06`) | Not started |
-| **146**–**152** | Epic 22 — Forge Network (`22.01`–`22.07`) | Not started |
-| **153**–**159** | Epic 23 — Forge Infrastructure (`23.01`–`23.07`) | Not started |
-| **160**–**167** | Epic 24 — Forge Autoscaler (`24.01`–`24.08`) | Not started |
-| **168**–**173** | Epic 25 — Scheduling enhancements (`25.01`–`25.06`) | Not started |
+| N | Title | Status | Commit | Notes |
+|---:|---|---|---|---|
+| **132** | [Resource envelope, kind registry, storage schema](steps/20-declarative-resource-api/20.01-resource-envelope-and-registry.md) | Complete |  | Envelope types, `KindRegistry`, `control.resources`, ULID ids; no HTTP yet |
+| **133** | [Generic CRUD endpoints + optimistic concurrency](steps/20-declarative-resource-api/20.02-generic-crud-and-concurrency.md) | Not started |  | |
+| **134** | [Generation tracking, status subresource, conditions](steps/20-declarative-resource-api/20.03-generation-status-and-conditions.md) | Not started |  | |
+| **135** | [Labels, annotations, filtering, pagination](steps/20-declarative-resource-api/20.04-labels-selectors-and-listing.md) | Not started |  | |
+| **136** | [Watch API + resource events](steps/20-declarative-resource-api/20.05-watch-api-and-resource-events.md) | Not started |  | |
+| **137** | [Owner references, finalizers, terminating deletion](steps/20-declarative-resource-api/20.06-ownership-finalizers-and-deletion.md) | Not started |  | |
+| **138** | [Compatibility facade for shipped APIs + `forge apply`](steps/20-declarative-resource-api/20.07-compat-facade-and-forge-apply.md) | Not started |  | |
+| **139** | [Demo `20-declarative-resources` + epic gate](steps/20-declarative-resource-api/20.08-demo-20-declarative-resources.md) | Not started |  | |
+| **140**–**145** | Epic 21 — Forge Discovery (`21.01`–`21.06`) | Not started |  | |
+| **146**–**152** | Epic 22 — Forge Network (`22.01`–`22.07`) | Not started |  | |
+| **153**–**159** | Epic 23 — Forge Infrastructure (`23.01`–`23.07`) | Not started |  | |
+| **160**–**167** | Epic 24 — Forge Autoscaler (`24.01`–`24.08`) | Not started |  | |
+| **168**–**173** | Epic 25 — Scheduling enhancements (`25.01`–`25.06`) | Not started |  | |
 
 Per-step rows live in each epic's steps README; the global lookup is
-[`STEPS.md`](STEPS.md#future-queue--standalone-cloud-epics-2025). Expand these into
-individual rows here when M1 implementation starts.
+[`STEPS.md`](STEPS.md#future-queue--standalone-cloud-epics-2025).
 
 > Planned steps including the future queue: **173** (`N = 1` … `N = 173`).
 
