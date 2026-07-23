@@ -1,0 +1,108 @@
+openapi: 3.0.3
+info:
+  title: Forge Workflows API
+  version: 0.1.0
+  description: |
+    Durable workflow orchestration service (epic 16). Health/identity from 16.01;
+    definitions, step primitives, triggers, approvals, and compensation land in
+    later steps.
+servers:
+  - url: http://127.0.0.1:4302
+    description: Local Compose (host port 4302)
+
+paths:
+  /health/live:
+    get:
+      operationId: getHealthLive
+      summary: Liveness probe
+      description: Returns 200 when the process is alive.
+      responses:
+        "200":
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: live
+
+  /health/ready:
+    get:
+      operationId: getHealthReady
+      summary: Readiness probe
+      description: |
+        Returns 200 when the OTP supervision tree is up (16.01). Later steps
+        also require the durable store to be reachable.
+      responses:
+        "200":
+          description: Ready to receive traffic
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: ready
+        "503":
+          description: Not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: not_ready
+
+  /:
+    get:
+      operationId: getIdentity
+      summary: Service identity
+      description: |
+        Returns JSON identity for the running service. Required fields match the
+        epic-01 runtime contract: service, language, status.
+      responses:
+        "200":
+          description: Identity payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Identity"
+              example:
+                service: forge-workflows
+                language: elixir
+                status: running
+                version: 0.1.0
+                uptime_seconds: 12
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      additionalProperties: true
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          description: Short health indicator (live, ready, not_ready)
+
+    Identity:
+      type: object
+      required:
+        - service
+        - language
+        - status
+      properties:
+        service:
+          type: string
+          example: forge-workflows
+        language:
+          type: string
+          example: elixir
+        status:
+          type: string
+          example: running
+        version:
+          type: string
+          example: 0.1.0
+        uptime_seconds:
+          type: number
+          example: 12

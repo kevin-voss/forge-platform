@@ -51,6 +51,7 @@
 |---|---:|
 | Forge Models | 4300 |
 | Forge Agents | 4301 |
+| Forge Workflows | 4302 |
 
 ## Reserved for the standalone-cloud phase (epics 20–43)
 

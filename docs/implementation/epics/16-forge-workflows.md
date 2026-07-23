@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning
+In progress
 
 ## Goal
 
@@ -54,7 +54,7 @@ make demo DEMO=16
 
 | Step | Title | Status | Notes |
 |---|---|---|---|
-| [16.01](../steps/16-forge-workflows/16.01-skeleton-otp-health.md) | Skeleton OTP + health | Not started | Elixir/OTP, health, port 4302 |
+| [16.01](../steps/16-forge-workflows/16.01-skeleton-otp-health.md) | Skeleton OTP + health | Complete | Elixir/OTP, health, port 4302 |
 | [16.02](../steps/16-forge-workflows/16.02-definitions-durable-state.md) | Definitions + durable run state | Not started | Depends on 16.01; resume across restart |
 | [16.03](../steps/16-forge-workflows/16.03-step-primitives.md) | Step primitives | Not started | Depends on 16.02; retry/delay/timeout/parallel/conditional |
 | [16.04](../steps/16-forge-workflows/16.04-event-triggers-agent-steps.md) | Event triggers + agent steps | Not started | Depends on 16.03; Events 11, Agents 15 |
@@ -79,4 +79,4 @@ make demo DEMO=16
 
 ## Next step to implement
 
-**[16.01](../steps/16-forge-workflows/16.01-skeleton-otp-health.md) — Skeleton OTP + health** (Elixir/OTP app, health, Compose on port `4302`).
+**[16.02](../steps/16-forge-workflows/16.02-definitions-durable-state.md) — Definitions + durable run state** (workflow definitions + Ecto/Postgres run state that survives restarts).

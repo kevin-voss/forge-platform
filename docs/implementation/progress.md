@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 107`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 108`**.
 
 ## Epics
 
@@ -24,7 +24,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [13](epics/13-forge-storage.md) | Forge Storage | Complete | 7/7 steps; demo 13 object-storage acceptance gate passed |
 | [14](epics/14-forge-models.md) | Forge Models | Complete | 7/7 steps; demo 14 model-serving acceptance gate passed |
 | [15](epics/15-forge-agents.md) | Forge Agents | Complete | 8/8 steps; demo 15 agent-runtime acceptance gate passed |
-| [16](epics/16-forge-workflows.md) | Forge Workflows | Planning | 7 steps |
+| [16](epics/16-forge-workflows.md) | Forge Workflows | In progress | 1/7 steps; OTP skeleton on `4302` |
 | [17](epics/17-forge-memory.md) | Forge Memory | Planning | 6 steps |
 | [18](epics/18-managed-postgresql.md) | Managed PostgreSQL | Planning | 6 steps |
 | [19](epics/19-full-platform-demo.md) | Full platform demo | Planning | 6 steps; capstone |
@@ -140,7 +140,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **104** | [Human approval for destructive tools](steps/15-forge-agents/15.06-human-approval.md) | Complete |  | Approval→`awaiting_approval`; approve/deny/expire; restart-safe |
 | **105** | [Seed agents + CLI `forge agent`](steps/15-forge-agents/15.07-seed-agents-cli.md) | Complete |  | Five seed YAMLs; forge agent list/run/status/approve/deny; docs |
 | **106** | [Demo `15-agent-runtime` + gate](steps/15-forge-agents/15.08-demo-and-gate.md) | Complete |  | Demo 15: investigator diagnose→awaiting_approval; epic gate |
-| **107** | [Skeleton OTP + health](steps/16-forge-workflows/16.01-skeleton-otp-health.md) | Not started |  |  |
+| **107** | [Skeleton OTP + health](steps/16-forge-workflows/16.01-skeleton-otp-health.md) | Complete |  | Elixir/OTP on `4302`, health/identity, JSON logs, Compose |
 | **108** | [Definitions + durable run state](steps/16-forge-workflows/16.02-definitions-durable-state.md) | Not started |  |  |
 | **109** | [Step primitives](steps/16-forge-workflows/16.03-step-primitives.md) | Not started |  |  |
 | **110** | [Event triggers + agent steps](steps/16-forge-workflows/16.04-event-triggers-agent-steps.md) | Not started |  |  |
