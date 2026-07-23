@@ -260,12 +260,16 @@ async fn run() -> Result<(), String> {
                 let kind = network::WgBackendKind::parse(&cfg.network_wg_backend)
                     .unwrap_or(network::WgBackendKind::Userspace);
                 let backend = network::select_backend(kind);
+                let route_backend =
+                    network::select_route_backend(&cfg.network_route_backend);
                 info!(
                     network_url = %network_url,
                     network_name = %cfg.network_name,
                     backend = ?backend.kind(),
+                    docker_colocated = cfg.node_docker_colocated,
+                    membership = ?cfg.node_network_membership,
                     poll_interval_s = cfg.network_peer_poll_interval.as_secs(),
-                    "starting wireguard peer poll loop"
+                    "starting network peer/route poll loop"
                 );
                 Some(network::spawn_peer_poll_loop(network::PeerPollConfig {
                     network_url: network_url.to_string(),
@@ -276,6 +280,11 @@ async fn run() -> Result<(), String> {
                     iface: cfg.network_wg_iface.clone(),
                     poll_interval: cfg.network_peer_poll_interval,
                     backend,
+                    route_backend,
+                    docker_colocated: cfg.node_docker_colocated,
+                    network_membership: cfg.node_network_membership.clone(),
+                    private_iface: cfg.network_private_iface.clone(),
+                    local_cidr: None,
                 }))
             }
             None => {

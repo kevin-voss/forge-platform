@@ -37,6 +37,9 @@ type Config struct {
 	WgTopology       string // mesh|hub (hub documented, not implemented)
 	WgBackend        string // kernel|userspace|auto — Runtime consumes; documented here
 	WgRotationWindow time.Duration
+
+	// Transport mode default when membership/colocation do not select a mode (22.04).
+	ModeDefault string // docker|provider-private|wireguard
 }
 
 // Load reads configuration from the process environment.
@@ -186,6 +189,16 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	modeDefault := strings.ToLower(strings.TrimSpace(os.Getenv("FORGE_NETWORK_MODE_DEFAULT")))
+	if modeDefault == "" {
+		modeDefault = "wireguard"
+	}
+	switch modeDefault {
+	case "docker", "provider-private", "wireguard":
+	default:
+		return Config{}, fmt.Errorf("FORGE_NETWORK_MODE_DEFAULT must be docker|provider-private|wireguard, got %q", modeDefault)
+	}
+
 	return Config{
 		Port:                   port,
 		ServiceName:            name,
@@ -209,6 +222,7 @@ func Load() (Config, error) {
 		WgTopology:             wgTopology,
 		WgBackend:              wgBackend,
 		WgRotationWindow:       time.Duration(rotSecs) * time.Second,
+		ModeDefault:            modeDefault,
 	}, nil
 }
 

@@ -81,6 +81,14 @@ pub struct Config {
     pub network_wg_endpoint: Option<String>,
     /// Peer poll interval.
     pub network_peer_poll_interval: Duration,
+    /// Same-Docker-daemon colocation flag (22.04); compose sets true for local nodes.
+    pub node_docker_colocated: bool,
+    /// Optional provider private-network membership tag (22.04).
+    pub node_network_membership: Option<String>,
+    /// NIC used for provider-private routes (22.04).
+    pub network_private_iface: String,
+    /// Route backend: host|fake (22.04).
+    pub network_route_backend: String,
 }
 
 impl Config {
@@ -368,6 +376,24 @@ impl Config {
             ));
         }
 
+        let node_docker_colocated = match env::var("FORGE_NODE_DOCKER_COLOCATED")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "1" | "true" | "yes" => true,
+            _ => false,
+        };
+        let node_network_membership = env::var("FORGE_NODE_NETWORK_MEMBERSHIP")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let network_private_iface =
+            non_empty_env("FORGE_NETWORK_PRIVATE_IFACE", "eth0");
+        let network_route_backend =
+            non_empty_env("FORGE_NETWORK_ROUTE_BACKEND", "host");
+
         Ok(Self {
             port,
             service_name,
@@ -414,6 +440,10 @@ impl Config {
             network_wg_iface,
             network_wg_endpoint,
             network_peer_poll_interval: Duration::from_secs(peer_poll_secs),
+            node_docker_colocated,
+            node_network_membership,
+            network_private_iface,
+            network_route_backend,
         })
     }
 }
@@ -486,6 +516,10 @@ mod tests {
             "FORGE_NETWORK_WG_IFACE",
             "FORGE_NETWORK_WG_ENDPOINT",
             "FORGE_NETWORK_PEER_POLL_INTERVAL_S",
+            "FORGE_NODE_DOCKER_COLOCATED",
+            "FORGE_NODE_NETWORK_MEMBERSHIP",
+            "FORGE_NETWORK_PRIVATE_IFACE",
+            "FORGE_NETWORK_ROUTE_BACKEND",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()

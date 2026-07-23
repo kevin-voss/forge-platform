@@ -78,7 +78,13 @@ func run() error {
 		Metrics:          metrics,
 		Topology:         cfg.WgTopology,
 	}
-	computer := &network.PeerSetComputer{Registry: registry, Log: log}
+	membership := &network.MembershipStore{
+		Pool:        database.Pool,
+		Log:         log,
+		DefaultMode: cfg.ModeDefault,
+		Metrics:     &network.TransportMetrics{},
+	}
+	computer := &network.PeerSetComputer{Registry: registry, Membership: membership, Log: log}
 	if cfg.WgTopology == "hub" {
 		log.Warn("FORGE_NETWORK_WG_TOPOLOGY=hub is documented but not implemented; using full mesh",
 			"event", "network.peers.topology_fallback")
@@ -90,11 +96,12 @@ func run() error {
 	go runRotationRetirer(bgCtx, registry, cfg.LeaseReclaimInterval, log)
 
 	mux := api.NewRouter(api.Deps{
-		Alloc:    alloc,
-		Registry: registry,
-		Computer: computer,
-		DB:       database,
-		Log:      log,
+		Alloc:      alloc,
+		Registry:   registry,
+		Computer:   computer,
+		Membership: membership,
+		DB:         database,
+		Log:        log,
 	})
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
@@ -126,6 +133,7 @@ func run() error {
 		"wg_mtu", cfg.WgMTU,
 		"wg_keepalive_s", cfg.WgKeepaliveS,
 		"wg_topology", cfg.WgTopology,
+		"mode_default", cfg.ModeDefault,
 		"version", cfg.ServiceVersion,
 		"env", cfg.Env,
 	)

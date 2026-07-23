@@ -11,9 +11,10 @@ import (
 
 // NodeLeasesHandler serves node block lease endpoints.
 type NodeLeasesHandler struct {
-	Alloc    *network.Allocator
-	Computer *network.PeerSetComputer
-	Log      *slog.Logger
+	Alloc      *network.Allocator
+	Computer   *network.PeerSetComputer
+	Membership *network.MembershipStore
+	Log        *slog.Logger
 }
 
 // Register mounts node-lease routes.
@@ -37,6 +38,12 @@ func (h *NodeLeasesHandler) allocate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeAllocErr(w, err)
 		return
+	}
+	if h.Membership != nil {
+		if err := h.Membership.RecomputeAllRoutesForNode(r.Context(), req.NodeID); err != nil && h.Log != nil {
+			h.Log.Warn("transport recompute after node lease failed",
+				"network", name, "node_id", req.NodeID, "error", err.Error())
+		}
 	}
 	writeJSON(w, http.StatusOK, lease)
 }

@@ -156,7 +156,7 @@ Restart node-b
 | [22.01](../steps/22-forge-network/22.01-skeleton-and-address-allocation.md) | 146 | Service skeleton + provider-independent address plan | Complete | `forge-network` on `4110`; CIDR plan; leases + reclamation |
 | [22.02](../steps/22-forge-network/22.02-node-identity-and-bootstrap-tokens.md) | 147 | Node identity, bootstrap tokens, join handshake | Complete | Bootstrap tokens; Runtime X25519; join → lease → `joining` |
 | [22.03](../steps/22-forge-network/22.03-wireguard-peer-management.md) | 148 | WireGuard peer management + route distribution | Complete | Peer registry, full-mesh compute, rotation, Runtime apply |
-| [22.04](../steps/22-forge-network/22.04-local-and-provider-network-modes.md) | 149 | Local Docker mode + provider private networks | Not started | Per-pair transport selection |
+| [22.04](../steps/22-forge-network/22.04-local-and-provider-network-modes.md) | 149 | Local Docker mode + provider private networks | Complete | Per-pair transport selection |
 | [22.05](../steps/22-forge-network/22.05-network-policy-resource-and-enforcement.md) | 150 | `NetworkPolicy` resource + enforcement | Not started | Node-level enforcement + observability |
 | [22.06](../steps/22-forge-network/22.06-overlay-dns-and-cross-node-services.md) | 151 | Overlay + Discovery/DNS integration | Not started | Cross-node calls by internal name |
 | [22.07](../steps/22-forge-network/22.07-demo-22-forge-network.md) | 152 | Demo `22-forge-network` + epic gate | Not started | Join, reach, deny, rejoin |
@@ -210,5 +210,5 @@ Restart node-b
 
 ## Next step to implement
 
-**[22.04](../steps/22-forge-network/22.04-local-and-provider-network-modes.md) — Local Docker
-mode + provider private networks** (per-pair transport selection).
+**[22.05](../steps/22-forge-network/22.05-network-policy-resource-and-enforcement.md) —
+`NetworkPolicy` resource + enforcement**.

@@ -97,6 +97,10 @@ make dev
 | `FORGE_NETWORK_WG_IFACE` | `wg0` | Local WireGuard interface name. |
 | `FORGE_NETWORK_WG_ENDPOINT` | _(unset)_ | Optional advertised `host:port` for NAT peers. |
 | `FORGE_NETWORK_PEER_POLL_INTERVAL_S` | `5` | Peer fetch → apply → report loop interval. |
+| `FORGE_NODE_DOCKER_COLOCATED` | `false` | When true, pairs with other colocated nodes use `docker` transport (22.04). |
+| `FORGE_NODE_NETWORK_MEMBERSHIP` | _(unset)_ | Provider private-network tag (e.g. `hetzner-private-fsn1`). |
+| `FORGE_NETWORK_PRIVATE_IFACE` | `eth0` | NIC for `provider-private` host routes. |
+| `FORGE_NETWORK_ROUTE_BACKEND` | `host` | `host` or `fake` route applicator. |
 
 Invalid `PORT` or an unwritable data dir causes a non-zero exit at startup.
 

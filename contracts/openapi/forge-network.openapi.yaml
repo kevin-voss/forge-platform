@@ -368,6 +368,81 @@ paths:
                     type: integer
                     format: int64
 
+  /v1/nodes/{id}/network-membership:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        example: node-a
+    get:
+      operationId: getNodeNetworkMembership
+      summary: Get a node's network membership and docker colocation flag
+      responses:
+        "200":
+          description: Membership
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NetworkMembership"
+    patch:
+      operationId: patchNodeNetworkMembership
+      summary: Set a node's provider network membership and/or docker colocation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NetworkMembershipPatch"
+            example:
+              membership: hetzner-private-fsn1
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NetworkMembership"
+              example:
+                node_id: node-a
+                membership: hetzner-private-fsn1
+                docker_colocated: false
+
+  /v1/networks/{name}/transport:
+    parameters:
+      - $ref: "#/components/parameters/NetworkName"
+      - name: from
+        in: query
+        required: true
+        schema:
+          type: string
+        example: node-a
+      - name: to
+        in: query
+        required: true
+        schema:
+          type: string
+        example: node-b
+    get:
+      operationId: getNetworkTransport
+      summary: Resolve the per-pair transport mode for observability/debugging
+      responses:
+        "200":
+          description: Transport for the directed pair
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransportPair"
+              example:
+                from: node-a
+                to: node-b
+                transport: provider-private
+        "400":
+          description: Missing or invalid from/to
+        "404":
+          description: Network not found
+
 components:
   parameters:
     NetworkName:
@@ -591,6 +666,51 @@ components:
           type: integer
           format: int64
           example: 4
+
+    NetworkMembershipPatch:
+      type: object
+      properties:
+        membership:
+          type: string
+          nullable: true
+          description: Provider private-network tag; empty/null clears membership
+          example: hetzner-private-fsn1
+        docker_colocated:
+          type: boolean
+          description: True when the node shares a Docker daemon with other colocated nodes
+
+    NetworkMembership:
+      type: object
+      required: [node_id, docker_colocated]
+      properties:
+        node_id:
+          type: string
+          example: node-a
+        membership:
+          type: string
+          nullable: true
+          example: hetzner-private-fsn1
+        docker_colocated:
+          type: boolean
+          example: false
+        updated_at:
+          type: string
+          format: date-time
+
+    TransportPair:
+      type: object
+      required: [from, to, transport]
+      properties:
+        from:
+          type: string
+          example: node-a
+        to:
+          type: string
+          example: node-b
+        transport:
+          type: string
+          enum: [docker, provider-private, wireguard]
+          example: provider-private
 
     ErrorEnvelope:
       type: object

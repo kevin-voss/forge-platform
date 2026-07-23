@@ -1,7 +1,13 @@
-//! Runtime network module: WireGuard peer poll / apply / report (22.03).
+//! Runtime network module: WireGuard peer poll / apply / report (22.03)
+//! and per-pair transport routes (22.04).
 
+mod route;
 mod wireguard;
 
+pub use route::{
+    apply_routes, select_route_backend, should_start_wireguard, FakeRouteBackend, PeerRoute,
+    RouteBackend, Transport, TransportPair,
+};
 pub use wireguard::{select_backend, FakeWgBackend, PeerSet, WgBackend, WgBackendKind};
 
 use serde::Serialize;
@@ -21,6 +27,11 @@ pub struct PeerPollConfig {
     pub iface: String,
     pub poll_interval: Duration,
     pub backend: Arc<dyn WgBackend>,
+    pub route_backend: Arc<dyn RouteBackend>,
+    pub docker_colocated: bool,
+    pub network_membership: Option<String>,
+    pub private_iface: String,
+    pub local_cidr: Option<String>,
 }
 
 /// HTTP client against forge-network peer APIs.
@@ -138,6 +149,71 @@ impl NetworkClient {
         }
         Ok(())
     }
+
+    pub async fn patch_membership(
+        &self,
+        node_id: &str,
+        membership: Option<&str>,
+        docker_colocated: Option<bool>,
+    ) -> Result<(), String> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            membership: Option<&'a str>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            docker_colocated: Option<bool>,
+        }
+        let url = format!(
+            "{}/v1/nodes/{}/network-membership",
+            self.base_url,
+            enc(node_id)
+        );
+        let resp = self
+            .http
+            .patch(&url)
+            .json(&Body {
+                membership,
+                docker_colocated,
+            })
+            .send()
+            .await
+            .map_err(|e| format!("patch membership: {e}"))?;
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("patch membership HTTP {status}: {body}"));
+        }
+        Ok(())
+    }
+
+    pub async fn fetch_transport(
+        &self,
+        network: &str,
+        from: &str,
+        to: &str,
+    ) -> Result<TransportPair, String> {
+        let url = format!(
+            "{}/v1/networks/{}/transport?from={}&to={}",
+            self.base_url,
+            enc(network),
+            enc(from),
+            enc(to)
+        );
+        let resp = self
+            .http
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("fetch transport: {e}"))?;
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("fetch transport HTTP {status}: {body}"));
+        }
+        resp.json::<TransportPair>()
+            .await
+            .map_err(|e| format!("decode transport: {e}"))
+    }
 }
 
 fn enc(s: &str) -> String {
@@ -157,15 +233,93 @@ fn urlencoding_lite(s: &str) -> String {
     out
 }
 
-/// One poll cycle: fetch → diff version → apply → report.
+/// Split the distributed peer set by per-pair transport and apply non-WG routes.
+/// Returns the peer subset that still needs WireGuard.
+async fn split_and_apply_routes(
+    client: &NetworkClient,
+    cfg: &PeerPollConfig,
+    peers: &PeerSet,
+) -> PeerSet {
+    let mut routes = Vec::new();
+    let mut wg_peers = Vec::new();
+    for p in &peers.peers {
+        match client
+            .fetch_transport(&cfg.network_name, &cfg.node_id, &p.node_id)
+            .await
+        {
+            Ok(pair) => match Transport::parse(&pair.transport) {
+                Ok(Transport::Wireguard) => wg_peers.push(p.clone()),
+                Ok(t) => {
+                    let cidr = p.allowed_ips.first().cloned().unwrap_or_default();
+                    routes.push(PeerRoute {
+                        peer_node_id: p.node_id.clone(),
+                        peer_cidr: cidr,
+                        transport: t,
+                    });
+                }
+                Err(err) => {
+                    warn!(error = %err, peer = %p.node_id, "bad transport; defaulting to wireguard");
+                    wg_peers.push(p.clone());
+                }
+            },
+            Err(err) => {
+                // Fail closed to encrypted mesh when transport lookup fails.
+                warn!(error = %err, peer = %p.node_id, "transport lookup failed; defaulting to wireguard");
+                wg_peers.push(p.clone());
+            }
+        }
+    }
+    if cfg.docker_colocated {
+        if let Some(cidr) = cfg.local_cidr.as_deref() {
+            routes.push(PeerRoute {
+                peer_node_id: cfg.node_id.clone(),
+                peer_cidr: cidr.to_string(),
+                transport: Transport::Docker,
+            });
+        }
+    }
+    if !routes.is_empty() {
+        if let Err(err) = apply_routes(
+            cfg.route_backend.as_ref(),
+            &cfg.node_id,
+            cfg.local_cidr.as_deref(),
+            &cfg.private_iface,
+            &routes,
+        ) {
+            warn!(error = %err, "route apply failed");
+        }
+    }
+    PeerSet {
+        node_id: peers.node_id.clone(),
+        peer_version: peers.peer_version,
+        mtu: peers.mtu,
+        peers: wg_peers,
+    }
+}
+
+/// One poll cycle: fetch → split by transport → routes / WG apply → report.
 pub async fn poll_once(client: &NetworkClient, cfg: &PeerPollConfig, last: &mut i64) {
     match client.fetch_peers(&cfg.network_name, &cfg.node_id).await {
         Ok(peers) => {
+            let wg_peers = split_and_apply_routes(client, cfg, &peers).await;
+
+            // Never start WireGuard when no pair resolves to wireguard.
+            if !should_start_wireguard(!wg_peers.peers.is_empty()) {
+                if peers.peer_version != *last {
+                    debug!(
+                        peer_version = peers.peer_version,
+                        "no wireguard peers; skipping wg interface"
+                    );
+                    *last = peers.peer_version;
+                }
+                return;
+            }
+
             if peers.peer_version == *last {
                 debug!(peer_version = peers.peer_version, "peer set unchanged");
                 return;
             }
-            match cfg.backend.apply(&cfg.iface, &peers) {
+            match cfg.backend.apply(&cfg.iface, &wg_peers) {
                 Ok(()) => {
                     if let Err(err) = client
                         .report_applied(&cfg.network_name, &cfg.node_id, peers.peer_version)
@@ -175,7 +329,7 @@ pub async fn poll_once(client: &NetworkClient, cfg: &PeerPollConfig, last: &mut 
                     } else {
                         info!(
                             peer_version = peers.peer_version,
-                            peers = peers.peers.len(),
+                            peers = wg_peers.peers.len(),
                             backend = ?cfg.backend.kind(),
                             "applied wireguard peer set"
                         );
@@ -199,7 +353,42 @@ pub fn spawn_peer_poll_loop(cfg: PeerPollConfig) -> tokio::task::JoinHandle<()> 
                 return;
             }
         };
-        // Best-effort register (requires node lease already present from join).
+
+        // Publish colocation / membership so TransportResolver can select modes.
+        if cfg.docker_colocated || cfg.network_membership.is_some() {
+            for attempt in 1..=5 {
+                match client
+                    .patch_membership(
+                        &cfg.node_id,
+                        cfg.network_membership.as_deref(),
+                        if cfg.docker_colocated {
+                            Some(true)
+                        } else {
+                            None
+                        },
+                    )
+                    .await
+                {
+                    Ok(()) => {
+                        info!(
+                            node_id = %cfg.node_id,
+                            docker_colocated = cfg.docker_colocated,
+                            membership = ?cfg.network_membership,
+                            "published network membership to forge-network"
+                        );
+                        break;
+                    }
+                    Err(err) => {
+                        warn!(attempt, error = %err, "membership patch not ready; retrying");
+                        sleep(Duration::from_secs(2)).await;
+                    }
+                }
+            }
+        }
+
+        // Best-effort WG register (requires node lease). Skipped when node is
+        // docker-colocated-only until a wireguard peer appears — still register
+        // the key so mixed clusters can add WG peers later.
         for attempt in 1..=5 {
             match client
                 .register_peer(
@@ -271,6 +460,7 @@ mod tests {
         });
 
         let backend = Arc::new(FakeWgBackend::new());
+        let route_backend = Arc::new(FakeRouteBackend::new());
         let cfg = PeerPollConfig {
             network_url: server.base_url(),
             network_name: "cluster-overlay".into(),
@@ -280,6 +470,11 @@ mod tests {
             iface: "wg0".into(),
             poll_interval: Duration::from_secs(5),
             backend: backend.clone(),
+            route_backend,
+            docker_colocated: false,
+            network_membership: None,
+            private_iface: "eth1".into(),
+            local_cidr: None,
         };
         let client = NetworkClient::new(&cfg.network_url).unwrap();
         let mut last = -1;

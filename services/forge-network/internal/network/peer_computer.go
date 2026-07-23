@@ -8,9 +8,12 @@ import (
 )
 
 // PeerSetComputer builds full-mesh peer sets and bumps versions for affected nodes.
+// Transport selection (22.04) is applied by Runtime: it asks forge-network for the
+// per-pair transport and only configures WireGuard for wireguard pairs.
 type PeerSetComputer struct {
-	Registry *PeerRegistry
-	Log      *slog.Logger
+	Registry   *PeerRegistry
+	Membership *MembershipStore
+	Log        *slog.Logger
 }
 
 // ComputeForNode returns the peer list for nodeID (excluding offline peers and self).

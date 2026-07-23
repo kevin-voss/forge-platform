@@ -155,8 +155,9 @@ func startPeerTestServer(t *testing.T) (*httptest.Server, string, func()) {
 
 	alloc := &network.Allocator{Pool: database.Pool, SkipDocker: true}
 	reg := &network.PeerRegistry{Pool: database.Pool, KeepaliveSeconds: 25, MTU: 1420, Metrics: &network.PeerMetrics{}}
-	comp := &network.PeerSetComputer{Registry: reg}
-	mux := api.NewRouter(api.Deps{Alloc: alloc, Registry: reg, Computer: comp, DB: database})
+	mem := &network.MembershipStore{Pool: database.Pool, DefaultMode: network.TransportWireguard, Metrics: &network.TransportMetrics{}}
+	comp := &network.PeerSetComputer{Registry: reg, Membership: mem}
+	mux := api.NewRouter(api.Deps{Alloc: alloc, Registry: reg, Computer: comp, Membership: mem, DB: database})
 	srv := httptest.NewServer(mux)
 
 	ctx2 := context.Background()

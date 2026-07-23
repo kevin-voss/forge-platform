@@ -59,6 +59,15 @@ func TestOpenAPIDeclaresNetworkAndLeases(t *testing.T) {
 		"applied_peer_version",
 		"persistent_keepalive",
 		"b64:rotated...",
+		"/v1/nodes/{id}/network-membership",
+		"/v1/networks/{name}/transport",
+		"patchNodeNetworkMembership",
+		"getNetworkTransport",
+		"provider-private",
+		"hetzner-private-fsn1",
+		"NetworkMembership",
+		"TransportPair",
+		"docker_colocated",
 	} {
 		if !strings.Contains(text, needle) {
 			t.Fatalf("openapi missing %q", needle)

@@ -11,6 +11,11 @@ Step `22.03` adds WireGuard peer registry, full-mesh peer-set computation,
 incremental `peer_version` bumps, dual-key rotation, and Runtime distribution
 (`GET .../peers`, `rotate-key`, `applied-version`).
 
+Step `22.04` adds per-pair transport selection (`docker` /
+`provider-private` / `wireguard`) from `network_membership` +
+`docker_colocated`, with `PATCH /v1/nodes/{id}/network-membership` and
+`GET /v1/networks/{name}/transport`.
+
 ## Quick start
 
 ```bash
@@ -61,6 +66,25 @@ Overlaps with Docker bridge/IPAM subnets (via Docker Engine API) or
 | `FORGE_NETWORK_WG_KEEPALIVE_S` | `25` | `persistent_keepalive` for NAT'd peers |
 | `FORGE_NETWORK_WG_TOPOLOGY` | `mesh` | `hub` documented only ([hub-topology.md](../../docs/implementation/steps/22-forge-network/notes/hub-topology.md)) |
 | `FORGE_NETWORK_WG_ROTATION_WINDOW_S` | `300` | Dual-key window before scheduled retire |
+| `FORGE_NETWORK_MODE_DEFAULT` | `wireguard` | Fallback transport when membership/colocation do not select a mode |
+
+## Transport modes (22.04)
+
+```bash
+curl -s -X PATCH localhost:4110/v1/nodes/node-a/network-membership \
+  -H 'content-type: application/json' \
+  -d '{"membership":"hetzner-private-fsn1"}' | jq
+
+curl -s -X PATCH localhost:4110/v1/nodes/node-b/network-membership \
+  -H 'content-type: application/json' \
+  -d '{"membership":"hetzner-private-fsn1"}' | jq
+
+curl -s 'localhost:4110/v1/networks/cluster-overlay/transport?from=node-a&to=node-b' | jq
+# → {"from":"node-a","to":"node-b","transport":"provider-private"}
+```
+
+Compose demo nodes set `FORGE_NODE_DOCKER_COLOCATED=true` so same-daemon pairs
+resolve to `docker` (no WireGuard interface).
 
 ## WireGuard peers
 
@@ -86,3 +110,4 @@ curl -s -X POST localhost:4110/v1/networks/cluster-overlay/nodes/node-a/rotate-k
 * Epic: [`docs/implementation/epics/22-forge-network.md`](../../docs/implementation/epics/22-forge-network.md)
 * Step `22.01`: [`22.01-skeleton-and-address-allocation.md`](../../docs/implementation/steps/22-forge-network/22.01-skeleton-and-address-allocation.md)
 * Step `22.03`: [`22.03-wireguard-peer-management.md`](../../docs/implementation/steps/22-forge-network/22.03-wireguard-peer-management.md)
+* Step `22.04`: [`22.04-local-and-provider-network-modes.md`](../../docs/implementation/steps/22-forge-network/22.04-local-and-provider-network-modes.md)

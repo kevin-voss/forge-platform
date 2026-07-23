@@ -428,6 +428,12 @@ services:
       FORGE_DISCOVERY_URL: ${FORGE_DISCOVERY_URL-http://forge-discovery:8080}
       FORGE_DISCOVERY_REGISTER_ENABLED: ${FORGE_DISCOVERY_REGISTER_ENABLED:-true}
       FORGE_DISCOVERY_LEASE_SECONDS: ${FORGE_DISCOVERY_LEASE_SECONDS:-20}
+      # Epic 22.04: same-daemon compose nodes use docker transport (no WireGuard).
+      FORGE_NODE_DOCKER_COLOCATED: ${FORGE_NODE_DOCKER_COLOCATED:-true}
+      FORGE_NETWORK_URL: ${FORGE_NETWORK_URL-http://forge-network:8080}
+      FORGE_NETWORK_NAME: ${FORGE_NETWORK_NAME:-cluster-overlay}
+      FORGE_NETWORK_WG_BACKEND: ${FORGE_NETWORK_WG_BACKEND:-auto}
+      FORGE_NETWORK_ROUTE_BACKEND: ${FORGE_NETWORK_ROUTE_BACKEND:-host}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -443,6 +449,8 @@ services:
       forge-control:
         condition: service_healthy
       forge-discovery:
+        condition: service_healthy
+      forge-network:
         condition: service_healthy
     stop_grace_period: 15s
     healthcheck:
@@ -901,6 +909,7 @@ services:
       # Declared install-target private CIDR(s) for collision checks (comma-separated).
       FORGE_NETWORK_PROVIDER_CIDRS: ${FORGE_NETWORK_PROVIDER_CIDRS:-10.255.0.0/16}
       FORGE_NETWORK_DOCKER_COLLISION_CHECK: ${FORGE_NETWORK_DOCKER_COLLISION_CHECK:-true}
+      FORGE_NETWORK_MODE_DEFAULT: ${FORGE_NETWORK_MODE_DEFAULT:-wireguard}
       DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
     volumes:
       # Optional: Docker bridge/IPAM collision detection (22.01). Soft-fails if unreadable.
