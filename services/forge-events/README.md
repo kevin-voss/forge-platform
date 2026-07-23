@@ -102,5 +102,4 @@ DLQ entries via `/v1/dlq`.
 
 ## Status
 
-Step `11.06` — idempotency keys + consumer identity for safe at-least-once delivery.
-Demo + epic gate are `11.07`.
+Epic `11` complete — proven by `make demo DEMO=11` (`demos/11-event-driven`).

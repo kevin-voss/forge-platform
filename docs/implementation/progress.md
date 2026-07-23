@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 77`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 78`**.
 
 ## Epics
 
@@ -19,7 +19,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [08](epics/08-multi-node-scheduler.md) | Multi-node scheduler | Complete | 6/6 steps complete; demo 08 multi-node acceptance gate passed |
 | [09](epics/09-forge-identity.md) | Forge Identity | Complete | 8/8 steps complete; demo 09 platform-identity acceptance gate passed; default auth enforce |
 | [10](epics/10-forge-secrets.md) | Forge Secrets | Complete | 7/7 steps; demo 10 secrets acceptance gate passed |
-| [11](epics/11-forge-events.md) | Forge Events | In progress | 5/7 steps; event JSON Schemas + publish-time validation on `4105` |
+| [11](epics/11-forge-events.md) | Forge Events | Complete | 7/7 steps; demo 11 event-driven acceptance gate passed |
 | [12](epics/12-forge-observe.md) | Forge Observe | Planning | 7 steps |
 | [13](epics/13-forge-storage.md) | Forge Storage | Planning | 7 steps |
 | [14](epics/14-forge-models.md) | Forge Models | Planning | 7 steps |
@@ -110,7 +110,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **74** | [DLQ + inspect APIs](steps/11-forge-events/11.04-dlq-and-inspect-apis.md) | Complete |  | `dlq_*` streams; terminal→DLQ; list/detail/redeliver/delete APIs |
 | **75** | [Event JSON Schemas](steps/11-forge-events/11.05-event-json-schemas.md) | Complete |  | `contracts/events/*`; publish validates → 422; `GET /v1/schemas` |
 | **76** | [Idempotency keys + consumer identity](steps/11-forge-events/11.06-idempotency-keys-and-consumer-identity.md) | Complete |  | Idempotency-Key→msg-id; processed_events seen store; consumer identity + optional auth |
-| **77** | [Demo `11-event-driven` (Go producer → Elixir consumer) + gate](steps/11-forge-events/11.07-demo-11-event-driven.md) | Not started |  |  |
+| **77** | [Demo `11-event-driven` (Go producer → Elixir consumer) + gate](steps/11-forge-events/11.07-demo-11-event-driven.md) | Complete |  | Demo 11: Go→Elixir; schema 422; poison→DLQ; idempotency; epic gate |
 | **78** | [Skeleton + correlation API design](steps/12-forge-observe/12.01-skeleton-and-correlation-api-design.md) | Not started |  |  |
 | **79** | [Instrumentation checklist on Control/Runtime/Gateway/Build](steps/12-forge-observe/12.02-instrumentation-checklist.md) | Not started |  |  |
 | **80** | [Grafana dashboards (platform/service/deployment/runtime)](steps/12-forge-observe/12.03-grafana-dashboards.md) | Not started |  |  |

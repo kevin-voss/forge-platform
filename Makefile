@@ -39,7 +39,7 @@ help:
 	@echo "  make format                Format repository files where applicable"
 	@echo "  make clean                 Remove local build artifacts"
 	@echo "  make reset                 Destroy local volumes and restart clean"
-	@echo "  make demo DEMO=00          Run a numbered demo (e.g. DEMO=10 secrets)"
+	@echo "  make demo DEMO=00          Run a numbered demo (e.g. DEMO=11 event-driven)"
 	@echo "  make service-test SERVICE= Run tests for one service"
 	@echo "  make service-run SERVICE=  Run one service locally"
 

@@ -1,0 +1,73 @@
+# Demo 11 overlay — NATS + Forge Events (short retry) + Go producer + Elixir consumer.
+# Used with the root compose file:
+#   docker compose -f compose.yaml -f demos/11-event-driven/docker-compose.yml up -d ...
+#
+# Runs with FORGE_AUTH_MODE=dev (Events) for an unauthenticated polyglot gate.
+# Retry knobs are tightened so poison → DLQ finishes within the demo window.
+
+services:
+  forge-events:
+    environment:
+      FORGE_AUTH_MODE: ${FORGE_EVENTS_AUTH_MODE:-dev}
+      FORGE_DEFAULT_ACK_WAIT_S: ${FORGE_DEFAULT_ACK_WAIT_S:-2}
+      FORGE_DEFAULT_MAX_DELIVERIES: ${FORGE_DEFAULT_MAX_DELIVERIES:-3}
+      FORGE_ACK_TOKEN_TTL_S: ${FORGE_ACK_TOKEN_TTL_S:-10}
+      FORGE_DEDUP_WINDOW_S: ${FORGE_DEDUP_WINDOW_S:-60}
+      FORGE_CONSUME_WAIT_MS: ${FORGE_CONSUME_WAIT_MS:-1000}
+      FORGE_DLQ_ENABLED: "true"
+      FORGE_SCHEMA_VALIDATION: strict
+    depends_on:
+      nats:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  demo-events-producer:
+    build:
+      context: ./demos/11-event-driven/producer
+      dockerfile: Dockerfile
+    image: forge/demo-events-producer:local
+    container_name: demo-events-producer
+    ports:
+      - "4211:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: demo-events-producer
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-info}
+      FORGE_ENV: development
+      FORGE_EVENTS_URL: http://forge-events:8080
+      FORGE_DEMO_IDEMPOTENCY_KEY: ${FORGE_DEMO_IDEMPOTENCY_KEY:-demo-11-idempotency-key}
+      FORGE_DEMO_EVENT_COUNT: ${FORGE_DEMO_EVENT_COUNT:-5}
+    depends_on:
+      forge-events:
+        condition: service_healthy
+    stop_grace_period: 10s
+    restart: "no"
+
+  demo-events-consumer:
+    build:
+      context: ./demos/11-event-driven/consumer
+      dockerfile: Dockerfile
+    image: forge/demo-events-consumer:local
+    container_name: demo-events-consumer
+    ports:
+      - "4212:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: demo-events-consumer
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-info}
+      FORGE_ENV: development
+      FORGE_EVENTS_URL: http://forge-events:8080
+      FORGE_DEMO_CONSUMER: ${FORGE_DEMO_CONSUMER:-demo-elixir-crash-worker}
+      FORGE_DEMO_CONSUMER_IDENTITY: ${FORGE_DEMO_CONSUMER_IDENTITY:-demo-elixir-crash-worker}
+      FORGE_DEMO_SUBJECT: application.crashed
+      FORGE_DEFAULT_ACK_WAIT_S: ${FORGE_DEFAULT_ACK_WAIT_S:-2}
+      FORGE_DEFAULT_MAX_DELIVERIES: ${FORGE_DEFAULT_MAX_DELIVERIES:-3}
+      FORGE_DEMO_POLL_MS: ${FORGE_DEMO_POLL_MS:-400}
+    depends_on:
+      forge-events:
+        condition: service_healthy
+    stop_grace_period: 10s
+    restart: "no"
