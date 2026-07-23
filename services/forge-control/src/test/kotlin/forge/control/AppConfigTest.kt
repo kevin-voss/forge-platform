@@ -63,6 +63,8 @@ class AppConfigTest {
         assertEquals("node-local", cfg.schedulerLocalNodeId)
         assertEquals("fake", cfg.dbProvisioner)
         assertEquals("forge-net", cfg.dbManagedNetwork)
+        assertEquals("postgres:16", cfg.dbPostgresImage)
+        assertEquals("127.0.0.1", cfg.dbEndpointHost)
     }
 
     @Test

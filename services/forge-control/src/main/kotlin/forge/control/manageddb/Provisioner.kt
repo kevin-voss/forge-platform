@@ -6,19 +6,41 @@ import java.util.UUID
 data class ProvisionResult(
     val endpointRef: String,
     val detail: String? = null,
+    val host: String? = null,
+    val port: Int? = null,
+    val containerId: String? = null,
+    /** Product role username when creating a database+role. */
+    val username: String? = null,
+    /**
+     * One-time password from the provisioner. Control must store it in Secrets
+     * and must not persist it in management-plane tables or list responses.
+     */
+    val password: String? = null,
 )
 
 /**
  * Seam over real Postgres ops. Control persists management-plane records;
  * the provisioner creates/attaches/backs up product Postgres elsewhere.
  *
- * Fake now; local Go provisioner lands in later 18.x steps.
+ * `fake` (CI) or `local` (Docker containers, step 18.02).
  */
 interface Provisioner {
     fun createInstance(instanceId: UUID, projectId: UUID, name: String): ProvisionResult
     fun deleteInstance(instanceId: UUID)
     fun createDatabase(instanceId: UUID, databaseName: String): ProvisionResult
     fun createRole(databaseId: UUID, username: String): ProvisionResult
+
+    /**
+     * Create a database and least-privilege role with the given credentials.
+     * Implementations must roll back partial resources on failure.
+     */
+    fun createDatabaseWithRole(
+        instanceId: UUID,
+        databaseName: String,
+        username: String,
+        password: String,
+    ): ProvisionResult
+
     fun backup(databaseId: UUID): ProvisionResult
     fun restore(databaseId: UUID, backupId: UUID): ProvisionResult
     fun rotateCredential(credentialId: UUID): ProvisionResult
@@ -33,7 +55,13 @@ class FakeProvisioner(
     override fun createInstance(instanceId: UUID, projectId: UUID, name: String): ProvisionResult {
         val endpoint = "fake://managed-db/$instanceId"
         isolation.assertNotControlDatabase(endpoint)
-        return ProvisionResult(endpointRef = endpoint, detail = "fake-create-instance")
+        return ProvisionResult(
+            endpointRef = endpoint,
+            detail = "fake-create-instance",
+            host = "fake.local",
+            port = 5432,
+            containerId = "fake-$instanceId",
+        )
     }
 
     override fun deleteInstance(instanceId: UUID) {
@@ -43,13 +71,37 @@ class FakeProvisioner(
     override fun createDatabase(instanceId: UUID, databaseName: String): ProvisionResult {
         val endpoint = "fake://managed-db/$instanceId/db/$databaseName"
         isolation.assertNotControlDatabase(endpoint)
-        return ProvisionResult(endpointRef = endpoint, detail = "fake-create-database")
+        return ProvisionResult(
+            endpointRef = endpoint,
+            detail = "fake-create-database",
+            host = "fake.local",
+            port = 5432,
+        )
     }
 
     override fun createRole(databaseId: UUID, username: String): ProvisionResult {
         val endpoint = "fake://managed-db/role/$databaseId/$username"
         isolation.assertNotControlDatabase(endpoint)
-        return ProvisionResult(endpointRef = endpoint, detail = "fake-create-role")
+        return ProvisionResult(endpointRef = endpoint, detail = "fake-create-role", username = username)
+    }
+
+    override fun createDatabaseWithRole(
+        instanceId: UUID,
+        databaseName: String,
+        username: String,
+        password: String,
+    ): ProvisionResult {
+        val endpoint = "fake://managed-db/$instanceId/db/$databaseName"
+        isolation.assertNotControlDatabase(endpoint)
+        return ProvisionResult(
+            endpointRef = endpoint,
+            detail = "fake-create-database-role",
+            host = "fake.local",
+            port = 5432,
+            containerId = "fake-$instanceId",
+            username = username,
+            password = password,
+        )
     }
 
     override fun backup(databaseId: UUID): ProvisionResult {
@@ -115,7 +167,8 @@ class IsolationGuard(
         }
 
     private fun looksLikeJdbc(value: String): Boolean =
-        value.startsWith("postgresql://") || value.startsWith("postgres://")
+        value.startsWith("postgresql://") || value.startsWith("postgres://") ||
+            value.startsWith("jdbc:postgresql://")
 
     private fun samePostgresTarget(a: String, b: String): Boolean {
         val hostDbA = hostAndDatabase(a) ?: return false
@@ -125,7 +178,10 @@ class IsolationGuard(
 
     private fun hostAndDatabase(jdbcish: String): Pair<String, String>? {
         // postgresql://host:port/db or postgresql://host/db
-        val withoutScheme = jdbcish.removePrefix("postgresql://").removePrefix("postgres://")
+        val withoutScheme = jdbcish
+            .removePrefix("jdbc:")
+            .removePrefix("postgresql://")
+            .removePrefix("postgres://")
         val slash = withoutScheme.indexOf('/')
         if (slash < 0) return null
         val hostPort = withoutScheme.substring(0, slash).substringBefore('?').lowercase()

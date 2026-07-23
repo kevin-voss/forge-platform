@@ -52,10 +52,14 @@ data class AppConfig(
     val queueMaxLen: Int = 1000,
     val rescheduleEnabled: Boolean = true,
     val rescheduleGraceSeconds: Long = 5,
-    /** Managed DB provisioner: `fake` (CI default) or `local` (real provisioner from 18.02). */
+    /** Managed DB provisioner: `fake` (CI default) or `local` (real Docker provisioner). */
     val dbProvisioner: String = "fake",
-    /** Docker network for product Postgres containers (used from 18.02). */
+    /** Docker network for product Postgres containers. */
     val dbManagedNetwork: String = "forge-net",
+    /** Postgres image for LocalProvisioner. */
+    val dbPostgresImage: String = "postgres:16",
+    /** Host clients use to reach published product DB ports (usually 127.0.0.1). */
+    val dbEndpointHost: String = "127.0.0.1",
 )
 
 fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
@@ -401,6 +405,16 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
     if (dbManagedNetwork.isBlank()) {
         throw IllegalArgumentException("FORGE_DB_MANAGED_NETWORK must not be blank")
     }
+    val dbPostgresImage = env["FORGE_DB_POSTGRES_IMAGE"]?.trim().orEmpty()
+        .ifEmpty { "postgres:16" }
+    if (dbPostgresImage.isBlank()) {
+        throw IllegalArgumentException("FORGE_DB_POSTGRES_IMAGE must not be blank")
+    }
+    val dbEndpointHost = env["FORGE_DB_ENDPOINT_HOST"]?.trim().orEmpty()
+        .ifEmpty { "127.0.0.1" }
+    if (dbEndpointHost.isBlank()) {
+        throw IllegalArgumentException("FORGE_DB_ENDPOINT_HOST must not be blank")
+    }
 
     return AppConfig(
         port = port,
@@ -467,5 +481,7 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         rescheduleGraceSeconds = rescheduleGraceSeconds,
         dbProvisioner = dbProvisioner,
         dbManagedNetwork = dbManagedNetwork,
+        dbPostgresImage = dbPostgresImage,
+        dbEndpointHost = dbEndpointHost,
     )
 }

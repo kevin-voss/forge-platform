@@ -101,6 +101,13 @@ class AuthMiddlewareTest {
         ).resolve("GET", "/v1/databases/instances/$dbInstanceId")
         assertIs<AuthTarget.Authorize>(dbReadMapped)
         assertEquals("database.read", dbReadMapped.action)
+        val dbWriteMapped = RouteActionMap(
+            MapProjectScopeResolver(
+                mapOf(ScopeKind.DbInstance to mapOf(dbInstanceId to projectId)),
+            ),
+        ).resolve("POST", "/v1/databases/instances/$dbInstanceId/databases")
+        assertIs<AuthTarget.Authorize>(dbWriteMapped)
+        assertEquals("database.write", dbWriteMapped.action)
 
         assertIs<AuthTarget.Skip>(routes.resolve("GET", "/health/live"))
         assertIs<AuthTarget.Skip>(routes.resolve("POST", "/v1/nodes/register"))

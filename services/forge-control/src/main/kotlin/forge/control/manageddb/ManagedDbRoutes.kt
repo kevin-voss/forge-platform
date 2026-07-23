@@ -45,9 +45,31 @@ fun Route.managedDbRoutes(managedDb: ManagedDbService, idempotency: IdempotencyS
         call.respond(managedDb.getInstance(instanceId).toResponse())
     }
 
-    get("/v1/databases/instances/{instanceId}/databases") {
-        val instanceId = call.parameters.requireUuid("instanceId")
-        call.respond(managedDb.listDatabases(instanceId).map { it.toResponse() })
+    route("/v1/databases/instances/{instanceId}/databases") {
+        get {
+            val instanceId = call.parameters.requireUuid("instanceId")
+            call.respond(managedDb.listDatabases(instanceId))
+        }
+        post {
+            val instanceId = call.parameters.requireUuid("instanceId")
+            val body = call.receive<CreateDbDatabaseRequest>()
+            call.idempotentCreate(
+                idempotency,
+                "db_database",
+                Json.encodeToString(CreateDbDatabaseRequest.serializer(), body) + "|$instanceId",
+            ) {
+                val created = managedDb.createDatabase(instanceId, body.name)
+                created.database.id to Json.encodeToJsonElement(
+                    DbDatabaseResponse.serializer(),
+                    managedDb.toCreateResponse(created),
+                )
+            }
+        }
+    }
+
+    get("/v1/databases/{databaseId}") {
+        val databaseId = call.parameters.requireUuid("databaseId")
+        call.respond(managedDb.getDatabase(databaseId))
     }
 }
 

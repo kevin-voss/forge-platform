@@ -65,6 +65,8 @@ class Telemetry private constructor(
     private val nodeOfflineTotal: LongCounter,
     private val staleReplicasFenced: LongCounter,
     private val managedDbInstances: LongCounter,
+    private val managedDbProvisionDuration: DoubleHistogram,
+    private val managedDbProvisionErrors: LongCounter,
     private val sdk: OpenTelemetrySdk?,
 ) : AutoCloseable {
     val enabled: Boolean = sdk != null
@@ -172,6 +174,20 @@ class Telemetry private constructor(
         managedDbInstances.add(
             1,
             Attributes.of(AttributeKey.stringKey("status"), status),
+        )
+    }
+
+    fun recordManagedDbProvisionDuration(seconds: Double, op: String) {
+        managedDbProvisionDuration.record(
+            seconds,
+            Attributes.of(AttributeKey.stringKey("op"), op),
+        )
+    }
+
+    fun recordManagedDbProvisionError(op: String) {
+        managedDbProvisionErrors.add(
+            1,
+            Attributes.of(AttributeKey.stringKey("op"), op),
         )
     }
 
@@ -369,6 +385,13 @@ class Telemetry private constructor(
                     .counterBuilder("forge_stale_replicas_fenced_total")
                     .build(),
                 managedDbInstances = meter.counterBuilder("managed_db_instances_total").build(),
+                managedDbProvisionDuration = meter
+                    .histogramBuilder("managed_db_provision_duration_seconds")
+                    .setUnit("s")
+                    .build(),
+                managedDbProvisionErrors = meter
+                    .counterBuilder("managed_db_provision_errors_total")
+                    .build(),
                 sdk = sdk,
             )
         }

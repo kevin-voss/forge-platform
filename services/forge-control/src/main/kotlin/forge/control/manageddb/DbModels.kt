@@ -18,6 +18,20 @@ enum class DbInstanceStatus(val wire: String) {
     }
 }
 
+/** Lifecycle status for databases on an instance. */
+enum class DbDatabaseStatus(val wire: String) {
+    Provisioning("provisioning"),
+    Available("available"),
+    Error("error"),
+    ;
+
+    companion object {
+        fun parse(raw: String): DbDatabaseStatus =
+            entries.firstOrNull { it.wire == raw }
+                ?: throw IllegalArgumentException("invalid db database status: $raw")
+    }
+}
+
 data class DbInstance(
     val id: UUID,
     val projectId: UUID,
@@ -28,6 +42,9 @@ data class DbInstance(
     val statusReason: String? = null,
     /** Opaque provisioner endpoint reference — never Control's own JDBC URL. */
     val endpointRef: String? = null,
+    val host: String? = null,
+    val port: Int? = null,
+    val containerId: String? = null,
     val createdAt: Instant,
     val updatedAt: Instant,
 ) {
@@ -41,6 +58,8 @@ data class DbDatabase(
     val id: UUID,
     val instanceId: UUID,
     val name: String,
+    val status: DbDatabaseStatus = DbDatabaseStatus.Provisioning,
+    val statusReason: String? = null,
     val createdAt: Instant,
 ) {
     init {

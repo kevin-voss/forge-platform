@@ -9,6 +9,11 @@ data class CreateDbInstanceRequest(
 )
 
 @Serializable
+data class CreateDbDatabaseRequest(
+    val name: String? = null,
+)
+
+@Serializable
 data class DbInstanceResponse(
     val id: String,
     val projectId: String,
@@ -18,6 +23,9 @@ data class DbInstanceResponse(
     val deletionProtection: Boolean,
     val statusReason: String? = null,
     val endpointRef: String? = null,
+    val host: String? = null,
+    val port: Int? = null,
+    val containerId: String? = null,
     val createdAt: String,
     val updatedAt: String,
 )
@@ -27,6 +35,14 @@ data class DbDatabaseResponse(
     val id: String,
     val instanceId: String,
     val name: String,
+    val status: String,
+    val statusReason: String? = null,
+    val host: String? = null,
+    val port: Int? = null,
+    val secretRef: String? = null,
+    val username: String? = null,
+    /** Present only on create (one-time reveal); never in list/get. */
+    val password: String? = null,
     val createdAt: String,
 )
 
@@ -40,14 +56,30 @@ fun DbInstance.toResponse(): DbInstanceResponse =
         deletionProtection = deletionProtection,
         statusReason = statusReason,
         endpointRef = endpointRef,
+        host = host,
+        port = port,
+        containerId = containerId,
         createdAt = createdAt.toString(),
         updatedAt = updatedAt.toString(),
     )
 
-fun DbDatabase.toResponse(): DbDatabaseResponse =
+fun DbDatabase.toResponse(
+    host: String? = null,
+    port: Int? = null,
+    secretRef: String? = null,
+    username: String? = null,
+    password: String? = null,
+): DbDatabaseResponse =
     DbDatabaseResponse(
         id = id.toString(),
         instanceId = instanceId.toString(),
         name = name,
+        status = status.wire,
+        statusReason = statusReason,
+        host = host,
+        port = port,
+        secretRef = secretRef,
+        username = username,
+        password = password,
         createdAt = createdAt.toString(),
     )

@@ -28,9 +28,13 @@ import forge.control.http.toEnvelope
 import forge.control.http.installRequestId
 import forge.control.logging.JsonLog
 import forge.control.manageddb.FakeProvisioner
+import forge.control.manageddb.HttpManagedDbSecretsClient
+import forge.control.manageddb.InMemoryManagedDbSecretsClient
 import forge.control.manageddb.IsolationGuard
 import forge.control.manageddb.JdbcManagedDbRepository
+import forge.control.manageddb.LocalProvisioner
 import forge.control.manageddb.ManagedDbService
+import forge.control.manageddb.Provisioner
 import forge.control.manageddb.managedDbRoutes
 import forge.control.reconcile.HttpGatewayClient
 import forge.control.reconcile.HttpRuntimeClient
@@ -157,13 +161,30 @@ fun main() {
         controlJdbcUrl = cfg.database.url,
         controlUser = cfg.database.user,
     )
-    // 18.01: only FakeProvisioner; `local` reserved for 18.02 real provisioner.
-    val dbProvisioner = FakeProvisioner(isolationGuard)
+    val dbSecretsClient = if (cfg.secretsUrl.isBlank()) {
+        InMemoryManagedDbSecretsClient()
+    } else {
+        HttpManagedDbSecretsClient(
+            secretsUrl = cfg.secretsUrl,
+            serviceAccountToken = cfg.secretsServiceAccount,
+        )
+    }
+    val dbProvisioner: Provisioner = when (cfg.dbProvisioner) {
+        "local" -> LocalProvisioner(
+            isolation = isolationGuard,
+            network = cfg.dbManagedNetwork,
+            image = cfg.dbPostgresImage,
+            endpointHost = cfg.dbEndpointHost,
+            log = log,
+        )
+        else -> FakeProvisioner(isolationGuard)
+    }
     val managedDbService = ManagedDbService(
         store = managedDbRepo,
         provisioner = dbProvisioner,
         isolation = isolationGuard,
         relationships = relationships,
+        secrets = dbSecretsClient,
         log = log,
         telemetry = telemetry,
     )

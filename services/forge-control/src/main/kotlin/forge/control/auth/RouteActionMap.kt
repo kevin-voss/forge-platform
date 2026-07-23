@@ -36,6 +36,7 @@ enum class ScopeKind {
     Service,
     Deployment,
     DbInstance,
+    DbDatabase,
 }
 
 class RepositoryProjectScopeResolver(
@@ -61,6 +62,10 @@ class RepositoryProjectScopeResolver(
                 applications.findById(service.applicationId)?.projectId?.toString()
             }
             ScopeKind.DbInstance -> dbInstances?.findInstanceById(uuid)?.projectId?.toString()
+            ScopeKind.DbDatabase -> {
+                val database = dbInstances?.findDatabaseById(uuid) ?: return null
+                dbInstances.findInstanceById(database.instanceId)?.projectId?.toString()
+            }
         }
     }
 }
@@ -192,7 +197,11 @@ class RouteActionMap(
         }
 
         match(m, p, DB_INSTANCE_DATABASES)?.let { id ->
-            return authorize("database.read", ScopeKind.DbInstance, id)
+            return when (m) {
+                "GET" -> authorize("database.read", ScopeKind.DbInstance, id)
+                "POST" -> authorize("database.write", ScopeKind.DbInstance, id)
+                else -> authorize("database.read", ScopeKind.DbInstance, id)
+            }
         }
 
         match(m, p, DB_INSTANCE_ITEM)?.let { id ->
@@ -200,6 +209,14 @@ class RouteActionMap(
                 "GET" -> authorize("database.read", ScopeKind.DbInstance, id)
                 "POST", "PATCH", "DELETE" -> authorize("database.write", ScopeKind.DbInstance, id)
                 else -> authorize("database.read", ScopeKind.DbInstance, id)
+            }
+        }
+
+        match(m, p, DB_DATABASE_ITEM)?.let { id ->
+            return when (m) {
+                "GET" -> authorize("database.read", ScopeKind.DbDatabase, id)
+                "POST", "PATCH", "DELETE" -> authorize("database.write", ScopeKind.DbDatabase, id)
+                else -> authorize("database.read", ScopeKind.DbDatabase, id)
             }
         }
 
@@ -251,6 +268,8 @@ class RouteActionMap(
         private val DB_INSTANCE_ITEM = Pattern(Regex("^/v1/databases/instances/($UUID_OR_ID)$"))
         private val DB_INSTANCE_DATABASES =
             Pattern(Regex("^/v1/databases/instances/($UUID_OR_ID)/databases$"))
+        // Exclude the "instances" collection segment from bare database ids.
+        private val DB_DATABASE_ITEM = Pattern(Regex("^/v1/databases/(?!instances(?:/|$))($UUID_OR_ID)$"))
     }
 }
 

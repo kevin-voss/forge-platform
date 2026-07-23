@@ -47,6 +47,8 @@ import org.junit.jupiter.api.TestMethodOrder
 import java.sql.DriverManager
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -116,6 +118,7 @@ class ManagedDbApiIntegrationTest {
             provisioner = FakeProvisioner(isolation),
             isolation = isolation,
             relationships = relationships,
+            secrets = InMemoryManagedDbSecretsClient(),
             log = JsonLog("forge-control", "info"),
         )
         services = ControlServices(
@@ -263,5 +266,39 @@ class ManagedDbApiIntegrationTest {
             managedDb.assertEndpointAllowed(cfg.database.url)
         }
         assertTrue(ex.message!!.contains("Control"))
+    }
+
+    @Test
+    @Order(6)
+    fun createDatabaseStoresSecretRefAndOneTimePassword() = withApp {
+        val client = jsonClient()
+        val iid = instanceId!!
+        val created = client.post("/v1/databases/instances/$iid/databases") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"appdb"}""")
+        }
+        assertEquals(HttpStatusCode.Created, created.status)
+        val db = created.body<DbDatabaseResponse>()
+        assertEquals("appdb", db.name)
+        assertEquals("available", db.status)
+        assertEquals("fake.local", db.host)
+        assertEquals(5432, db.port)
+        assertNotNull(db.secretRef)
+        assertTrue(db.secretRef!!.startsWith("secret:project/"))
+        assertNotNull(db.password)
+        assertTrue(CredentialGenerator.isStrongPassword(db.password!!))
+        assertNotNull(db.username)
+
+        val listed = client.get("/v1/databases/instances/$iid/databases")
+            .body<List<DbDatabaseResponse>>()
+        assertEquals(1, listed.size)
+        assertNull(listed.single().password, "list must not include plaintext password")
+        assertEquals(db.secretRef, listed.single().secretRef)
+
+        val got = client.get("/v1/databases/${db.id}").body<DbDatabaseResponse>()
+        assertEquals(db.id, got.id)
+        assertEquals("available", got.status)
+        assertNull(got.password, "get must not include plaintext password")
+        assertEquals(db.secretRef, got.secretRef)
     }
 }

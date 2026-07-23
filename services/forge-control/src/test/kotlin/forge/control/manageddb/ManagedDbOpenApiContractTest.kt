@@ -31,6 +31,31 @@ class ManagedDbOpenApiContractTest {
         assertTrue(yaml.contains("provisioning"))
         assertTrue(yaml.contains("available"))
         assertTrue(yaml.contains("deletionProtection") || yaml.contains("deletion_protection"))
+        assertTrue(yaml.contains("x-create-db-database") || yaml.contains("createDbDatabase"))
+        assertTrue(yaml.contains("x-get-db-database") || yaml.contains("getDbDatabase"))
+        assertTrue(yaml.contains("secretRef"))
+        assertTrue(yaml.contains("/v1/databases/{databaseId}"))
+    }
+
+    @Test
+    fun listExampleOmitsPassword() {
+        val example = """
+            {
+              "id": "33333333-3333-3333-3333-333333333333",
+              "instanceId": "11111111-1111-1111-1111-111111111111",
+              "name": "appdb",
+              "status": "available",
+              "host": "127.0.0.1",
+              "port": 5433,
+              "secretRef": "secret:project/22222222-2222-2222-2222-222222222222/env/managed-db/name/x",
+              "username": "appdb_user",
+              "createdAt": "2026-07-23T10:00:00Z"
+            }
+        """.trimIndent()
+        val decoded = Json { ignoreUnknownKeys = true; explicitNulls = false }
+            .decodeFromString(DbDatabaseResponse.serializer(), example)
+        assertTrue(decoded.password == null)
+        assertTrue(decoded.secretRef!!.startsWith("secret:"))
     }
 
     @Test

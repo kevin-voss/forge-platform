@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 121`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 122`**.
 
 ## Epics
 
@@ -26,7 +26,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [15](epics/15-forge-agents.md) | Forge Agents | Complete | 8/8 steps; demo 15 agent-runtime acceptance gate passed |
 | [16](epics/16-forge-workflows.md) | Forge Workflows | Complete | 7/7 steps; demo 16 agent-workflow acceptance gate passed |
 | [17](epics/17-forge-memory.md) | Forge Memory | Complete | 6/6 steps; demo 17 agent-memory acceptance gate passed |
-| [18](epics/18-managed-postgresql.md) | Managed PostgreSQL | In progress | 1/6 steps; resource model + FakeProvisioner |
+| [18](epics/18-managed-postgresql.md) | Managed PostgreSQL | In progress | 2/6 steps; LocalProvisioner + credentials in Secrets |
 | [19](epics/19-full-platform-demo.md) | Full platform demo | Planning | 6 steps; capstone |
 
 ## Steps
@@ -154,7 +154,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **118** | [Models embed + Agents retrieval tool](steps/17-forge-memory/17.05-models-embed-agents-tool.md) | Complete |  | Text upsert/query via Models; `memory.search`/`memory.upsert` tools; dim `422` |
 | **119** | [Demo `17-agent-memory` + gate](steps/17-forge-memory/17.06-demo-and-gate.md) | Complete |  | Demo 17: seed→NN→agent cite; isolation; restart; epic gate |
 | **120** | [Control APIs + provisioner skeleton](steps/18-managed-postgresql/18.01-control-apis-provisioner-skeleton.md) | Complete |  | Managed-db schema + FakeProvisioner + create/list/get APIs |
-| **121** | [Create instance/database/credentials](steps/18-managed-postgresql/18.02-create-instance-db-credentials.md) | Not started |  |  |
+| **121** | [Create instance/database/credentials](steps/18-managed-postgresql/18.02-create-instance-db-credentials.md) | Complete |  | LocalProvisioner containers; DB+role; Secrets `secret_ref`; isolation tests |
 | **122** | [Attach + Secrets/Runtime URL injection](steps/18-managed-postgresql/18.03-attach-secrets-runtime-injection.md) | Not started |  |  |
 | **123** | [Backup + restore](steps/18-managed-postgresql/18.04-backup-restore.md) | Not started |  |  |
 | **124** | [Credential rotation + deletion protection](steps/18-managed-postgresql/18.05-rotation-deletion-protection.md) | Not started |  |  |
