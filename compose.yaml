@@ -392,6 +392,10 @@ services:
       FORGE_SECRETS_DB_URL: postgres://forge:forge@postgres:5432/forge_secrets
       FORGE_SECRETS_MASTER_KEY: ${FORGE_SECRETS_MASTER_KEY:-bG9jYWwtZGV2LWZvcmdlLXNlY3JldHMta2V5ISEhISE=}
       FORGE_SECRETS_MASTER_KEY_ID: ${FORGE_SECRETS_MASTER_KEY_ID:-m1}
+      # Default enforce (10.03). Pre-auth store tests / demos may set FORGE_AUTH_MODE=dev.
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-enforce}
+      FORGE_IDENTITY_URL: ${FORGE_IDENTITY_URL:-http://forge-identity:8080}
+      FORGE_INTROSPECT_CACHE_TTL_S: ${FORGE_INTROSPECT_CACHE_TTL_S:-10}
     depends_on:
       postgres:
         condition: service_healthy

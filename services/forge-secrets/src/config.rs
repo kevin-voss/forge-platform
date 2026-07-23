@@ -17,6 +17,10 @@ pub struct Config {
     pub master_key_b64: Option<String>,
     pub aead_alg: AeadAlg,
     pub max_value_bytes: usize,
+    /// `enforce` (default) or `dev` (insecure bypass).
+    pub auth_mode: String,
+    pub identity_url: String,
+    pub introspect_cache_ttl_s: u64,
 }
 
 impl Config {
@@ -81,6 +85,26 @@ impl Config {
             return Err("FORGE_SECRETS_MAX_VALUE_BYTES must be > 0".into());
         }
 
+        let auth_mode = env::var("FORGE_AUTH_MODE")
+            .unwrap_or_else(|_| "enforce".into())
+            .trim()
+            .to_ascii_lowercase();
+        match auth_mode.as_str() {
+            "enforce" | "dev" => {}
+            other => {
+                return Err(format!(
+                    "FORGE_AUTH_MODE must be enforce|dev, got {other:?}"
+                ));
+            }
+        }
+
+        let identity_url = non_empty_env("FORGE_IDENTITY_URL", "http://forge-identity:4002");
+
+        let ttl_raw = env::var("FORGE_INTROSPECT_CACHE_TTL_S").unwrap_or_else(|_| "10".into());
+        let introspect_cache_ttl_s: u64 = ttl_raw.trim().parse().map_err(|_| {
+            format!("FORGE_INTROSPECT_CACHE_TTL_S must be a non-negative integer, got {ttl_raw:?}")
+        })?;
+
         Ok(Self {
             port,
             service_name,
@@ -93,6 +117,9 @@ impl Config {
             master_key_b64,
             aead_alg,
             max_value_bytes,
+            auth_mode,
+            identity_url,
+            introspect_cache_ttl_s,
         })
     }
 }
@@ -131,6 +158,9 @@ mod tests {
             "FORGE_SECRETS_MASTER_KEY_ID",
             "FORGE_SECRETS_AEAD_ALG",
             "FORGE_SECRETS_MAX_VALUE_BYTES",
+            "FORGE_AUTH_MODE",
+            "FORGE_IDENTITY_URL",
+            "FORGE_INTROSPECT_CACHE_TTL_S",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()
@@ -171,6 +201,9 @@ mod tests {
                 assert_eq!(cfg.service_name, "forge-secrets");
                 assert_eq!(cfg.master_key_id, "m1");
                 assert!(cfg.master_key_b64.is_none());
+                assert_eq!(cfg.auth_mode, "enforce");
+                assert_eq!(cfg.identity_url, "http://forge-identity:4002");
+                assert_eq!(cfg.introspect_cache_ttl_s, 10);
             },
         );
     }

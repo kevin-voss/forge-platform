@@ -33,13 +33,17 @@ dev: ensure-db
 	FORGE_SECRETS_MASTER_KEY_ID=$${FORGE_SECRETS_MASTER_KEY_ID:-m1} \
 	FORGE_SECRETS_AEAD_ALG=$${FORGE_SECRETS_AEAD_ALG:-aes-256-gcm} \
 	FORGE_SECRETS_MAX_VALUE_BYTES=$${FORGE_SECRETS_MAX_VALUE_BYTES:-65536} \
+	FORGE_AUTH_MODE=$${FORGE_AUTH_MODE:-dev} \
+	FORGE_IDENTITY_URL=$${FORGE_IDENTITY_URL:-http://127.0.0.1:4002} \
+	FORGE_INTROSPECT_CACHE_TTL_S=$${FORGE_INTROSPECT_CACHE_TTL_S:-10} \
 	cargo run
 
 build:
 	cargo build --release
 
 run: docker-build ensure-db
-	@$(COMPOSE) up -d --build $(SERVICE)
+	@# Integration curls exercise store crypto without Identity; use dev bypass unless overridden.
+	FORGE_AUTH_MODE=$${FORGE_AUTH_MODE:-dev} $(COMPOSE) up -d --build $(SERVICE)
 	@$(MAKE) wait
 	@echo "$(SERVICE) is up on http://127.0.0.1:$(HOST_PORT)"
 
@@ -92,9 +96,50 @@ test-integration: run
 		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/secrets/DATABASE_PASSWORD:access?version=1" \
 			| python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["value"]=="s3cret"; assert d["version"]==1'; \
 		hex=$$($(COMPOSE) exec -T postgres psql -U forge -d forge_secrets -tAc \
-			"SELECT encode(ciphertext,'hex') FROM secrets WHERE project_id='$${P}' AND name='DATABASE_PASSWORD' AND version=1"); \
+			"SELECT encode(ciphertext,'hex') from secrets WHERE project_id='$${P}' AND name='DATABASE_PASSWORD' AND version=1"); \
 		echo "$$hex" | grep -Eiq '733363726574' && exit 1 || true; \
 		echo "$${P}" > /tmp/forge-secrets-int-secret-project
+	@# 10.03 — config (values returned) + unauthenticated → 401 when enforce is on.
+	@P="prj_10_03_$$(date +%s)"; E=production; \
+		curl -sf -X PUT "http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/config/FEATURE_X" \
+			-H 'content-type: application/json' -d '{"value":"true"}' \
+			| python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["name"]=="FEATURE_X"; assert d["value"]=="true"'; \
+		curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/config" \
+			| python3 -c 'import sys,json; d=json.load(sys.stdin); assert isinstance(d,list) and len(d)>=1; assert d[0]["value"]=="true"'; \
+		code=$$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
+			"http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/config/FEATURE_X"); \
+		test "$$code" = "204"
+	@# Restart with enforce + no Identity → secret write fail-closed 503; unauthenticated 401.
+	@$(COMPOSE) stop $(SERVICE) >/dev/null
+	@docker rm -f forge-secrets-enforce >/dev/null 2>&1 || true
+	@NET=$$(docker inspect -f '{{range $$k,$$v := .NetworkSettings.Networks}}{{$$k}}{{end}}' forge-postgres); \
+		test -n "$$NET"; \
+		docker run -d --name forge-secrets-enforce --network "$$NET" -p $(HOST_PORT):8080 \
+			-e PORT=8080 \
+			-e FORGE_SERVICE_NAME=forge-secrets \
+			-e FORGE_SECRETS_DB_URL=postgres://forge:forge@postgres:5432/forge_secrets \
+			-e FORGE_SECRETS_MASTER_KEY=$(LOCAL_MASTER_KEY) \
+			-e FORGE_SECRETS_MASTER_KEY_ID=m1 \
+			-e FORGE_AUTH_MODE=enforce \
+			-e FORGE_IDENTITY_URL=http://127.0.0.1:9 \
+			$(IMAGE) >/dev/null
+	@for i in $$(seq 1 45); do \
+		code=$$(curl -s -o /dev/null -w '%{http_code}' \
+			"http://127.0.0.1:$(HOST_PORT)/health/live" || true); \
+		if [[ "$$code" == "200" ]]; then break; fi; \
+		sleep 1; \
+	done
+	@code=$$(curl -s -o /dev/null -w '%{http_code}' \
+		"http://127.0.0.1:$(HOST_PORT)/v1/projects/prj_x/envs/production/secrets"); \
+		test "$$code" = "401"
+	@code=$$(curl -s -o /tmp/forge-secrets-enforce-write.json -w '%{http_code}' -X PUT \
+		"http://127.0.0.1:$(HOST_PORT)/v1/projects/prj_x/envs/production/secrets/DATABASE_PASSWORD" \
+		-H 'authorization: Bearer dead' -H 'content-type: application/json' -d '{"value":"x"}'); \
+		test "$$code" = "503"; \
+		python3 -c 'import json; d=json.load(open("/tmp/forge-secrets-enforce-write.json")); assert d.get("code")=="identity_unavailable"'
+	@docker rm -f forge-secrets-enforce >/dev/null 2>&1 || true
+	@FORGE_AUTH_MODE=dev $(COMPOSE) up -d $(SERVICE) >/dev/null
+	@$(MAKE) wait
 	@# Missing master key → ready non-200; data-key ops refused.
 	@$(COMPOSE) stop $(SERVICE) >/dev/null
 	@docker rm -f forge-secrets-nokey >/dev/null 2>&1 || true
@@ -124,20 +169,21 @@ test-integration: run
 	@$(MAKE) wait
 	@! $(COMPOSE) logs $(SERVICE) 2>&1 | grep -E 'bG9jYWwtZGV2LWZvcmdl|local-dev-forge-secrets-key'
 	@grep -q '4104' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@# OpenAPI declares health + secret set/list/metadata/access; list schema has no value.
-	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-secrets.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "operationId: setSecret" in p and "operationId: listSecrets" in p and "operationId: getSecretMetadata" in p and "operationId: accessSecret" in p; assert "secrets/{name}:access" in p; i=p.index("SecretListItem:"); j=p.index("SecretVersion:", i); assert "value:" not in p[i:j]'
+	@# OpenAPI declares health + secrets + config + auth; secret list schema has no value.
+	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-secrets.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "operationId: setSecret" in p and "operationId: listSecrets" in p and "operationId: getSecretMetadata" in p and "operationId: accessSecret" in p; assert "secrets/{name}:access" in p; assert "operationId: setConfig" in p and "operationId: listConfig" in p and "operationId: deleteConfig" in p; assert "bearerAuth" in p; i=p.index("SecretListItem:"); j=p.index("SecretVersion:", i); assert "value:" not in p[i:j]; c=p.index("ConfigListItem:"); assert "value:" in p[c:c+350]'
 	@FORGE_SECRETS_DB_URL=$${FORGE_SECRETS_DB_URL:-postgres://forge:forge@127.0.0.1:5001/forge_secrets} \
 		FORGE_SECRETS_MASTER_KEY=$${FORGE_SECRETS_MASTER_KEY:-$(LOCAL_MASTER_KEY)} \
 		FORGE_SECRETS_MASTER_KEY_ID=$${FORGE_SECRETS_MASTER_KEY_ID:-m1} \
-		cargo test --test secrets_test -- --ignored --nocapture
+		FORGE_AUTH_MODE=dev \
+		cargo test --test secrets_test --test isolation_test -- --ignored --nocapture
 	@cid="$$($(COMPOSE) ps -q $(SERVICE))"; \
 		test -n "$$cid"; \
 		docker stop -t 15 "$$cid" >/dev/null; \
 		code="$$(docker inspect -f '{{.State.ExitCode}}' "$$cid")"; \
 		test "$$code" = "0"
-	@$(COMPOSE) up -d $(SERVICE) >/dev/null
+	@FORGE_AUTH_MODE=dev $(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (health, identity, data-key, encrypted secrets/versioning/metadata/access, OpenAPI, SIGTERM)."
+	@echo "Integration checks passed (health, data-key, secrets, config, auth isolation, OpenAPI, SIGTERM)."
 
 lint:
 	@cargo fmt --check

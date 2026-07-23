@@ -1,3 +1,5 @@
+use crate::auth::identity_client::{HttpIdentityClient, IdentityClient};
+use crate::auth::middleware::AuthMetrics;
 use crate::crypto::aead_alg::AeadAlg;
 use crate::crypto::data_key::DataKey;
 use crate::crypto::{
@@ -10,7 +12,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::{error, info, warn};
 
-/// Shared application state for health, data-key, and secret APIs.
+/// Shared application state for health, data-key, secret, and config APIs.
 #[derive(Clone)]
 pub struct AppState {
     pub service_name: String,
@@ -29,8 +31,14 @@ pub struct AppState {
     pub secrets_total: Arc<AtomicU64>,
     /// Counter of successful `:access` reveals.
     pub secret_access_total: Arc<AtomicU64>,
+    /// Counter of config upserts (best-effort).
+    pub config_values_total: Arc<AtomicU64>,
     pub crypto_ok: bool,
     pub crypto_error: Option<String>,
+    /// `enforce` or `dev`.
+    pub auth_mode: String,
+    pub identity: Option<Arc<dyn IdentityClient>>,
+    pub auth_metrics: Arc<AuthMetrics>,
 }
 
 impl AppState {
@@ -186,6 +194,7 @@ pub async fn bootstrap(cfg: &crate::config::Config) -> AppState {
 
     let data_keys_total = Arc::new(AtomicU64::new(0));
     let secrets_total = Arc::new(AtomicU64::new(0));
+    let config_values_total = Arc::new(AtomicU64::new(0));
     if let Some(pool) = &pool {
         if let Ok(count) = db::count_project_data_keys(pool).await {
             data_keys_total.store(count as u64, Ordering::Relaxed);
@@ -193,7 +202,34 @@ pub async fn bootstrap(cfg: &crate::config::Config) -> AppState {
         if let Ok(count) = db::count_secrets(pool).await {
             secrets_total.store(count as u64, Ordering::Relaxed);
         }
+        if let Ok(count) = db::count_config_values(pool).await {
+            config_values_total.store(count as u64, Ordering::Relaxed);
+        }
     }
+
+    if cfg.auth_mode.eq_ignore_ascii_case("dev") {
+        warn!(
+            auth_mode = %cfg.auth_mode,
+            "FORGE_AUTH_MODE=dev — insecure auth bypass enabled for secrets/config APIs"
+        );
+    }
+
+    let identity: Option<Arc<dyn IdentityClient>> =
+        match HttpIdentityClient::new(&cfg.identity_url, cfg.introspect_cache_ttl_s) {
+            Ok(client) => {
+                info!(
+                    identity_url = %cfg.identity_url,
+                    auth_mode = %cfg.auth_mode,
+                    cache_ttl_s = cfg.introspect_cache_ttl_s,
+                    "identity client configured"
+                );
+                Some(client.into_arc())
+            }
+            Err(err) => {
+                error!(error = %err, "failed to build identity client");
+                None
+            }
+        };
 
     let state = AppState {
         service_name: cfg.service_name.clone(),
@@ -208,15 +244,21 @@ pub async fn bootstrap(cfg: &crate::config::Config) -> AppState {
         data_keys_total,
         secrets_total,
         secret_access_total: Arc::new(AtomicU64::new(0)),
+        config_values_total,
         crypto_ok,
         crypto_error,
+        auth_mode: cfg.auth_mode.clone(),
+        identity,
+        auth_metrics: AuthMetrics::new(),
     };
     state.refresh_ready().await;
     info!(
         forge_secrets_ready = state.is_ready() as u8,
         forge_data_keys_total = state.data_keys_total.load(Ordering::Relaxed),
         forge_secrets_total = state.secrets_total.load(Ordering::Relaxed),
+        forge_config_values_total = state.config_values_total.load(Ordering::Relaxed),
         aead_alg = state.aead_alg.as_str(),
+        auth_mode = %state.auth_mode,
         "readiness state initialized"
     );
     state

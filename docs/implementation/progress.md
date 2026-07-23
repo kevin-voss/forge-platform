@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 66`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 67`**.
 
 ## Epics
 
@@ -99,7 +99,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **63** | [Demo `09-platform-identity` + epic gate](steps/09-forge-identity/09.08-demo-09-platform-identity.md) | Complete |  | Demo 09: enforce-mode identity gate; developer 201 / viewer 403 / revoke 401 |
 | **64** | [Skeleton + encryption key bootstrap](steps/10-forge-secrets/10.01-skeleton-and-encryption-key-bootstrap.md) | Complete |  | Rust/Axum on `4104`, `KeyProvider` + AES-GCM wrap, `forge_secrets` DB |
 | **65** | [Encrypted store + key versioning + metadata APIs](steps/10-forge-secrets/10.02-encrypted-store-key-versioning-metadata.md) | Complete |  | AEAD ciphertext+nonce; versions; list/metadata; `:access` reveal |
-| **66** | [Config vs secrets APIs; project isolation](steps/10-forge-secrets/10.03-config-vs-secrets-and-project-isolation.md) | Not started |  |  |
+| **66** | [Config vs secrets APIs; project isolation](steps/10-forge-secrets/10.03-config-vs-secrets-and-project-isolation.md) | Complete |  | Config CRUD (values returned); SecretsAuth + Identity; project isolation 401/403 |
 | **67** | [Runtime injection at deploy](steps/10-forge-secrets/10.04-runtime-injection-at-deploy.md) | Not started |  |  |
 | **68** | [CLI `forge secret` / `forge config`](steps/10-forge-secrets/10.05-cli-secret-and-config.md) | Not started |  |  |
 | **69** | [Access audit + log masking](steps/10-forge-secrets/10.06-access-audit-and-log-masking.md) | Not started |  |  |

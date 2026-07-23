@@ -1,5 +1,5 @@
+use forge_secrets::app;
 use forge_secrets::config::Config;
-use forge_secrets::routes;
 use forge_secrets::state::bootstrap;
 use std::net::SocketAddr;
 use tokio::signal;
@@ -29,6 +29,8 @@ async fn run() -> Result<(), String> {
         master_key_configured = cfg.master_key_b64.is_some(),
         aead_alg = cfg.aead_alg.as_str(),
         max_value_bytes = cfg.max_value_bytes,
+        auth_mode = %cfg.auth_mode,
+        identity_url = %cfg.identity_url,
         shutdown_grace_seconds = cfg.shutdown_grace.as_secs(),
         "starting forge-secrets"
     );
@@ -43,12 +45,7 @@ async fn run() -> Result<(), String> {
         );
     }
 
-    let app = axum::Router::new()
-        .merge(routes::health::router())
-        .merge(routes::identity::router())
-        .merge(routes::data_keys::router())
-        .merge(secrets_routes())
-        .with_state(state);
+    let app = app(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], cfg.port));
     let listener = tokio::net::TcpListener::bind(addr)
@@ -65,10 +62,6 @@ async fn run() -> Result<(), String> {
 
     info!("shutdown complete");
     Ok(())
-}
-
-fn secrets_routes() -> axum::Router<forge_secrets::state::AppState> {
-    forge_secrets::secrets::routes::router()
 }
 
 fn init_tracing(cfg: &Config) {
