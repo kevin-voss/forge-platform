@@ -21,6 +21,7 @@
 | Prometheus | 3001 |
 | Tempo | 3002 |
 | Loki | 3003 |
+| Alertmanager | 3004 |
 | OTLP gRPC | 4317 |
 | OTLP HTTP | 4318 |
 | OTEL health | 13133 |

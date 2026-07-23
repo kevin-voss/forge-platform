@@ -1,11 +1,12 @@
 openapi: 3.0.3
 info:
   title: Forge Observe API
-  version: 0.3.0
+  version: 0.4.0
   description: |
     Platform observability service (epic 12). Correlation contract, backend
-    health, correlated log query (`GET /v1/logs`, step 12.04), and live log
-    stream (`GET /v1/logs/stream`, step 12.05).
+    health, correlated log query (`GET /v1/logs`, step 12.04), live log
+    stream (`GET /v1/logs/stream`, step 12.05), and alert status
+    (`GET /v1/alerts`, step 12.06).
 servers:
   - url: http://127.0.0.1:4106
     description: Local Compose (host port 4106)
@@ -287,6 +288,54 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /v1/alerts:
+    get:
+      operationId: listAlerts
+      summary: Active and pending alert status
+      description: |
+        Returns firing and pending Prometheus alert rules (`ServiceDown`,
+        `HighErrorRate`, optional `NodeOffline`) normalized for Forge.
+        Requires Alertmanager reachability (`FORGE_ALERTMANAGER_URL`); when the
+        alerting backend is down the endpoint returns `503`. Labels are bounded
+        (no secrets/PII). In `FORGE_AUTH_MODE=enforce`, project-scoped alerts
+        are filtered to memberships (`project.read`).
+      responses:
+        "200":
+          description: Active/pending alerts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AlertStatus"
+              example:
+                - name: ServiceDown
+                  state: firing
+                  labels:
+                    alertname: ServiceDown
+                    severity: critical
+                    service_name: demo
+                  since: "2026-07-23T10:00:00Z"
+                  value: 0
+        "401":
+          description: Authentication required (enforce mode)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Alert access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Alerting backend unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   schemas:
     HealthStatus:
@@ -372,6 +421,28 @@ components:
             type: string
         capped:
           type: boolean
+
+    AlertStatus:
+      type: object
+      required: [name, state, labels, since, value]
+      description: Normalized alert from Prometheus rule evaluation (12.06)
+      properties:
+        name:
+          type: string
+          example: ServiceDown
+        state:
+          type: string
+          enum: [firing, pending]
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+          description: Bounded label set (alertname, severity, service*, project*, node*)
+        since:
+          type: string
+          format: date-time
+        value:
+          type: number
 
     Error:
       type: object

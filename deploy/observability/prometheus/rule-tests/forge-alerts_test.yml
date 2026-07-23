@@ -1,0 +1,51 @@
+# promtool unit tests for forge-alerts.yml (step 12.06).
+rule_files:
+  - ../rules/forge-alerts.yml
+
+evaluation_interval: 15s
+
+tests:
+  - interval: 15s
+    name: ServiceDown fires when forge_service_up is 0
+    input_series:
+      - series: 'forge_service_up{service_name="demo",forge_service="demo"}'
+        values: "0x8"
+    alert_rule_test:
+      - eval_time: 15s
+        alertname: ServiceDown
+        exp_alerts: []
+      - eval_time: 45s
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels:
+              alertname: ServiceDown
+              severity: critical
+              service_name: demo
+              forge_service: demo
+            exp_annotations:
+              summary: "Forge service demo is down"
+              description: "forge_service_up has been 0 for more than 30s."
+
+  - interval: 15s
+    name: HighErrorRate fires above threshold then resolves
+    input_series:
+      - series: 'forge_http_requests_total{service_name="api",forge_service="api",forge_project="prj_1",http_status_class="5xx",http_method="GET"}'
+        values: "0+10x12"
+      - series: 'forge_http_requests_total{service_name="api",forge_service="api",forge_project="prj_1",http_status_class="2xx",http_method="GET"}'
+        values: "0+1x12"
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: HighErrorRate
+        exp_alerts: []
+      - eval_time: 2m30s
+        alertname: HighErrorRate
+        exp_alerts:
+          - exp_labels:
+              alertname: HighErrorRate
+              severity: warning
+              service_name: api
+              forge_service: api
+              forge_project: prj_1
+            exp_annotations:
+              summary: "Elevated 5xx error rate on api"
+              description: "5xx / total request rate has exceeded 5% for more than 60s."

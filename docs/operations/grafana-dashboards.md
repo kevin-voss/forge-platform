@@ -20,7 +20,7 @@ Compose mounts the dashboards at `FORGE_GRAFANA_DASHBOARD_DIR`
 
 | UID | Title | Purpose | Template variables |
 |---|---|---|---|
-| `forge-platform` | Forge Platform | Fleet-wide service up/down, request rate, error rate, p95 latency | — |
+| `forge-platform` | Forge Platform | Fleet-wide service up/down, request rate, error rate, p95 latency, firing alert count/state | — |
 | `forge-service` | Forge Service | Per-service throughput, error %, latency quantiles, log volume | `service` |
 | `forge-deployment` | Forge Deployment | Rollout steps/transitions, ready replicas, per-deployment errors | `forge.deployment` |
 | `forge-runtime` | Forge Runtime | Node count, free slots, heartbeat age, offline rate | `forge.node` |

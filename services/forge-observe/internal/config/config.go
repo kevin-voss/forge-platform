@@ -32,6 +32,7 @@ type Config struct {
 	LokiURL          string
 	TempoURL         string
 	PrometheusURL    string
+	AlertmanagerURL  string
 	BackendTimeout   time.Duration
 	RequiredBackends []BackendName
 	LogQueryMaxLimit int
@@ -39,6 +40,10 @@ type Config struct {
 	AuthMode         string
 	IdentityURL      string
 	AuthzCacheTTLS   int
+	// Alert threshold documentation defaults (rules are provisioned as code).
+	AlertServiceDownFor     time.Duration
+	AlertErrorRateThreshold float64
+	AlertErrorRateFor       time.Duration
 }
 
 // Load reads configuration from the process environment.
@@ -96,6 +101,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	amURL, err := parseBackendURL("FORGE_ALERTMANAGER_URL", os.Getenv("FORGE_ALERTMANAGER_URL"), "http://alertmanager:9093")
+	if err != nil {
+		return Config{}, err
+	}
 
 	timeoutMS, err := parsePositiveInt("FORGE_BACKEND_TIMEOUT_MS", os.Getenv("FORGE_BACKEND_TIMEOUT_MS"), 2000)
 	if err != nil {
@@ -134,23 +143,40 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	serviceDownFor, err := parseDurationEnv("FORGE_ALERT_SERVICE_DOWN_FOR", os.Getenv("FORGE_ALERT_SERVICE_DOWN_FOR"), 30*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	errorRateFor, err := parseDurationEnv("FORGE_ALERT_ERROR_RATE_FOR", os.Getenv("FORGE_ALERT_ERROR_RATE_FOR"), 60*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	errorRateThreshold, err := parseFloatEnv("FORGE_ALERT_ERROR_RATE_THRESHOLD", os.Getenv("FORGE_ALERT_ERROR_RATE_THRESHOLD"), 0.05)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
-		Port:             port,
-		ServiceName:      name,
-		ServiceVersion:   version,
-		LogLevel:         level,
-		Env:              env,
-		ShutdownGrace:    time.Duration(graceSecs) * time.Second,
-		LokiURL:          lokiURL,
-		TempoURL:         tempoURL,
-		PrometheusURL:    promURL,
-		BackendTimeout:   time.Duration(timeoutMS) * time.Millisecond,
-		RequiredBackends: required,
-		LogQueryMaxLimit: maxLimit,
-		LogQueryMaxRange: time.Duration(maxRangeH) * time.Hour,
-		AuthMode:         authMode,
-		IdentityURL:      identityURL,
-		AuthzCacheTTLS:   authzTTL,
+		Port:                    port,
+		ServiceName:             name,
+		ServiceVersion:          version,
+		LogLevel:                level,
+		Env:                     env,
+		ShutdownGrace:           time.Duration(graceSecs) * time.Second,
+		LokiURL:                 lokiURL,
+		TempoURL:                tempoURL,
+		PrometheusURL:           promURL,
+		AlertmanagerURL:         amURL,
+		BackendTimeout:          time.Duration(timeoutMS) * time.Millisecond,
+		RequiredBackends:        required,
+		LogQueryMaxLimit:        maxLimit,
+		LogQueryMaxRange:        time.Duration(maxRangeH) * time.Hour,
+		AuthMode:                authMode,
+		IdentityURL:             identityURL,
+		AuthzCacheTTLS:          authzTTL,
+		AlertServiceDownFor:     serviceDownFor,
+		AlertErrorRateThreshold: errorRateThreshold,
+		AlertErrorRateFor:       errorRateFor,
 	}, nil
 }
 
@@ -181,6 +207,30 @@ func parsePositiveInt(name, raw string, def int) (int, error) {
 		return 0, fmt.Errorf("%s must be a positive integer, got %q", name, raw)
 	}
 	return n, nil
+}
+
+func parseDurationEnv(name, raw string, def time.Duration) (time.Duration, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return def, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("%s must be a positive duration (e.g. 30s), got %q", name, raw)
+	}
+	return d, nil
+}
+
+func parseFloatEnv(name, raw string, def float64) (float64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return def, nil
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil || v <= 0 || v >= 1 {
+		return 0, fmt.Errorf("%s must be a float in (0,1), got %q", name, raw)
+	}
+	return v, nil
 }
 
 func parseRequiredBackends(raw string) ([]BackendName, error) {

@@ -1,0 +1,50 @@
+# Forge platform alert rules (step 12.06).
+# Thresholds match docs/operations/alerting.md defaults:
+#   ServiceDown for: 30s (FORGE_ALERT_SERVICE_DOWN_FOR)
+#   HighErrorRate threshold: 0.05 (FORGE_ALERT_ERROR_RATE_THRESHOLD)
+#   HighErrorRate for: 60s (FORGE_ALERT_ERROR_RATE_FOR)
+#
+# Metric names come from the 12.02 instrumentation checklist.
+groups:
+  - name: forge.availability
+    rules:
+      - alert: ServiceDown
+        expr: forge_service_up == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Forge service {{ $labels.service_name }} is down"
+          description: "forge_service_up has been 0 for more than 30s."
+
+      - alert: NodeOffline
+        expr: max by (forge_node) (forge_node_heartbeat_age_seconds) > 90
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Forge node {{ $labels.forge_node }} heartbeat is stale"
+          description: "forge_node_heartbeat_age_seconds > 90s for more than 30s."
+
+  - name: forge.errors
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum by (service_name, forge_service, forge_project) (
+              rate(forge_http_requests_total{http_status_class="5xx"}[5m])
+            )
+            /
+            clamp_min(
+              sum by (service_name, forge_service, forge_project) (
+                rate(forge_http_requests_total[5m])
+              ),
+              1e-9
+            )
+          ) > 0.05
+        for: 60s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Elevated 5xx error rate on {{ $labels.service_name }}"
+          description: "5xx / total request rate has exceeded 5% for more than 60s."

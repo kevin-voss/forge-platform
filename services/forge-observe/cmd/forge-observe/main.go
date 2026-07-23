@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"forge.local/services/forge-observe/internal/alerts"
 	"forge.local/services/forge-observe/internal/api"
 	"forge.local/services/forge-observe/internal/backends"
 	"forge.local/services/forge-observe/internal/config"
@@ -44,12 +45,16 @@ func run() error {
 		"loki_url", cfg.LokiURL,
 		"tempo_url", cfg.TempoURL,
 		"prometheus_url", cfg.PrometheusURL,
+		"alertmanager_url", cfg.AlertmanagerURL,
 		"backend_timeout_ms", int(cfg.BackendTimeout.Milliseconds()),
 		"required_backends", joinBackends(cfg.RequiredBackends),
 		"log_query_max_limit", cfg.LogQueryMaxLimit,
 		"log_query_max_range_h", int(cfg.LogQueryMaxRange.Hours()),
 		"auth_mode", cfg.AuthMode,
 		"identity_url", cfg.IdentityURL,
+		"alert_service_down_for", cfg.AlertServiceDownFor.String(),
+		"alert_error_rate_threshold", cfg.AlertErrorRateThreshold,
+		"alert_error_rate_for", cfg.AlertErrorRateFor.String(),
 		"shutdown_grace_seconds", int(cfg.ShutdownGrace.Seconds()),
 		correlation.AttrService, cfg.ServiceName,
 	)
@@ -114,10 +119,17 @@ func run() error {
 		StreamMetrics: streamMetrics,
 	}
 
+	alertClient := &alerts.StatusClient{
+		AlertmanagerURL: cfg.AlertmanagerURL,
+		PrometheusURL:   cfg.PrometheusURL,
+		Timeout:         cfg.BackendTimeout,
+	}
+
 	mux := http.NewServeMux()
 	health.NewHandler(reg, reg, cfg.ServiceName, cfg.ServiceVersion).Register(mux)
 	(&api.LogsHandler{Service: logSvc, Caps: logCaps, Auth: authGate, Log: log}).Register(mux)
 	(&api.LogsStreamHandler{Service: logSvc, Caps: logCaps, Auth: authGate, Log: log}).Register(mux)
+	(&api.AlertsHandler{Client: alertClient, Auth: authGate, Log: log}).Register(mux)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

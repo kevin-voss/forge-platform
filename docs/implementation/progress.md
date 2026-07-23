@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 83`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 84`**.
 
 ## Epics
 
@@ -20,7 +20,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [09](epics/09-forge-identity.md) | Forge Identity | Complete | 8/8 steps complete; demo 09 platform-identity acceptance gate passed; default auth enforce |
 | [10](epics/10-forge-secrets.md) | Forge Secrets | Complete | 7/7 steps; demo 10 secrets acceptance gate passed |
 | [11](epics/11-forge-events.md) | Forge Events | Complete | 7/7 steps; demo 11 event-driven acceptance gate passed |
-| [12](epics/12-forge-observe.md) | Forge Observe | In progress | 5/7 steps; `forge logs --follow` via Observe SSE + Runtime fallback |
+| [12](epics/12-forge-observe.md) | Forge Observe | In progress | 6/7 steps; basic ServiceDown/HighErrorRate alerts + `GET /v1/alerts` |
 | [13](epics/13-forge-storage.md) | Forge Storage | Planning | 7 steps |
 | [14](epics/14-forge-models.md) | Forge Models | Planning | 7 steps |
 | [15](epics/15-forge-agents.md) | Forge Agents | Planning | 8 steps |
@@ -116,7 +116,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **80** | [Grafana dashboards (platform/service/deployment/runtime)](steps/12-forge-observe/12.03-grafana-dashboards.md) | Complete |  | Four Grafana dashboards as code; provider + parity/smoke tests |
 | **81** | [Log query/filter by project/deployment/request/trace ID](steps/12-forge-observe/12.04-log-query-and-filter.md) | Complete |  | `GET /v1/logs` LogQL filters; caps; authz; OpenAPI |
 | **82** | [CLI `forge logs --follow`](steps/12-forge-observe/12.05-cli-logs-follow.md) | Complete |  | `forge logs` query + `--follow` SSE; reconnect; Runtime fallback |
-| **83** | [Basic alert rules](steps/12-forge-observe/12.06-basic-alert-rules.md) | Not started |  |  |
+| **83** | [Basic alert rules](steps/12-forge-observe/12.06-basic-alert-rules.md) | Complete |  | Prom rules + AM webhook sink; Observe `GET /v1/alerts`; platform alert panels |
 | **84** | [Demo `12-observability` (one distributed trace) + gate](steps/12-forge-observe/12.07-demo-12-observability.md) | Not started |  |  |
 | **85** | [Skeleton + local FS backend](steps/13-forge-storage/13.01-skeleton-local-fs-backend.md) | Not started |  |  |
 | **86** | [Buckets + metadata + project isolation](steps/13-forge-storage/13.02-buckets-metadata-project-isolation.md) | Not started |  |  |

@@ -1,0 +1,12 @@
+# Dev-only Alertmanager webhook sink (step 12.06).
+# Compose service definition fragment — wired from root compose.yaml.
+#
+# Receives standard Alertmanager webhook payloads and prints them as JSON
+# lines so firing/resolved transitions are observable without an external pager.
+# Do not use this receiver for production paging.
+service:
+  image: forge/alert-webhook-sink:local
+  container_name: forge-alert-webhook-sink
+  listen: ":8080"
+  path: /webhook
+  log_format: json

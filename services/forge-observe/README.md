@@ -14,6 +14,7 @@ contract**.
 | `GET /v1/health/backends` | `{loki,tempo,prometheus}` → `ok` \| `down` |
 | `GET /v1/logs` | Correlated log query (12.04) |
 | `GET /v1/logs/stream` | Live log tail via SSE (12.05) |
+| `GET /v1/alerts` | Active/pending alert status (12.06) |
 
 ## Log query (`GET /v1/logs`)
 
@@ -63,12 +64,16 @@ Env: `FORGE_OBSERVE_URL`, `FORGE_LOGS_RECONNECT_MS` (default 1000),
 | `FORGE_LOKI_URL` | `http://loki:3100` |
 | `FORGE_TEMPO_URL` | `http://tempo:3200` |
 | `FORGE_PROMETHEUS_URL` | `http://prometheus:9090` |
+| `FORGE_ALERTMANAGER_URL` | `http://alertmanager:9093` |
 | `FORGE_BACKEND_TIMEOUT_MS` | `2000` |
 | `FORGE_OBSERVE_READY_REQUIRE_BACKENDS` | `loki,tempo,prometheus` |
 | `FORGE_LOG_QUERY_MAX_LIMIT` | `1000` |
 | `FORGE_LOG_QUERY_MAX_RANGE_H` | `24` |
 | `FORGE_AUTH_MODE` | `dev` |
 | `FORGE_IDENTITY_URL` | `http://forge-identity:4002` |
+| `FORGE_ALERT_SERVICE_DOWN_FOR` | `30s` (documented; rule file is source of truth) |
+| `FORGE_ALERT_ERROR_RATE_THRESHOLD` | `0.05` |
+| `FORGE_ALERT_ERROR_RATE_FOR` | `60s` |
 
 ## Correlation contract
 
@@ -84,6 +89,15 @@ Provisioned under `deploy/observability/grafana/` (see
 * Provider: `provisioning/dashboards/forge.yaml`
 * Checks: `make -C services/forge-observe test-dashboards`
 
+## Alerting (12.06)
+
+Prometheus rules + Alertmanager + webhook sink (see
+[`docs/operations/alerting.md`](../../docs/operations/alerting.md)):
+
+* `ServiceDown` / `HighErrorRate` (+ optional `NodeOffline`)
+* Local webhook sink logs firing/resolved payloads (dev only)
+* `GET /v1/alerts` → firing|pending with bounded labels; Alertmanager down → `503`
+
 ## Local commands
 
 ```bash
@@ -98,5 +112,6 @@ make -C services/forge-observe test         # unit + dashboards + integration
 When a required backend is unreachable, `/health/ready` returns 503 while
 `/health/live` and `/v1/health/backends` stay available so operators can see
 which dependency failed. `GET /v1/logs` returns `503` with `loki_unavailable`
-when Loki is down. Backend clients enforce `FORGE_BACKEND_TIMEOUT_MS`
+when Loki is down. `GET /v1/alerts` returns `503` with `alerting_unavailable`
+when Alertmanager is down. Backend clients enforce `FORGE_BACKEND_TIMEOUT_MS`
 and never hang indefinitely.

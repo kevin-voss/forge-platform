@@ -48,7 +48,9 @@ Compose named volumes:
 | `infrastructure/nats/nats.conf` | NATS + JetStream |
 | `infrastructure/registry/config.yml` | OCI registry |
 | `infrastructure/otel/config.yaml` | telemetry pipelines |
-| `infrastructure/prometheus/prometheus.yml` | scrape config |
+| `infrastructure/prometheus/prometheus.yml` | scrape + alerting config |
+| `deploy/observability/prometheus/rules/` | Prometheus alert rules (12.06) |
+| `deploy/observability/alerting/` | Alertmanager + webhook sink |
 | `infrastructure/tempo/tempo.yaml` | trace backend |
 | `infrastructure/loki/loki.yaml` | log backend |
 | `infrastructure/grafana/provisioning/` | datasources + base dashboard provider |

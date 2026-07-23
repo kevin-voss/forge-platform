@@ -1,0 +1,20 @@
+# Local Alertmanager config (step 12.06).
+# Delivers all alerts to the dev-only webhook sink. Not for production paging.
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: forge-webhook-sink
+  group_by: [alertname, forge_service, service_name]
+  group_wait: 5s
+  group_interval: 30s
+  repeat_interval: 1h
+
+receivers:
+  - name: forge-webhook-sink
+    webhook_configs:
+      - url: http://alert-webhook-sink:8080/webhook
+        send_resolved: true
+        max_alerts: 0
+
+inhibit_rules: []

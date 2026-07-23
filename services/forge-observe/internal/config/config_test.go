@@ -18,6 +18,7 @@ func clearObserveEnv(t *testing.T) {
 		"FORGE_LOKI_URL",
 		"FORGE_TEMPO_URL",
 		"FORGE_PROMETHEUS_URL",
+		"FORGE_ALERTMANAGER_URL",
 		"FORGE_BACKEND_TIMEOUT_MS",
 		"FORGE_OBSERVE_READY_REQUIRE_BACKENDS",
 		"FORGE_LOG_QUERY_MAX_LIMIT",
@@ -25,6 +26,9 @@ func clearObserveEnv(t *testing.T) {
 		"FORGE_AUTH_MODE",
 		"FORGE_IDENTITY_URL",
 		"FORGE_AUTHZ_CACHE_TTL_S",
+		"FORGE_ALERT_SERVICE_DOWN_FOR",
+		"FORGE_ALERT_ERROR_RATE_THRESHOLD",
+		"FORGE_ALERT_ERROR_RATE_FOR",
 	} {
 		t.Setenv(key, "")
 	}
@@ -51,6 +55,18 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.PrometheusURL != "http://prometheus:9090" {
 		t.Fatalf("PrometheusURL = %q", cfg.PrometheusURL)
+	}
+	if cfg.AlertmanagerURL != "http://alertmanager:9093" {
+		t.Fatalf("AlertmanagerURL = %q", cfg.AlertmanagerURL)
+	}
+	if cfg.AlertServiceDownFor != 30*time.Second {
+		t.Fatalf("AlertServiceDownFor = %v", cfg.AlertServiceDownFor)
+	}
+	if cfg.AlertErrorRateFor != 60*time.Second {
+		t.Fatalf("AlertErrorRateFor = %v", cfg.AlertErrorRateFor)
+	}
+	if cfg.AlertErrorRateThreshold != 0.05 {
+		t.Fatalf("AlertErrorRateThreshold = %v", cfg.AlertErrorRateThreshold)
 	}
 	if cfg.BackendTimeout != 2*time.Second {
 		t.Fatalf("BackendTimeout = %v, want 2s", cfg.BackendTimeout)

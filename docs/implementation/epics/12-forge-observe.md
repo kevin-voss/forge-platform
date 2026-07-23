@@ -68,7 +68,7 @@ An induced error fires the error-rate alert
 | [12.03](../steps/12-forge-observe/12.03-grafana-dashboards.md) | Grafana dashboards (platform/service/deployment/runtime) | Complete | Provisioned dashboards |
 | [12.04](../steps/12-forge-observe/12.04-log-query-and-filter.md) | Log query/filter by project/deployment/request/trace ID | Complete | Correlated log search API |
 | [12.05](../steps/12-forge-observe/12.05-cli-logs-follow.md) | CLI `forge logs --follow` | Complete | Live tail via Observe SSE + Runtime fallback |
-| [12.06](../steps/12-forge-observe/12.06-basic-alert-rules.md) | Basic alert rules | Not started | Service down / error rate |
+| [12.06](../steps/12-forge-observe/12.06-basic-alert-rules.md) | Basic alert rules | Complete | ServiceDown / HighErrorRate + `GET /v1/alerts` |
 | [12.07](../steps/12-forge-observe/12.07-demo-12-observability.md) | Demo `12-observability` (one distributed trace) + gate | Not started | Single trace end-to-end; epic gate |
 
 ## Assumptions
@@ -88,4 +88,4 @@ An induced error fires the error-rate alert
 
 ## Next step to implement
 
-**[12.06](../steps/12-forge-observe/12.06-basic-alert-rules.md) — Basic alert rules**.
+**[12.07](../steps/12-forge-observe/12.07-demo-12-observability.md) — Demo `12-observability` + epic gate**.

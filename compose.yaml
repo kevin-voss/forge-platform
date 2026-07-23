@@ -95,9 +95,52 @@ services:
       - "3001:9090"
     volumes:
       - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/observability/prometheus/rules:/etc/prometheus/rules:ro
       - forge-prometheus-data:/prometheus
+    depends_on:
+      alertmanager:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/healthy"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: forge-alertmanager
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    ports:
+      - "3004:9093"
+    volumes:
+      - ./deploy/observability/alerting/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    depends_on:
+      alert-webhook-sink:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9093/-/healthy"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  alert-webhook-sink:
+    build:
+      context: ./deploy/observability/alerting
+      dockerfile: Dockerfile
+    image: forge/alert-webhook-sink:local
+    container_name: forge-alert-webhook-sink
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')",
+        ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -446,6 +489,7 @@ services:
       FORGE_LOKI_URL: ${FORGE_LOKI_URL:-http://loki:3100}
       FORGE_TEMPO_URL: ${FORGE_TEMPO_URL:-http://tempo:3200}
       FORGE_PROMETHEUS_URL: ${FORGE_PROMETHEUS_URL:-http://prometheus:9090}
+      FORGE_ALERTMANAGER_URL: ${FORGE_ALERTMANAGER_URL:-http://alertmanager:9093}
       FORGE_BACKEND_TIMEOUT_MS: ${FORGE_BACKEND_TIMEOUT_MS:-2000}
       FORGE_OBSERVE_READY_REQUIRE_BACKENDS: ${FORGE_OBSERVE_READY_REQUIRE_BACKENDS:-loki,tempo,prometheus}
       FORGE_LOG_QUERY_MAX_LIMIT: ${FORGE_LOG_QUERY_MAX_LIMIT:-1000}
@@ -453,6 +497,9 @@ services:
       FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
       FORGE_IDENTITY_URL: ${FORGE_IDENTITY_URL:-http://forge-identity:4002}
       FORGE_AUTHZ_CACHE_TTL_S: ${FORGE_AUTHZ_CACHE_TTL_S:-10}
+      FORGE_ALERT_SERVICE_DOWN_FOR: ${FORGE_ALERT_SERVICE_DOWN_FOR:-30s}
+      FORGE_ALERT_ERROR_RATE_THRESHOLD: ${FORGE_ALERT_ERROR_RATE_THRESHOLD:-0.05}
+      FORGE_ALERT_ERROR_RATE_FOR: ${FORGE_ALERT_ERROR_RATE_FOR:-60s}
       FORGE_SHUTDOWN_GRACE_SECONDS: ${FORGE_SHUTDOWN_GRACE_SECONDS:-10}
     depends_on:
       loki:
@@ -460,6 +507,8 @@ services:
       tempo:
         condition: service_healthy
       prometheus:
+        condition: service_healthy
+      alertmanager:
         condition: service_healthy
     stop_grace_period: 15s
     healthcheck:
