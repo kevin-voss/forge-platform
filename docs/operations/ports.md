@@ -50,6 +50,7 @@
 | Service | Host port |
 |---|---:|
 | Forge Models | 4300 |
+| Forge Agents | 4301 |
 
 ## Reserved for the standalone-cloud phase (epics 20–43)
 

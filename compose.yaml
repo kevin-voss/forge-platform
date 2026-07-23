@@ -577,6 +577,30 @@ services:
       retries: 10
       start_period: 20s
 
+  forge-agents:
+    build:
+      context: ./services/forge-agents
+    image: forge/forge-agents:local
+    container_name: forge-agents
+    restart: unless-stopped
+    ports:
+      - "4301:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: forge-agents
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-info}
+      FORGE_ENV: ${FORGE_ENV:-development}
+      FORGE_MODELS_URL: ${FORGE_MODELS_URL:-http://forge-models:4300}
+      FORGE_SHUTDOWN_GRACE_SECONDS: ${FORGE_SHUTDOWN_GRACE_SECONDS:-10}
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health/live | grep -q live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
   forge-storage:
     build:
       context: ./services/forge-storage
