@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -13,8 +14,11 @@ from fastapi.responses import JSONResponse
 from app import __version__
 from app.agents.loader import AgentLoadError, load_registry
 from app.api.agents import router as agents_router
+from app.api.approvals import router as approvals_router
 from app.api.runs import router as runs_router
 from app.api.tools import router as tools_router
+from app.approvals.metrics import ApprovalMetrics
+from app.approvals.store import ApprovalStore
 from app.config import Settings, clear_settings_cache, get_settings
 from app.health import router as health_router
 from app.logging import RequestIdMiddleware, configure_logging
@@ -30,6 +34,8 @@ from app.tools.registry import ToolsMode, build_tool_registry
 
 logger = logging.getLogger("forge-agents")
 
+_SWEEP_INTERVAL_SECONDS = 5.0
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -39,6 +45,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     engine: RunEngine = app.state.run_engine
     app.state.started_at = time.time()
     app.state.ready = True
+    recovered = await engine.recover_awaiting_runs()
+    sweeper = asyncio.create_task(
+        _approval_sweeper(engine),
+        name="approval-expiry-sweeper",
+    )
     logger.info(
         "starting forge-agents",
         extra={
@@ -51,16 +62,35 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "tool_timeout_seconds": settings.forge_agents_tool_timeout_seconds,
             "db_path": settings.forge_agents_db_path,
             "max_concurrent_runs": settings.forge_agents_max_concurrent_runs,
+            "approval_ttl_seconds": settings.forge_agents_approval_ttl_seconds,
+            "recovered_awaiting_runs": recovered,
         },
     )
     try:
         yield
     finally:
         app.state.ready = False
+        sweeper.cancel()
+        await asyncio.gather(sweeper, return_exceptions=True)
         await engine.aclose()
+        approvals: ApprovalStore = app.state.approval_store
+        approvals.close()
         store: RunStore = app.state.run_store
         store.close()
         logger.info("shutdown complete")
+
+
+async def _approval_sweeper(engine: RunEngine) -> None:
+    """Periodically expire stale pending approvals."""
+    try:
+        while True:
+            await asyncio.sleep(_SWEEP_INTERVAL_SECONDS)
+            try:
+                await engine.expire_stale_approvals()
+            except Exception:  # noqa: BLE001 — sweeper must not die
+                logger.exception("approval expiry sweep failed")
+    except asyncio.CancelledError:
+        raise
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -94,7 +124,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         metrics=tool_metrics,
     )
     run_store = RunStore(resolved.forge_agents_db_path)
+    approval_store = ApprovalStore(
+        resolved.forge_agents_db_path,
+        conn=run_store.connection,
+    )
     run_metrics = RunMetrics()
+    approval_metrics = ApprovalMetrics()
     http_model = HttpModelClient(resolved.forge_models_url)
     fake_model = FakeModelClient()
     run_engine = RunEngine(
@@ -103,8 +138,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         invoker=tool_invoker,
         model_client=http_model,
         fake_model_client=fake_model,
+        approvals=approval_store,
+        approval_ttl_seconds=resolved.forge_agents_approval_ttl_seconds,
         max_concurrent_runs=resolved.forge_agents_max_concurrent_runs,
         metrics=run_metrics,
+        approval_metrics=approval_metrics,
     )
 
     application = FastAPI(
@@ -118,8 +156,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.tool_invoker = tool_invoker
     application.state.tool_metrics = tool_metrics
     application.state.run_store = run_store
+    application.state.approval_store = approval_store
     application.state.run_engine = run_engine
     application.state.run_metrics = run_metrics
+    application.state.approval_metrics = approval_metrics
     application.state.ready = False
     application.state.started_at = time.time()
 
@@ -128,6 +168,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(agents_router)
     application.include_router(tools_router)
     application.include_router(runs_router)
+    application.include_router(approvals_router)
 
     @application.get("/")
     async def identity(request: Request) -> JSONResponse:

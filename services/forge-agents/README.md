@@ -4,10 +4,9 @@ Python/FastAPI agent runtime service (epic 15). Host port **4301**.
 
 Skeleton (15.01), agent registry (15.02), tool registry with per-call
 permission checks (15.03), bounded run engine with audit history (15.04),
-and platform tools (15.05) backed by Control/Runtime/Observe/Storage/Models/
-Events. Fake tool mode (`FORGE_AGENTS_TOOLS_MODE=fake`) is the CI default.
-Human approval for destructive tools, seed agents/CLI, and the epic gate
-(`make demo DEMO=15`) arrive in later steps.
+platform tools (15.05), and human approval for destructive tools (15.06).
+Fake tool mode (`FORGE_AGENTS_TOOLS_MODE=fake`) is the CI default.
+Seed agents/CLI and the epic gate (`make demo DEMO=15`) arrive in later steps.
 
 ## Local
 
@@ -42,6 +41,12 @@ RID=$(curl -fsS -XPOST localhost:4301/v1/agents/fixture-echo/runs \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])')
 sleep 1
 curl -fsS localhost:4301/v1/runs/$RID -H 'X-Forge-Project: proj-a' | grep -q '"steps"'
+
+# Approvals (when a run is awaiting_approval for a destructive tool)
+curl -fsS localhost:4301/v1/approvals -H 'X-Forge-Project: proj-a'
+# AID=...; curl -fsS -XPOST localhost:4301/v1/approvals/$AID/deny \
+#   -H 'content-type: application/json' -H 'X-Forge-Project: proj-a' \
+#   -H 'X-Forge-Actor: alice' -d '{"reason":"manual"}'
 ```
 
 OpenAPI (canonical): [`contracts/openapi/forge-agents.openapi.yaml`](../../contracts/openapi/forge-agents.openapi.yaml).
@@ -108,7 +113,7 @@ Live backends also record `agent_tool_backend_latency_seconds` and
 
 `FORGE_AGENTS_TOOLS_MODE=fake` returns deterministic fixtures under
 `app/tools/fixtures/`. `live` uses httpx clients against the service URLs
-below (approval gating for `runtime.restart` lands in 15.06).
+below. Destructive tools never execute without a persisted approval.
 
 ## Run engine
 
@@ -119,7 +124,7 @@ Runs are project-scoped via `X-Forge-Project`.
 | Endpoint | Notes |
 |---|---|
 | `POST /v1/agents/{name}/runs` | `202 {run_id,status:running}` |
-| `GET /v1/runs/{id}` | Status + ordered audit `steps` |
+| `GET /v1/runs/{id}` | Status + ordered audit `steps` (+ `pending_approval` when paused) |
 | `GET /v1/runs` | Project-scoped list |
 | `POST /v1/runs/{id}/cancel` | `200 cancelled` or `409` if terminal |
 
@@ -135,6 +140,29 @@ Pass `"context":{"dry_run":true}` to use the deterministic fake model planner
 (`FORGE_AGENTS_DB_PATH`) for audit. Metrics: `agent_runs_total{status}`,
 `agent_run_steps`, run duration histogram (in-process).
 
+## Human approval (15.06)
+
+When the model requests a `destructive: true` tool (e.g. `runtime.restart`):
+
+1. permission/schema checks run as usual
+2. an approval request is persisted; run status → `awaiting_approval`
+3. the tool executes **only** after `POST /v1/approvals/{id}/approve`
+4. `deny` / TTL expiry skips the tool (run continues without executing it)
+
+| Endpoint | Notes |
+|---|---|
+| `GET /v1/approvals` | Project-scoped list (`?status=pending`) |
+| `GET /v1/approvals/{id}` | Detail; cross-project → `404` |
+| `POST /v1/approvals/{id}/approve` | `200 {status:approved}`; resumes run |
+| `POST /v1/approvals/{id}/deny` | body `{reason}`; `200 {status:denied}` |
+| terminal decide again | `409` |
+
+`X-Forge-Actor` is recorded as `decided_by` (defaults to `anonymous`).
+Pending approvals expire after `FORGE_AGENTS_APPROVAL_TTL_SECONDS` (default
+3600) to `expired` (treated as deny). Awaiting runs survive process restart
+via `run_resume` + approval rows; the sweeper re-attaches on startup.
+Metrics: `agent_approvals_total{status}`, time-to-decision histogram.
+
 ## Configuration
 
 | Variable | Default | Notes |
@@ -149,8 +177,9 @@ Pass `"context":{"dry_run":true}` to use the deterministic fake model planner
 | `FORGE_AGENTS_DEFS_DIR` | packaged `agents/` | Directory of `*.yaml` / `*.yml` agent definitions |
 | `FORGE_AGENTS_TOOLS_MODE` | `fake` | `fake\|live` platform tool backends |
 | `FORGE_AGENTS_TOOL_TIMEOUT_SECONDS` | `15` | Per-tool HTTP timeout (live) |
-| `FORGE_AGENTS_DB_PATH` | `/data/agents/runs.db` | SQLite run + step audit store |
+| `FORGE_AGENTS_DB_PATH` | `/data/agents/runs.db` | SQLite run + step + approval store |
 | `FORGE_AGENTS_MAX_CONCURRENT_RUNS` | `4` | In-flight run cap (`429` when exceeded) |
+| `FORGE_AGENTS_APPROVAL_TTL_SECONDS` | `3600` | Pending approval TTL before auto-expire |
 | `FORGE_LOG_LEVEL` | `info` | `debug\|info\|warn\|error` |
 | `FORGE_SERVICE_NAME` | `forge-agents` | Identity + log field |
 | `FORGE_SERVICE_VERSION` | `0.1.0` | Identity payload |
@@ -162,14 +191,15 @@ Pass `"context":{"dry_run":true}` to use the deterministic fake model planner
 ```text
 services/forge-agents/
 ├── agents/                 # YAML agent definitions (fixture-echo for tests)
-├── migrations/             # SQLite schema for runs + run_steps
+├── migrations/             # SQLite schema (runs, approvals, run_resume)
 ├── app/
-│   ├── main.py             # FastAPI factory + lifespan
+│   ├── main.py             # FastAPI factory + lifespan + approval sweeper
 │   ├── config.py           # pydantic-settings
 │   ├── health.py           # /health/live, /health/ready
 │   ├── logging.py          # JSON logs + X-Request-ID middleware
 │   ├── permissions.py      # CallScope + PermissionChecker
 │   ├── agents/             # models + YAML loader + registry
+│   ├── approvals/          # ApprovalStore + metrics
 │   ├── tools/              # registry, invoker, fake + platform adapters
 │   │   ├── control.py      # deployment.read
 │   │   ├── observe.py      # logs.search, metrics.query
@@ -179,10 +209,11 @@ services/forge-agents/
 │   │   ├── events.py       # events.publish
 │   │   └── fixtures/       # deterministic fake responses
 │   ├── run/                # RunEngine, RunStore, ModelClient
-│   └── api/                # agents, tools, runs routes
+│   └── api/                # agents, tools, runs, approvals routes
 ├── tests/
 ├── pyproject.toml
 ├── uv.lock
 ├── Dockerfile
 └── Makefile
 ```
+

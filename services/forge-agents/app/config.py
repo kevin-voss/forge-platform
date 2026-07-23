@@ -83,6 +83,13 @@ class Settings(BaseSettings):
         le=256,
         description="Hard cap on concurrent in-flight agent runs",
     )
+    forge_agents_approval_ttl_seconds: int = Field(
+        default=3600,
+        alias="FORGE_AGENTS_APPROVAL_TTL_SECONDS",
+        ge=1,
+        le=86400,
+        description="TTL for pending destructive-tool approvals before auto-expire",
+    )
     forge_service_name: str = Field(default="forge-agents", alias="FORGE_SERVICE_NAME")
     forge_service_version: str = Field(default="0.1.0", alias="FORGE_SERVICE_VERSION")
     forge_env: str = Field(default="development", alias="FORGE_ENV")

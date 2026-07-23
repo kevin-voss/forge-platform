@@ -77,7 +77,11 @@ class ToolInvoker:
         self._checker = checker or PermissionChecker()
         self._metrics = metrics or default_tool_metrics
 
-    async def invoke(
+    @property
+    def registry(self) -> ToolRegistry:
+        return self._registry
+
+    async def validate(
         self,
         *,
         agent: AgentDefinition,
@@ -85,9 +89,9 @@ class ToolInvoker:
         arguments: dict[str, Any] | None,
         scope: CallScope,
     ) -> InvokeResult:
+        """Run deny-by-default checks without executing the tool."""
         name = (tool_name or "").strip()
         args = arguments if isinstance(arguments, dict) else {}
-
         tool = self._registry.get(name)
         if tool is None:
             return self._deny(
@@ -128,6 +132,31 @@ class ToolInvoker:
                 project_id=scope.project_id,
                 missing_permissions=missing,
             )
+
+        return InvokeResult(ok=True, tool=name, decision="allow")
+
+    async def invoke(
+        self,
+        *,
+        agent: AgentDefinition,
+        tool_name: str,
+        arguments: dict[str, Any] | None,
+        scope: CallScope,
+    ) -> InvokeResult:
+        name = (tool_name or "").strip()
+        args = arguments if isinstance(arguments, dict) else {}
+
+        validated = await self.validate(
+            agent=agent,
+            tool_name=name,
+            arguments=args,
+            scope=scope,
+        )
+        if not validated.ok:
+            return validated
+
+        tool = self._registry.get(name)
+        assert tool is not None  # validated above
 
         try:
             result: ToolResult = await tool.execute(args, scope=scope)

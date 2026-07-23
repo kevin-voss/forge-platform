@@ -82,13 +82,19 @@ async def get_run(run_id: str, request: Request) -> JSONResponse:
     if isinstance(project, JSONResponse):
         return project
 
-    run = _engine(request).store.get_run(run_id, project_id=project)
+    engine = _engine(request)
+    run = engine.store.get_run(run_id, project_id=project)
     if run is None:
         return JSONResponse(
             status_code=404,
             content={"error": f"run not found: {run_id}", "code": "run_not_found"},
         )
-    return JSONResponse(status_code=200, content=run.to_api_dict(include_steps=True))
+    payload = run.to_api_dict(include_steps=True)
+    if run.status == "awaiting_approval" and engine.approvals is not None:
+        pending = engine.approvals.get_pending_for_run(run_id)
+        if pending is not None:
+            payload["pending_approval"] = pending.to_api_dict()
+    return JSONResponse(status_code=200, content=payload)
 
 
 @router.get("/v1/runs")

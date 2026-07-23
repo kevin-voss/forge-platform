@@ -19,6 +19,7 @@ def _utc_now() -> str:
 
 
 TERMINAL_STATUSES = frozenset({"succeeded", "failed", "cancelled", "stopped"})
+NON_TERMINAL_STATUSES = frozenset({"running", "awaiting_approval"})
 
 
 @dataclass
@@ -103,16 +104,51 @@ class RunStore:
             self._conn.close()
 
     def _apply_migrations(self) -> None:
-        sql_path = _MIGRATIONS_DIR / "0001_runs.sql"
-        if not sql_path.is_file():
-            raise FileNotFoundError(f"missing migration: {sql_path}")
+        if not _MIGRATIONS_DIR.is_dir():
+            raise FileNotFoundError(f"missing migrations dir: {_MIGRATIONS_DIR}")
+        files = sorted(_MIGRATIONS_DIR.glob("*.sql"))
+        if not files:
+            raise FileNotFoundError(f"no migrations in {_MIGRATIONS_DIR}")
         with self._lock:
-            self._conn.executescript(sql_path.read_text(encoding="utf-8"))
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                  id TEXT PRIMARY KEY,
+                  applied_at TEXT NOT NULL
+                )
+                """
+            )
+            applied = {
+                str(row["id"])
+                for row in self._conn.execute("SELECT id FROM schema_migrations").fetchall()
+            }
+            for path in files:
+                mid = path.name
+                if mid in applied:
+                    continue
+                self._conn.executescript(path.read_text(encoding="utf-8"))
+                self._conn.execute(
+                    "INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)",
+                    (mid, _utc_now()),
+                )
             self._conn.commit()
 
-    def create_run(self, *, project_id: str, agent: str) -> RunRecord:
+    @property
+    def connection(self) -> sqlite3.Connection:
+        """Shared SQLite connection (ApprovalStore may reuse it)."""
+        return self._conn
+
+    def create_run(
+        self,
+        *,
+        project_id: str,
+        agent: str,
+        run_input: str = "",
+        context: dict[str, Any] | None = None,
+    ) -> RunRecord:
         run_id = str(uuid.uuid4())
         started = _utc_now()
+        ctx = context if isinstance(context, dict) else {}
         with self._lock:
             self._conn.execute(
                 """
@@ -120,6 +156,13 @@ class RunStore:
                 VALUES (?, ?, ?, 'running', 0, ?)
                 """,
                 (run_id, project_id, agent, started),
+            )
+            self._conn.execute(
+                """
+                INSERT INTO run_resume (run_id, input, context)
+                VALUES (?, ?, ?)
+                """,
+                (run_id, run_input, json.dumps(ctx)),
             )
             self._conn.commit()
             self._cancel_flags[run_id] = threading.Event()
@@ -130,6 +173,53 @@ class RunStore:
             status="running",
             started_at=started,
         )
+
+    def get_resume(self, run_id: str) -> tuple[str, dict[str, Any]] | None:
+        """Return (input, context) for restart-safe resume, or None."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT input, context FROM run_resume WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            try:
+                ctx = json.loads(row["context"] or "{}")
+            except (TypeError, json.JSONDecodeError):
+                ctx = {}
+            if not isinstance(ctx, dict):
+                ctx = {}
+            return str(row["input"] or ""), ctx
+
+    def set_status(self, run_id: str, status: str) -> None:
+        """Update non-terminal run status (e.g. awaiting_approval → running)."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE runs SET status = ? WHERE id = ?",
+                (status, run_id),
+            )
+            self._conn.commit()
+
+    def list_by_status(self, status: str) -> list[RunRecord]:
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM runs
+                WHERE status = ?
+                ORDER BY started_at ASC
+                """,
+                (status,),
+            ).fetchall()
+            return [self._row_to_run(row, self._load_steps(str(row["id"]))) for row in rows]
+
+    def ensure_cancel_flag(self, run_id: str) -> threading.Event:
+        """Re-create in-memory cancel flag after process restart."""
+        with self._lock:
+            event = self._cancel_flags.get(run_id)
+            if event is None:
+                event = threading.Event()
+                self._cancel_flags[run_id] = event
+            return event
 
     def cancel_event(self, run_id: str) -> threading.Event | None:
         with self._lock:

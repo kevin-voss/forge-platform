@@ -49,6 +49,10 @@ def test_openapi_documents_agent_and_tool_schemas() -> None:
     assert "/v1/runs" in paths
     assert "/v1/runs/{run_id}" in paths
     assert "/v1/runs/{run_id}/cancel" in paths
+    assert "/v1/approvals" in paths
+    assert "/v1/approvals/{approval_id}" in paths
+    assert "/v1/approvals/{approval_id}/approve" in paths
+    assert "/v1/approvals/{approval_id}/deny" in paths
 
     list_op = paths["/v1/agents"]["get"]
     assert "200" in list_op["responses"]
@@ -78,6 +82,13 @@ def test_openapi_documents_agent_and_tool_schemas() -> None:
     assert "RunStep" in schemas
     assert "RunListResponse" in schemas
     assert "StartRunRequest" in schemas
+    assert "Approval" in schemas
+    assert "ApprovalListResponse" in schemas
+    assert "ApprovalStatus" in schemas
+    run_status = set(schemas["RunStatus"]["enum"])
+    assert "awaiting_approval" in run_status
+    approval_status = set(schemas["ApprovalStatus"]["enum"])
+    assert approval_status == {"pending", "approved", "denied", "expired"}
     run_step = schemas["RunStep"]
     assert set(run_step["required"]) >= {"type", "ts"}
     assert set(run_step["properties"]["type"]["enum"]) == {"model", "tool", "final"}

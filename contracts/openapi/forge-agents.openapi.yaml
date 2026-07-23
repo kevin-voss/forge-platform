@@ -6,10 +6,14 @@ info:
     Platform agent runtime service (epic 15). Health/identity from 15.01;
     agent registry + YAML definitions from 15.02; tool registry + per-call
     permission checks from 15.03; run engine with limits and audit history
-    from 15.04. Approval and CLI land in later steps.
+    from 15.04; human approval gate for destructive tools from 15.06.
+    Seed agents/CLI land in later steps.
 
     Internal tool invocation (used by the run engine) rejects with reasons:
     `unknown_tool`, `not_declared`, `permission_denied`, `invalid_arguments`.
+
+    Destructive tools (`destructive: true`) pause the run in `awaiting_approval`
+    until a human approves or denies via `/v1/approvals`.
 
     Runs are project-scoped via `X-Forge-Project`. Pass `"context":{"dry_run":true}`
     to use the deterministic fake model planner (CI / local without forge-models).
@@ -330,6 +334,118 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorBody"
 
+  /v1/approvals:
+    get:
+      operationId: listApprovals
+      summary: List approval requests for a project
+      parameters:
+        - $ref: "#/components/parameters/ForgeProject"
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ApprovalStatus"
+      responses:
+        "200":
+          description: Project-scoped approval list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalListResponse"
+        "400":
+          description: Missing project header
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+
+  /v1/approvals/{approval_id}:
+    get:
+      operationId: getApproval
+      summary: Get one approval request
+      parameters:
+        - $ref: "#/components/parameters/ApprovalId"
+        - $ref: "#/components/parameters/ForgeProject"
+      responses:
+        "200":
+          description: Approval detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Approval"
+        "404":
+          description: Unknown approval or wrong project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+
+  /v1/approvals/{approval_id}/approve:
+    post:
+      operationId: approveApproval
+      summary: Approve a pending destructive tool call
+      parameters:
+        - $ref: "#/components/parameters/ApprovalId"
+        - $ref: "#/components/parameters/ForgeProject"
+        - $ref: "#/components/parameters/ForgeActor"
+      responses:
+        "200":
+          description: Approval accepted; run resumes and executes the tool
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalDecisionResponse"
+              example:
+                status: approved
+        "404":
+          description: Unknown approval or wrong project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "409":
+          description: Approval already terminal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+
+  /v1/approvals/{approval_id}/deny:
+    post:
+      operationId: denyApproval
+      summary: Deny a pending destructive tool call
+      parameters:
+        - $ref: "#/components/parameters/ApprovalId"
+        - $ref: "#/components/parameters/ForgeProject"
+        - $ref: "#/components/parameters/ForgeActor"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DenyApprovalRequest"
+      responses:
+        "200":
+          description: Denial recorded; tool is not executed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalDecisionResponse"
+              example:
+                status: denied
+        "404":
+          description: Unknown approval or wrong project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "409":
+          description: Approval already terminal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+
 components:
   parameters:
     AgentName:
@@ -362,6 +478,26 @@ components:
         type: string
         minLength: 1
       example: proj-a
+
+    ApprovalId:
+      name: approval_id
+      in: path
+      required: true
+      description: Opaque approval identifier
+      schema:
+        type: string
+        minLength: 1
+      example: 22222222-2222-2222-2222-222222222222
+
+    ForgeActor:
+      name: X-Forge-Actor
+      in: header
+      required: false
+      description: Identity recorded as decided_by (defaults to anonymous)
+      schema:
+        type: string
+        minLength: 1
+      example: alice@example.com
 
   schemas:
     HealthStatus:
@@ -614,7 +750,79 @@ components:
 
     RunStatus:
       type: string
-      enum: [running, succeeded, failed, cancelled, stopped]
+      enum: [running, awaiting_approval, succeeded, failed, cancelled, stopped]
+
+    ApprovalStatus:
+      type: string
+      enum: [pending, approved, denied, expired]
+
+    Approval:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - run_id
+        - tool
+        - args
+        - status
+        - created_at
+        - expires_at
+      properties:
+        id:
+          type: string
+        run_id:
+          type: string
+        tool:
+          type: string
+          example: runtime.restart
+        args:
+          type: object
+          additionalProperties: true
+        status:
+          $ref: "#/components/schemas/ApprovalStatus"
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        decided_by:
+          type: string
+        reason:
+          type: string
+        decided_at:
+          type: string
+          format: date-time
+
+    ApprovalListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - approvals
+      properties:
+        approvals:
+          type: array
+          items:
+            $ref: "#/components/schemas/Approval"
+
+    ApprovalDecisionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [approved, denied]
+
+    DenyApprovalRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          description: Human-readable denial reason
+          example: not safe to restart
 
     Run:
       type: object
@@ -652,6 +860,9 @@ components:
           description: |
             Failure/stop reason. Common values: `max_steps_exceeded`, `timeout`,
             `cancelled`, tool deny reasons.
+        pending_approval:
+          $ref: "#/components/schemas/Approval"
+          description: Present when status is awaiting_approval
         steps:
           type: array
           items:

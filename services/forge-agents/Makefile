@@ -84,7 +84,7 @@ test-integration: run
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"agents_registry_size"'
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"tools_registry_size"'
 	@grep -q '4301' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-agents.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-agents" in p; assert "/v1/agents" in p; assert "Agent" in p; assert "agent_not_found" in p; assert "/v1/tools" in p; assert "ToolInvokeDenialReason" in p; assert "unknown_tool" in p; assert "/v1/runs" in p; assert "RunStep" in p; assert "max_steps_exceeded" in p'
+	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-agents.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-agents" in p; assert "/v1/agents" in p; assert "Agent" in p; assert "agent_not_found" in p; assert "/v1/tools" in p; assert "ToolInvokeDenialReason" in p; assert "unknown_tool" in p; assert "/v1/runs" in p; assert "RunStep" in p; assert "max_steps_exceeded" in p; assert "/v1/approvals" in p; assert "awaiting_approval" in p; assert "ApprovalStatus" in p'
 	@# Invalid MODELS_URL fails process startup (ephemeral container).
 	@docker rm -f forge-agents-bad-url >/dev/null 2>&1 || true
 	@if docker run --name forge-agents-bad-url \

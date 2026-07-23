@@ -61,7 +61,7 @@ make demo DEMO=15
 | [15.03](../steps/15-forge-agents/15.03-tool-registry-permissions.md) | Tool registry + per-call permission checks | Complete | Fake tools + invoker; `GET /v1/tools` |
 | [15.04](../steps/15-forge-agents/15.04-run-engine.md) | Run engine: max steps, timeouts, history | Complete | Bounded loop + SQLite audit; dry-run fake model |
 | [15.05](../steps/15-forge-agents/15.05-platform-tools.md) | Platform tools | Complete | Fake/live adapters; `runtime.restart` destructive; normalized backend errors |
-| [15.06](../steps/15-forge-agents/15.06-human-approval.md) | Human approval for destructive tools | Not started | Depends on 15.05 |
+| [15.06](../steps/15-forge-agents/15.06-human-approval.md) | Human approval for destructive tools | Complete | ApprovalStore + pause/resume; approve/deny/expire; restart-safe |
 | [15.07](../steps/15-forge-agents/15.07-seed-agents-cli.md) | Seed agents + CLI `forge agent` | Not started | Depends on 15.06 |
 | [15.08](../steps/15-forge-agents/15.08-demo-and-gate.md) | Demo `15-agent-runtime` + gate | Not started | Depends on 15.07 |
 
@@ -82,4 +82,4 @@ make demo DEMO=15
 
 ## Next step to implement
 
-**[15.06](../steps/15-forge-agents/15.06-human-approval.md) — Human approval for destructive tools**.
+**[15.07](../steps/15-forge-agents/15.07-seed-agents-cli.md) — Seed agents + CLI `forge agent`**.
