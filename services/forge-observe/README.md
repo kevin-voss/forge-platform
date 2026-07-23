@@ -13,6 +13,7 @@ contract**.
 | `GET /` | Identity `{service,language,status}` |
 | `GET /v1/health/backends` | `{loki,tempo,prometheus}` → `ok` \| `down` |
 | `GET /v1/logs` | Correlated log query (12.04) |
+| `GET /v1/logs/stream` | Live log tail via SSE (12.05) |
 
 ## Log query (`GET /v1/logs`)
 
@@ -33,6 +34,25 @@ Caps (clamp + `warnings` / `capped`):
 
 When `FORGE_AUTH_MODE=enforce`, queries require a bearer token and
 `project.read` on the requested project (Identity).
+
+## Log stream (`GET /v1/logs/stream`)
+
+Same scoping filters as the query API (plus `since` / `q`). Response is
+`text/event-stream` with `event: log` and a `LogEntry` JSON `data` payload.
+The handler probes Loki before committing to SSE and returns `503`
+`loki_unavailable` when the backend is down so `forge logs --follow` can fall
+back to Runtime (`04.05`) for single-service targets.
+
+CLI:
+
+```bash
+forge logs --project prj_1 --deployment dpl_1            # point-in-time
+forge logs --service demo --follow                       # live tail
+forge logs --trace-id "$TRACE" --follow --json
+```
+
+Env: `FORGE_OBSERVE_URL`, `FORGE_LOGS_RECONNECT_MS` (default 1000),
+`FORGE_LOGS_FALLBACK` (`observe`|`runtime`|`auto`).
 
 ## Configuration
 

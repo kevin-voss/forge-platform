@@ -60,11 +60,12 @@ type Metrics struct {
 
 // Service builds LogQL, queries Loki, and normalizes results.
 type Service struct {
-	Loki    Querier
-	Caps    Caps
-	Log     *slog.Logger
-	Metrics *Metrics
-	Now     func() time.Time
+	Loki          Querier
+	Caps          Caps
+	Log           *slog.Logger
+	Metrics       *Metrics
+	StreamMetrics *TailMetrics
+	Now           func() time.Time
 }
 
 // Query runs a validated filter set against Loki.

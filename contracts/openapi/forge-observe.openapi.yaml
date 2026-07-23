@@ -1,10 +1,11 @@
 openapi: 3.0.3
 info:
   title: Forge Observe API
-  version: 0.2.0
+  version: 0.3.0
   description: |
     Platform observability service (epic 12). Correlation contract, backend
-    health, and correlated log query (`GET /v1/logs`, step 12.04).
+    health, correlated log query (`GET /v1/logs`, step 12.04), and live log
+    stream (`GET /v1/logs/stream`, step 12.05).
 servers:
   - url: http://127.0.0.1:4106
     description: Local Compose (host port 4106)
@@ -206,6 +207,81 @@ paths:
                 $ref: "#/components/schemas/Error"
         "503":
           description: Loki unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/logs/stream:
+    get:
+      operationId: streamLogs
+      summary: Live correlated log tail (SSE)
+      description: |
+        Server-Sent Events stream of log entries matching the same correlation
+        filters as `GET /v1/logs`. Each `event: log` carries a `LogEntry` JSON
+        payload. When Loki is unavailable the endpoint returns `503` before the
+        stream starts so clients can fall back to Runtime log streaming.
+        Authz matches the query API (`project.read` in enforce mode).
+      parameters:
+        - name: project
+          in: query
+          schema:
+            type: string
+        - name: deployment
+          in: query
+          schema:
+            type: string
+        - name: service
+          in: query
+          schema:
+            type: string
+        - name: request_id
+          in: query
+          schema:
+            type: string
+        - name: trace_id
+          in: query
+          schema:
+            type: string
+        - name: since
+          in: query
+          schema:
+            type: string
+          description: Resume cursor / catch-up start (RFC3339 or unix)
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: SSE stream of LogEntry events (`text/event-stream`)
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              example: |
+                event: log
+                data: {"time":"2026-07-23T10:00:00.000000001Z","service":"control","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","message":"request","deployment":"dpl_1","project":"prj_1"}
+        "400":
+          description: Missing scoping filter or invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Authentication required (enforce mode)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Project log access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Loki unavailable (clients may fall back to Runtime)
           content:
             application/json:
               schema:

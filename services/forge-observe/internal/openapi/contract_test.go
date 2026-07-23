@@ -28,7 +28,7 @@ func TestOpenAPISkeletonPaths(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths")
 	}
-	for _, p := range []string{"/health/live", "/health/ready", "/", "/v1/health/backends", "/v1/logs"} {
+	for _, p := range []string{"/health/live", "/health/ready", "/", "/v1/health/backends", "/v1/logs", "/v1/logs/stream"} {
 		if paths[p] == nil {
 			t.Fatalf("openapi missing path %s", p)
 		}
@@ -82,6 +82,18 @@ func TestOpenAPISkeletonPaths(t *testing.T) {
 	}
 	if getLogs["operationId"] != "queryLogs" {
 		t.Fatalf("logs operationId = %v", getLogs["operationId"])
+	}
+
+	streamPath, ok := paths["/v1/logs/stream"].(map[string]any)
+	if !ok {
+		t.Fatal("openapi /v1/logs/stream is not an object")
+	}
+	getStream, ok := streamPath["get"].(map[string]any)
+	if !ok {
+		t.Fatal("openapi /v1/logs/stream missing get")
+	}
+	if getStream["operationId"] != "streamLogs" {
+		t.Fatalf("stream operationId = %v", getStream["operationId"])
 	}
 	logEntry, ok := schemas["LogEntry"].(map[string]any)
 	if !ok {

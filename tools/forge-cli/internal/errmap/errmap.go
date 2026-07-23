@@ -75,6 +75,16 @@ func ExitCode(err error) int {
 		}
 	}
 
+	var observeError *sharedclient.ObserveAPIError
+	if errors.As(err, &observeError) {
+		switch observeError.Status {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return Auth
+		case http.StatusNotFound:
+			return NotFound
+		}
+	}
+
 	var networkError net.Error
 	if errors.As(err, &networkError) && (networkError.Timeout() || control.IsNetworkError(err)) {
 		return Timeout

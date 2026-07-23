@@ -180,3 +180,22 @@ forge --project prj_1 --env production config show
 readable metadata only for secrets. `config show` displays non-secret values.
 `forge config set endpoint …` continues to manage CLI profiles; `NAME=VALUE`
 assignments target project config in Secrets.
+
+## Logs
+
+Query or live-tail correlated logs via Forge Observe (`GET /v1/logs` and
+`GET /v1/logs/stream`). Filters match the Observe API: `--project`,
+`--deployment`, `--service`, `--request-id`, `--trace-id`, `--since`, `--q`.
+
+```bash
+export FORGE_OBSERVE_URL=http://127.0.0.1:4106
+forge logs --project prj_1 --deployment dpl_1
+forge logs --service demo --follow
+forge logs --trace-id "$TRACE" --follow --json
+```
+
+`--follow` reconnects on transient stream drops (status on stderr; log lines on
+stdout). `FORGE_LOGS_RECONNECT_MS` (default `1000`) sets backoff.
+`FORGE_LOGS_FALLBACK` is `observe|runtime|auto` (default `auto`): when Loki is
+unavailable and a single `--service` is set, the CLI falls back to Runtime
+`GET /v1/workloads/{service}/logs?follow=true`. Ctrl-C exits `0`.

@@ -105,11 +105,19 @@ func run() error {
 		DefaultSince: time.Hour,
 	}
 	logMetrics := &logs.Metrics{}
-	logSvc := &logs.Service{Loki: loki, Caps: logCaps, Log: log, Metrics: logMetrics}
+	streamMetrics := &logs.TailMetrics{}
+	logSvc := &logs.Service{
+		Loki:          loki,
+		Caps:          logCaps,
+		Log:           log,
+		Metrics:       logMetrics,
+		StreamMetrics: streamMetrics,
+	}
 
 	mux := http.NewServeMux()
 	health.NewHandler(reg, reg, cfg.ServiceName, cfg.ServiceVersion).Register(mux)
 	(&api.LogsHandler{Service: logSvc, Caps: logCaps, Auth: authGate, Log: log}).Register(mux)
+	(&api.LogsStreamHandler{Service: logSvc, Caps: logCaps, Auth: authGate, Log: log}).Register(mux)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
