@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 174`** (verification track; platform queue complete at 173).
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 175`** (verification track; epic 50 harness).
 
 ## Epics
 
@@ -256,9 +256,8 @@ next implementable step is still the one named at the top of this file. Plan:
 Per-step rows live in each epic's steps README; the global lookup is
 [`STEPS.md`](STEPS.md#future-queue--standalone-cloud-epics-2025).
 
-> Platform capability queue complete at **N = 173** (M1 exit). Next: **N = 174**
-> (verification & demo-projects track, epic 50 harness) — already documented below;
-> do not invent new epic-50 scope here.
+> Platform capability queue complete at **N = 173** (M1 exit). Verification track in
+> progress at **N = 174+** (epic 50 harness) — see table below.
 
 > Planned platform steps: **173** (`N = 1` … `N = 173`).
 
@@ -266,8 +265,8 @@ Per-step rows live in each epic's steps README; the global lookup is
 
 ## Verification & demo-projects track (epics 50–56, `N = 174`–`216`)
 
-Planned (no code yet). Deploys small real-world demo products onto the shipped platform and proves
-them end-to-end with visible browser automation; platform bugs it surfaces are recorded in
+In progress. Deploys small real-world demo products onto the shipped platform and proves them
+end-to-end with visible browser automation; platform bugs it surfaces are recorded in
 [`../demo-projects/PLATFORM_FINDINGS.md`](../demo-projects/PLATFORM_FINDINGS.md), not patched.
 Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global lookup:
 [`STEPS.md`](STEPS.md#verification--demo-projects-queue-epics-5056).
@@ -280,7 +279,7 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 
 | Epic | Title | Status | Steps (N) |
 |---|---|---|---|
-| [50](epics/50-e2e-harness.md) | Platform E2E harness & orchestrator | Planning | `174`–`180` |
+| [50](epics/50-e2e-harness.md) | Platform E2E harness & orchestrator | In progress | `174`–`180` |
 | [51](epics/51-demo-taskflow.md) | Demo 1 — TaskFlow (auth + DB + secrets) | Planning | `181`–`186` |
 | [52](epics/52-demo-snapnote.md) | Demo 2 — SnapNote (storage + queue + worker autoscaling) | Planning | `187`–`192` |
 | [53](epics/53-demo-askdocs.md) | Demo 3 — AskDocs (models + memory + agents) | Planning | `193`–`198` |
@@ -292,7 +291,7 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 
 | N | Title | Epic | Status |
 |---:|---|---|---|
-| **174** | Harness skeleton (Playwright + config + artifacts) | 50 | Not started |
+| **174** | Harness skeleton (Playwright + config + artifacts) | 50 | Complete |
 | **175** | `DemoProject` contract + lifecycle runner | 50 | Not started |
 | **176** | Platform preflight + gateway host routing | 50 | Not started |
 | **177** | Findings collector | 50 | Not started |

@@ -17,7 +17,8 @@ SHUTDOWN_TIMEOUT ?= 10s
 .PHONY: help setup env-check infra-up infra-down dev stop restart status logs \
 	build build-cli test test-unit test-integration test-e2e test-infrastructure \
 	contract-validate lint-openapi \
-	lint format clean reset demo demo-accept demo-full service-test service-run wait
+	lint format clean reset demo demo-accept demo-full service-test service-run wait \
+	e2e-install
 
 help:
 	@echo "Forge Platform Make targets"
@@ -52,6 +53,7 @@ help:
 	@echo "  make demo-full             Alias: demo DEMO=09-full-platform"
 	@echo "  make service-test SERVICE= Run tests for one service"
 	@echo "  make service-run SERVICE=  Run one service locally"
+	@echo "  make e2e-install           Install Playwright browsers for tests/e2e"
 
 setup: env-check
 	@chmod +x scripts/*.sh scripts/lib/*.sh demos/*/run.sh \
@@ -133,6 +135,12 @@ test-integration: test-infrastructure
 
 test-e2e:
 	@echo "No end-to-end product tests in Step 00."
+
+# Placeholder: install npm deps + Playwright browsers for the platform E2E harness.
+# Full orchestrator (make test-platform-e2e) lands in epic 50.05 / N=178.
+e2e-install:
+	@cd tests/e2e && npm ci --no-audit --no-fund
+	@cd tests/e2e && npx playwright install --with-deps
 
 test-infrastructure: env-check
 	@./tests/infrastructure/test_infrastructure.sh

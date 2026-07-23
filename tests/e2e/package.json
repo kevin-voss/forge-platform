@@ -1,0 +1,15 @@
+{
+  "name": "forge-platform-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Forge Platform Playwright E2E harness",
+  "scripts": {
+    "test": "playwright test",
+    "test:headless": "HEADLESS=1 playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "@types/node": "26.1.1",
+    "typescript": "5.9.3"
+  }
+}
