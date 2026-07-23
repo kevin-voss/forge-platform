@@ -5,6 +5,7 @@ import forge.control.http.idempotentCreate
 import forge.control.logging.JsonLog
 import forge.control.repo.IdempotencyStore
 import forge.control.repo.RepositoryException
+import forge.control.resource.GenerationPolicy
 import forge.control.resource.JsonPatch
 import forge.control.resource.KindDescriptor
 import forge.control.resource.KindRegistry
@@ -22,7 +23,6 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.contentType
-import io.ktor.server.request.receive
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
@@ -219,7 +219,9 @@ private fun Route.itemRoutes(
             val scope = resolveScope(call, kind)
             val name = call.parameters["name"]
                 ?: throw ApiException.BadRequest("name is required", mapOf("field" to "name"))
-            val body = call.receive<ResourceWriteRequest>()
+            val raw = call.receiveText()
+            rejectStatusOnSpecEndpoint(raw)
+            val body = resourceJson.decodeFromString(ResourceWriteRequest.serializer(), raw)
             val existing = requireExisting(resources, kind, scope, name)
             val expected = parseResourceVersion(body.metadata?.resourceVersion)
             ResourceVersionGuard.checkMatch(expected, existing.resourceVersion)
@@ -227,6 +229,7 @@ private fun Route.itemRoutes(
             val annotations = body.metadata?.annotations ?: existing.annotations
             val ownerRefs = body.metadata?.ownerRefs ?: existing.ownerRefs
             val finalizers = body.metadata?.finalizers ?: existing.finalizers
+            val bump = GenerationPolicy.shouldBumpGeneration(existing.spec, body.spec)
             val updated = try {
                 resources.replace(
                     id = existing.id,
@@ -236,9 +239,13 @@ private fun Route.itemRoutes(
                     spec = body.spec,
                     ownerRefs = ownerRefs,
                     finalizers = finalizers,
+                    bumpGeneration = bump,
                 )
             } catch (e: RepositoryException.Conflict) {
                 throw mapRepo(e)
+            }
+            if (bump) {
+                logGenerationBump(log, telemetry, kind.kind, name, existing.generation, updated.generation)
             }
             logWrite(log, telemetry, kind.kind, name, scope, "replace", expected, updated.resourceVersion)
             call.respond(updated.toResponse())
@@ -251,19 +258,25 @@ private fun Route.itemRoutes(
             val existing = requireExisting(resources, kind, scope, name)
             val contentType = call.request.contentType()
             val raw = call.receiveText()
+            rejectStatusOnSpecEndpoint(raw, contentType)
             val (labels, annotations, spec, expected) = applyPatch(
                 existing = existing,
                 contentType = contentType,
                 raw = raw,
             )
             ResourceVersionGuard.checkMatch(expected, existing.resourceVersion)
+            val bump = GenerationPolicy.shouldBumpGeneration(existing.spec, spec)
             val updated = resources.patch(
                 id = existing.id,
                 expectedVersion = expected,
                 labels = labels,
                 annotations = annotations,
                 spec = spec,
+                bumpGeneration = bump,
             )
+            if (bump) {
+                logGenerationBump(log, telemetry, kind.kind, name, existing.generation, updated.generation)
+            }
             logWrite(log, telemetry, kind.kind, name, scope, "patch", expected, updated.resourceVersion)
             call.respond(updated.toResponse())
         }
@@ -289,7 +302,7 @@ private fun Route.itemRoutes(
     }
 }
 
-private data class ScopeCoords(
+internal data class ScopeCoords(
     val organization: String,
     val project: String?,
     val environment: String?,
@@ -302,7 +315,7 @@ private data class PatchResult(
     val expectedVersion: Long,
 )
 
-private fun resolveKind(kinds: KindRegistry, plural: String?): KindDescriptor {
+internal fun resolveKind(kinds: KindRegistry, plural: String?): KindDescriptor {
     if (plural.isNullOrBlank()) {
         throw ApiException.BadRequest("plural is required", mapOf("field" to "plural"))
     }
@@ -314,7 +327,7 @@ private fun resolveKind(kinds: KindRegistry, plural: String?): KindDescriptor {
         )
 }
 
-private fun requireScope(kind: KindDescriptor, expected: ResourceScope) {
+internal fun requireScope(kind: KindDescriptor, expected: ResourceScope) {
     if (kind.scope != expected) {
         throw ApiException.NotFound(
             "kind '${kind.kind}' is not ${expected.name.lowercase()}-scoped",
@@ -324,7 +337,7 @@ private fun requireScope(kind: KindDescriptor, expected: ResourceScope) {
     }
 }
 
-private fun requireExisting(
+internal fun requireExisting(
     resources: ResourceRepository,
     kind: KindDescriptor,
     scope: ScopeCoords,
@@ -340,6 +353,31 @@ private fun requireExisting(
     details = mapOf("kind" to kind.kind, "name" to name),
     code = "not_found",
 )
+
+/** Rejects a `status` field on the main resource endpoint (use `/status` instead). */
+internal fun rejectStatusOnSpecEndpoint(raw: String, contentType: ContentType? = null) {
+    val mime = contentType?.let { "${it.contentType}/${it.contentSubtype}".lowercase() }.orEmpty()
+    if (mime == "application/json-patch+json") {
+        val ops = resourceJson.parseToJsonElement(raw).jsonArray
+        for (op in ops) {
+            val path = op.jsonObject["path"]?.jsonPrimitive?.content.orEmpty()
+            if (path == "/status" || path.startsWith("/status/")) {
+                throw ApiException.BadRequest(
+                    "status is read-only on this endpoint; use /status",
+                    code = "spec_endpoint_status_forbidden",
+                )
+            }
+        }
+        return
+    }
+    val root = resourceJson.parseToJsonElement(raw)
+    if (root is JsonObject && "status" in root) {
+        throw ApiException.BadRequest(
+            "status is read-only on this endpoint; use /status",
+            code = "spec_endpoint_status_forbidden",
+        )
+    }
+}
 
 private fun createResource(
     resources: ResourceRepository,
@@ -456,7 +494,7 @@ private fun applyPatch(
     }
 }
 
-private fun parseResourceVersion(raw: String?): Long {
+internal fun parseResourceVersion(raw: String?): Long {
     if (raw.isNullOrBlank()) {
         throw ApiException.BadRequest(
             "metadata.resourceVersion is required",
@@ -468,6 +506,24 @@ private fun parseResourceVersion(raw: String?): Long {
             "metadata.resourceVersion must be an integer",
             mapOf("field" to "metadata.resourceVersion"),
         )
+}
+
+private fun logGenerationBump(
+    log: JsonLog?,
+    telemetry: Telemetry,
+    kind: String,
+    name: String,
+    oldGeneration: Long,
+    newGeneration: Long,
+) {
+    log?.info(
+        "resource.generation_bump",
+        "kind" to kind,
+        "name" to name,
+        "old_generation" to oldGeneration,
+        "new_generation" to newGeneration,
+    )
+    telemetry.recordResourceGenerationBump(kind)
 }
 
 private fun mapRepo(e: RepositoryException): ApiException =

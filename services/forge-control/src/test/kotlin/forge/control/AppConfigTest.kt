@@ -73,6 +73,7 @@ class AppConfigTest {
         assertEquals(true, cfg.dbPredeleteBackup)
         assertEquals(true, cfg.resourceApiEnabled)
         assertEquals("default", cfg.resourceDefaultOrganization)
+        assertEquals(true, cfg.statusControllerHeaderEnforced)
     }
 
     @Test

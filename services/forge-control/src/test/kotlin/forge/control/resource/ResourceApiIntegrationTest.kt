@@ -340,4 +340,220 @@ class ResourceApiIntegrationTest {
         assertEquals(HttpStatusCode.NotFound, response.status)
         assertEquals("kind_not_registered", response.body<ErrorEnvelope>().error.code)
     }
+
+    @Test
+    @Order(7)
+    fun putChangingSpecBumpsGenerationIdenticalPutDoesNot() = withApp {
+        val client = jsonClient()
+        val name = "gen-${UUID.randomUUID().toString().take(8)}"
+        val created = client.post(basePath()) {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put("apiVersion", JsonPrimitive("forge.dev/v1"))
+                    put("kind", JsonPrimitive("Widget"))
+                    put("metadata", buildJsonObject { put("name", JsonPrimitive(name)) })
+                    put("spec", buildJsonObject { put("size", JsonPrimitive("a")) })
+                },
+            )
+        }.body<ResourceEnvelopeResponse>()
+        assertEquals(1L, created.metadata.generation)
+
+        val first = client.put("${basePath()}/$name") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put(
+                        "metadata",
+                        buildJsonObject {
+                            put("resourceVersion", JsonPrimitive(created.metadata.resourceVersion))
+                        },
+                    )
+                    put("spec", buildJsonObject { put("size", JsonPrimitive("b")) })
+                },
+            )
+        }.body<ResourceEnvelopeResponse>()
+        assertEquals(2L, first.metadata.generation)
+
+        val second = client.put("${basePath()}/$name") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put(
+                        "metadata",
+                        buildJsonObject {
+                            put("resourceVersion", JsonPrimitive(first.metadata.resourceVersion))
+                        },
+                    )
+                    put("spec", buildJsonObject { put("size", JsonPrimitive("b")) })
+                },
+            )
+        }.body<ResourceEnvelopeResponse>()
+        assertEquals(2L, second.metadata.generation)
+        assertTrue(second.metadata.resourceVersion.toLong() > first.metadata.resourceVersion.toLong())
+
+        val labelOnly = client.put("${basePath()}/$name") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put(
+                        "metadata",
+                        buildJsonObject {
+                            put("resourceVersion", JsonPrimitive(second.metadata.resourceVersion))
+                            put("labels", buildJsonObject { put("tier", JsonPrimitive("backend")) })
+                        },
+                    )
+                    put("spec", buildJsonObject { put("size", JsonPrimitive("b")) })
+                },
+            )
+        }.body<ResourceEnvelopeResponse>()
+        assertEquals(2L, labelOnly.metadata.generation)
+        assertEquals("backend", labelOnly.metadata.labels["tier"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    @Order(8)
+    fun statusAndSpecEndpointsRejectCrossWrites() = withApp {
+        val client = jsonClient()
+        val name = "cross-${UUID.randomUUID().toString().take(8)}"
+        val created = client.post(basePath()) {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put("metadata", buildJsonObject { put("name", JsonPrimitive(name)) })
+                    put("spec", buildJsonObject { put("size", JsonPrimitive("x")) })
+                },
+            )
+        }.body<ResourceEnvelopeResponse>()
+
+        val statusWithSpec = client.put("${basePath()}/$name/status") {
+            contentType(ContentType.Application.Json)
+            header("X-Forge-Controller", "widget-controller")
+            setBody(
+                buildJsonObject {
+                    put(
+                        "metadata",
+                        buildJsonObject {
+                            put("resourceVersion", JsonPrimitive(created.metadata.resourceVersion))
+                        },
+                    )
+                    put("spec", buildJsonObject { put("size", JsonPrimitive("nope")) })
+                    put("status", buildJsonObject { put("phase", JsonPrimitive("Ready")) })
+                },
+            )
+        }
+        assertEquals(HttpStatusCode.BadRequest, statusWithSpec.status)
+        assertEquals(
+            "status_subresource_spec_forbidden",
+            statusWithSpec.body<ErrorEnvelope>().error.code,
+        )
+
+        val mainWithStatus = client.put("${basePath()}/$name") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put(
+                        "metadata",
+                        buildJsonObject {
+                            put("resourceVersion", JsonPrimitive(created.metadata.resourceVersion))
+                        },
+                    )
+                    put("spec", buildJsonObject { put("size", JsonPrimitive("x")) })
+                    put("status", buildJsonObject { put("phase", JsonPrimitive("Ready")) })
+                },
+            )
+        }
+        assertEquals(HttpStatusCode.BadRequest, mainWithStatus.status)
+        assertEquals(
+            "spec_endpoint_status_forbidden",
+            mainWithStatus.body<ErrorEnvelope>().error.code,
+        )
+    }
+
+    @Test
+    @Order(9)
+    fun statusWriteRequiresMatchingControllerAndPreservesGeneration() = withApp {
+        val client = jsonClient()
+        val name = "st-${UUID.randomUUID().toString().take(8)}"
+        val created = client.post(basePath()) {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put("metadata", buildJsonObject { put("name", JsonPrimitive(name)) })
+                    put("spec", buildJsonObject { put("size", JsonPrimitive("s")) })
+                },
+            )
+        }.body<ResourceEnvelopeResponse>()
+        assertEquals(1L, created.metadata.generation)
+
+        val forbidden = client.put("${basePath()}/$name/status") {
+            contentType(ContentType.Application.Json)
+            header("X-Forge-Controller", "wrong-controller")
+            setBody(
+                buildJsonObject {
+                    put(
+                        "metadata",
+                        buildJsonObject {
+                            put("resourceVersion", JsonPrimitive(created.metadata.resourceVersion))
+                        },
+                    )
+                    put(
+                        "status",
+                        buildJsonObject {
+                            put("phase", JsonPrimitive("Ready"))
+                            put("observedGeneration", JsonPrimitive(1))
+                        },
+                    )
+                },
+            )
+        }
+        assertEquals(HttpStatusCode.Forbidden, forbidden.status)
+        assertEquals("status_writer_not_recognized", forbidden.body<ErrorEnvelope>().error.code)
+
+        val ok = client.put("${basePath()}/$name/status") {
+            contentType(ContentType.Application.Json)
+            header("X-Forge-Controller", "widget-controller")
+            setBody(
+                buildJsonObject {
+                    put(
+                        "metadata",
+                        buildJsonObject {
+                            put("resourceVersion", JsonPrimitive(created.metadata.resourceVersion))
+                        },
+                    )
+                    put(
+                        "status",
+                        buildJsonObject {
+                            put("phase", JsonPrimitive("Ready"))
+                            put("observedGeneration", JsonPrimitive(1))
+                            put(
+                                "conditions",
+                                buildJsonArray {
+                                    add(
+                                        buildJsonObject {
+                                            put("type", JsonPrimitive("Available"))
+                                            put("status", JsonPrimitive("True"))
+                                            put("reason", JsonPrimitive("OK"))
+                                            put("message", JsonPrimitive("ready"))
+                                        },
+                                    )
+                                },
+                            )
+                        },
+                    )
+                },
+            )
+        }
+        assertEquals(HttpStatusCode.OK, ok.status)
+        val statusBody = ok.body<ResourceEnvelopeResponse>()
+        assertEquals(1L, statusBody.metadata.generation)
+        assertEquals("Ready", statusBody.status["phase"]!!.jsonPrimitive.content)
+        assertEquals("1", statusBody.status["observedGeneration"]!!.jsonPrimitive.content)
+        assertTrue(statusBody.metadata.resourceVersion.toLong() > created.metadata.resourceVersion.toLong())
+
+        val get = client.get("${basePath()}/$name").body<ResourceEnvelopeResponse>()
+        assertEquals(1L, get.metadata.generation)
+        assertEquals("1", get.status["observedGeneration"]!!.jsonPrimitive.content)
+        assertEquals("Ready", get.status["phase"]!!.jsonPrimitive.content)
+    }
 }

@@ -80,6 +80,7 @@ import forge.control.resource.KindDescriptor
 import forge.control.resource.KindRegistry
 import forge.control.resource.ResourceScope
 import forge.control.resource.http.resourceRoutes
+import forge.control.resource.http.statusRoutes
 import forge.control.service.ApplicationService
 import forge.control.service.DeploymentService
 import forge.control.service.EnvironmentService
@@ -693,6 +694,14 @@ fun Application.forgeControlModule(
                         kinds = kinds,
                         idempotency = services.idempotency,
                         defaultOrganization = cfg.resourceDefaultOrganization,
+                        log = log,
+                        telemetry = telemetry,
+                    )
+                    statusRoutes(
+                        resources = resources,
+                        kinds = kinds,
+                        defaultOrganization = cfg.resourceDefaultOrganization,
+                        controllerHeaderEnforced = cfg.statusControllerHeaderEnforced,
                         log = log,
                         telemetry = telemetry,
                     )

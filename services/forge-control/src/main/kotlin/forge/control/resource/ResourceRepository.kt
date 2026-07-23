@@ -41,6 +41,7 @@ interface ResourceRepository {
         spec: JsonObject,
         ownerRefs: JsonArray,
         finalizers: JsonArray,
+        bumpGeneration: Boolean = false,
     ): ResourceRow
 
     /** Spec/labels/annotations update with the same version guard as [replace]. */
@@ -50,6 +51,17 @@ interface ResourceRepository {
         labels: JsonObject,
         annotations: JsonObject,
         spec: JsonObject,
+        bumpGeneration: Boolean = false,
+    ): ResourceRow
+
+    /**
+     * Status-only update (no generation bump). Same [expectedVersion] optimistic concurrency
+     * as [replace]. Used by the `/status` subresource.
+     */
+    fun updateStatus(
+        id: String,
+        expectedVersion: Long,
+        status: JsonObject,
     ): ResourceRow
 
     /** Soft-delete: sets [deleted_at] immediately (finalizer-aware delete arrives in 20.06). */
@@ -191,6 +203,7 @@ class JdbcResourceRepository(
         spec: JsonObject,
         ownerRefs: JsonArray,
         finalizers: JsonArray,
+        bumpGeneration: Boolean,
     ): ResourceRow = versionedUpdate(
         id = id,
         expectedVersion = expectedVersion,
@@ -201,6 +214,7 @@ class JdbcResourceRepository(
         finalizers = finalizers,
         updateOwnerRefs = true,
         updateFinalizers = true,
+        bumpGeneration = bumpGeneration,
     )
 
     override fun patch(
@@ -209,6 +223,7 @@ class JdbcResourceRepository(
         labels: JsonObject,
         annotations: JsonObject,
         spec: JsonObject,
+        bumpGeneration: Boolean,
     ): ResourceRow = versionedUpdate(
         id = id,
         expectedVersion = expectedVersion,
@@ -219,7 +234,54 @@ class JdbcResourceRepository(
         finalizers = null,
         updateOwnerRefs = false,
         updateFinalizers = false,
+        bumpGeneration = bumpGeneration,
     )
+
+    override fun updateStatus(
+        id: String,
+        expectedVersion: Long,
+        status: JsonObject,
+    ): ResourceRow = runSql {
+        val now = Instant.now()
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                UPDATE resources
+                SET status = ?::jsonb,
+                    updated_at = ?,
+                    resource_version = nextval('resource_version_seq')
+                WHERE id = ? AND resource_version = ? AND deleted_at IS NULL
+                RETURNING
+                    id, kind, api_version, organization, project, environment, name,
+                    generation, resource_version,
+                    labels::text AS labels,
+                    annotations::text AS annotations,
+                    spec::text AS spec,
+                    status::text AS status,
+                    owner_refs::text AS owner_refs,
+                    finalizers::text AS finalizers,
+                    created_at, updated_at, deleted_at
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setString(1, status.encode())
+                ps.setTimestamp(2, Timestamp.from(now))
+                ps.setString(3, id)
+                ps.setLong(4, expectedVersion)
+                ps.executeQuery().use { rs ->
+                    if (rs.next()) {
+                        return@withConnection mapRow(rs)
+                    }
+                }
+            }
+            val current = findByIdOn(conn, id)
+                ?: throw ApiException.NotFound(
+                    "resource not found",
+                    details = mapOf("id" to id),
+                    code = "not_found",
+                )
+            throw ResourceVersionGuard.conflict(expectedVersion, current.resourceVersion)
+        }
+    }
 
     override fun softDelete(id: String): ResourceRow = runSql {
         val now = Instant.now()
@@ -270,6 +332,7 @@ class JdbcResourceRepository(
         finalizers: JsonArray?,
         updateOwnerRefs: Boolean,
         updateFinalizers: Boolean,
+        bumpGeneration: Boolean,
     ): ResourceRow = runSql {
         val now = Instant.now()
         dataSource.withConnection { conn ->
@@ -284,6 +347,7 @@ class JdbcResourceRepository(
                         resource_version = nextval('resource_version_seq')
                     """.trimIndent(),
                 )
+                if (bumpGeneration) append(",\n    generation = generation + 1")
                 if (updateOwnerRefs) append(",\n    owner_refs = ?::jsonb")
                 if (updateFinalizers) append(",\n    finalizers = ?::jsonb")
                 append(

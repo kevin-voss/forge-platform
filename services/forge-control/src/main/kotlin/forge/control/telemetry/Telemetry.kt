@@ -73,6 +73,9 @@ class Telemetry private constructor(
     private val managedDbRotations: LongCounter,
     private val managedDbDeletes: LongCounter,
     private val resourceWrites: LongCounter,
+    private val resourceGenerationBumps: LongCounter,
+    private val resourceConditionTransitions: LongCounter,
+    private val resourceStatusWrites: LongCounter,
     private val resourcesByKind: java.util.concurrent.ConcurrentHashMap<String, AtomicLong>,
     @Suppress("unused") private val resourcesGauge: ObservableLongGauge,
     private val sdk: OpenTelemetrySdk?,
@@ -96,6 +99,34 @@ class Telemetry private constructor(
         } else if (action == "delete") {
             resourcesByKind.computeIfAbsent(kind) { AtomicLong(0) }.updateAndGet { (it - 1).coerceAtLeast(0) }
         }
+    }
+
+    fun recordResourceGenerationBump(kind: String) {
+        resourceGenerationBumps.add(
+            1,
+            Attributes.of(AttributeKey.stringKey("kind"), kind),
+        )
+    }
+
+    fun recordResourceConditionTransition(kind: String, type: String, status: String) {
+        resourceConditionTransitions.add(
+            1,
+            Attributes.of(
+                AttributeKey.stringKey("kind"),
+                kind,
+                AttributeKey.stringKey("type"),
+                type,
+                AttributeKey.stringKey("status"),
+                status,
+            ),
+        )
+    }
+
+    fun recordResourceStatusWrite(kind: String) {
+        resourceStatusWrites.add(
+            1,
+            Attributes.of(AttributeKey.stringKey("kind"), kind),
+        )
     }
 
     fun startServerSpan(parent: Context, name: String, method: String, path: String): Span =
@@ -467,6 +498,15 @@ class Telemetry private constructor(
                     .build(),
                 resourceWrites = meter
                     .counterBuilder("forge_resource_writes_total")
+                    .build(),
+                resourceGenerationBumps = meter
+                    .counterBuilder("forge_resource_generation_bumps_total")
+                    .build(),
+                resourceConditionTransitions = meter
+                    .counterBuilder("forge_resource_condition_transitions_total")
+                    .build(),
+                resourceStatusWrites = meter
+                    .counterBuilder("forge_resource_status_writes_total")
                     .build(),
                 resourcesByKind = resourceCounts,
                 resourcesGauge = meter.gaugeBuilder("forge_resources_total")

@@ -27,12 +27,33 @@ class ResourceOpenApiContractTest {
         assumeTrue(yaml != null, "contracts/ not available in this build context")
         assertTrue(yaml!!.contains("/v1/projects/{project}/environments/{environment}/{plural}"))
         assertTrue(yaml.contains("/v1/projects/{project}/environments/{environment}/{plural}/{name}"))
+        assertTrue(yaml.contains("/v1/projects/{project}/environments/{environment}/{plural}/{name}/status"))
         assertTrue(yaml.contains("ResourceEnvelope:"))
+        assertTrue(yaml.contains("Condition:"))
         assertTrue(yaml.contains("resourceVersion"))
         assertTrue(yaml.contains("resource_version_conflict") || yaml.contains("ResourceError"))
         assertTrue(yaml.contains("x-create-resource") || yaml.contains("createResource"))
+        assertTrue(yaml.contains("x-replace-resource-status") || yaml.contains("replaceResourceStatus"))
         assertTrue(yaml.contains("application/merge-patch+json"))
         assertTrue(yaml.contains("application/json-patch+json"))
+    }
+
+    @Test
+    fun exampleConditionDeserializesAgainstConditionSchema() {
+        val example = """
+            {
+              "type": "Available",
+              "status": "True",
+              "reason": "MinimumReplicasAvailable",
+              "message": "3/3 replicas ready",
+              "lastTransitionTime": "2026-07-23T10:04:11Z"
+            }
+        """.trimIndent()
+        val decoded = Json { ignoreUnknownKeys = true }
+            .decodeFromString(Condition.serializer(), example)
+        assertEquals("Available", decoded.type)
+        assertEquals("True", decoded.status)
+        assertEquals("MinimumReplicasAvailable", decoded.reason)
     }
 
     @Test

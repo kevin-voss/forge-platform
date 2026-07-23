@@ -78,6 +78,11 @@ data class AppConfig(
     val resourceApiEnabled: Boolean = true,
     /** Default organization stored on declarative resources until real tenancy lands. */
     val resourceDefaultOrganization: String = "default",
+    /**
+     * When true, `/status` requires `X-Forge-Controller` matching KindDescriptor.owningController.
+     * Soft convention only (not real authz); superseded by epic 09 service identity.
+     */
+    val statusControllerHeaderEnforced: Boolean = true,
 )
 
 fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
@@ -497,6 +502,16 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         throw IllegalArgumentException("FORGE_RESOURCE_DEFAULT_ORGANIZATION must not be blank")
     }
 
+    val statusControllerHeaderRaw = env["FORGE_STATUS_CONTROLLER_HEADER_ENFORCED"]
+        ?.trim()?.lowercase().orEmpty().ifEmpty { "true" }
+    val statusControllerHeaderEnforced = when (statusControllerHeaderRaw) {
+        "true", "1", "yes" -> true
+        "false", "0", "no" -> false
+        else -> throw IllegalArgumentException(
+            "FORGE_STATUS_CONTROLLER_HEADER_ENFORCED must be true|false, got '$statusControllerHeaderRaw'",
+        )
+    }
+
     return AppConfig(
         port = port,
         serviceName = env["FORGE_SERVICE_NAME"]?.trim().orEmpty().ifEmpty { "forge-control" },
@@ -573,5 +588,6 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         dbPredeleteBackup = dbPredeleteBackup,
         resourceApiEnabled = resourceApiEnabled,
         resourceDefaultOrganization = resourceDefaultOrganization,
+        statusControllerHeaderEnforced = statusControllerHeaderEnforced,
     )
 }
