@@ -1,0 +1,24 @@
+{
+  "id": "01-taskflow",
+  "title": "TaskFlow",
+  "epic": "51",
+  "compose": "demos/51-taskflow/docker-compose.yml",
+  "deploy": "demos/51-taskflow/run.sh",
+  "seed": "demos/51-taskflow/seed.sh",
+  "hosts": [
+    {
+      "host": "app.taskflow.localhost",
+      "path": "/",
+      "expect": 200
+    },
+    {
+      "host": "api.taskflow.localhost",
+      "path": "/health/ready",
+      "expect": 200
+    }
+  ],
+  "baseURL": "http://app.taskflow.localhost:4000",
+  "spec": "tests/e2e/projects/01-taskflow/spec.ts",
+  "services": ["control", "cli", "runtime", "gateway", "build"],
+  "teardown": "demos/51-taskflow/run.sh --down"
+}

@@ -1,0 +1,109 @@
+# TaskFlow build manifests + portable resource docs (epic 51.01).
+#
+# Build (read by `forge build` when available; run.sh also docker-builds locally):
+#   api/forge.yaml  → taskflow-api
+#   web build uses Dockerfile.web at repo root of this demo
+#
+# Applied by run.sh via `forge apply -f` (placeholders filled at deploy time).
+
+apiVersion: forge.dev/v1
+kind: Project
+metadata:
+  name: ${PROJECT_NAME}
+spec:
+  slug: ${PROJECT_SLUG}
+---
+apiVersion: forge.dev/v1
+kind: Environment
+metadata:
+  name: local
+  project: ${PROJECT_SLUG}
+spec: {}
+---
+apiVersion: forge.dev/v1
+kind: Application
+metadata:
+  name: taskflow-api
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    app: taskflow-api
+    demo: "51"
+spec:
+  image: ${API_IMAGE}
+  resources:
+    cpu: 50m
+    memory: 64Mi
+  scaling:
+    minReplicas: 1
+    maxReplicas: 1
+---
+apiVersion: forge.dev/v1
+kind: Service
+metadata:
+  name: api
+  project: ${PROJECT_SLUG}
+  annotations:
+    forge.dev/parent: taskflow-api
+spec:
+  port: 8080
+---
+apiVersion: forge.dev/v1
+kind: Deployment
+metadata:
+  name: taskflow-api
+  project: ${PROJECT_SLUG}
+  environment: local
+  annotations:
+    forge.dev/parent: taskflow-api
+  labels:
+    app: taskflow-api
+    demo: "51"
+spec:
+  service: api
+  image: ${API_IMAGE}
+  replicas: 1
+---
+apiVersion: forge.dev/v1
+kind: Application
+metadata:
+  name: taskflow-web
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    app: taskflow-web
+    demo: "51"
+spec:
+  image: ${WEB_IMAGE}
+  resources:
+    cpu: 50m
+    memory: 64Mi
+  scaling:
+    minReplicas: 1
+    maxReplicas: 1
+---
+apiVersion: forge.dev/v1
+kind: Service
+metadata:
+  name: app
+  project: ${PROJECT_SLUG}
+  annotations:
+    forge.dev/parent: taskflow-web
+spec:
+  port: 8080
+---
+apiVersion: forge.dev/v1
+kind: Deployment
+metadata:
+  name: taskflow-web
+  project: ${PROJECT_SLUG}
+  environment: local
+  annotations:
+    forge.dev/parent: taskflow-web
+  labels:
+    app: taskflow-web
+    demo: "51"
+spec:
+  service: app
+  image: ${WEB_IMAGE}
+  replicas: 1

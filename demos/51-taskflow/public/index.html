@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TaskFlow</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="brand">TaskFlow</p>
+        <h1>Team tasks</h1>
+        <p class="lede">Create and complete tasks. Auth and Postgres arrive in later steps.</p>
+      </header>
+
+      <form id="task-form" aria-label="Create task">
+        <label for="task-title">New task</label>
+        <div class="row">
+          <input id="task-title" name="title" type="text" required placeholder="Buy milk" autocomplete="off" />
+          <button type="submit">Add</button>
+        </div>
+      </form>
+
+      <section aria-labelledby="task-list-heading">
+        <h2 id="task-list-heading">Tasks</h2>
+        <p id="task-status" role="status"></p>
+        <ul id="task-list"></ul>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning
+In progress
 
 ## Goal
 
@@ -52,7 +52,7 @@ deploy with a viewer PAT returns 403 while a developer PAT succeeds.
 
 | Step | Title | Status | Notes |
 |---|---|---|---|
-| 51.01 | Product scaffold + baseline deploy | Not started | Go API + SPA, Dockerfiles, `forge build` + `forge apply`, routes app./api.taskflow.localhost |
+| 51.01 | Product scaffold + baseline deploy | Complete | Go API + SPA, Dockerfiles, `forge build` + `forge apply`, routes app./api.taskflow.localhost |
 | 51.02 | Managed Postgres + schema | Not started | `dependencies.database`; migrations; users/projects/tasks; seed.sh |
 | 51.03 | Identity auth + roles | Not started | signup/login → PAT; introspect middleware; admin/member gating; deploy RBAC viewer=403/developer=200 |
 | 51.04 | Secrets injection | Not started | DB url + JWT key from forge-secrets; no plaintext in manifest/logs |
