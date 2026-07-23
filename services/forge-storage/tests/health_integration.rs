@@ -1,6 +1,8 @@
 use forge_storage::app;
 use forge_storage::backend::{LocalFsBackend, StorageBackend};
-use forge_storage::state::AppState;
+use forge_storage::config::AuthMode;
+use forge_storage::meta::MetadataStore;
+use forge_storage::state::{AppState, StorageMetrics};
 use http_body_util::BodyExt;
 use std::fs;
 use std::sync::atomic::AtomicBool;
@@ -31,6 +33,8 @@ async fn ready_200_with_temp_writable_root() {
     let root = dir.path().join("storage");
     let backend = Arc::new(LocalFsBackend::new(&root, dir.path()));
     backend.init().await.expect("init");
+    let meta_path = backend.meta_db_path();
+    let meta = Arc::new(MetadataStore::open(&meta_path).expect("meta"));
 
     let state = AppState {
         service_name: "forge-storage".into(),
@@ -38,6 +42,11 @@ async fn ready_200_with_temp_writable_root() {
         started_at: Instant::now(),
         backend,
         ready: Arc::new(AtomicBool::new(false)),
+        meta: Some(meta),
+        auth_mode: AuthMode::Dev,
+        identity: None,
+        metrics: StorageMetrics::new(),
+        meta_path,
     };
     let app = app(state);
     let (status, body) = get(app, "/health/ready").await;
@@ -61,6 +70,11 @@ async fn ready_503_with_read_only_root() {
         started_at: Instant::now(),
         backend,
         ready: Arc::new(AtomicBool::new(true)),
+        meta: None,
+        auth_mode: AuthMode::Dev,
+        identity: None,
+        metrics: StorageMetrics::new(),
+        meta_path: root.join("meta").join("index.db"),
     };
     let app = app(state);
     let (status, body) = get(app, "/health/ready").await;

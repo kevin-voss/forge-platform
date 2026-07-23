@@ -19,3 +19,4 @@ Suggested filename pattern:
 | [0005](0005-forge-owned-overlay-network.md) | Forge owns node addressing and the overlay network | epic 22 |
 | [0006](0006-idempotent-controllers-and-operation-ids.md) | Idempotent controllers and operation ids | epics 20+, 35 |
 | [0007](0007-additive-evolution-after-epic-19.md) | Additive evolution after epic 19 | epics 20–43 |
+| [0008](0008-storage-metadata-sqlite.md) | Storage metadata index uses embedded SQLite | epic 13 |

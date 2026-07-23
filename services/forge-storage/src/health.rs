@@ -69,7 +69,10 @@ async fn handle_identity(State(state): State<AppState>) -> Json<IdentityResponse
 mod tests {
     use super::*;
     use crate::backend::LocalFsBackend;
+    use crate::config::AuthMode;
+    use crate::state::StorageMetrics;
     use http_body_util::BodyExt;
+    use std::path::PathBuf;
     use std::sync::atomic::AtomicBool;
     use std::sync::Arc;
     use std::time::Instant;
@@ -90,6 +93,11 @@ mod tests {
             started_at: Instant::now(),
             backend,
             ready: Arc::new(AtomicBool::new(ready)),
+            meta: None,
+            auth_mode: AuthMode::Dev,
+            identity: None,
+            metrics: StorageMetrics::new(),
+            meta_path: PathBuf::from("/tmp/unused-meta.db"),
         }
     }
 

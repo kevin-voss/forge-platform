@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 86`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 87`**.
 
 ## Epics
 
@@ -21,7 +21,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [10](epics/10-forge-secrets.md) | Forge Secrets | Complete | 7/7 steps; demo 10 secrets acceptance gate passed |
 | [11](epics/11-forge-events.md) | Forge Events | Complete | 7/7 steps; demo 11 event-driven acceptance gate passed |
 | [12](epics/12-forge-observe.md) | Forge Observe | Complete | 7/7 steps; demo 12 observability acceptance gate passed |
-| [13](epics/13-forge-storage.md) | Forge Storage | In progress | 1/7 steps; skeleton + local FS on `4107` |
+| [13](epics/13-forge-storage.md) | Forge Storage | In progress | 2/7 steps; buckets + SQLite metadata + project isolation |
 | [14](epics/14-forge-models.md) | Forge Models | Planning | 7 steps |
 | [15](epics/15-forge-agents.md) | Forge Agents | Planning | 8 steps |
 | [16](epics/16-forge-workflows.md) | Forge Workflows | Planning | 7 steps |
@@ -119,7 +119,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **83** | [Basic alert rules](steps/12-forge-observe/12.06-basic-alert-rules.md) | Complete |  | Prom rules + AM webhook sink; Observe `GET /v1/alerts`; platform alert panels |
 | **84** | [Demo `12-observability` (one distributed trace) + gate](steps/12-forge-observe/12.07-demo-12-observability.md) | Complete |  | Distributed trace + logs + `forge logs --follow` + HighErrorRate gate |
 | **85** | [Skeleton + local FS backend](steps/13-forge-storage/13.01-skeleton-local-fs-backend.md) | Complete |  | Rust/Axum on `4107`, `LocalFsBackend`, Compose volume `forge-storage-data` |
-| **86** | [Buckets + metadata + project isolation](steps/13-forge-storage/13.02-buckets-metadata-project-isolation.md) | Not started |  |  |
+| **86** | [Buckets + metadata + project isolation](steps/13-forge-storage/13.02-buckets-metadata-project-isolation.md) | Complete |  | SQLite `meta/index.db`; bucket CRUD; `X-Forge-Project` / Identity isolation |
 | **87** | [Streamed upload/download](steps/13-forge-storage/13.03-streamed-upload-download.md) | Not started |  |  |
 | **88** | [SHA-256 + range requests](steps/13-forge-storage/13.04-sha256-range-requests.md) | Not started |  |  |
 | **89** | [Signed tokens + expiry](steps/13-forge-storage/13.05-signed-tokens-expiry.md) | Not started |  |  |

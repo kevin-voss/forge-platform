@@ -6,6 +6,7 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY tests ./tests
+COPY migrations ./migrations
 
 RUN cargo test \
 	&& cargo build --release \
@@ -36,6 +37,7 @@ ENV PORT=8080 \
 	FORGE_ENV=development \
 	FORGE_SHUTDOWN_GRACE_SECONDS=10 \
 	FORGE_STORAGE_ROOT=/data/storage \
-	FORGE_STORAGE_ALLOWED_BASE=/data
+	FORGE_STORAGE_ALLOWED_BASE=/data \
+	FORGE_AUTH_MODE=dev
 
 ENTRYPOINT ["/app/forge-storage"]

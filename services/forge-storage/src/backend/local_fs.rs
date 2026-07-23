@@ -28,6 +28,11 @@ impl LocalFsBackend {
         self.root.join("meta")
     }
 
+    /// Default SQLite metadata index path (`meta/index.db`).
+    pub fn meta_db_path(&self) -> PathBuf {
+        self.meta_dir().join("index.db")
+    }
+
     fn resolve_under_base(&self) -> Result<PathBuf, BackendError> {
         let base = normalize_path(&self.allowed_base);
         let root = normalize_path(&self.root);

@@ -568,6 +568,9 @@ services:
       FORGE_SHUTDOWN_GRACE_SECONDS: ${FORGE_SHUTDOWN_GRACE_SECONDS:-10}
       FORGE_STORAGE_ROOT: ${FORGE_STORAGE_ROOT:-/data/storage}
       FORGE_STORAGE_ALLOWED_BASE: ${FORGE_STORAGE_ALLOWED_BASE:-/data}
+      FORGE_STORAGE_META_PATH: ${FORGE_STORAGE_META_PATH:-/data/storage/meta/index.db}
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+      FORGE_IDENTITY_URL: ${FORGE_IDENTITY_URL:-http://forge-identity:8080}
     volumes:
       - forge-storage-data:/data/storage
     stop_grace_period: 15s

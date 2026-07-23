@@ -18,6 +18,7 @@ dev:
 	FORGE_SHUTDOWN_GRACE_SECONDS=$${FORGE_SHUTDOWN_GRACE_SECONDS:-10} \
 	FORGE_STORAGE_ROOT=$${FORGE_STORAGE_ROOT:-$(CURDIR)/.tmp/forge-storage} \
 	FORGE_STORAGE_ALLOWED_BASE=$${FORGE_STORAGE_ALLOWED_BASE:-$(CURDIR)/.tmp} \
+	FORGE_AUTH_MODE=$${FORGE_AUTH_MODE:-dev} \
 	cargo run
 
 build:
@@ -75,7 +76,21 @@ test-integration: run
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
 	@grep -q '4107' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-storage.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-storage" in p'
+	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-storage.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-storage" in p; assert "/v1/buckets" in p; assert "CreateBucketRequest" in p; assert "X-Forge-Project" in p'
+	@# Bucket lifecycle + project isolation (13.02).
+	@curl -s -XDELETE "http://127.0.0.1:$(HOST_PORT)/v1/buckets/artifacts" -H 'X-Forge-Project: proj-a' >/dev/null || true
+	@curl -fsS -XPOST "http://127.0.0.1:$(HOST_PORT)/v1/buckets" \
+		-H 'X-Forge-Project: proj-a' -H 'content-type: application/json' \
+		-d '{"name":"artifacts"}' | grep -q '"name":"artifacts"'
+	@curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/buckets" -H 'X-Forge-Project: proj-a' | grep -q artifacts
+	@test "$$(curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/buckets" -H 'X-Forge-Project: proj-b' | grep -c artifacts)" = "0"
+	@code=$$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$(HOST_PORT)/v1/buckets/artifacts" -H 'X-Forge-Project: proj-b'); \
+		test "$$code" = "404"
+	@curl -fsS -XDELETE "http://127.0.0.1:$(HOST_PORT)/v1/buckets/artifacts" -H 'X-Forge-Project: proj-a' -o /dev/null -w '%{http_code}\n' | grep -q 204
+	@curl -fsS -XPOST "http://127.0.0.1:$(HOST_PORT)/v1/buckets" \
+		-H 'X-Forge-Project: proj-a' -H 'content-type: application/json' \
+		-d '{"name":"artifacts"}' | grep -q '"name":"artifacts"'
+	@$(COMPOSE) exec -T $(SERVICE) sh -c 'test -f /data/storage/meta/index.db'
 	@cid="$$($(COMPOSE) ps -q $(SERVICE))"; \
 		test -n "$$cid"; \
 		docker stop -t 15 "$$cid" >/dev/null; \
@@ -85,7 +100,7 @@ test-integration: run
 	@$(MAKE) wait
 	@! PORT=not-a-port FORGE_STORAGE_ROOT=/tmp/x cargo run --quiet >/tmp/forge-storage-bad-port.out 2>&1
 	@grep -q 'PORT' /tmp/forge-storage-bad-port.out
-	@echo "Integration checks passed (health, identity, FS layout, restart durability, RO→503, OpenAPI, SIGTERM)."
+	@echo "Integration checks passed (health, identity, FS layout, buckets/isolation, restart durability, RO→503, OpenAPI, SIGTERM)."
 
 lint:
 	@cargo fmt --check

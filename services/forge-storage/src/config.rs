@@ -1,6 +1,35 @@
 use std::env;
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+
+/// Authentication mode for project isolation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthMode {
+    Dev,
+    Enforce,
+}
+
+impl AuthMode {
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "" | "dev" => Ok(Self::Dev),
+            "enforce" | "enforced" => Ok(Self::Enforce),
+            other => Err(format!(
+                "FORGE_AUTH_MODE must be enforce|dev, got {other:?}"
+            )),
+        }
+    }
+}
+
+impl fmt::Display for AuthMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Dev => write!(f, "dev"),
+            Self::Enforce => write!(f, "enforce"),
+        }
+    }
+}
 
 /// Env-backed configuration for forge-storage.
 #[derive(Debug, Clone)]
@@ -13,6 +42,10 @@ pub struct Config {
     pub shutdown_grace: Duration,
     pub storage_root: PathBuf,
     pub allowed_base: PathBuf,
+    pub meta_path: PathBuf,
+    pub auth_mode: AuthMode,
+    pub identity_url: Option<String>,
+    pub identity_cache_ttl_secs: u64,
     pub ready_retry_initial: Duration,
     pub ready_retry_max: Duration,
 }
@@ -73,6 +106,25 @@ impl Config {
                 .unwrap_or_else(|| PathBuf::from("/")),
         };
 
+        let meta_path = match env::var("FORGE_STORAGE_META_PATH") {
+            Ok(v) if !v.trim().is_empty() => PathBuf::from(v.trim()),
+            _ => storage_root.join("meta").join("index.db"),
+        };
+
+        let auth_mode =
+            AuthMode::parse(&env::var("FORGE_AUTH_MODE").unwrap_or_else(|_| "dev".into()))?;
+
+        let identity_url = env::var("FORGE_IDENTITY_URL")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
+        if auth_mode == AuthMode::Enforce && identity_url.is_none() {
+            return Err("FORGE_IDENTITY_URL is required when FORGE_AUTH_MODE=enforce".into());
+        }
+
+        let identity_cache_ttl_secs = parse_u64_env("FORGE_IDENTITY_CACHE_TTL_SECONDS", 10)?;
+
         let ready_retry_initial =
             Duration::from_millis(parse_u64_env("FORGE_STORAGE_READY_RETRY_INITIAL_MS", 500)?);
         let ready_retry_max =
@@ -87,6 +139,10 @@ impl Config {
             shutdown_grace: Duration::from_secs(grace_secs),
             storage_root,
             allowed_base,
+            meta_path,
+            auth_mode,
+            identity_url,
+            identity_cache_ttl_secs,
             ready_retry_initial,
             ready_retry_max,
         })
@@ -139,6 +195,10 @@ mod tests {
             "FORGE_SHUTDOWN_GRACE_SECONDS",
             "FORGE_STORAGE_ROOT",
             "FORGE_STORAGE_ALLOWED_BASE",
+            "FORGE_STORAGE_META_PATH",
+            "FORGE_AUTH_MODE",
+            "FORGE_IDENTITY_URL",
+            "FORGE_IDENTITY_CACHE_TTL_SECONDS",
             "FORGE_STORAGE_READY_RETRY_INITIAL_MS",
             "FORGE_STORAGE_READY_RETRY_MAX_MS",
         ];
@@ -175,6 +235,8 @@ mod tests {
             assert_eq!(cfg.service_name, "forge-storage");
             assert_eq!(cfg.storage_root, PathBuf::from("/data/storage"));
             assert_eq!(cfg.allowed_base, PathBuf::from("/data"));
+            assert_eq!(cfg.meta_path, PathBuf::from("/data/storage/meta/index.db"));
+            assert_eq!(cfg.auth_mode, AuthMode::Dev);
             assert_eq!(cfg.log_level, "info");
         });
     }
@@ -215,6 +277,32 @@ mod tests {
                 let cfg = Config::from_env().expect("config");
                 assert_eq!(cfg.storage_root, PathBuf::from("/var/lib/forge-storage"));
                 assert_eq!(cfg.allowed_base, PathBuf::from("/var/lib"));
+                assert_eq!(
+                    cfg.meta_path,
+                    PathBuf::from("/var/lib/forge-storage/meta/index.db")
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn enforce_requires_identity_url() {
+        with_env(&[("FORGE_AUTH_MODE", Some("enforce"))], || {
+            let err = Config::from_env().expect_err("missing identity");
+            assert!(err.contains("FORGE_IDENTITY_URL"), "{err}");
+        });
+    }
+
+    #[test]
+    fn accepts_enforced_alias() {
+        with_env(
+            &[
+                ("FORGE_AUTH_MODE", Some("enforced")),
+                ("FORGE_IDENTITY_URL", Some("http://identity:8080")),
+            ],
+            || {
+                let cfg = Config::from_env().expect("config");
+                assert_eq!(cfg.auth_mode, AuthMode::Enforce);
             },
         );
     }

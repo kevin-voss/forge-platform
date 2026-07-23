@@ -67,7 +67,7 @@ make demo DEMO=13
 | Step | Title | Status | Notes |
 |---|---|---|---|
 | [13.01](../steps/13-forge-storage/13.01-skeleton-local-fs-backend.md) | Skeleton + local FS backend | Complete | Rust service, health, Compose, port 4107, FS layout |
-| [13.02](../steps/13-forge-storage/13.02-buckets-metadata-project-isolation.md) | Buckets + metadata + project isolation | Not started | Depends on 13.01; bucket/object metadata store, project scope |
+| [13.02](../steps/13-forge-storage/13.02-buckets-metadata-project-isolation.md) | Buckets + metadata + project isolation | Complete | SQLite metadata index; bucket APIs; project isolation (dev header / enforce Identity) |
 | [13.03](../steps/13-forge-storage/13.03-streamed-upload-download.md) | Streamed upload/download | Not started | Depends on 13.02; no full in-memory large files |
 | [13.04](../steps/13-forge-storage/13.04-sha256-range-requests.md) | SHA-256 + range requests | Not started | Depends on 13.03; integrity + `Range` support |
 | [13.05](../steps/13-forge-storage/13.05-signed-tokens-expiry.md) | Signed tokens + expiry | Not started | Depends on 13.04; HMAC signed access + expiry enforcement |
@@ -81,15 +81,14 @@ make demo DEMO=13
 * Objects are stored content-addressed by SHA-256 (`objects/<aa>/<full-hash>`) with a separate metadata index keyed by `(project, bucket, key)`; this layout enables optional dedup without requiring it.
 * Signed tokens are HMAC-SHA256 over `(method, project, bucket, key, expiry)` with a service secret `FORGE_STORAGE_SIGNING_KEY`; no external KMS.
 * Project isolation derives from an authenticated project id (Identity) or `X-Forge-Project` header in `dev` auth mode.
-* Metadata index persistence uses embedded storage (SQLite or an append-only journal) under `FORGE_STORAGE_ROOT`; exact choice fixed in `13.02` ADR.
+* Metadata index persistence uses embedded SQLite under `FORGE_STORAGE_ROOT/meta/index.db` — see [ADR 0008](../../decisions/0008-storage-metadata-sqlite.md).
 
 ## Open questions
 
-* Metadata store: embedded SQLite vs a small append-only journal vs the platform Postgres. Assumption: embedded SQLite under the storage volume to keep the service self-contained; revisit if platform standard emerges.
 * Is content dedup in-scope for acceptance, or documented-only? Assumption: content-addressed layout now, dedup as a documented optional optimization.
 * Should quotas be per-project only, or also per-bucket? Assumption: per-project byte quota for this epic; per-bucket optional.
 * Signed-token algorithm/format: bearer query param vs `Authorization` header. Assumption: query param `?token=` for download links plus header support.
 
 ## Next step to implement
 
-**[13.02](../steps/13-forge-storage/13.02-buckets-metadata-project-isolation.md) — Buckets + metadata + project isolation** (depends on 13.01).
+**[13.03](../steps/13-forge-storage/13.03-streamed-upload-download.md) — Streamed upload/download** (depends on 13.02).

@@ -1,11 +1,28 @@
 use crate::backend::{BackendError, LocalFsBackend, StorageBackend};
-use crate::config::Config;
-use std::sync::atomic::{AtomicBool, Ordering};
+use crate::config::{AuthMode, Config};
+use crate::identity::{HttpIdentityClient, IdentityClient};
+use crate::meta::MetadataStore;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
-/// Shared application state for health and identity handlers.
+/// Counters for storage observability (13.02).
+#[derive(Debug, Default)]
+pub struct StorageMetrics {
+    pub buckets_created: AtomicU64,
+    pub storage_buckets_total: AtomicU64,
+    pub storage_objects_total: AtomicU64,
+}
+
+impl StorageMetrics {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+}
+
+/// Shared application state for health, identity, and bucket handlers.
 #[derive(Clone)]
 pub struct AppState {
     pub service_name: String,
@@ -13,6 +30,11 @@ pub struct AppState {
     pub started_at: Instant,
     pub backend: Arc<LocalFsBackend>,
     pub ready: Arc<AtomicBool>,
+    pub meta: Option<Arc<MetadataStore>>,
+    pub auth_mode: AuthMode,
+    pub identity: Option<Arc<dyn IdentityClient>>,
+    pub metrics: Arc<StorageMetrics>,
+    pub meta_path: PathBuf,
 }
 
 impl AppState {
@@ -21,11 +43,12 @@ impl AppState {
     }
 
     pub async fn refresh_ready(&self) {
-        let ok = self.backend.is_writable().await;
+        let ok = self.backend.is_writable().await && self.meta.is_some();
         let was = self.ready.swap(ok, Ordering::Relaxed);
         if ok && !was {
             info!(
                 storage_root = %self.backend.root().display(),
+                meta_path = %self.meta_path.display(),
                 "backend readiness transition: ready"
             );
         } else if !ok && was {
@@ -37,8 +60,7 @@ impl AppState {
     }
 }
 
-/// Bootstrap the local FS backend. Fatal security/config errors abort startup;
-/// transient unwritable roots keep the process up with readiness 503 + retry.
+/// Bootstrap the local FS backend and metadata SQLite index.
 pub async fn bootstrap(cfg: &Config) -> Result<AppState, String> {
     let backend = Arc::new(LocalFsBackend::new(
         cfg.storage_root.clone(),
@@ -48,17 +70,46 @@ pub async fn bootstrap(cfg: &Config) -> Result<AppState, String> {
     info!(
         storage_root = %cfg.storage_root.display(),
         allowed_base = %cfg.allowed_base.display(),
+        meta_path = %cfg.meta_path.display(),
+        auth_mode = %cfg.auth_mode,
         "initializing local filesystem storage backend"
     );
 
+    let identity: Option<Arc<dyn IdentityClient>> = match cfg.auth_mode {
+        AuthMode::Enforce => {
+            let url = cfg.identity_url.as_deref().ok_or_else(|| {
+                "FORGE_IDENTITY_URL is required when FORGE_AUTH_MODE=enforce".to_string()
+            })?;
+            Some(HttpIdentityClient::new(url, cfg.identity_cache_ttl_secs)?
+                as Arc<dyn IdentityClient>)
+        }
+        AuthMode::Dev => {
+            warn!("FORGE_AUTH_MODE=dev — project isolation via X-Forge-Project only (insecure)");
+            None
+        }
+    };
+
+    let metrics = StorageMetrics::new();
+
     match backend.init().await {
         Ok(()) => {
+            let meta = MetadataStore::open(&cfg.meta_path)
+                .map_err(|e| format!("open metadata store: {e}"))?;
+            info!(
+                meta_path = %cfg.meta_path.display(),
+                "metadata SQLite index ready"
+            );
             let state = AppState {
                 service_name: cfg.service_name.clone(),
                 service_version: cfg.service_version.clone(),
                 started_at: Instant::now(),
                 backend,
                 ready: Arc::new(AtomicBool::new(true)),
+                meta: Some(Arc::new(meta)),
+                auth_mode: cfg.auth_mode,
+                identity,
+                metrics,
+                meta_path: cfg.meta_path.clone(),
             };
             info!(
                 storage_root = %state.backend.root().display(),
@@ -82,6 +133,11 @@ pub async fn bootstrap(cfg: &Config) -> Result<AppState, String> {
                 started_at: Instant::now(),
                 backend,
                 ready: Arc::new(AtomicBool::new(false)),
+                meta: None,
+                auth_mode: cfg.auth_mode,
+                identity,
+                metrics,
+                meta_path: cfg.meta_path.clone(),
             })
         }
     }

@@ -27,6 +27,8 @@ async fn run() -> Result<(), String> {
         env = %cfg.env,
         storage_root = %cfg.storage_root.display(),
         allowed_base = %cfg.allowed_base.display(),
+        meta_path = %cfg.meta_path.display(),
+        auth_mode = %cfg.auth_mode,
         shutdown_grace_seconds = cfg.shutdown_grace.as_secs(),
         "starting forge-storage"
     );
