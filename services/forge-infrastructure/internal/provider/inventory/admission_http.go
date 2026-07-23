@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	"forge.local/services/forge-infrastructure/internal/provider/hetzner"
 )
 
 // ProviderLister lists existing InfrastructureProvider resources for admission.
@@ -50,6 +52,19 @@ func (h *AdmissionHandler) admit(w http.ResponseWriter, r *http.Request) {
 	cfg, _ := body.Spec["config"].(map[string]any)
 	if cfg == nil {
 		cfg = map[string]any{}
+	}
+
+	if strings.EqualFold(typeName, "hetzner") {
+		if err := hetzner.ValidateConfig(cfg); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error":   err.Error(),
+				"code":    "invalid_hetzner_config",
+				"message": err.Error(),
+			})
+			return
+		}
 	}
 
 	var existing []ProviderInventory

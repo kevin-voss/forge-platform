@@ -22,6 +22,7 @@ import (
 	"forge.local/services/forge-infrastructure/internal/provider"
 	"forge.local/services/forge-infrastructure/internal/provider/baremetal"
 	"forge.local/services/forge-infrastructure/internal/provider/docker"
+	"forge.local/services/forge-infrastructure/internal/provider/hetzner"
 	"forge.local/services/forge-infrastructure/internal/provider/inventory"
 	"forge.local/services/forge-infrastructure/internal/provider/noop"
 	"forge.local/services/forge-infrastructure/internal/provider/ssh"
@@ -87,6 +88,25 @@ func run() error {
 	}
 	reg.Register(provider.TypeSSH, ssh.Factory(sshDefaults))
 	reg.Register(provider.TypeBareMetal, baremetal.Factory(sshDefaults))
+
+	var hetznerResolver hetzner.TokenResolver = &hetzner.MapTokens{Values: map[string]string{}}
+	if cfg.SecretsURL != "" {
+		hetznerResolver = &hetzner.EnvFallbackTokens{Inner: &hetzner.HTTPSecrets{
+			BaseURL: cfg.SecretsURL,
+			Project: cfg.BootstrapOrganization,
+			Env:     "default",
+		}}
+	} else {
+		hetznerResolver = &hetzner.EnvFallbackTokens{Inner: hetznerResolver}
+	}
+	hetznerDefaults := hetzner.Config{
+		APIBase:            cfg.HetznerAPIBase,
+		MaxConcurrentOps:   cfg.HetznerMaxConcurrentOps,
+		OrphanScanInterval: cfg.HetznerOrphanScanInterval,
+		TokenResolver:      hetznerResolver,
+		Log:                log,
+	}
+	reg.Register(provider.TypeHetzner, hetzner.Factory(hetznerDefaults))
 
 	registryClient := registryclient.New(cfg.RegistryURL, log)
 	ready := health.NewReadiness(db)

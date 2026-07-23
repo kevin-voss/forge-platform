@@ -2,14 +2,15 @@
 
 Go service (host port **4111**) that turns declared `NodePool` resources into real machines via pluggable provider adapters.
 
-## Step 23.04 (current)
+## Step 23.05 (current)
 
 * Health: `GET /health/live`, `GET /health/ready`
 * Debug: `GET /v1/operations/{opId}` (operation ledger)
-* Admission: `POST /v1/admission/infrastructureproviders` (duplicate host + inventory schema)
+* Admission: `POST /v1/admission/infrastructureproviders` (inventory + Hetzner config schema)
 * `Provider` interface (16 methods) + registry
 * **`docker` provider** — starts `forge-runtime` containers as independent nodes
-* **`ssh` / `bare-metal` providers** — adopt/release from static inventory (`CreateNode`/`DeleteNode` never provision/destroy hardware)
+* **`ssh` / `bare-metal` providers** — adopt/release from static inventory
+* **`hetzner` provider** — Hetzner Cloud IaaS (servers, private networks, volumes, floating IPs)
 * Finite capacity: `NodePool.status.maxReplicas` + `False/InventoryExhausted` when `replicas` exceeds inventory
 * **`NodeController`** — `Provisioning → Bootstrapping → Joining → Ready → Draining → Deleting`
 * Bootstrap payload templating (cloud-init + SSH script) + epic-22 bootstrap token client
@@ -36,6 +37,11 @@ Go service (host port **4111**) that turns declared `NodePool` resources into re
 | `FORGE_INFRA_ORPHAN_SCAN_INTERVAL_S` | `30` | Orphan container cleanup period |
 | `FORGE_INFRA_SSH_CONNECT_TIMEOUT_SECONDS` | `10` | SSH dial timeout for ssh/bare-metal |
 | `FORGE_INFRA_SSH_PROBE_INTERVAL_SECONDS` | `60` | Periodic ValidateCredentials sweep |
+| `FORGE_INFRA_HETZNER_API_BASE` | `https://api.hetzner.cloud/v1` | Hetzner Cloud API base |
+| `FORGE_INFRA_HETZNER_MAX_CONCURRENT_OPS` | `5` | In-flight Hetzner API call cap |
+| `FORGE_INFRA_HETZNER_ORPHAN_SCAN_INTERVAL_S` | `300` | Hetzner orphan sweep period |
+| `FORGE_INFRA_HETZNER_API_TOKEN` | _(unset)_ | Optional local-demo token fallback |
+| `FORGE_SECRETS_URL` | _(unset)_ | Forge Secrets base for `credentialsSecretRef` |
 | `FORGE_CONTROL_URL` | `http://forge-control:8080` | Injected into node containers; fleet/join observe |
 | `FORGE_NODE_PROVISION_TIMEOUT_SECONDS` | `180` | Provisioning deadline |
 | `FORGE_NODE_BOOTSTRAP_TIMEOUT_SECONDS` | `600` | Bootstrapping deadline |
@@ -67,6 +73,25 @@ spec:
 ```
 
 SSH keys are always resolved via `sshKeySecretRef` (never inline). Unsupported mutating methods (`CreateNetwork`, disks, public IPs) return typed `ErrNotSupported`.
+
+### Hetzner Cloud
+
+```yaml
+apiVersion: forge.dev/v1
+kind: InfrastructureProvider
+metadata: { name: hetzner-prod }
+spec:
+  type: hetzner
+  credentialsSecretRef: { name: hetzner-prod-token }
+  defaultRegion: fsn1
+  config: { networkCIDR: "10.1.0.0/16", orphanGraceMinutes: 15 }
+```
+
+* `CreateNode` is idempotent via `GET /servers?label_selector=forge.op_id==<op>` before `POST /servers`
+* Rate limits: token-bucket from `RateLimit-*` headers + exponential backoff with jitter on `429`
+* `DeleteNode` order: volumes → floating IP → server → (last node in pool) private network
+* Orphan sweep deletes `forge.managed=true` resources with no matching `Node` after `orphanGraceMinutes`
+* Use one dedicated Hetzner project per Forge organization so a leaked token's blast radius stays bounded
 
 ## Local commands
 

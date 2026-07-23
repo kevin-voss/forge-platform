@@ -110,7 +110,7 @@ FORGE_DEMO_TARGET=hetzner make demo DEMO=23   # opt-in only; never part of the d
 | [23.02](../steps/23-forge-infrastructure/23.02-docker-provider-local-nodes.md) | 154 | Local Docker provider (local cloud simulation) | Complete | First real adapter; the CI/demo default provider |
 | [23.03](../steps/23-forge-infrastructure/23.03-node-bootstrap-and-join.md) | 155 | Node bootstrap, install, join, drain, delete | Complete | Phase state machine; bootstrap token from epic 22; timeout cleanup |
 | [23.04](../steps/23-forge-infrastructure/23.04-ssh-and-bare-metal-providers.md) | 156 | Generic SSH provider + static bare-metal inventory | Complete | Adopt/release semantics; finite-capacity conditions |
-| [23.05](../steps/23-forge-infrastructure/23.05-hetzner-provider.md) | 157 | Hetzner Cloud provider adapter | Not started | First real cloud provider; rate limits; teardown ordering |
+| [23.05](../steps/23-forge-infrastructure/23.05-hetzner-provider.md) | 157 | Hetzner Cloud provider adapter | Complete | First real cloud provider; rate limits; teardown ordering |
 | [23.06](../steps/23-forge-infrastructure/23.06-aws-and-azure-providers.md) | 158 | AWS EC2 + Azure VM provider adapters | Not started | Two adapters; explicit non-use of managed services |
 | [23.07](../steps/23-forge-infrastructure/23.07-demo-23-local-cloud-simulation.md) | 159 | Demo `23-local-cloud-simulation` + epic gate | Not started | Node-loss recovery; optional cloud-target demos; epic gate |
 

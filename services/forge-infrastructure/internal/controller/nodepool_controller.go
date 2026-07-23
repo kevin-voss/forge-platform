@@ -468,13 +468,19 @@ func (c *NodePoolController) resolveProvider(ctx context.Context, providerRef st
 		cfg = map[string]any{}
 	} else {
 		// Shallow copy so we can inject providerName without mutating the resource.
-		cp := make(map[string]any, len(cfg)+1)
+		cp := make(map[string]any, len(cfg)+4)
 		for k, v := range cfg {
 			cp[k] = v
 		}
 		cfg = cp
 	}
 	cfg["providerName"] = res.Metadata.Name
+	if ref, ok := res.Spec["credentialsSecretRef"]; ok && ref != nil {
+		cfg["credentialsSecretRef"] = ref
+	}
+	if region := stringFromSpec(res.Spec, "defaultRegion"); region != "" {
+		cfg["defaultRegion"] = region
+	}
 	p, err := c.Providers.Resolve(typeName, cfg)
 	if err != nil {
 		return nil, typeName, cfg, err

@@ -45,6 +45,10 @@ type Config struct {
 	SSHConnectTimeoutSeconds int
 	SSHProbeIntervalSeconds  int
 	SecretsURL               string
+
+	HetznerAPIBase            string
+	HetznerMaxConcurrentOps   int
+	HetznerOrphanScanInterval time.Duration
 }
 
 // Load reads configuration from the process environment.
@@ -208,37 +212,57 @@ func Load() (Config, error) {
 	}
 	secretsURL := strings.TrimSpace(os.Getenv("FORGE_SECRETS_URL"))
 
+	hetznerBase := strings.TrimSpace(os.Getenv("FORGE_INFRA_HETZNER_API_BASE"))
+	if hetznerBase == "" {
+		hetznerBase = "https://api.hetzner.cloud/v1"
+	}
+	hetznerMaxConc, err := envIntDefault("FORGE_INFRA_HETZNER_MAX_CONCURRENT_OPS", 5)
+	if err != nil {
+		return Config{}, err
+	}
+	hetznerOrphanRaw := strings.TrimSpace(os.Getenv("FORGE_INFRA_HETZNER_ORPHAN_SCAN_INTERVAL_S"))
+	if hetznerOrphanRaw == "" {
+		hetznerOrphanRaw = "300"
+	}
+	hetznerOrphanSecs, err := strconv.Atoi(hetznerOrphanRaw)
+	if err != nil || hetznerOrphanSecs < 1 {
+		return Config{}, fmt.Errorf("FORGE_INFRA_HETZNER_ORPHAN_SCAN_INTERVAL_S must be >= 1, got %q", hetznerOrphanRaw)
+	}
+
 	return Config{
-		Port:                     port,
-		ServiceName:              name,
-		ServiceVersion:           version,
-		LogLevel:                 level,
-		Env:                      env,
-		AuthMode:                 authMode,
-		ShutdownGrace:            time.Duration(graceSecs) * time.Second,
-		DatabaseURL:              dbURL,
-		DatabaseSchema:           schema,
-		DatabasePoolMax:          poolMax,
-		DatabaseMigrateOnStart:   migrateOnStart,
-		RegistryURL:              strings.TrimRight(registryURL, "/"),
-		ReconcileInterval:        time.Duration(intervalMs) * time.Millisecond,
-		DockerSocket:             dockerSocket,
-		DockerNetwork:            dockerNetwork,
-		DockerImage:              dockerImage,
-		DockerHostAddress:        dockerHostAddr,
-		OrphanScanInterval:       time.Duration(orphanSecs) * time.Second,
-		ControlURLForNodes:       strings.TrimRight(controlURLNodes, "/"),
-		ProvisionTimeoutSeconds:  provisionTO,
-		BootstrapTimeoutSeconds:  bootstrapTO,
-		JoinTimeoutSeconds:       joinTO,
-		DrainTimeoutSeconds:      drainTO,
-		BootstrapTokenURL:        strings.TrimRight(tokenURL, "/"),
-		BootstrapOrganization:    org,
-		RuntimeImage:             runtimeImage,
-		EventsURL:                strings.TrimRight(eventsURL, "/"),
-		SSHConnectTimeoutSeconds: sshConnectTO,
-		SSHProbeIntervalSeconds:  sshProbeInterval,
-		SecretsURL:               strings.TrimRight(secretsURL, "/"),
+		Port:                      port,
+		ServiceName:               name,
+		ServiceVersion:            version,
+		LogLevel:                  level,
+		Env:                       env,
+		AuthMode:                  authMode,
+		ShutdownGrace:             time.Duration(graceSecs) * time.Second,
+		DatabaseURL:               dbURL,
+		DatabaseSchema:            schema,
+		DatabasePoolMax:           poolMax,
+		DatabaseMigrateOnStart:    migrateOnStart,
+		RegistryURL:               strings.TrimRight(registryURL, "/"),
+		ReconcileInterval:         time.Duration(intervalMs) * time.Millisecond,
+		DockerSocket:              dockerSocket,
+		DockerNetwork:             dockerNetwork,
+		DockerImage:               dockerImage,
+		DockerHostAddress:         dockerHostAddr,
+		OrphanScanInterval:        time.Duration(orphanSecs) * time.Second,
+		ControlURLForNodes:        strings.TrimRight(controlURLNodes, "/"),
+		ProvisionTimeoutSeconds:   provisionTO,
+		BootstrapTimeoutSeconds:   bootstrapTO,
+		JoinTimeoutSeconds:        joinTO,
+		DrainTimeoutSeconds:       drainTO,
+		BootstrapTokenURL:         strings.TrimRight(tokenURL, "/"),
+		BootstrapOrganization:     org,
+		RuntimeImage:              runtimeImage,
+		EventsURL:                 strings.TrimRight(eventsURL, "/"),
+		SSHConnectTimeoutSeconds:  sshConnectTO,
+		SSHProbeIntervalSeconds:   sshProbeInterval,
+		SecretsURL:                strings.TrimRight(secretsURL, "/"),
+		HetznerAPIBase:            strings.TrimRight(hetznerBase, "/"),
+		HetznerMaxConcurrentOps:   hetznerMaxConc,
+		HetznerOrphanScanInterval: time.Duration(hetznerOrphanSecs) * time.Second,
 	}, nil
 }
 
