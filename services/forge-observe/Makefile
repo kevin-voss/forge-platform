@@ -19,6 +19,10 @@ dev:
 	FORGE_PROMETHEUS_URL=$${FORGE_PROMETHEUS_URL:-http://127.0.0.1:3001} \
 	FORGE_BACKEND_TIMEOUT_MS=$${FORGE_BACKEND_TIMEOUT_MS:-2000} \
 	FORGE_OBSERVE_READY_REQUIRE_BACKENDS=$${FORGE_OBSERVE_READY_REQUIRE_BACKENDS:-loki,tempo,prometheus} \
+	FORGE_LOG_QUERY_MAX_LIMIT=$${FORGE_LOG_QUERY_MAX_LIMIT:-1000} \
+	FORGE_LOG_QUERY_MAX_RANGE_H=$${FORGE_LOG_QUERY_MAX_RANGE_H:-24} \
+	FORGE_AUTH_MODE=$${FORGE_AUTH_MODE:-dev} \
+	FORGE_IDENTITY_URL=$${FORGE_IDENTITY_URL:-http://127.0.0.1:4002} \
 	FORGE_SHUTDOWN_GRACE_SECONDS=$${FORGE_SHUTDOWN_GRACE_SECONDS:-10} \
 	go run ./cmd/forge-observe
 
@@ -54,6 +58,13 @@ test-integration: run
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"service":"forge-observe"'
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"message":"starting forge-observe"'
 	@test -f $(ROOT_DIR)/docs/contracts/observability-correlation.md && echo correlation-contract-present
+	@# 12.04: bare log query rejected; push correlated lines → filter by project/deployment/trace.
+	@code="$$(curl -s -o /tmp/forge-observe-logs-400.json -w '%{http_code}' "http://127.0.0.1:$(HOST_PORT)/v1/logs?limit=10" || true)"; \
+		test "$$code" = "400"
+	@python3 $(dir $(lastword $(MAKEFILE_LIST)))scripts/push-and-query-logs.py \
+		--loki http://127.0.0.1:3003 \
+		--observe http://127.0.0.1:$(HOST_PORT)
+	@# Loki down → log query 503 (after readiness checks below also stop Loki).
 	@# One required backend down → ready 503; backends endpoint shows failing one.
 	@$(COMPOSE) stop loki >/dev/null
 	@for i in $$(seq 1 30); do \
@@ -65,6 +76,9 @@ test-integration: run
 		test "$$code" = "503"; \
 		grep -q '"status":"not_ready"' /tmp/forge-observe-ready-503.json
 	@curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/health/backends" | python3 -c 'import sys,json; b=json.load(sys.stdin); assert b["loki"]=="down" and b["tempo"]=="ok" and b["prometheus"]=="ok"'
+	@code="$$(curl -s -o /tmp/forge-observe-logs-503.json -w '%{http_code}' "http://127.0.0.1:$(HOST_PORT)/v1/logs?project=prj_1&limit=5" || true)"; \
+		test "$$code" = "503"; \
+		grep -q 'loki_unavailable' /tmp/forge-observe-logs-503.json
 	@$(COMPOSE) start loki >/dev/null
 	@for i in $$(seq 1 90); do \
 		if curl -sf "http://127.0.0.1:$(HOST_PORT)/health/ready" | grep -q '"status":"ok"'; then break; fi; \
@@ -87,7 +101,7 @@ test-integration: run
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
 	@grep -q '4106' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@echo "Integration checks passed (health + identity + backends ok/down + ready gating + restart + invalid PORT + graceful SIGTERM + correlation contract + port 4106)."
+	@echo "Integration checks passed (health + identity + backends ok/down + ready gating + log query 12.04 + restart + invalid PORT + graceful SIGTERM + correlation contract + port 4106)."
 
 lint:
 	@go vet ./...
@@ -103,4 +117,4 @@ docker-run: run
 
 clean:
 	rm -rf bin
-	@rm -f /tmp/forge-observe-bad-port.out /tmp/forge-observe-gofmt.out /tmp/forge-observe-ready-503.json
+	@rm -f /tmp/forge-observe-bad-port.out /tmp/forge-observe-gofmt.out /tmp/forge-observe-ready-503.json /tmp/forge-observe-logs-400.json /tmp/forge-observe-logs-503.json

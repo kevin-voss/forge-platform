@@ -28,7 +28,7 @@ func TestOpenAPISkeletonPaths(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths")
 	}
-	for _, p := range []string{"/health/live", "/health/ready", "/", "/v1/health/backends"} {
+	for _, p := range []string{"/health/live", "/health/ready", "/", "/v1/health/backends", "/v1/logs"} {
 		if paths[p] == nil {
 			t.Fatalf("openapi missing path %s", p)
 		}
@@ -66,9 +66,34 @@ func TestOpenAPISkeletonPaths(t *testing.T) {
 	if !ok {
 		t.Fatal("missing schemas")
 	}
-	for _, name := range []string{"HealthStatus", "Identity", "BackendHealth"} {
+	for _, name := range []string{"HealthStatus", "Identity", "BackendHealth", "LogEntry", "LogQueryResult", "Error"} {
 		if schemas[name] == nil {
 			t.Fatalf("missing schema %s", name)
+		}
+	}
+
+	logsPath, ok := paths["/v1/logs"].(map[string]any)
+	if !ok {
+		t.Fatal("openapi /v1/logs is not an object")
+	}
+	getLogs, ok := logsPath["get"].(map[string]any)
+	if !ok {
+		t.Fatal("openapi /v1/logs missing get")
+	}
+	if getLogs["operationId"] != "queryLogs" {
+		t.Fatalf("logs operationId = %v", getLogs["operationId"])
+	}
+	logEntry, ok := schemas["LogEntry"].(map[string]any)
+	if !ok {
+		t.Fatal("LogEntry schema missing")
+	}
+	props, ok := logEntry["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("LogEntry properties missing")
+	}
+	for _, field := range []string{"time", "service", "trace_id", "request_id", "message", "deployment"} {
+		if props[field] == nil {
+			t.Fatalf("LogEntry missing correlation field %s", field)
 		}
 	}
 }

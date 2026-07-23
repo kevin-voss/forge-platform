@@ -66,7 +66,7 @@ An induced error fires the error-rate alert
 | [12.01](../steps/12-forge-observe/12.01-skeleton-and-correlation-api-design.md) | Skeleton + correlation API design | Complete | Go service on 4106; correlation model |
 | [12.02](../steps/12-forge-observe/12.02-instrumentation-checklist.md) | Instrumentation checklist on Control/Runtime/Gateway/Build | Complete | Trace propagation + structured logs + metrics |
 | [12.03](../steps/12-forge-observe/12.03-grafana-dashboards.md) | Grafana dashboards (platform/service/deployment/runtime) | Complete | Provisioned dashboards |
-| [12.04](../steps/12-forge-observe/12.04-log-query-and-filter.md) | Log query/filter by project/deployment/request/trace ID | Not started | Correlated log search API |
+| [12.04](../steps/12-forge-observe/12.04-log-query-and-filter.md) | Log query/filter by project/deployment/request/trace ID | Complete | Correlated log search API |
 | [12.05](../steps/12-forge-observe/12.05-cli-logs-follow.md) | CLI `forge logs --follow` | Not started | Live tail via Observe/Runtime |
 | [12.06](../steps/12-forge-observe/12.06-basic-alert-rules.md) | Basic alert rules | Not started | Service down / error rate |
 | [12.07](../steps/12-forge-observe/12.07-demo-12-observability.md) | Demo `12-observability` (one distributed trace) + gate | Not started | Single trace end-to-end; epic gate |
@@ -88,4 +88,4 @@ An induced error fires the error-rate alert
 
 ## Next step to implement
 
-**[12.04](../steps/12-forge-observe/12.04-log-query-and-filter.md) — Log query/filter by project/deployment/request/trace ID**.
+**[12.05](../steps/12-forge-observe/12.05-cli-logs-follow.md) — CLI `forge logs --follow`**.

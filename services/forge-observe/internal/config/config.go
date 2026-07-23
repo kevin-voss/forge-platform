@@ -34,6 +34,11 @@ type Config struct {
 	PrometheusURL    string
 	BackendTimeout   time.Duration
 	RequiredBackends []BackendName
+	LogQueryMaxLimit int
+	LogQueryMaxRange time.Duration
+	AuthMode         string
+	IdentityURL      string
+	AuthzCacheTTLS   int
 }
 
 // Load reads configuration from the process environment.
@@ -102,6 +107,33 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	maxLimit, err := parsePositiveInt("FORGE_LOG_QUERY_MAX_LIMIT", os.Getenv("FORGE_LOG_QUERY_MAX_LIMIT"), 1000)
+	if err != nil {
+		return Config{}, err
+	}
+	maxRangeH, err := parsePositiveInt("FORGE_LOG_QUERY_MAX_RANGE_H", os.Getenv("FORGE_LOG_QUERY_MAX_RANGE_H"), 24)
+	if err != nil {
+		return Config{}, err
+	}
+
+	authMode := strings.ToLower(strings.TrimSpace(os.Getenv("FORGE_AUTH_MODE")))
+	if authMode == "" {
+		authMode = "dev"
+	}
+	switch authMode {
+	case "dev", "enforce":
+	default:
+		return Config{}, fmt.Errorf("FORGE_AUTH_MODE must be enforce|dev, got %q", authMode)
+	}
+	identityURL, err := parseBackendURL("FORGE_IDENTITY_URL", os.Getenv("FORGE_IDENTITY_URL"), "http://forge-identity:4002")
+	if err != nil {
+		return Config{}, err
+	}
+	authzTTL, err := parsePositiveInt("FORGE_AUTHZ_CACHE_TTL_S", os.Getenv("FORGE_AUTHZ_CACHE_TTL_S"), 10)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		Port:             port,
 		ServiceName:      name,
@@ -114,6 +146,11 @@ func Load() (Config, error) {
 		PrometheusURL:    promURL,
 		BackendTimeout:   time.Duration(timeoutMS) * time.Millisecond,
 		RequiredBackends: required,
+		LogQueryMaxLimit: maxLimit,
+		LogQueryMaxRange: time.Duration(maxRangeH) * time.Hour,
+		AuthMode:         authMode,
+		IdentityURL:      identityURL,
+		AuthzCacheTTLS:   authzTTL,
 	}, nil
 }
 

@@ -1,11 +1,10 @@
 openapi: 3.0.3
 info:
   title: Forge Observe API
-  version: 0.1.0
+  version: 0.2.0
   description: |
-    Platform observability service (epic 12). Step 12.01 scaffolds health,
-    identity, backend reachability, and the correlation contract. Log query,
-    dashboards, and alerts land in later steps.
+    Platform observability service (epic 12). Correlation contract, backend
+    health, and correlated log query (`GET /v1/logs`, step 12.04).
 servers:
   - url: http://127.0.0.1:4106
     description: Local Compose (host port 4106)
@@ -99,6 +98,119 @@ paths:
                 tempo: ok
                 prometheus: ok
 
+  /v1/logs:
+    get:
+      operationId: queryLogs
+      summary: Correlated log query
+      description: |
+        Query Loki for structured logs filtered by Forge correlation fields.
+        At least one scoping filter is required: `project`, `deployment`,
+        `service`, `request_id`, or `trace_id`. Limit and time range are clamped
+        to `FORGE_LOG_QUERY_MAX_LIMIT` / `FORGE_LOG_QUERY_MAX_RANGE_H`.
+        When `FORGE_AUTH_MODE=enforce`, callers may only query projects they
+        can `project.read`.
+      parameters:
+        - name: project
+          in: query
+          schema:
+            type: string
+          description: Filter by forge.project / forge_project
+        - name: deployment
+          in: query
+          schema:
+            type: string
+          description: Filter by forge.deployment / forge_deployment
+        - name: service
+          in: query
+          schema:
+            type: string
+          description: Filter by forge.service / forge_service
+        - name: request_id
+          in: query
+          schema:
+            type: string
+          description: Filter by request_id
+        - name: trace_id
+          in: query
+          schema:
+            type: string
+          description: Filter by trace_id (returns all services in the trace)
+        - name: since
+          in: query
+          schema:
+            type: string
+          description: Start of range (RFC3339 or unix); default until−1h
+        - name: until
+          in: query
+          schema:
+            type: string
+          description: End of range (RFC3339 or unix); default now
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Free-text substring (escaped; injection-safe)
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 100
+          description: Max entries (clamped to FORGE_LOG_QUERY_MAX_LIMIT)
+        - name: direction
+          in: query
+          schema:
+            type: string
+            enum: [forward, backward]
+            default: backward
+        - name: cursor
+          in: query
+          schema:
+            type: string
+          description: Opaque pagination cursor from a prior next_cursor
+      responses:
+        "200":
+          description: Matching log entries (time-ordered)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogQueryResult"
+              example:
+                entries:
+                  - time: "2026-07-23T10:00:00.000000001Z"
+                    service: control
+                    trace_id: "4bf92f3577b34da6a3ce929d0e0e4736"
+                    request_id: "req_1"
+                    level: info
+                    message: "request"
+                    deployment: dpl_1
+                    project: prj_1
+                next_cursor: ""
+        "400":
+          description: Missing scoping filter or invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Authentication required (enforce mode)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Project log access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Loki unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   schemas:
     HealthStatus:
@@ -140,3 +252,64 @@ components:
         prometheus:
           type: string
           enum: [ok, down]
+
+    LogEntry:
+      type: object
+      required: [time, service, message]
+      description: Normalized correlation field set (12.01)
+      properties:
+        time:
+          type: string
+          format: date-time
+        service:
+          type: string
+        trace_id:
+          type: string
+        request_id:
+          type: string
+        span_id:
+          type: string
+        level:
+          type: string
+        message:
+          type: string
+        deployment:
+          type: string
+        project:
+          type: string
+        node:
+          type: string
+
+    LogQueryResult:
+      type: object
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/LogEntry"
+        next_cursor:
+          type: string
+        warnings:
+          type: array
+          items:
+            type: string
+        capped:
+          type: boolean
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties:
+                type: string

@@ -13,10 +13,13 @@ import (
 	"syscall"
 	"time"
 
+	"forge.local/services/forge-observe/internal/api"
 	"forge.local/services/forge-observe/internal/backends"
 	"forge.local/services/forge-observe/internal/config"
 	"forge.local/services/forge-observe/internal/correlation"
 	"forge.local/services/forge-observe/internal/health"
+	"forge.local/services/forge-observe/internal/identity"
+	"forge.local/services/forge-observe/internal/logs"
 )
 
 func main() {
@@ -43,6 +46,10 @@ func run() error {
 		"prometheus_url", cfg.PrometheusURL,
 		"backend_timeout_ms", int(cfg.BackendTimeout.Milliseconds()),
 		"required_backends", joinBackends(cfg.RequiredBackends),
+		"log_query_max_limit", cfg.LogQueryMaxLimit,
+		"log_query_max_range_h", int(cfg.LogQueryMaxRange.Hours()),
+		"auth_mode", cfg.AuthMode,
+		"identity_url", cfg.IdentityURL,
 		"shutdown_grace_seconds", int(cfg.ShutdownGrace.Seconds()),
 		correlation.AttrService, cfg.ServiceName,
 	)
@@ -69,15 +76,40 @@ func run() error {
 		},
 	}
 
+	loki := backends.NewLoki(cfg.LokiURL, opts)
 	reg := &backends.Registry{
-		Loki:       backends.NewLoki(cfg.LokiURL, opts),
+		Loki:       loki,
 		Tempo:      backends.NewTempo(cfg.TempoURL, opts),
 		Prometheus: backends.NewPrometheus(cfg.PrometheusURL, opts),
 		Required:   cfg.RequiredBackends,
 	}
 
+	authMode, err := identity.ParseAuthMode(cfg.AuthMode)
+	if err != nil {
+		return err
+	}
+	if authMode == identity.AuthModeEnforce {
+		log.Info("FORGE_AUTH_MODE=enforce — log queries require Identity tokens + project.read")
+	} else {
+		log.Warn("FORGE_AUTH_MODE=dev — log query auth bypassed (insecure)")
+	}
+	var idClient identity.Client
+	if authMode == identity.AuthModeEnforce || cfg.IdentityURL != "" {
+		idClient = identity.NewHTTPClient(cfg.IdentityURL, cfg.AuthzCacheTTLS, log)
+	}
+	authGate := &identity.Gate{Mode: authMode, Client: idClient, Log: log, Action: "project.read"}
+
+	logCaps := logs.Caps{
+		MaxLimit:     cfg.LogQueryMaxLimit,
+		MaxRange:     cfg.LogQueryMaxRange,
+		DefaultSince: time.Hour,
+	}
+	logMetrics := &logs.Metrics{}
+	logSvc := &logs.Service{Loki: loki, Caps: logCaps, Log: log, Metrics: logMetrics}
+
 	mux := http.NewServeMux()
 	health.NewHandler(reg, reg, cfg.ServiceName, cfg.ServiceVersion).Register(mux)
+	(&api.LogsHandler{Service: logSvc, Caps: logCaps, Auth: authGate, Log: log}).Register(mux)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

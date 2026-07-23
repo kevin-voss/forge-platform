@@ -4,7 +4,7 @@ Go HTTP service (host port **4106**) that fronts the foundation telemetry
 backends (Loki, Tempo, Prometheus) and publishes the platform **correlation
 contract**.
 
-## Endpoints (12.01)
+## Endpoints
 
 | Path | Role |
 |---|---|
@@ -12,6 +12,27 @@ contract**.
 | `GET /health/ready` | Ready when required backends are reachable |
 | `GET /` | Identity `{service,language,status}` |
 | `GET /v1/health/backends` | `{loki,tempo,prometheus}` → `ok` \| `down` |
+| `GET /v1/logs` | Correlated log query (12.04) |
+
+## Log query (`GET /v1/logs`)
+
+Filters (at least one scoping filter required):
+
+* `project`, `deployment`, `service`, `request_id`, `trace_id`
+* `since` / `until` (RFC3339 or unix), `q` (escaped free text)
+* `limit`, `direction` (`forward`\|`backward`), `cursor`
+
+Response entries are normalized to the correlation field set (`time`, `service`,
+`trace_id`, `request_id`, `level`, `message`, `deployment`, `project`, …).
+Querying by `trace_id` returns logs from all services in that trace, time-ordered.
+
+Caps (clamp + `warnings` / `capped`):
+
+* `FORGE_LOG_QUERY_MAX_LIMIT` (default 1000)
+* `FORGE_LOG_QUERY_MAX_RANGE_H` (default 24)
+
+When `FORGE_AUTH_MODE=enforce`, queries require a bearer token and
+`project.read` on the requested project (Identity).
 
 ## Configuration
 
@@ -24,6 +45,10 @@ contract**.
 | `FORGE_PROMETHEUS_URL` | `http://prometheus:9090` |
 | `FORGE_BACKEND_TIMEOUT_MS` | `2000` |
 | `FORGE_OBSERVE_READY_REQUIRE_BACKENDS` | `loki,tempo,prometheus` |
+| `FORGE_LOG_QUERY_MAX_LIMIT` | `1000` |
+| `FORGE_LOG_QUERY_MAX_RANGE_H` | `24` |
+| `FORGE_AUTH_MODE` | `dev` |
+| `FORGE_IDENTITY_URL` | `http://forge-identity:4002` |
 
 ## Correlation contract
 
@@ -52,5 +77,6 @@ make -C services/forge-observe test         # unit + dashboards + integration
 
 When a required backend is unreachable, `/health/ready` returns 503 while
 `/health/live` and `/v1/health/backends` stay available so operators can see
-which dependency failed. Backend clients enforce `FORGE_BACKEND_TIMEOUT_MS`
+which dependency failed. `GET /v1/logs` returns `503` with `loki_unavailable`
+when Loki is down. Backend clients enforce `FORGE_BACKEND_TIMEOUT_MS`
 and never hang indefinitely.

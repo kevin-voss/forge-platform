@@ -20,6 +20,11 @@ func clearObserveEnv(t *testing.T) {
 		"FORGE_PROMETHEUS_URL",
 		"FORGE_BACKEND_TIMEOUT_MS",
 		"FORGE_OBSERVE_READY_REQUIRE_BACKENDS",
+		"FORGE_LOG_QUERY_MAX_LIMIT",
+		"FORGE_LOG_QUERY_MAX_RANGE_H",
+		"FORGE_AUTH_MODE",
+		"FORGE_IDENTITY_URL",
+		"FORGE_AUTHZ_CACHE_TTL_S",
 	} {
 		t.Setenv(key, "")
 	}
@@ -52,6 +57,15 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if len(cfg.RequiredBackends) != 3 {
 		t.Fatalf("RequiredBackends = %v, want 3", cfg.RequiredBackends)
+	}
+	if cfg.LogQueryMaxLimit != 1000 {
+		t.Fatalf("LogQueryMaxLimit = %d, want 1000", cfg.LogQueryMaxLimit)
+	}
+	if cfg.LogQueryMaxRange != 24*time.Hour {
+		t.Fatalf("LogQueryMaxRange = %v, want 24h", cfg.LogQueryMaxRange)
+	}
+	if cfg.AuthMode != "dev" {
+		t.Fatalf("AuthMode = %q, want dev", cfg.AuthMode)
 	}
 }
 

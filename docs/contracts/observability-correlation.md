@@ -86,10 +86,10 @@ Narrow the readiness gate with
 `GET /v1/health/backends` always returns `{ loki, tempo, prometheus }` with
 `ok` or `down` so operators can see which dependency failed.
 
-Log query (12.04) and CLI tail (12.05) depend on Loki; dashboards (12.03) and
-alerts (12.06) depend on Prometheus/Grafana; distributed-trace demos depend on
-Tempo. When a backend is down, those features degrade; identity and liveness do
-not.
+Log query (12.04: `GET /v1/logs` on forge-observe) and CLI tail (12.05) depend
+on Loki; dashboards (12.03) and alerts (12.06) depend on Prometheus/Grafana;
+distributed-trace demos depend on Tempo. When a backend is down, those features
+degrade (`/v1/logs` → `503 loki_unavailable`); identity and liveness do not.
 
 ## Consumers of this contract
 

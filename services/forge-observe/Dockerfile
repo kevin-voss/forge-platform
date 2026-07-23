@@ -10,12 +10,21 @@ RUN go mod download
 COPY services/forge-observe/cmd ./cmd
 COPY services/forge-observe/internal ./internal
 COPY docs/contracts/observability-correlation.md /contracts/observability-correlation.md
+COPY docs/contracts/instrumentation-checklist.md /contracts/instrumentation-checklist.md
 COPY contracts/openapi/forge-observe.openapi.yaml /contracts/openapi/forge-observe.openapi.yaml
+COPY deploy/observability /deploy/observability
+COPY infrastructure/grafana /infrastructure/grafana
+# Marker so dashboard tests can resolve repo root inside the build image.
+COPY compose.yaml /compose.yaml
 
-# Correlation parity test walks up for docs/contracts; mirror layout for Docker tests.
-RUN mkdir -p /src/docs/contracts /src/contracts/openapi \
+# Unit tests walk up for docs/contracts + deploy/observability; mirror layout.
+RUN mkdir -p /src/docs/contracts /src/contracts/openapi /src/deploy /src/infrastructure \
 	&& cp /contracts/observability-correlation.md /src/docs/contracts/observability-correlation.md \
-	&& cp /contracts/openapi/forge-observe.openapi.yaml /src/contracts/openapi/forge-observe.openapi.yaml
+	&& cp /contracts/instrumentation-checklist.md /src/docs/contracts/instrumentation-checklist.md \
+	&& cp /contracts/openapi/forge-observe.openapi.yaml /src/contracts/openapi/forge-observe.openapi.yaml \
+	&& cp -a /deploy/observability /src/deploy/observability \
+	&& cp -a /infrastructure/grafana /src/infrastructure/grafana \
+	&& cp /compose.yaml /src/compose.yaml
 
 RUN CGO_ENABLED=0 GOOS=linux go test ./... \
 	&& CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/forge-observe ./cmd/forge-observe
@@ -46,6 +55,10 @@ ENV PORT=8080 \
 	FORGE_PROMETHEUS_URL=http://prometheus:9090 \
 	FORGE_BACKEND_TIMEOUT_MS=2000 \
 	FORGE_OBSERVE_READY_REQUIRE_BACKENDS=loki,tempo,prometheus \
+	FORGE_LOG_QUERY_MAX_LIMIT=1000 \
+	FORGE_LOG_QUERY_MAX_RANGE_H=24 \
+	FORGE_AUTH_MODE=dev \
+	FORGE_IDENTITY_URL=http://forge-identity:4002 \
 	FORGE_SHUTDOWN_GRACE_SECONDS=10
 
 ENTRYPOINT ["/app/forge-observe"]
