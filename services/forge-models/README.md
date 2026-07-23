@@ -2,9 +2,10 @@
 
 Python/FastAPI model-serving service (epic 14). Host port **4300**.
 
-Skeleton (14.01) + model registry (14.02): health, identity, structured JSON logs,
-`GET /v1/models` (+ get/health). Inference adapters arrive in later steps; epic
-gate is `make demo DEMO=14` (`demos/14-model-serving`).
+Skeleton (14.01) + model registry (14.02) + local embeddings (14.03): health,
+identity, structured JSON logs, `GET /v1/models`, and
+`POST /v1/models/{model}/embed`. Generate/classify/summarize arrive in later
+steps; epic gate is `make demo DEMO=14` (`demos/14-model-serving`).
 
 ## Local
 
@@ -29,6 +30,8 @@ curl -fsS localhost:4300/
 curl -fsS localhost:4300/v1/models
 curl -fsS localhost:4300/v1/models/local-embed-small
 curl -fsS localhost:4300/v1/models/local-embed-small/health
+curl -fsS -XPOST localhost:4300/v1/models/local-embed-small/embed \
+  -H 'content-type: application/json' -d '{"input":"hello forge"}'
 ```
 
 OpenAPI (canonical): [`contracts/openapi/forge-models.openapi.yaml`](../../contracts/openapi/forge-models.openapi.yaml).
@@ -36,8 +39,12 @@ OpenAPI (canonical): [`contracts/openapi/forge-models.openapi.yaml`](../../contr
 ## Model registry
 
 Registry entries load from `app/models.yaml` (override with `FORGE_MODELS_CONFIG`).
-Each model is backed by a `ModelAdapter`. In 14.02 both `fake` and `local` backends
-use `FakeAdapter` as a placeholder (capabilities + health only; no inference yet).
+Each model is backed by a `ModelAdapter`:
+
+| Capability | Adapter |
+|---|---|
+| `embed` | `LocalEmbeddingAdapter` (deterministic hash embedder; optional on-disk transformer) |
+| generate/classify/summarize | `FakeAdapter` placeholder until 14.04 |
 
 | Field | Notes |
 |---|---|
@@ -48,6 +55,30 @@ use `FakeAdapter` as a placeholder (capabilities + health only; no inference yet
 | `status` | live adapter health: `ok`, `degraded`, or `down` |
 
 Malformed `models.yaml` fails process startup with a clear `RegistryLoadError`.
+At startup, every embed adapter smoke-embeds once and asserts output dim ==
+registry `embedding_dim`.
+
+## Embeddings
+
+`POST /v1/models/{model}/embed` accepts `{ "input": "text" }` or
+`{ "input": ["a","b"] }` and returns:
+
+```json
+{
+  "model": "local-embed-small",
+  "embeddings": [[...]],
+  "dim": 384,
+  "usage": { "input_count": 1 }
+}
+```
+
+CI uses a fully local deterministic hashing backend (no external API, no ML
+deps). Set `FORGE_MODELS_LOCAL_MODEL_PATH` to an on-disk sentence-transformer
+directory to enable a realistic local model for demos (requires
+`sentence-transformers` installed in the image/env). Vectors are L2-normalized.
+
+Validation errors return `422` with codes `invalid_input`, `batch_too_large`, or
+`capability_unsupported`. Unknown models return `404` / `model_not_found`.
 
 ## Configuration
 
@@ -56,6 +87,9 @@ Malformed `models.yaml` fails process startup with a clear `RegistryLoadError`.
 | `PORT` | required (`8080` in Compose) | Listen port; host maps `4300` |
 | `FORGE_MODELS_BACKEND` | `fake` | Default backend family (`fake`\|`local`); unknown values fail startup |
 | `FORGE_MODELS_CONFIG` | packaged `app/models.yaml` | Path to registry definitions |
+| `FORGE_MODELS_EMBED_MAX_BATCH` | `64` | Max texts per `/embed` request |
+| `FORGE_MODELS_EMBED_MAX_CHARS` | `8192` | Max characters per input text |
+| `FORGE_MODELS_LOCAL_MODEL_PATH` | _(empty)_ | Optional on-disk sentence-transformer path |
 | `FORGE_LOG_LEVEL` | `info` | `debug\|info\|warn\|error` |
 | `FORGE_SERVICE_NAME` | `forge-models` | Identity + log field |
 | `FORGE_SERVICE_VERSION` | `0.1.0` | Identity payload |
@@ -67,14 +101,15 @@ Malformed `models.yaml` fails process startup with a clear `RegistryLoadError`.
 ```text
 services/forge-models/
 ├── app/
-│   ├── main.py           # FastAPI factory + lifespan
-│   ├── config.py         # pydantic-settings
-│   ├── health.py         # /health/live, /health/ready
-│   ├── logging.py        # JSON logs + X-Request-ID middleware
-│   ├── registry.py       # models.yaml loader + in-memory registry
-│   ├── models.yaml       # default model definitions
-│   ├── api/models.py     # GET /v1/models*
-│   └── adapters/         # ModelAdapter + FakeAdapter
+│   ├── main.py                 # FastAPI factory + lifespan
+│   ├── config.py               # pydantic-settings
+│   ├── health.py               # /health/live, /health/ready
+│   ├── logging.py              # JSON logs + X-Request-ID middleware
+│   ├── registry.py             # models.yaml loader + in-memory registry
+│   ├── models.yaml             # default model definitions
+│   ├── api/models.py           # GET /v1/models*
+│   ├── api/embed.py            # POST /v1/models/{model}/embed
+│   └── adapters/               # ModelAdapter, FakeAdapter, LocalEmbeddingAdapter
 ├── tests/
 ├── pyproject.toml
 ├── uv.lock

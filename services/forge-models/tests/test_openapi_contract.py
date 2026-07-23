@@ -42,14 +42,39 @@ def test_openapi_documents_model_list_get_health() -> None:
     assert "/v1/models" in paths
     assert "/v1/models/{model}" in paths
     assert "/v1/models/{model}/health" in paths
+    assert "/v1/models/{model}/embed" in paths
+    embed = paths["/v1/models/{model}/embed"]["post"]
+    assert "200" in embed["responses"]
+    assert "404" in embed["responses"]
+    assert "422" in embed["responses"]
     schemas = doc["components"]["schemas"]
     assert "Model" in schemas
     assert "ModelListResponse" in schemas
     assert "ModelHealth" in schemas
     assert "ErrorBody" in schemas
+    assert "EmbedRequest" in schemas
+    assert "EmbedResponse" in schemas
+    assert "EmbedUsage" in schemas
+    embed_resp = schemas["EmbedResponse"]
+    assert set(embed_resp["required"]) >= {"model", "embeddings", "dim", "usage"}
+    assert "dim" in embed_resp["properties"]
+    assert "usage" in embed_resp["properties"]
     caps = schemas["ModelCapability"]["enum"]
     assert set(caps) == ALLOWED_CAPS
     assert schemas["Model"]["properties"]["embedding_dim"].get("nullable") is True
+
+
+def _assert_embed_shape(body: dict) -> None:
+    assert set(body) >= {"model", "embeddings", "dim", "usage"}
+    assert isinstance(body["model"], str) and body["model"]
+    assert isinstance(body["dim"], int) and body["dim"] >= 1
+    assert isinstance(body["embeddings"], list) and body["embeddings"]
+    assert isinstance(body["usage"], dict)
+    assert body["usage"].get("input_count") == len(body["embeddings"])
+    for vec in body["embeddings"]:
+        assert isinstance(vec, list)
+        assert len(vec) == body["dim"]
+        assert all(isinstance(x, (int, float)) for x in vec)
 
 
 def _assert_model_shape(model: dict) -> None:
@@ -86,6 +111,20 @@ def test_list_get_health_responses_validate(client: TestClient) -> None:
     err = missing.json()
     assert err["code"] == "model_not_found"
     assert isinstance(err["error"], str)
+
+    embed_model = next(m["id"] for m in body["models"] if "embed" in m["capabilities"])
+    embedded = client.post(f"/v1/models/{embed_model}/embed", json={"input": "contract"})
+    assert embedded.status_code == 200
+    _assert_embed_shape(embedded.json())
+
+    non_embed = next(
+        (m["id"] for m in body["models"] if "embed" not in m["capabilities"]),
+        None,
+    )
+    if non_embed is not None:
+        unsupported = client.post(f"/v1/models/{non_embed}/embed", json={"input": "x"})
+        assert unsupported.status_code == 422
+        assert unsupported.json()["code"] == "capability_unsupported"
 
 
 def test_live_ready_identity_match_contract(client: TestClient) -> None:

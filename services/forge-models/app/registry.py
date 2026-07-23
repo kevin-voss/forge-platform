@@ -11,6 +11,7 @@ import yaml
 
 from app.adapters.base import Capability, HealthStatus, ModelAdapter
 from app.adapters.fake import FakeAdapter
+from app.adapters.local_embed import LocalEmbeddingAdapter
 
 logger = logging.getLogger("forge-models")
 
@@ -33,12 +34,18 @@ class RegistryMetrics:
 
     models_registry_size: int = 0
     model_health: dict[str, float] = field(default_factory=dict)
+    models_embed_requests_total: int = 0
+    models_embed_latency_seconds: float = 0.0
 
     def refresh(self, adapters: Mapping[str, ModelAdapter]) -> None:
         self.models_registry_size = len(adapters)
         self.model_health = {
             model_id: _HEALTH_GAUGE[adapter.health()] for model_id, adapter in adapters.items()
         }
+
+    def record_embed(self, latency_seconds: float) -> None:
+        self.models_embed_requests_total += 1
+        self.models_embed_latency_seconds += max(0.0, latency_seconds)
 
 
 @dataclass
@@ -68,7 +75,11 @@ def resolve_config_path(config_path: str | None) -> Path:
     return DEFAULT_MODELS_CONFIG
 
 
-def load_registry(config_path: str | None = None) -> ModelRegistry:
+def load_registry(
+    config_path: str | None = None,
+    *,
+    local_model_path: str | None = None,
+) -> ModelRegistry:
     """Parse models.yaml and instantiate adapters. Fails fast on bad config."""
     path = resolve_config_path(config_path)
     if not path.is_file():
@@ -98,12 +109,24 @@ def load_registry(config_path: str | None = None) -> ModelRegistry:
 
     adapters: dict[str, ModelAdapter] = {}
     for index, entry in enumerate(models):
-        adapter = _adapter_from_entry(entry, path=path, index=index)
+        adapter = _adapter_from_entry(
+            entry,
+            path=path,
+            index=index,
+            local_model_path=local_model_path,
+        )
         if adapter.model_id in adapters:
             raise RegistryLoadError(
                 f"malformed models.yaml ({path}): duplicate model id '{adapter.model_id}'"
             )
         adapters[adapter.model_id] = adapter
+
+    for adapter in adapters.values():
+        if isinstance(adapter, LocalEmbeddingAdapter):
+            try:
+                adapter.assert_dimension()
+            except ValueError as exc:
+                raise RegistryLoadError(str(exc)) from exc
 
     registry = ModelRegistry(adapters=adapters)
     logger.info(
@@ -117,7 +140,13 @@ def load_registry(config_path: str | None = None) -> ModelRegistry:
     return registry
 
 
-def _adapter_from_entry(entry: Any, *, path: Path, index: int) -> ModelAdapter:
+def _adapter_from_entry(
+    entry: Any,
+    *,
+    path: Path,
+    index: int,
+    local_model_path: str | None = None,
+) -> ModelAdapter:
     loc = f"models[{index}]"
     if not isinstance(entry, dict):
         raise RegistryLoadError(
@@ -162,7 +191,11 @@ def _adapter_from_entry(entry: Any, *, path: Path, index: int) -> ModelAdapter:
 
     embedding_dim = entry.get("embedding_dim")
     if embedding_dim is not None:
-        if not isinstance(embedding_dim, int) or isinstance(embedding_dim, bool) or embedding_dim < 1:
+        if (
+            not isinstance(embedding_dim, int)
+            or isinstance(embedding_dim, bool)
+            or embedding_dim < 1
+        ):
             raise RegistryLoadError(
                 f"malformed models.yaml ({path}): {loc} ({model_id}).embedding_dim "
                 "must be a positive integer when set"
@@ -174,13 +207,28 @@ def _adapter_from_entry(entry: Any, *, path: Path, index: int) -> ModelAdapter:
             "but missing embedding_dim"
         )
 
-    # 14.02: FakeAdapter is the placeholder for both fake and local backends.
-    # Real LocalEmbeddingAdapter arrives in 14.03.
     if backend not in {"fake", "local"}:
         raise RegistryLoadError(
             f"malformed models.yaml ({path}): {loc} ({model_id}).backend "
             f"unknown value '{backend}' (allowed: fake, local)"
         )
+
+    # Embed models use LocalEmbeddingAdapter (deterministic CI + optional on-disk model).
+    # Non-embed capabilities still use FakeAdapter until 14.04 inference lands.
+    if Capability.EMBED in capabilities:
+        assert embedding_dim is not None  # validated above
+        # Optional transformer only for backend=local when FORGE_MODELS_LOCAL_MODEL_PATH is set.
+        path_for_adapter = local_model_path if backend == "local" else None
+        try:
+            return LocalEmbeddingAdapter(
+                model_id=model_id,
+                backend=backend,
+                capabilities=capabilities,
+                embedding_dim=embedding_dim,
+                local_model_path=path_for_adapter,
+            )
+        except ValueError as exc:
+            raise RegistryLoadError(str(exc)) from exc
 
     return FakeAdapter(
         model_id=model_id,

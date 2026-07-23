@@ -1,11 +1,12 @@
 openapi: 3.0.3
 info:
   title: Forge Models API
-  version: 0.2.0
+  version: 0.3.0
   description: |
     Platform model-serving service (epic 14). Health/identity from 14.01;
-    model registry read APIs from 14.02. Embeddings, generate/classify/summarize,
-    streaming, and usage metrics land in later steps.
+    model registry read APIs from 14.02; local embeddings (`POST .../embed`)
+    from 14.03. Generate/classify/summarize, streaming, and usage metrics
+    land in later steps.
 servers:
   - url: http://127.0.0.1:4300
     description: Local Compose (host port 4300)
@@ -155,6 +156,77 @@ paths:
                 error: "model not found: nope"
                 code: model_not_found
 
+  /v1/models/{model}/embed:
+    post:
+      operationId: embedModel
+      summary: Embed text with a registered model
+      description: |
+        Produces fixed-dimension L2-normalized embedding vectors from a fully
+        local backend. CI uses a deterministic hash-based embedder (no external
+        API). When `FORGE_MODELS_LOCAL_MODEL_PATH` is set for a `local` backend
+        model, an on-disk sentence-transformer may be used instead.
+        `input` may be a single string or a batch (capped by
+        `FORGE_MODELS_EMBED_MAX_BATCH`, default 64). Each input is capped by
+        `FORGE_MODELS_EMBED_MAX_CHARS` (default 8192).
+      parameters:
+        - $ref: "#/components/parameters/ModelId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmbedRequest"
+            examples:
+              single:
+                value:
+                  input: hello forge
+              batch:
+                value:
+                  input: [hello, forge]
+      responses:
+        "200":
+          description: Embedding vectors
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedResponse"
+              example:
+                model: local-embed-small
+                embeddings:
+                  - [0.01, -0.02]
+                dim: 384
+                usage:
+                  input_count: 1
+        "404":
+          description: Unknown model id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+              example:
+                error: "model not found: nope"
+                code: model_not_found
+        "422":
+          description: |
+            Invalid input, batch too large, or model lacks the `embed` capability.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+              examples:
+                capability_unsupported:
+                  value:
+                    error: "model 'local-general' does not support embed"
+                    code: capability_unsupported
+                batch_too_large:
+                  value:
+                    error: "batch size 100 exceeds max 64"
+                    code: batch_too_large
+                invalid_input:
+                  value:
+                    error: "input[0] must be a non-empty string"
+                    code: invalid_input
+
 components:
   parameters:
     ModelId:
@@ -269,3 +341,58 @@ components:
         code:
           type: string
           example: model_not_found
+
+    EmbedRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - input
+      properties:
+        input:
+          oneOf:
+            - type: string
+              minLength: 1
+            - type: array
+              minItems: 1
+              items:
+                type: string
+                minLength: 1
+          description: Single text or batch of texts to embed
+
+    EmbedUsage:
+      type: object
+      additionalProperties: false
+      required:
+        - input_count
+      properties:
+        input_count:
+          type: integer
+          minimum: 1
+          description: Number of input texts embedded
+
+    EmbedResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - model
+        - embeddings
+        - dim
+        - usage
+      properties:
+        model:
+          type: string
+          example: local-embed-small
+        embeddings:
+          type: array
+          minItems: 1
+          items:
+            type: array
+            items:
+              type: number
+            description: L2-normalized embedding vector
+        dim:
+          type: integer
+          minimum: 1
+          description: Embedding dimension (matches registry embedding_dim)
+        usage:
+          $ref: "#/components/schemas/EmbedUsage"

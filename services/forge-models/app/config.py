@@ -25,6 +25,19 @@ class Settings(BaseSettings):
     forge_log_level: LogLevel = Field(default="info", alias="FORGE_LOG_LEVEL")
     forge_models_backend: ModelsBackend = Field(default="fake", alias="FORGE_MODELS_BACKEND")
     forge_models_config: str = Field(default="", alias="FORGE_MODELS_CONFIG")
+    forge_models_embed_max_batch: int = Field(
+        default=64,
+        alias="FORGE_MODELS_EMBED_MAX_BATCH",
+        ge=1,
+        le=10_000,
+    )
+    forge_models_embed_max_chars: int = Field(
+        default=8192,
+        alias="FORGE_MODELS_EMBED_MAX_CHARS",
+        ge=1,
+        le=1_000_000,
+    )
+    forge_models_local_model_path: str = Field(default="", alias="FORGE_MODELS_LOCAL_MODEL_PATH")
     forge_service_name: str = Field(default="forge-models", alias="FORGE_SERVICE_NAME")
     forge_service_version: str = Field(default="0.1.0", alias="FORGE_SERVICE_VERSION")
     forge_env: str = Field(default="development", alias="FORGE_ENV")
@@ -57,7 +70,7 @@ class Settings(BaseSettings):
             return stripped if stripped else None
         return value
 
-    @field_validator("forge_models_config", mode="before")
+    @field_validator("forge_models_config", "forge_models_local_model_path", mode="before")
     @classmethod
     def strip_config_path(cls, value: object) -> object:
         if isinstance(value, str):

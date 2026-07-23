@@ -20,6 +20,9 @@ dev: sync
 	FORGE_ENV=$${FORGE_ENV:-development} \
 	FORGE_MODELS_BACKEND=$${FORGE_MODELS_BACKEND:-fake} \
 	FORGE_MODELS_CONFIG=$${FORGE_MODELS_CONFIG:-} \
+	FORGE_MODELS_EMBED_MAX_BATCH=$${FORGE_MODELS_EMBED_MAX_BATCH:-64} \
+	FORGE_MODELS_EMBED_MAX_CHARS=$${FORGE_MODELS_EMBED_MAX_CHARS:-8192} \
+	FORGE_MODELS_LOCAL_MODEL_PATH=$${FORGE_MODELS_LOCAL_MODEL_PATH:-} \
 	FORGE_SHUTDOWN_GRACE_SECONDS=$${FORGE_SHUTDOWN_GRACE_SECONDS:-10} \
 	uv run python -m app.main
 
@@ -50,7 +53,17 @@ test-integration: run
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"message":"starting forge-models"'
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"request_id":"integ-req-1"'
 	@grep -q '4300' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-models.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-models" in p; assert "/v1/models" not in p'
+	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-models.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-models" in p; assert "/v1/models" in p; assert "/v1/models/{model}/embed" in p; assert "EmbedResponse" in p'
+	@# Registry + deterministic embed smoke (manual verification from 14.03).
+	@curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/models" | python3 -c 'import sys,json; d=json.load(sys.stdin); ids={m["id"] for m in d["models"]}; assert "local-embed-small" in ids'
+	@curl -sf -XPOST "http://127.0.0.1:$(HOST_PORT)/v1/models/local-embed-small/embed" \
+		-H 'content-type: application/json' -d '{"input":"hello forge"}' \
+		| python3 -c 'import sys,json; d=json.load(sys.stdin); assert len(d["embeddings"][0])==d["dim"]==384'
+	@a=$$(curl -sf -XPOST "http://127.0.0.1:$(HOST_PORT)/v1/models/local-embed-small/embed" -H 'content-type: application/json' -d '{"input":"x"}'); \
+		b=$$(curl -sf -XPOST "http://127.0.0.1:$(HOST_PORT)/v1/models/local-embed-small/embed" -H 'content-type: application/json' -d '{"input":"x"}'); \
+		test "$$a" = "$$b" && echo "deterministic OK"
+	@curl -sf -o /dev/null -w '%{http_code}' -XPOST "http://127.0.0.1:$(HOST_PORT)/v1/models/local-general/embed" \
+		-H 'content-type: application/json' -d '{"input":"x"}' | grep -q '^422$$'
 	@# Unknown backend fails process startup (ephemeral container).
 	@docker rm -f forge-models-bad-backend >/dev/null 2>&1 || true
 	@if docker run --name forge-models-bad-backend \
@@ -83,7 +96,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (health, identity, JSON logs/request IDs, OpenAPI, bad backend/PORT, SIGTERM)."
+	@echo "Integration checks passed (health, identity, registry, embed determinism, JSON logs/request IDs, OpenAPI, bad backend/PORT, SIGTERM)."
 
 lint: sync
 	uv run ruff check app tests

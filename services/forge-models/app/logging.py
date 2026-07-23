@@ -56,6 +56,14 @@ class JsonLogFormatter(logging.Formatter):
             "ids",
             "backends",
             "models_registry_size",
+            "model",
+            "input_count",
+            "latency_ms",
+            "dim",
+            "embed_mode",
+            "index",
+            "got_dim",
+            "expected_dim",
         ):
             if hasattr(record, key):
                 value = getattr(record, key)

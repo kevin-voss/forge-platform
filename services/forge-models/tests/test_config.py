@@ -23,6 +23,20 @@ def test_defaults_backend_to_fake(clean_env: pytest.MonkeyPatch) -> None:
     clean_env.setenv("PORT", "8080")
     settings = get_settings()
     assert settings.forge_models_backend == "fake"
+    assert settings.forge_models_embed_max_batch == 64
+    assert settings.forge_models_embed_max_chars == 8192
+    assert settings.forge_models_local_model_path == ""
+
+
+def test_embed_limits_from_env(clean_env: pytest.MonkeyPatch) -> None:
+    clean_env.setenv("PORT", "8080")
+    clean_env.setenv("FORGE_MODELS_EMBED_MAX_BATCH", "8")
+    clean_env.setenv("FORGE_MODELS_EMBED_MAX_CHARS", "128")
+    clean_env.setenv("FORGE_MODELS_LOCAL_MODEL_PATH", " /tmp/model ")
+    settings = get_settings()
+    assert settings.forge_models_embed_max_batch == 8
+    assert settings.forge_models_embed_max_chars == 128
+    assert settings.forge_models_local_model_path == "/tmp/model"
 
 
 def test_accepts_local_backend(clean_env: pytest.MonkeyPatch) -> None:

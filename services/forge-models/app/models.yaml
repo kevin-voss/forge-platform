@@ -1,5 +1,6 @@
-# Default forge-models registry (14.02).
-# Inference adapters land in later steps; FakeAdapter is the placeholder.
+# Default forge-models registry (14.02+).
+# local-embed-small → LocalEmbeddingAdapter (deterministic unless LOCAL_MODEL_PATH set).
+# local-general → FakeAdapter placeholder until 14.04 inference.
 models:
   - id: local-embed-small
     backend: local

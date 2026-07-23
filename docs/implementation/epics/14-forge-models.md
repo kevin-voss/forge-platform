@@ -59,7 +59,7 @@ make demo DEMO=14
 |---|---|---|---|
 | [14.01](../steps/14-forge-models/14.01-skeleton-compose.md) | Skeleton + Compose | Complete | Python/FastAPI, health, port 4300 |
 | [14.02](../steps/14-forge-models/14.02-model-registry.md) | Model registry + `GET /v1/models` | Complete | Depends on 14.01; adapter registry |
-| [14.03](../steps/14-forge-models/14.03-local-embeddings-adapter.md) | Local embeddings adapter | Not started | Depends on 14.02; no external API in CI |
+| [14.03](../steps/14-forge-models/14.03-local-embeddings-adapter.md) | Local embeddings adapter | Complete | Deterministic local embed + `/embed`; no external API in CI |
 | [14.04](../steps/14-forge-models/14.04-generate-classify-summarize.md) | Generate/classify/summarize endpoints | Not started | Depends on 14.03 |
 | [14.05](../steps/14-forge-models/14.05-streaming-async-jobs.md) | Streaming + async jobs | Not started | Depends on 14.04 |
 | [14.06](../steps/14-forge-models/14.06-usage-metrics-openapi-cli.md) | Usage metrics + OpenAPI; optional CLI | Not started | Depends on 14.05 |
@@ -82,4 +82,4 @@ make demo DEMO=14
 
 ## Next step to implement
 
-**[14.03](../steps/14-forge-models/14.03-local-embeddings-adapter.md) — Local embeddings adapter**.
+**[14.04](../steps/14-forge-models/14.04-generate-classify-summarize.md) — Generate/classify/summarize endpoints**.

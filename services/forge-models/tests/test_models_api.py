@@ -89,9 +89,7 @@ def test_model_health_unknown_404(models_client: TestClient) -> None:
     assert resp.json()["code"] == "model_not_found"
 
 
-def test_malformed_config_fails_create_app(
-    clean_env: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_malformed_config_fails_create_app(clean_env: pytest.MonkeyPatch, tmp_path: Path) -> None:
     bad = tmp_path / "bad.yaml"
     bad.write_text("models: []\n", encoding="utf-8")
     clean_env.setenv("PORT", "4300")

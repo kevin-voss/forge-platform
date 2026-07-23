@@ -9,6 +9,7 @@ import yaml
 
 from app.adapters.base import Capability, HealthStatus
 from app.adapters.fake import FakeAdapter
+from app.adapters.local_embed import LocalEmbeddingAdapter
 from app.registry import RegistryLoadError, load_registry, serialize_model
 
 
@@ -40,12 +41,15 @@ def test_load_valid_registry(tmp_path: Path) -> None:
     assert registry.metrics.models_registry_size == 2
     embed = registry.get("local-embed-small")
     assert embed is not None
+    assert isinstance(embed, LocalEmbeddingAdapter)
     assert embed.backend == "local"
     assert embed.embedding_dim == 384
     assert Capability.EMBED in embed.capabilities
     assert embed.health() == HealthStatus.OK
+    assert embed.embed_mode == "deterministic"
     general = registry.get("local-general")
     assert general is not None
+    assert isinstance(general, FakeAdapter)
     assert general.embedding_dim is None
     assert Capability.GENERATE in general.capabilities
 

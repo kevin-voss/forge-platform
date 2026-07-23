@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 94`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 95`**.
 
 ## Epics
 
@@ -22,7 +22,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [11](epics/11-forge-events.md) | Forge Events | Complete | 7/7 steps; demo 11 event-driven acceptance gate passed |
 | [12](epics/12-forge-observe.md) | Forge Observe | Complete | 7/7 steps; demo 12 observability acceptance gate passed |
 | [13](epics/13-forge-storage.md) | Forge Storage | Complete | 7/7 steps; demo 13 object-storage acceptance gate passed |
-| [14](epics/14-forge-models.md) | Forge Models | In progress | 2/7 steps; registry + `GET /v1/models` |
+| [14](epics/14-forge-models.md) | Forge Models | In progress | 3/7 steps; registry + local embeddings `/embed` |
 | [15](epics/15-forge-agents.md) | Forge Agents | Planning | 8 steps |
 | [16](epics/16-forge-workflows.md) | Forge Workflows | Planning | 7 steps |
 | [17](epics/17-forge-memory.md) | Forge Memory | Planning | 6 steps |
@@ -127,7 +127,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **91** | [Demo `13-object-storage` + gate](steps/13-forge-storage/13.07-demo-and-gate.md) | Complete |  | Demo 13: bucket→50MiB stream→checksum→range→expired token→delete→restart; epic gate |
 | **92** | [Skeleton + Compose](steps/14-forge-models/14.01-skeleton-compose.md) | Complete |  | Python/FastAPI on `4300`, health/identity, JSON logs, Compose |
 | **93** | [Model registry + `GET /v1/models`](steps/14-forge-models/14.02-model-registry.md) | Complete |  | Adapter interface + `models.yaml` registry; list/get/health |
-| **94** | [Local embeddings adapter](steps/14-forge-models/14.03-local-embeddings-adapter.md) | Not started |  |  |
+| **94** | [Local embeddings adapter](steps/14-forge-models/14.03-local-embeddings-adapter.md) | Complete |  | Deterministic local embed + `POST /v1/models/{model}/embed` |
 | **95** | [Generate/classify/summarize endpoints](steps/14-forge-models/14.04-generate-classify-summarize.md) | Not started |  |  |
 | **96** | [Streaming + async jobs](steps/14-forge-models/14.05-streaming-async-jobs.md) | Not started |  |  |
 | **97** | [Usage metrics + OpenAPI; optional CLI `forge model`](steps/14-forge-models/14.06-usage-metrics-openapi-cli.md) | Not started |  |  |
