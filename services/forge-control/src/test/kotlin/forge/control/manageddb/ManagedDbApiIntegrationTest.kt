@@ -25,6 +25,8 @@ import forge.control.service.RelationshipValidator
 import forge.control.service.ServiceService
 import io.ktor.client.call.body
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import forge.control.http.dto.ApplicationResponse
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -89,6 +91,10 @@ class ManagedDbApiIntegrationTest {
     private var projectA: String? = null
     private var projectB: String? = null
     private var instanceId: String? = null
+    private var databaseId: String? = null
+    private var applicationId: String? = null
+    private var attachmentId: String? = null
+    private lateinit var secrets: InMemoryManagedDbSecretsClient
 
     @BeforeAll
     fun setup() {
@@ -113,12 +119,15 @@ class ManagedDbApiIntegrationTest {
         val managedDbRepo = JdbcManagedDbRepository(db.dataSource)
         val relationships = RelationshipValidator(projectRepo, applicationRepo)
         val isolation = IsolationGuard(cfg.database.url, cfg.database.user)
+        secrets = InMemoryManagedDbSecretsClient()
         val managedDb = ManagedDbService(
             store = managedDbRepo,
             provisioner = FakeProvisioner(isolation),
             isolation = isolation,
             relationships = relationships,
-            secrets = InMemoryManagedDbSecretsClient(),
+            secrets = secrets,
+            applications = applicationRepo,
+            defaultEnvVar = "DATABASE_URL",
             log = JsonLog("forge-control", "info"),
         )
         services = ControlServices(
@@ -300,5 +309,61 @@ class ManagedDbApiIntegrationTest {
         assertEquals("available", got.status)
         assertNull(got.password, "get must not include plaintext password")
         assertEquals(db.secretRef, got.secretRef)
+        databaseId = db.id
+    }
+
+    @Test
+    @Order(7)
+    fun attachDetachAndListApplicationDatabases() = withApp {
+        val client = jsonClient()
+        val pid = projectA!!
+        val dbid = databaseId!!
+        val app = client.post("/v1/projects/$pid/applications") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"web-attach"}""")
+        }.body<ApplicationResponse>()
+        applicationId = app.id
+
+        val attached = client.post("/v1/databases/$dbid/attach") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"applicationId":"${app.id}","envVar":"DATABASE_URL"}""")
+        }
+        assertEquals(HttpStatusCode.Created, attached.status)
+        val attachment = attached.body<DbAttachmentResponse>()
+        attachmentId = attachment.id
+        assertEquals(app.id, attachment.applicationId)
+        assertEquals(dbid, attachment.databaseId)
+        assertEquals("DATABASE_URL", attachment.envVar)
+        assertNotNull(attachment.secretRef)
+        assertTrue(attachment.secretRef!!.startsWith("secret:project/"))
+        val url = secrets.get(attachment.secretRef!!)
+        assertNotNull(url)
+        assertTrue(url!!.startsWith("postgresql://"))
+        // Response exposes secretRef only — never the plaintext URL field.
+        assertTrue(!attachment.toString().contains(url))
+
+        val listed = client.get("/v1/applications/${app.id}/databases")
+            .body<List<DbAttachmentResponse>>()
+        assertEquals(1, listed.size)
+        assertEquals(attachment.id, listed.single().id)
+
+        // Cross-project attach denied.
+        val otherPid = projectB!!
+        val otherApp = client.post("/v1/projects/$otherPid/applications") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"web-other"}""")
+        }.body<ApplicationResponse>()
+        val cross = client.post("/v1/databases/$dbid/attach") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"applicationId":"${otherApp.id}"}""")
+        }
+        assertEquals(HttpStatusCode.NotFound, cross.status)
+
+        val deleted = client.delete("/v1/databases/attachments/${attachment.id}")
+        assertEquals(HttpStatusCode.NoContent, deleted.status)
+        val after = client.get("/v1/applications/${app.id}/databases")
+            .body<List<DbAttachmentResponse>>()
+        assertEquals(emptyList(), after)
+        assertNull(secrets.get(attachment.secretRef!!))
     }
 }

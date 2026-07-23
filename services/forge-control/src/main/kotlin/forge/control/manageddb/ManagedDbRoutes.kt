@@ -4,11 +4,13 @@ import forge.control.http.ApiException
 import forge.control.http.idempotentCreate
 import forge.control.http.requireUuid
 import forge.control.repo.IdempotencyStore
+import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.header
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
@@ -70,6 +72,33 @@ fun Route.managedDbRoutes(managedDb: ManagedDbService, idempotency: IdempotencyS
     get("/v1/databases/{databaseId}") {
         val databaseId = call.parameters.requireUuid("databaseId")
         call.respond(managedDb.getDatabase(databaseId))
+    }
+
+    post("/v1/databases/{databaseId}/attach") {
+        val databaseId = call.parameters.requireUuid("databaseId")
+        val body = call.receive<AttachDatabaseRequest>()
+        call.idempotentCreate(
+            idempotency,
+            "db_attachment",
+            Json.encodeToString(AttachDatabaseRequest.serializer(), body) + "|$databaseId",
+        ) {
+            val created = managedDb.attach(databaseId, body.applicationId, body.envVar)
+            created.id to Json.encodeToJsonElement(
+                DbAttachmentResponse.serializer(),
+                created.toResponse(),
+            )
+        }
+    }
+
+    delete("/v1/databases/attachments/{attachmentId}") {
+        val attachmentId = call.parameters.requireUuid("attachmentId")
+        managedDb.detach(attachmentId)
+        call.respond(HttpStatusCode.NoContent)
+    }
+
+    get("/v1/applications/{applicationId}/databases") {
+        val applicationId = call.parameters.requireUuid("applicationId")
+        call.respond(managedDb.listAttachmentsForApplication(applicationId))
     }
 }
 

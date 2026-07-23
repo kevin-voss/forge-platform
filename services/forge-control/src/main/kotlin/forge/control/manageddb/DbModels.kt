@@ -86,6 +86,8 @@ data class DbAttachment(
     val databaseId: UUID,
     val applicationId: UUID,
     val envVar: String,
+    /** Secrets reference for the composed connection URL — never plaintext. */
+    val secretRef: String?,
     val createdAt: Instant,
 ) {
     init {

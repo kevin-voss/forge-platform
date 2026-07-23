@@ -41,6 +41,8 @@ class ReconciliationController(
     private val staleReplicaFencer: StaleReplicaFencer? = null,
     private val secretsClient: SecretsClient = NoOpSecretsClient,
     private val injectMaskInLogs: Boolean = true,
+    private val attachmentEnvSource: forge.control.manageddb.AttachmentEnvSource =
+        forge.control.manageddb.NoOpAttachmentEnvSource,
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "forge-reconcile").apply { isDaemon = true }
     },
@@ -56,6 +58,7 @@ class ReconciliationController(
         staleReplicaFencer = staleReplicaFencer,
         secretsClient = secretsClient,
         injectMaskInLogs = injectMaskInLogs,
+        attachmentEnvSource = attachmentEnvSource,
     ),
 ) : AutoCloseable {
     private val running = AtomicBoolean(false)

@@ -28,6 +28,8 @@ data class DesiredState(
     val projectId: String = "",
     /** Environment name (e.g. production) for Secrets resolve. */
     val environmentName: String = "",
+    /** Application id for managed-DB attachment injection. */
+    val applicationId: String = "",
     /**
      * Secrets/config version fingerprint for redeploy detection.
      * Populated by the reconciler after resolve; empty when Secrets is disabled.
@@ -54,6 +56,7 @@ data class DesiredState(
             port: Int = 8080,
             projectId: String = "",
             environmentName: String = "",
+            applicationId: String = "",
             secretsFingerprint: String = "",
         ): DesiredState =
             DesiredState(
@@ -66,6 +69,7 @@ data class DesiredState(
                 port = port,
                 projectId = projectId,
                 environmentName = environmentName,
+                applicationId = applicationId,
                 secretsFingerprint = secretsFingerprint,
             )
     }

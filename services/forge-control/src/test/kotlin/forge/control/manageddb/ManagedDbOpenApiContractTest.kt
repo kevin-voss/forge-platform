@@ -35,6 +35,12 @@ class ManagedDbOpenApiContractTest {
         assertTrue(yaml.contains("x-get-db-database") || yaml.contains("getDbDatabase"))
         assertTrue(yaml.contains("secretRef"))
         assertTrue(yaml.contains("/v1/databases/{databaseId}"))
+        assertTrue(yaml.contains("/v1/databases/{databaseId}/attach"))
+        assertTrue(yaml.contains("/v1/databases/attachments/{attachmentId}"))
+        assertTrue(yaml.contains("/v1/applications/{applicationId}/databases"))
+        assertTrue(yaml.contains("x-attach-db-database") || yaml.contains("attachDbDatabase"))
+        assertTrue(yaml.contains("x-detach-db-attachment") || yaml.contains("detachDbAttachment"))
+        assertTrue(yaml.contains("DbAttachment:"))
     }
 
     @Test

@@ -2,6 +2,7 @@ package forge.control.manageddb
 
 import forge.control.http.ApiException
 import forge.control.logging.JsonLog
+import forge.control.repo.ApplicationRepository
 import forge.control.repo.RepositoryException
 import forge.control.service.ProjectService
 import forge.control.service.RelationshipValidator
@@ -22,9 +23,11 @@ class ManagedDbService(
     private val isolation: IsolationGuard,
     private val relationships: RelationshipValidator,
     private val secrets: ManagedDbSecretsClient,
+    private val applications: ApplicationRepository? = null,
+    private val defaultEnvVar: String = "DATABASE_URL",
     private val log: JsonLog? = null,
     private val telemetry: Telemetry = Telemetry.current(),
-) {
+) : AttachmentEnvSource {
     fun createInstance(projectId: UUID, nameRaw: String?): DbInstance {
         relationships.requireProject(projectId)
         val name = ProjectService.validateName(nameRaw)
@@ -230,6 +233,220 @@ class ManagedDbService(
             password = created.password,
         )
 
+    /**
+     * Attach a managed database to an application: compose connection URL,
+     * store it in Secrets, record attachment (secret_ref only in Control).
+     * Never returns or logs the plaintext URL.
+     */
+    fun attach(
+        databaseId: UUID,
+        applicationIdRaw: String?,
+        envVarRaw: String?,
+    ): DbAttachment {
+        val database = store.findDatabaseById(databaseId)
+            ?: throw ApiException.NotFound(
+                "database not found",
+                mapOf("id" to databaseId.toString()),
+            )
+        if (database.status != DbDatabaseStatus.Available) {
+            throw ApiException.Conflict(
+                "database is not available",
+                mapOf("databaseId" to databaseId.toString(), "status" to database.status.wire),
+            )
+        }
+        val instance = getInstance(database.instanceId)
+        val applicationId = parseUuid(applicationIdRaw, "applicationId")
+        val application = applications?.findById(applicationId)
+            ?: throw ApiException.NotFound(
+                "application not found",
+                mapOf("id" to applicationId.toString()),
+            )
+        if (application.projectId != instance.projectId) {
+            // Cross-project attach is denied without leaking the other project's existence.
+            throw ApiException.NotFound(
+                "application not found",
+                mapOf("id" to applicationId.toString()),
+            )
+        }
+        val envVar = resolveEnvVar(envVarRaw)
+        val credential = store.findActiveCredential(databaseId)
+            ?: throw ApiException.Conflict(
+                "database has no active credential",
+                mapOf("databaseId" to databaseId.toString()),
+            )
+        val secretRefCred = credential.secretRef
+            ?: throw ApiException.Conflict(
+                "database credential has no secret_ref",
+                mapOf("databaseId" to databaseId.toString()),
+            )
+        val host = instance.host
+            ?: throw ApiException.Conflict(
+                "database instance has no host",
+                mapOf("instanceId" to instance.id.toString()),
+            )
+        val port = instance.port
+            ?: throw ApiException.Conflict(
+                "database instance has no port",
+                mapOf("instanceId" to instance.id.toString()),
+            )
+        val password = try {
+            secrets.getSecret(secretRefCred)
+        } catch (e: ManagedDbSecretsException) {
+            throw ApiException.BadRequest(
+                "failed to read credential secret: ${e.message}",
+                mapOf("databaseId" to databaseId.toString()),
+            )
+        } ?: throw ApiException.Conflict(
+            "credential secret missing in Secrets",
+            mapOf("databaseId" to databaseId.toString()),
+        )
+        val url = ConnectionUrl.compose(
+            username = credential.username,
+            password = password,
+            host = host,
+            port = port,
+            database = database.name,
+        )
+        isolation.assertNotControlDatabase(url)
+
+        val attachmentId = UUID.randomUUID()
+        val urlSecretName = "managed-db-url-$attachmentId"
+        val urlSecretRef = try {
+            secrets.putSecret(instance.projectId, urlSecretName, url)
+        } catch (e: ManagedDbSecretsException) {
+            throw ApiException.BadRequest(
+                "failed to store connection URL secret: ${e.message}",
+                mapOf("databaseId" to databaseId.toString()),
+            )
+        }
+
+        val created = try {
+            store.createAttachment(
+                id = attachmentId,
+                databaseId = databaseId,
+                applicationId = applicationId,
+                envVar = envVar,
+                secretRef = urlSecretRef,
+            )
+        } catch (e: RepositoryException.Conflict) {
+            try {
+                secrets.deleteSecret(urlSecretRef)
+            } catch (_: Exception) {
+                // best effort
+            }
+            throw ApiException.Conflict(
+                "database already attached to application",
+                mapOf(
+                    "databaseId" to databaseId.toString(),
+                    "applicationId" to applicationId.toString(),
+                ),
+            )
+        } catch (e: RepositoryException.ConstraintViolation) {
+            try {
+                secrets.deleteSecret(urlSecretRef)
+            } catch (_: Exception) {
+                // best effort
+            }
+            relationships.requireApplication(applicationId)
+            throw ApiException.BadRequest(e.message ?: "constraint violation")
+        } catch (e: RepositoryException) {
+            try {
+                secrets.deleteSecret(urlSecretRef)
+            } catch (_: Exception) {
+                // best effort
+            }
+            throw mapRepo(e)
+        }
+
+        telemetry.recordManagedDbAttachment()
+        log?.info(
+            "managed db attached",
+            "attachment_id" to created.id,
+            "database_id" to databaseId,
+            "application_id" to applicationId,
+            "env_var" to envVar,
+            "secret_ref" to created.secretRef,
+        )
+        return created
+    }
+
+    fun detach(attachmentId: UUID) {
+        val existing = store.findAttachmentById(attachmentId)
+            ?: throw ApiException.NotFound(
+                "attachment not found",
+                mapOf("id" to attachmentId.toString()),
+            )
+        store.deleteAttachment(attachmentId)
+        existing.secretRef?.let { ref ->
+            try {
+                secrets.deleteSecret(ref)
+            } catch (_: Exception) {
+                // Detach must succeed even if Secrets cleanup fails; next deploy won't inject.
+            }
+        }
+        log?.info(
+            "managed db detached",
+            "attachment_id" to attachmentId,
+            "database_id" to existing.databaseId,
+            "application_id" to existing.applicationId,
+            "env_var" to existing.envVar,
+        )
+    }
+
+    fun listAttachmentsForApplication(applicationId: UUID): List<DbAttachmentResponse> {
+        relationships.requireApplication(applicationId)
+        return store.listAttachmentsByApplication(applicationId).map { it.toResponse() }
+    }
+
+    fun getAttachment(attachmentId: UUID): DbAttachment =
+        store.findAttachmentById(attachmentId)
+            ?: throw ApiException.NotFound(
+                "attachment not found",
+                mapOf("id" to attachmentId.toString()),
+            )
+
+    /**
+     * Resolve attached connection URL env vars for Runtime injection.
+     * Holds deploy when a required attachment secret cannot be read.
+     */
+    override fun resolveForApplication(applicationId: String): AttachmentEnvResult {
+        if (applicationId.isBlank()) return AttachmentEnvResult.Empty
+        val appId = try {
+            UUID.fromString(applicationId)
+        } catch (_: IllegalArgumentException) {
+            return AttachmentEnvResult.Empty
+        }
+        val attachments = store.listAttachmentsByApplication(appId)
+        if (attachments.isEmpty()) return AttachmentEnvResult.Empty
+
+        val env = linkedMapOf<String, String>()
+        val refs = mutableListOf<String>()
+        for (attachment in attachments) {
+            val ref = attachment.secretRef
+            if (ref.isNullOrBlank()) {
+                return AttachmentEnvResult.Hold(
+                    "attachment_missing_secret_ref:${attachment.id}",
+                )
+            }
+            val value = try {
+                secrets.getSecret(ref)
+            } catch (e: ManagedDbSecretsException) {
+                return AttachmentEnvResult.Hold(
+                    "attachment_secret_unavailable:${attachment.id}:${e.message}",
+                )
+            }
+            if (value.isNullOrBlank()) {
+                return AttachmentEnvResult.Hold(
+                    "attachment_secret_missing:${attachment.id}",
+                )
+            }
+            env[attachment.envVar] = value
+            refs += ref
+        }
+        val fingerprint = refs.sorted().joinToString("|")
+        return AttachmentEnvResult.Ready(env = env, fingerprint = fingerprint)
+    }
+
     /** Test/helper: refuse assigning Control's JDBC URL as a product endpoint. */
     fun assertEndpointAllowed(endpointRef: String?) {
         try {
@@ -304,6 +521,32 @@ class ManagedDbService(
         return name
     }
 
+    private fun resolveEnvVar(envVarRaw: String?): String {
+        val raw = envVarRaw?.trim().orEmpty().ifEmpty { defaultEnvVar.trim() }
+        if (raw.isEmpty()) {
+            throw ApiException.BadRequest("env_var is required", mapOf("field" to "envVar"))
+        }
+        if (!ENV_VAR_PATTERN.matches(raw)) {
+            throw ApiException.BadRequest(
+                "env_var must match [A-Za-z_][A-Za-z0-9_]*",
+                mapOf("field" to "envVar"),
+            )
+        }
+        return raw
+    }
+
+    private fun parseUuid(raw: String?, field: String): UUID {
+        val value = raw?.trim().orEmpty()
+        if (value.isEmpty()) {
+            throw ApiException.BadRequest("$field is required", mapOf("field" to field))
+        }
+        return try {
+            UUID.fromString(value)
+        } catch (_: IllegalArgumentException) {
+            throw ApiException.BadRequest("invalid UUID for $field", mapOf("field" to field))
+        }
+    }
+
     private fun mapRepo(e: RepositoryException): ApiException =
         when (e) {
             is RepositoryException.Conflict -> ApiException.Conflict(e.message ?: "conflict")
@@ -311,4 +554,8 @@ class ManagedDbService(
             is RepositoryException.ConstraintViolation ->
                 ApiException.BadRequest(e.message ?: "constraint violation")
         }
+
+    companion object {
+        private val ENV_VAR_PATTERN = Regex("^[A-Za-z_][A-Za-z0-9_]*$")
+    }
 }

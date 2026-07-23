@@ -1,6 +1,9 @@
 package forge.control.reconcile
 
 import forge.control.logging.JsonLog
+import forge.control.manageddb.AttachmentEnvResult
+import forge.control.manageddb.AttachmentEnvSource
+import forge.control.manageddb.NoOpAttachmentEnvSource
 import forge.control.scheduler.PlaceResult
 import forge.control.scheduler.PlacementService
 import forge.control.scheduler.StaleReplicaFencer
@@ -52,6 +55,7 @@ class Reconciler(
     private val staleReplicaFencer: StaleReplicaFencer? = null,
     private val secretsClient: SecretsClient = NoOpSecretsClient,
     private val injectMaskInLogs: Boolean = true,
+    private val attachmentEnvSource: AttachmentEnvSource = NoOpAttachmentEnvSource,
 ) {
     private val waitStartedAt = ConcurrentHashMap<String, Long>()
 
@@ -242,29 +246,47 @@ class Reconciler(
     }
 
     /**
-     * Fetch resolved secrets/config for the service. Holds deploy on missing
-     * required bindings or Secrets unavailability. Never persists plaintext.
+     * Fetch resolved secrets/config for the service and merge managed-DB
+     * attachment URLs. Holds deploy on missing required bindings, attachment
+     * secret failure, or Secrets unavailability. Never persists plaintext.
      */
     private fun resolveInjectEnv(desired: DesiredState): InjectOutcome {
-        if (desired.projectId.isBlank() || desired.environmentName.isBlank()) {
-            return InjectOutcome.Ready(
+        val base = if (desired.projectId.isBlank() || desired.environmentName.isBlank()) {
+            SecretsResolveResult.Ok(
                 ResolvedEnvBundle(env = emptyMap(), versionFingerprint = desired.secretsFingerprint),
             )
-        }
-        return when (
-            val result = secretsClient.resolve(
+        } else {
+            secretsClient.resolve(
                 projectId = desired.projectId,
                 environment = desired.environmentName,
                 service = desired.serviceSlug,
             )
-        ) {
-            is SecretsResolveResult.Ok -> InjectOutcome.Ready(result.bundle)
+        }
+        val baseBundle = when (base) {
+            is SecretsResolveResult.Ok -> base.bundle
             is SecretsResolveResult.Missing ->
-                InjectOutcome.Hold("missing_secrets:${result.detail}")
+                return InjectOutcome.Hold("missing_secrets:${base.detail}")
             is SecretsResolveResult.Unavailable ->
-                InjectOutcome.Hold("secrets_unavailable:${result.detail}")
+                return InjectOutcome.Hold("secrets_unavailable:${base.detail}")
             is SecretsResolveResult.Failed ->
-                InjectOutcome.Hold("secrets_resolve_failed:${result.detail}")
+                return InjectOutcome.Hold("secrets_resolve_failed:${base.detail}")
+        }
+
+        val attachment = attachmentEnvSource.resolveForApplication(desired.applicationId)
+        return when (attachment) {
+            is AttachmentEnvResult.Empty -> InjectOutcome.Ready(baseBundle)
+            is AttachmentEnvResult.Hold ->
+                InjectOutcome.Hold("managed_db_attach:${attachment.detail}")
+            is AttachmentEnvResult.Ready -> {
+                // Attachment env vars win so DATABASE_URL comes from the managed DB.
+                val merged = baseBundle.env + attachment.env
+                val fingerprint = listOf(baseBundle.versionFingerprint, attachment.fingerprint)
+                    .filter { it.isNotBlank() }
+                    .joinToString(":")
+                InjectOutcome.Ready(
+                    ResolvedEnvBundle(env = merged, versionFingerprint = fingerprint),
+                )
+            }
         }
     }
 

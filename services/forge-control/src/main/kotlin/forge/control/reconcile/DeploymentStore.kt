@@ -59,6 +59,7 @@ class RepositoryDeploymentStore(
             timeoutOverride = rolloutTimeoutOverride,
             projectId = projectId,
             environmentName = environment?.name.orEmpty(),
+            applicationId = service?.applicationId?.toString().orEmpty(),
         )
     }
 }
@@ -69,6 +70,7 @@ fun Deployment.toDesiredState(
     timeoutOverride: Int? = null,
     projectId: String = "",
     environmentName: String = "",
+    applicationId: String = "",
 ): DesiredState =
     DesiredState.of(
         deploymentId = id,
@@ -81,4 +83,5 @@ fun Deployment.toDesiredState(
         port = service?.port ?: 8080,
         projectId = projectId,
         environmentName = environmentName,
+        applicationId = applicationId.ifEmpty { service?.applicationId?.toString().orEmpty() },
     )

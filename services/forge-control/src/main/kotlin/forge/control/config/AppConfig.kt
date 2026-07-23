@@ -60,6 +60,8 @@ data class AppConfig(
     val dbPostgresImage: String = "postgres:16",
     /** Host clients use to reach published product DB ports (usually 127.0.0.1). */
     val dbEndpointHost: String = "127.0.0.1",
+    /** Default env var name when attaching a managed database (e.g. DATABASE_URL). */
+    val dbDefaultEnvVar: String = "DATABASE_URL",
 )
 
 fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
@@ -415,6 +417,13 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
     if (dbEndpointHost.isBlank()) {
         throw IllegalArgumentException("FORGE_DB_ENDPOINT_HOST must not be blank")
     }
+    val dbDefaultEnvVar = env["FORGE_DB_DEFAULT_ENV_VAR"]?.trim().orEmpty()
+        .ifEmpty { "DATABASE_URL" }
+    if (!Regex("^[A-Za-z_][A-Za-z0-9_]*$").matches(dbDefaultEnvVar)) {
+        throw IllegalArgumentException(
+            "FORGE_DB_DEFAULT_ENV_VAR must match [A-Za-z_][A-Za-z0-9_]*, got '$dbDefaultEnvVar'",
+        )
+    }
 
     return AppConfig(
         port = port,
@@ -483,5 +492,6 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         dbManagedNetwork = dbManagedNetwork,
         dbPostgresImage = dbPostgresImage,
         dbEndpointHost = dbEndpointHost,
+        dbDefaultEnvVar = dbDefaultEnvVar,
     )
 }

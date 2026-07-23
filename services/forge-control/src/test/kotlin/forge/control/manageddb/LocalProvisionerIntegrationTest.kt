@@ -90,6 +90,42 @@ class LocalProvisionerIntegrationTest {
     }
 
     @Test
+    fun composedConnectionUrlConnectsAndRunsQuery() {
+        assumeTrue(dockerAvailable(), "docker not available")
+        val id = UUID.randomUUID()
+        created += id
+        val inst = provisioner.createInstance(id, UUID.randomUUID(), "attach-url")
+        val password = CredentialGenerator.password()
+        val user = "attach_user"
+        val dbName = "attach_db"
+        val db = provisioner.createDatabaseWithRole(id, dbName, user, password)
+        val url = ConnectionUrl.compose(
+            username = user,
+            password = password,
+            host = db.host!!,
+            port = db.port!!,
+            database = dbName,
+        )
+        // jdbc:postgresql://host:port/db with user/password from URL parts
+        DriverManager.getConnection(
+            "jdbc:postgresql://${db.host}:${db.port}/$dbName",
+            user,
+            password,
+        ).use { conn ->
+            conn.createStatement().use { st ->
+                st.executeQuery("SELECT 1").use { rs ->
+                    assertTrue(rs.next())
+                    assertTrue(rs.getInt(1) == 1)
+                }
+            }
+        }
+        assertTrue(url.startsWith("postgresql://"))
+        assertTrue(url.contains(user))
+        assertTrue(!isolation.isControlDatabase(url))
+        assertNotNull(inst.containerId)
+    }
+
+    @Test
     fun badImageFailsAndCleansUp() {
         assumeTrue(dockerAvailable(), "docker not available")
         val bad = LocalProvisioner(

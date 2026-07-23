@@ -37,6 +37,7 @@ enum class ScopeKind {
     Deployment,
     DbInstance,
     DbDatabase,
+    DbAttachment,
 }
 
 class RepositoryProjectScopeResolver(
@@ -64,6 +65,11 @@ class RepositoryProjectScopeResolver(
             ScopeKind.DbInstance -> dbInstances?.findInstanceById(uuid)?.projectId?.toString()
             ScopeKind.DbDatabase -> {
                 val database = dbInstances?.findDatabaseById(uuid) ?: return null
+                dbInstances.findInstanceById(database.instanceId)?.projectId?.toString()
+            }
+            ScopeKind.DbAttachment -> {
+                val attachment = dbInstances?.findAttachmentById(uuid) ?: return null
+                val database = dbInstances.findDatabaseById(attachment.databaseId) ?: return null
                 dbInstances.findInstanceById(database.instanceId)?.projectId?.toString()
             }
         }
@@ -212,6 +218,28 @@ class RouteActionMap(
             }
         }
 
+        match(m, p, DB_DATABASE_ATTACH)?.let { id ->
+            return when (m) {
+                "POST" -> authorize("database.write", ScopeKind.DbDatabase, id)
+                else -> authorize("database.write", ScopeKind.DbDatabase, id)
+            }
+        }
+
+        match(m, p, DB_ATTACHMENT_ITEM)?.let { id ->
+            return when (m) {
+                "DELETE" -> authorize("database.write", ScopeKind.DbAttachment, id)
+                "GET" -> authorize("database.read", ScopeKind.DbAttachment, id)
+                else -> authorize("database.write", ScopeKind.DbAttachment, id)
+            }
+        }
+
+        match(m, p, APPLICATION_DATABASES)?.let { id ->
+            return when (m) {
+                "GET" -> authorize("application.read", ScopeKind.Application, id)
+                else -> authorize("application.read", ScopeKind.Application, id)
+            }
+        }
+
         match(m, p, DB_DATABASE_ITEM)?.let { id ->
             return when (m) {
                 "GET" -> authorize("database.read", ScopeKind.DbDatabase, id)
@@ -268,8 +296,15 @@ class RouteActionMap(
         private val DB_INSTANCE_ITEM = Pattern(Regex("^/v1/databases/instances/($UUID_OR_ID)$"))
         private val DB_INSTANCE_DATABASES =
             Pattern(Regex("^/v1/databases/instances/($UUID_OR_ID)/databases$"))
-        // Exclude the "instances" collection segment from bare database ids.
-        private val DB_DATABASE_ITEM = Pattern(Regex("^/v1/databases/(?!instances(?:/|$))($UUID_OR_ID)$"))
+        // Exclude the "instances" / "attachments" collection segments from bare database ids.
+        private val DB_DATABASE_ITEM =
+            Pattern(Regex("^/v1/databases/(?!instances(?:/|$)|attachments(?:/|$))($UUID_OR_ID)$"))
+        private val DB_DATABASE_ATTACH =
+            Pattern(Regex("^/v1/databases/(?!instances(?:/|$)|attachments(?:/|$))($UUID_OR_ID)/attach$"))
+        private val DB_ATTACHMENT_ITEM =
+            Pattern(Regex("^/v1/databases/attachments/($UUID_OR_ID)$"))
+        private val APPLICATION_DATABASES =
+            Pattern(Regex("^/v1/applications/($UUID_OR_ID)/databases$"))
     }
 }
 

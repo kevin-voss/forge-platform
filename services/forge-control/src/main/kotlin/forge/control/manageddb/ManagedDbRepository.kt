@@ -52,6 +52,19 @@ interface ManagedDbRepository {
     ): DbCredential
 
     fun findActiveCredential(databaseId: UUID): DbCredential?
+
+    fun createAttachment(
+        databaseId: UUID,
+        applicationId: UUID,
+        envVar: String,
+        secretRef: String?,
+        id: UUID = UUID.randomUUID(),
+    ): DbAttachment
+
+    fun findAttachmentById(id: UUID): DbAttachment?
+    fun listAttachmentsByApplication(applicationId: UUID): List<DbAttachment>
+    fun deleteAttachment(id: UUID)
+
     fun deleteDatabase(id: UUID)
     fun deleteCredential(id: UUID)
 }
@@ -340,6 +353,87 @@ class JdbcManagedDbRepository(
         }
     }
 
+    override fun createAttachment(
+        databaseId: UUID,
+        applicationId: UUID,
+        envVar: String,
+        secretRef: String?,
+        id: UUID,
+    ): DbAttachment = runSql {
+        val now = Instant.now()
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                INSERT INTO db_attachment (id, database_id, application_id, env_var, secret_ref, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, id)
+                ps.setObject(2, databaseId)
+                ps.setObject(3, applicationId)
+                ps.setString(4, envVar)
+                ps.setString(5, secretRef)
+                ps.setTimestamp(6, java.sql.Timestamp.from(now))
+                ps.executeUpdate()
+            }
+        }
+        DbAttachment(
+            id = id,
+            databaseId = databaseId,
+            applicationId = applicationId,
+            envVar = envVar,
+            secretRef = secretRef,
+            createdAt = now,
+        )
+    }
+
+    override fun findAttachmentById(id: UUID): DbAttachment? = runSql {
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                SELECT id, database_id, application_id, env_var, secret_ref, created_at
+                FROM db_attachment WHERE id = ?
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, id)
+                ps.executeQuery().use { rs ->
+                    if (rs.next()) mapAttachment(rs) else null
+                }
+            }
+        }
+    }
+
+    override fun listAttachmentsByApplication(applicationId: UUID): List<DbAttachment> = runSql {
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                SELECT id, database_id, application_id, env_var, secret_ref, created_at
+                FROM db_attachment WHERE application_id = ? ORDER BY created_at
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, applicationId)
+                ps.executeQuery().use { rs ->
+                    buildList {
+                        while (rs.next()) add(mapAttachment(rs))
+                    }
+                }
+            }
+        }
+    }
+
+    override fun deleteAttachment(id: UUID) {
+        runSql {
+            dataSource.withConnection { conn ->
+                conn.prepareStatement("DELETE FROM db_attachment WHERE id = ?").use { ps ->
+                    ps.setObject(1, id)
+                    if (ps.executeUpdate() == 0) {
+                        throw RepositoryException.NotFound("db_attachment", id)
+                    }
+                }
+            }
+        }
+    }
+
     override fun deleteDatabase(id: UUID) {
         runSql {
             dataSource.withConnection { conn ->
@@ -386,6 +480,16 @@ class JdbcManagedDbRepository(
             name = rs.getString("name"),
             status = DbDatabaseStatus.parse(rs.getString("status")),
             statusReason = rs.getString("status_reason"),
+            createdAt = rs.instant("created_at"),
+        )
+
+    private fun mapAttachment(rs: java.sql.ResultSet): DbAttachment =
+        DbAttachment(
+            id = rs.uuid("id"),
+            databaseId = rs.uuid("database_id"),
+            applicationId = rs.uuid("application_id"),
+            envVar = rs.getString("env_var"),
+            secretRef = rs.getString("secret_ref"),
             createdAt = rs.instant("created_at"),
         )
 }

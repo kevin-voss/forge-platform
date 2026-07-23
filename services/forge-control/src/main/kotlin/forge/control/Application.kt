@@ -185,6 +185,8 @@ fun main() {
         isolation = isolationGuard,
         relationships = relationships,
         secrets = dbSecretsClient,
+        applications = applicationRepo,
+        defaultEnvVar = cfg.dbDefaultEnvVar,
         log = log,
         telemetry = telemetry,
     )
@@ -320,6 +322,7 @@ fun main() {
         staleReplicaFencer = staleReplicaFencer,
         secretsClient = secretsClient,
         injectMaskInLogs = cfg.injectMaskInLogs,
+        attachmentEnvSource = managedDbService,
     )
     val startupRecovery = StartupRecovery(
         deploymentStore = deploymentStore,

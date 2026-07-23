@@ -67,6 +67,7 @@ class Telemetry private constructor(
     private val managedDbInstances: LongCounter,
     private val managedDbProvisionDuration: DoubleHistogram,
     private val managedDbProvisionErrors: LongCounter,
+    private val managedDbAttachments: LongCounter,
     private val sdk: OpenTelemetrySdk?,
 ) : AutoCloseable {
     val enabled: Boolean = sdk != null
@@ -189,6 +190,10 @@ class Telemetry private constructor(
             1,
             Attributes.of(AttributeKey.stringKey("op"), op),
         )
+    }
+
+    fun recordManagedDbAttachment() {
+        managedDbAttachments.add(1)
     }
 
     fun recordReconcileTick(planActions: Int, healthy: Boolean) {
@@ -391,6 +396,9 @@ class Telemetry private constructor(
                     .build(),
                 managedDbProvisionErrors = meter
                     .counterBuilder("managed_db_provision_errors_total")
+                    .build(),
+                managedDbAttachments = meter
+                    .counterBuilder("managed_db_attachments_total")
                     .build(),
                 sdk = sdk,
             )

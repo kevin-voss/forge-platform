@@ -14,6 +14,32 @@ data class CreateDbDatabaseRequest(
 )
 
 @Serializable
+data class AttachDatabaseRequest(
+    val applicationId: String? = null,
+    val envVar: String? = null,
+)
+
+@Serializable
+data class DbAttachmentResponse(
+    val id: String,
+    val databaseId: String,
+    val applicationId: String,
+    val envVar: String,
+    val secretRef: String? = null,
+    val createdAt: String,
+)
+
+fun DbAttachment.toResponse(): DbAttachmentResponse =
+    DbAttachmentResponse(
+        id = id.toString(),
+        databaseId = databaseId.toString(),
+        applicationId = applicationId.toString(),
+        envVar = envVar,
+        secretRef = secretRef,
+        createdAt = createdAt.toString(),
+    )
+
+@Serializable
 data class DbInstanceResponse(
     val id: String,
     val projectId: String,
