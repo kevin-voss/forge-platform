@@ -54,6 +54,12 @@ sealed class ApiException(
         code: String = "forbidden",
     ) : ApiException(HttpStatusCode.Forbidden, code, message, details)
 
+    class Gone(
+        message: String,
+        details: Map<String, String>? = null,
+        code: String = "gone",
+    ) : ApiException(HttpStatusCode.Gone, code, message, details)
+
     class ServiceUnavailable(
         message: String,
         details: Map<String, String>? = null,

@@ -33,7 +33,7 @@ attached databases return `409` until detached. Cross-project backup/restore
 returns `404`. Product DBs are isolated from Control's own JDBC connection;
 plaintext URLs never appear in Control logs or API responses.
 
-A declarative resource API (`20.01`–`20.04`) stores Kubernetes-style envelopes
+A declarative resource API (`20.01`–`20.05`) stores Kubernetes-style envelopes
 (`apiVersion`/`kind`/`metadata`/`spec`/`status`) in `control.resources` and
 exposes one generic CRUD + list surface dispatched by `{plural}` + scope
 (`Cluster` / `Project` / `Environment`). Writes use `resourceVersion` optimistic
@@ -41,9 +41,13 @@ concurrency (`409 resource_version_conflict`); `PATCH` accepts merge-patch and
 JSON Patch. Controllers write status via `PUT …/{name}/status` (`20.03`).
 Collection `GET` supports `labelSelector`, `phase`, `namePrefix`, and cursor
 pagination (`limit`/`cursor`); the list envelope's `resourceVersion` is the
-matched-set high-water mark for a subsequent watch (`20.05`). Kill switch:
-`FORGE_RESOURCE_API_ENABLED` (default `true`). A temporary `Widget` fixture kind
-exercises the routes until product kinds land in `20.07`.
+matched-set high-water mark for `GET /v1/watch/{plural}?since=` (`20.05`).
+Mutations append one durable row to `control.resource_events` in the same
+transaction; watch streams replay retained events then live-tail over SSE
+(`text/event-stream`), returning `410 resource_version_too_old` when `since` is
+below the retention window. Kill switch: `FORGE_RESOURCE_API_ENABLED` (default
+`true`). A temporary `Widget` fixture kind exercises the routes until product
+kinds land in `20.07`.
 
 A reconciliation controller (`07.01`–`07.05`) periodically diffs desired vs
 actual replica state, converges via Runtime, performs rolling updates, and on
@@ -177,6 +181,9 @@ make dev
 | `FORGE_RESOURCE_DEFAULT_ORGANIZATION` | `default` | Default `metadata.organization` until real tenancy |
 | `FORGE_LIST_DEFAULT_PAGE_SIZE` | `50` | Default page size for declarative resource list (`20.04`) |
 | `FORGE_LIST_MAX_PAGE_SIZE` | `200` | Max page size; larger `limit` values are clamped |
+| `FORGE_RESOURCE_EVENT_RETENTION_HOURS` | `24` | How long `resource_events` are retained for watch replay (`20.05`) |
+| `FORGE_WATCH_HEARTBEAT_SECONDS` | `15` | SSE comment heartbeat interval on idle watch streams |
+| `FORGE_WATCH_MAX_CONNECTIONS` | `200` | Max concurrent `/v1/watch/{plural}` connections |
 
 See `.env.example`.
 

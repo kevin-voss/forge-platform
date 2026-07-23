@@ -76,6 +76,9 @@ class AppConfigTest {
         assertEquals(true, cfg.statusControllerHeaderEnforced)
         assertEquals(50, cfg.listDefaultPageSize)
         assertEquals(200, cfg.listMaxPageSize)
+        assertEquals(24L, cfg.resourceEventRetentionHours)
+        assertEquals(15L, cfg.watchHeartbeatSeconds)
+        assertEquals(200, cfg.watchMaxConnections)
     }
 
     @Test

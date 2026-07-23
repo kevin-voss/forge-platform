@@ -87,6 +87,12 @@ data class AppConfig(
     val listDefaultPageSize: Int = 50,
     /** Max page size for declarative resource list; larger requests are clamped. */
     val listMaxPageSize: Int = 200,
+    /** How long resource_events rows are retained for watch replay (hours). */
+    val resourceEventRetentionHours: Long = 24,
+    /** SSE comment heartbeat interval for idle watch streams (seconds). */
+    val watchHeartbeatSeconds: Long = 15,
+    /** Max concurrent GET /v1/watch/{plural} connections. */
+    val watchMaxConnections: Int = 200,
 )
 
 fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
@@ -536,6 +542,28 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         )
     }
 
+    val resourceEventRetentionHours = env["FORGE_RESOURCE_EVENT_RETENTION_HOURS"]?.trim().orEmpty()
+        .ifEmpty { "24" }
+        .toLongOrNull()
+        ?.takeIf { it >= 1 }
+        ?: throw IllegalArgumentException(
+            "FORGE_RESOURCE_EVENT_RETENTION_HOURS must be a positive integer",
+        )
+    val watchHeartbeatSeconds = env["FORGE_WATCH_HEARTBEAT_SECONDS"]?.trim().orEmpty()
+        .ifEmpty { "15" }
+        .toLongOrNull()
+        ?.takeIf { it >= 1 }
+        ?: throw IllegalArgumentException(
+            "FORGE_WATCH_HEARTBEAT_SECONDS must be a positive integer",
+        )
+    val watchMaxConnections = env["FORGE_WATCH_MAX_CONNECTIONS"]?.trim().orEmpty()
+        .ifEmpty { "200" }
+        .toIntOrNull()
+        ?.takeIf { it >= 1 }
+        ?: throw IllegalArgumentException(
+            "FORGE_WATCH_MAX_CONNECTIONS must be a positive integer",
+        )
+
     return AppConfig(
         port = port,
         serviceName = env["FORGE_SERVICE_NAME"]?.trim().orEmpty().ifEmpty { "forge-control" },
@@ -615,5 +643,8 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         statusControllerHeaderEnforced = statusControllerHeaderEnforced,
         listDefaultPageSize = listDefaultPageSize,
         listMaxPageSize = listMaxPageSize,
+        resourceEventRetentionHours = resourceEventRetentionHours,
+        watchHeartbeatSeconds = watchHeartbeatSeconds,
+        watchMaxConnections = watchMaxConnections,
     )
 }

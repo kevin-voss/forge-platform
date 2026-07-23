@@ -25,6 +25,7 @@ import forge.control.service.RelationshipValidator
 import forge.control.service.ServiceService
 import io.ktor.client.call.body
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.accept
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -140,9 +141,41 @@ class ResourceApiIntegrationTest {
             ),
             idempotency = JdbcIdempotencyStore(db.dataSource),
             resources = JdbcResourceRepository(db.dataSource),
+            resourceEvents = JdbcResourceEventRepository(db.dataSource),
             kindRegistry = buildKindRegistry(),
         )
     }
+
+    private fun countEventsForResource(resourceId: String): Int =
+        db.dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "SELECT COUNT(*) FROM resource_events WHERE resource_id = ?",
+            ).use { ps ->
+                ps.setString(1, resourceId)
+                ps.executeQuery().use { rs ->
+                    check(rs.next())
+                    rs.getInt(1)
+                }
+            }
+        }
+
+    private fun eventTypesForResource(resourceId: String): List<String> =
+        db.dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                """
+                SELECT event_type FROM resource_events
+                WHERE resource_id = ?
+                ORDER BY resource_version ASC
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setString(1, resourceId)
+                ps.executeQuery().use { rs ->
+                    buildList {
+                        while (rs.next()) add(rs.getString(1))
+                    }
+                }
+            }
+        }
 
     private fun isPostgresReachable(): Boolean =
         try {
@@ -652,5 +685,168 @@ class ResourceApiIntegrationTest {
         val badCursor = client.get("${basePath()}?cursor=not-a-cursor")
         assertEquals(HttpStatusCode.BadRequest, badCursor.status)
         assertEquals("invalid_cursor", badCursor.body<ErrorEnvelope>().error.code)
+    }
+
+    @Test
+    @Order(12)
+    fun mutationsEmitExactlyOneDurableEventEach() = withApp {
+        val client = jsonClient()
+        val name = "evt-${UUID.randomUUID().toString().take(8)}"
+        val created = client.post(basePath()) {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put("apiVersion", JsonPrimitive("forge.dev/v1"))
+                    put("kind", JsonPrimitive("Widget"))
+                    put("metadata", buildJsonObject { put("name", JsonPrimitive(name)) })
+                    put("spec", buildJsonObject { put("size", JsonPrimitive("s")) })
+                },
+            )
+        }.body<ResourceEnvelopeResponse>()
+        assertEquals(1, countEventsForResource(created.metadata.id))
+
+        val patched = client.patch("${basePath()}/$name") {
+            contentType(ContentType.parse("application/merge-patch+json"))
+            setBody(
+                buildJsonObject {
+                    put(
+                        "metadata",
+                        buildJsonObject {
+                            put("resourceVersion", JsonPrimitive(created.metadata.resourceVersion))
+                        },
+                    )
+                    put("spec", buildJsonObject { put("size", JsonPrimitive("m")) })
+                },
+            )
+        }.body<ResourceEnvelopeResponse>()
+        assertEquals(2, countEventsForResource(created.metadata.id))
+
+        client.put("${basePath()}/$name/status") {
+            header("X-Forge-Controller", "widget-controller")
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put(
+                        "metadata",
+                        buildJsonObject {
+                            put("resourceVersion", JsonPrimitive(patched.metadata.resourceVersion))
+                        },
+                    )
+                    put("status", buildJsonObject { put("phase", JsonPrimitive("Ready")) })
+                },
+            )
+        }
+        assertEquals(3, countEventsForResource(created.metadata.id))
+
+        client.delete("${basePath()}/$name")
+        assertEquals(4, countEventsForResource(created.metadata.id))
+        assertEquals(
+            listOf("ADDED", "MODIFIED", "STATUS_MODIFIED", "DELETED"),
+            eventTypesForResource(created.metadata.id),
+        )
+    }
+
+    @Test
+    @Order(13)
+    fun listResourceVersionCanStartWatchWithoutMissedUpdates() = withApp {
+        val client = jsonClient()
+        val name = "watch-${UUID.randomUUID().toString().take(8)}"
+        client.post(basePath()) {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put("apiVersion", JsonPrimitive("forge.dev/v1"))
+                    put("kind", JsonPrimitive("Widget"))
+                    put("metadata", buildJsonObject { put("name", JsonPrimitive(name)) })
+                    put("spec", buildJsonObject { put("size", JsonPrimitive("s")) })
+                },
+            )
+        }
+        val listRv = client.get(basePath()).body<ListEnvelope>().resourceVersion.toLong()
+
+        // Mutation after the list snapshot — must be visible when watching from that RV.
+        val liveName = "live-${UUID.randomUUID().toString().take(8)}"
+        val live = client.post(basePath()) {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put("apiVersion", JsonPrimitive("forge.dev/v1"))
+                    put("kind", JsonPrimitive("Widget"))
+                    put("metadata", buildJsonObject { put("name", JsonPrimitive(liveName)) })
+                    put("spec", buildJsonObject { put("size", JsonPrimitive("l")) })
+                },
+            )
+        }.body<ResourceEnvelopeResponse>()
+        assertTrue(live.metadata.resourceVersion.toLong() > listRv)
+
+        // Replay buffer (same query the SSE watch handler uses) must include the post-list mutation.
+        // (Ktor testApplication cannot complete an open SSE stream, so we assert the watch data path.)
+        val replay = JdbcResourceEventRepository(db.dataSource).listAfter(
+            kind = "Widget",
+            organization = "default",
+            since = listRv,
+        )
+        assertTrue(
+            replay.any {
+                it.eventType == ResourceEventType.ADDED && it.resourceName == liveName
+            },
+            "expected ADDED for $liveName after list resourceVersion=$listRv; got ${replay.map { it.resourceName to it.eventType }}",
+        )
+    }
+
+    @Test
+    @Order(14)
+    fun staleWatchCursorReturns410Gone() = withApp {
+        val client = jsonClient()
+        val first = client.post(basePath()) {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put("apiVersion", JsonPrimitive("forge.dev/v1"))
+                    put("kind", JsonPrimitive("Widget"))
+                    put(
+                        "metadata",
+                        buildJsonObject {
+                            put("name", JsonPrimitive("stale-${UUID.randomUUID().toString().take(8)}"))
+                        },
+                    )
+                    put("spec", buildJsonObject { put("size", JsonPrimitive("s")) })
+                },
+            )
+        }.body<ResourceEnvelopeResponse>()
+        val firstRv = first.metadata.resourceVersion.toLong()
+
+        // Compact away everything at or before this mutation so the retention floor advances.
+        db.dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "DELETE FROM resource_events WHERE resource_version <= ?",
+            ).use { ps ->
+                ps.setLong(1, firstRv)
+                assertTrue(ps.executeUpdate() >= 1)
+            }
+        }
+
+        client.post(basePath()) {
+            contentType(ContentType.Application.Json)
+            setBody(
+                buildJsonObject {
+                    put("apiVersion", JsonPrimitive("forge.dev/v1"))
+                    put("kind", JsonPrimitive("Widget"))
+                    put(
+                        "metadata",
+                        buildJsonObject {
+                            put("name", JsonPrimitive("newer-${UUID.randomUUID().toString().take(8)}"))
+                        },
+                    )
+                    put("spec", buildJsonObject { put("size", JsonPrimitive("m")) })
+                },
+            )
+        }
+
+        val gone = client.get("/v1/watch/widgets?since=0") {
+            accept(ContentType.Text.EventStream)
+        }
+        assertEquals(HttpStatusCode.Gone, gone.status)
+        assertEquals("resource_version_too_old", gone.body<ErrorEnvelope>().error.code)
     }
 }

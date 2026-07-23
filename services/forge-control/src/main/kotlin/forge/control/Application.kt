@@ -75,12 +75,15 @@ import forge.control.repo.JdbcEnvironmentRepository
 import forge.control.repo.JdbcProjectRepository
 import forge.control.repo.JdbcServiceRepository
 import forge.control.repo.JdbcIdempotencyStore
+import forge.control.resource.JdbcResourceEventRepository
 import forge.control.resource.JdbcResourceRepository
 import forge.control.resource.KindDescriptor
 import forge.control.resource.KindRegistry
 import forge.control.resource.ResourceScope
 import forge.control.resource.http.resourceRoutes
 import forge.control.resource.http.statusRoutes
+import forge.control.resource.http.watchRoutes
+import java.util.concurrent.atomic.AtomicInteger
 import forge.control.service.ApplicationService
 import forge.control.service.DeploymentService
 import forge.control.service.EnvironmentService
@@ -411,6 +414,7 @@ fun main() {
         onNodeRegistered = { placementService.drainQueue() },
         managedDb = managedDbService,
         resources = JdbcResourceRepository(db.dataSource),
+        resourceEvents = JdbcResourceEventRepository(db.dataSource),
         kindRegistry = buildKindRegistry(),
     )
 
@@ -707,6 +711,20 @@ fun Application.forgeControlModule(
                         log = log,
                         telemetry = telemetry,
                     )
+                    val resourceEvents = services.resourceEvents
+                    if (resourceEvents != null) {
+                        watchRoutes(
+                            events = resourceEvents,
+                            kinds = kinds,
+                            defaultOrganization = cfg.resourceDefaultOrganization,
+                            retentionHours = cfg.resourceEventRetentionHours,
+                            heartbeatSeconds = cfg.watchHeartbeatSeconds,
+                            maxConnections = cfg.watchMaxConnections,
+                            connectionCounter = AtomicInteger(0),
+                            log = log,
+                            telemetry = telemetry,
+                        )
+                    }
                 }
             }
         }

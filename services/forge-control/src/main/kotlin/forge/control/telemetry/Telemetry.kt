@@ -78,8 +78,11 @@ class Telemetry private constructor(
     private val resourceStatusWrites: LongCounter,
     private val resourceListRequests: LongCounter,
     private val resourceListPageSize: DoubleHistogram,
+    private val resourceEventsEmitted: LongCounter,
     private val resourcesByKind: java.util.concurrent.ConcurrentHashMap<String, AtomicLong>,
     @Suppress("unused") private val resourcesGauge: ObservableLongGauge,
+    private val watchConnectionsByKind: java.util.concurrent.ConcurrentHashMap<String, AtomicLong>,
+    @Suppress("unused") private val watchConnectionsGauge: ObservableLongGauge,
     private val sdk: OpenTelemetrySdk?,
 ) : AutoCloseable {
     val enabled: Boolean = sdk != null
@@ -140,6 +143,26 @@ class Telemetry private constructor(
             pageSize.toDouble(),
             Attributes.of(AttributeKey.stringKey("kind"), kind),
         )
+    }
+
+    fun recordResourceEventEmitted(kind: String, type: String) {
+        resourceEventsEmitted.add(
+            1,
+            Attributes.of(
+                AttributeKey.stringKey("kind"),
+                kind,
+                AttributeKey.stringKey("type"),
+                type,
+            ),
+        )
+    }
+
+    fun watchConnectionOpened(kind: String) {
+        watchConnectionsByKind.computeIfAbsent(kind) { AtomicLong(0) }.incrementAndGet()
+    }
+
+    fun watchConnectionClosed(kind: String) {
+        watchConnectionsByKind.computeIfAbsent(kind) { AtomicLong(0) }.updateAndGet { (it - 1).coerceAtLeast(0) }
     }
 
     fun startServerSpan(parent: Context, name: String, method: String, path: String): Span =
@@ -447,6 +470,7 @@ class Telemetry private constructor(
                     measurement.record(if (sdk != null) upValue.get() else 0)
                 }
             val resourceCounts = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+            val watchCounts = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
             return Telemetry(
                 tracer = openTelemetry.getTracer("forge.control"),
                 requestCount = meter.counterBuilder("http.server.requests").build(),
@@ -527,11 +551,25 @@ class Telemetry private constructor(
                 resourceListPageSize = meter
                     .histogramBuilder("forge_resource_list_page_size")
                     .build(),
+                resourceEventsEmitted = meter
+                    .counterBuilder("forge_resource_events_emitted_total")
+                    .build(),
                 resourcesByKind = resourceCounts,
                 resourcesGauge = meter.gaugeBuilder("forge_resources_total")
                     .ofLongs()
                     .buildWithCallback { measurement ->
                         for ((kind, count) in resourceCounts) {
+                            measurement.record(
+                                count.get(),
+                                Attributes.of(AttributeKey.stringKey("kind"), kind),
+                            )
+                        }
+                    },
+                watchConnectionsByKind = watchCounts,
+                watchConnectionsGauge = meter.gaugeBuilder("forge_resource_watch_connections")
+                    .ofLongs()
+                    .buildWithCallback { measurement ->
+                        for ((kind, count) in watchCounts) {
                             measurement.record(
                                 count.get(),
                                 Attributes.of(AttributeKey.stringKey("kind"), kind),

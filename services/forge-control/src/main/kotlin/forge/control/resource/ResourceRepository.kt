@@ -1,16 +1,26 @@
 package forge.control.resource
 
 import forge.control.http.ApiException
+import forge.control.http.RequestId
 import forge.control.repo.instant
 import forge.control.repo.runSql
 import forge.control.repo.withConnection
+import forge.control.telemetry.Telemetry
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import java.sql.Connection
 import java.sql.ResultSet
 import java.sql.Timestamp
 import java.sql.Types
 import java.time.Instant
 import javax.sql.DataSource
+
+private val eventPayloadJson = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+    explicitNulls = false
+}
 
 /**
  * Storage seam for declarative resources.
@@ -94,11 +104,12 @@ data class ResourceListResult(
 
 class JdbcResourceRepository(
     private val dataSource: DataSource,
+    private val events: ResourceEventRepository = JdbcResourceEventRepository(dataSource),
 ) : ResourceRepository {
     override fun insert(row: NewResourceRow): ResourceRow = runSql {
         val now = Instant.now()
-        dataSource.withConnection { conn ->
-            conn.prepareStatement(
+        dataSource.withTransaction { conn ->
+            val inserted = conn.prepareStatement(
                 """
                 INSERT INTO resources (
                     id, kind, api_version, organization, project, environment, name,
@@ -141,6 +152,8 @@ class JdbcResourceRepository(
                     mapRow(rs)
                 }
             }
+            emitEvent(conn, inserted, ResourceEventType.ADDED)
+            inserted
         }
     }
 
@@ -267,8 +280,8 @@ class JdbcResourceRepository(
         status: JsonObject,
     ): ResourceRow = runSql {
         val now = Instant.now()
-        dataSource.withConnection { conn ->
-            conn.prepareStatement(
+        dataSource.withTransaction { conn ->
+            val updated = conn.prepareStatement(
                 """
                 UPDATE resources
                 SET status = ?::jsonb,
@@ -292,10 +305,12 @@ class JdbcResourceRepository(
                 ps.setString(3, id)
                 ps.setLong(4, expectedVersion)
                 ps.executeQuery().use { rs ->
-                    if (rs.next()) {
-                        return@withConnection mapRow(rs)
-                    }
+                    if (rs.next()) mapRow(rs) else null
                 }
+            }
+            if (updated != null) {
+                emitEvent(conn, updated, ResourceEventType.STATUS_MODIFIED)
+                return@withTransaction updated
             }
             val current = findByIdOn(conn, id)
                 ?: throw ApiException.NotFound(
@@ -309,8 +324,8 @@ class JdbcResourceRepository(
 
     override fun softDelete(id: String): ResourceRow = runSql {
         val now = Instant.now()
-        dataSource.withConnection { conn ->
-            conn.prepareStatement(
+        dataSource.withTransaction { conn ->
+            val deleted = conn.prepareStatement(
                 """
                 UPDATE resources
                 SET deleted_at = ?,
@@ -343,6 +358,8 @@ class JdbcResourceRepository(
                     mapRow(rs)
                 }
             }
+            emitEvent(conn, deleted, ResourceEventType.DELETED)
+            deleted
         }
     }
 
@@ -500,7 +517,7 @@ class JdbcResourceRepository(
         bumpGeneration: Boolean,
     ): ResourceRow = runSql {
         val now = Instant.now()
-        dataSource.withConnection { conn ->
+        dataSource.withTransaction { conn ->
             val sql = buildString {
                 append(
                     """
@@ -532,7 +549,7 @@ class JdbcResourceRepository(
                     """.trimIndent(),
                 )
             }
-            conn.prepareStatement(sql).use { ps ->
+            val updated = conn.prepareStatement(sql).use { ps ->
                 var i = 1
                 ps.setString(i++, labels.encode())
                 ps.setString(i++, annotations.encode())
@@ -547,10 +564,12 @@ class JdbcResourceRepository(
                 ps.setString(i++, id)
                 ps.setLong(i, expectedVersion)
                 ps.executeQuery().use { rs ->
-                    if (rs.next()) {
-                        return@withConnection mapRow(rs)
-                    }
+                    if (rs.next()) mapRow(rs) else null
                 }
+            }
+            if (updated != null) {
+                emitEvent(conn, updated, ResourceEventType.MODIFIED)
+                return@withTransaction updated
             }
             // Version mismatch or missing — distinguish for the caller.
             val current = findByIdOn(conn, id)
@@ -562,6 +581,56 @@ class JdbcResourceRepository(
             throw ResourceVersionGuard.conflict(expectedVersion, current.resourceVersion)
         }
     }
+
+    private fun emitEvent(conn: Connection, row: ResourceRow, type: ResourceEventType) {
+        val payloadEncoded = eventPayloadJson.encodeToString(
+            ResourceEnvelopeResponse.serializer(),
+            row.toResponse(),
+        )
+        events.appendOn(
+            conn,
+            NewResourceEvent(
+                resourceVersion = row.resourceVersion,
+                eventId = Ulid.next("evt"),
+                eventType = type,
+                kind = row.kind,
+                organization = row.organization,
+                project = row.project,
+                environment = row.environment,
+                resourceId = row.id,
+                resourceName = row.name,
+                generation = row.generation,
+                payload = parseJsonObject(payloadEncoded),
+                actor = null,
+                requestId = RequestId.current(),
+            ),
+        )
+        Telemetry.current().recordResourceEventEmitted(row.kind, type.name)
+    }
+
+    private inline fun <T> DataSource.withTransaction(block: (Connection) -> T): T =
+        withConnection { conn ->
+            val previous = conn.autoCommit
+            conn.autoCommit = false
+            try {
+                val result = block(conn)
+                conn.commit()
+                result
+            } catch (e: Exception) {
+                try {
+                    conn.rollback()
+                } catch (_: Exception) {
+                    // Preserve the original failure.
+                }
+                throw e
+            } finally {
+                try {
+                    conn.autoCommit = previous
+                } catch (_: Exception) {
+                    // Connection may already be closed.
+                }
+            }
+        }
 
     private fun findByIdOn(conn: java.sql.Connection, id: String): ResourceRow? =
         conn.prepareStatement(

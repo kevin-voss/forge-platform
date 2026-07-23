@@ -42,6 +42,11 @@ class ResourceOpenApiContractTest {
         assertTrue(yaml.contains("namePrefix"))
         assertTrue(yaml.contains("ResourceList:"))
         assertTrue(yaml.contains("nextCursor"))
+        assertTrue(yaml.contains("/v1/watch/{plural}"))
+        assertTrue(yaml.contains("ResourceWatchEvent:"))
+        assertTrue(yaml.contains("resource_version_too_old"))
+        assertTrue(yaml.contains("x-watch-resources") || yaml.contains("watchResources"))
+        assertTrue(yaml.contains("text/event-stream"))
     }
 
     @Test
