@@ -25,6 +25,23 @@ async fn get(app: axum::Router, path: &str) -> (axum::http::StatusCode, serde_js
     (status, json)
 }
 
+fn base_state(store: Arc<LocalStore>, ready: bool) -> AppState {
+    let meta_path = store.root().join("meta/index.db");
+    AppState {
+        service_name: "forge-memory".into(),
+        service_version: "0.1.0".into(),
+        started_at: Instant::now(),
+        store,
+        ready: Arc::new(AtomicBool::new(ready)),
+        collections: Arc::new(std::sync::Mutex::new(None)),
+        metrics: Arc::new(forge_memory::state::MemoryMetrics::default()),
+        list_page_size: 100,
+        max_dim: 4096,
+        max_metadata_bytes: 65_536,
+        meta_path,
+    }
+}
+
 #[tokio::test]
 async fn ready_200_with_temp_writable_root() {
     let dir = tempdir().unwrap();
@@ -32,13 +49,11 @@ async fn ready_200_with_temp_writable_root() {
     let store = Arc::new(LocalStore::new(&root, dir.path()));
     store.init().await.expect("init");
 
-    let state = AppState {
-        service_name: "forge-memory".into(),
-        service_version: "0.1.0".into(),
-        started_at: Instant::now(),
-        store,
-        ready: Arc::new(AtomicBool::new(false)),
-    };
+    let state = base_state(store, false);
+    state.ensure_collections().expect("meta");
+    state
+        .ready
+        .store(true, std::sync::atomic::Ordering::Relaxed);
     let app = app(state);
     let (status, body) = get(app, "/health/ready").await;
     assert_eq!(status, axum::http::StatusCode::OK);
@@ -55,13 +70,7 @@ async fn ready_503_with_read_only_root() {
     fs::create_dir_all(root.join("meta")).unwrap();
 
     let store = Arc::new(LocalStore::new(&root, dir.path()));
-    let state = AppState {
-        service_name: "forge-memory".into(),
-        service_version: "0.1.0".into(),
-        started_at: Instant::now(),
-        store,
-        ready: Arc::new(AtomicBool::new(true)),
-    };
+    let state = base_state(store, true);
     let app = app(state);
     let (status, body) = get(app, "/health/ready").await;
     assert_eq!(status, axum::http::StatusCode::SERVICE_UNAVAILABLE);

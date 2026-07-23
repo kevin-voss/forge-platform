@@ -55,7 +55,7 @@ make demo DEMO=17
 | Step | Title | Status | Notes |
 |---|---|---|---|
 | [17.01](../steps/17-forge-memory/17.01-skeleton-persistence.md) | Skeleton + persistence | Complete | Rust, health, port 4303, persistence dir |
-| [17.02](../steps/17-forge-memory/17.02-collections-vectors-metadata.md) | Collections + fixed-dim vectors + metadata | Not started | Depends on 17.01 |
+| [17.02](../steps/17-forge-memory/17.02-collections-vectors-metadata.md) | Collections + fixed-dim vectors + metadata | Complete | Depends on 17.01 |
 | [17.03](../steps/17-forge-memory/17.03-upsert-cosine-nn.md) | Upsert + cosine NN query | Not started | Depends on 17.02; brute-force |
 | [17.04](../steps/17-forge-memory/17.04-namespace-acl.md) | Namespace/ACL via Identity project scope | Not started | Depends on 17.03; 09 |
 | [17.05](../steps/17-forge-memory/17.05-models-embed-agents-tool.md) | Models embed + Agents retrieval tool | Not started | Depends on 17.04; 14, 15 |
@@ -78,4 +78,4 @@ make demo DEMO=17
 
 ## Next step to implement
 
-**[17.02](../steps/17-forge-memory/17.02-collections-vectors-metadata.md) — Collections + fixed-dim vectors + metadata**
+**[17.03](../steps/17-forge-memory/17.03-upsert-cosine-nn.md) — Upsert + cosine NN query**

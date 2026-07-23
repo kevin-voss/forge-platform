@@ -88,6 +88,12 @@ mod tests {
             started_at: Instant::now(),
             store,
             ready: Arc::new(AtomicBool::new(ready)),
+            collections: Arc::new(std::sync::Mutex::new(None)),
+            metrics: Arc::new(crate::state::MemoryMetrics::default()),
+            list_page_size: 100,
+            max_dim: 4096,
+            max_metadata_bytes: 65_536,
+            meta_path: root.join("meta/index.db"),
         }
     }
 

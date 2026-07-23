@@ -3,9 +3,9 @@ info:
   title: Forge Memory API
   version: 0.1.0
   description: |
-    Platform semantic vector-memory service (epic 17). Health/identity and durable
-    persistence root from 17.01; collections, upsert, and nearest-neighbor search
-    in later steps.
+    Platform semantic vector-memory service (epic 17). Health/identity, durable
+    persistence root, and collections with fixed-dimension vectors + metadata
+    (17.02). Upsert and nearest-neighbor search land in later steps.
 servers:
   - url: http://127.0.0.1:4303
     description: Local Compose (host port 4303)
@@ -32,7 +32,8 @@ paths:
       summary: Readiness probe
       description: |
         Returns 200 when `FORGE_MEMORY_ROOT` exists, contains `vectors/` and
-        `meta/`, is writable, and is not world-writable; 503 otherwise.
+        `meta/`, is writable, is not world-writable, and the SQLite metadata
+        index is attached; 503 otherwise.
       responses:
         "200":
           description: Ready to receive traffic
@@ -72,7 +73,207 @@ paths:
                 version: 0.1.0
                 uptime_seconds: 12.5
 
+  /v1/collections:
+    post:
+      operationId: createCollection
+      summary: Create a collection
+      description: |
+        Creates a project-scoped collection with a fixed vector dimension and
+        cosine distance. Project context comes from `X-Forge-Project` (dev
+        header until Identity ACL in 17.04).
+      parameters:
+        - $ref: "#/components/parameters/ForgeProjectHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCollectionRequest"
+            example:
+              name: incidents
+              dim: 384
+              distance: cosine
+      responses:
+        "201":
+          description: Collection created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Collection"
+        "400":
+          description: Invalid name, dim, distance, or missing project context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Collection name already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Collection store unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    get:
+      operationId: listCollections
+      summary: List collections for the caller's project
+      parameters:
+        - $ref: "#/components/parameters/ForgeProjectHeader"
+      responses:
+        "200":
+          description: Collections visible to the caller's project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CollectionList"
+        "400":
+          description: Missing project context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/collections/{name}:
+    get:
+      operationId: getCollection
+      summary: Get a collection by name
+      parameters:
+        - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/CollectionName"
+      responses:
+        "200":
+          description: Collection found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Collection"
+        "404":
+          description: Collection not found in the caller's project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: deleteCollection
+      summary: Delete a collection and its records
+      parameters:
+        - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/CollectionName"
+      responses:
+        "204":
+          description: Collection deleted
+        "404":
+          description: Collection not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/collections/{name}/records:
+    get:
+      operationId: listRecords
+      summary: List records in a collection
+      description: |
+        Paginated list of records (`id`, `vector`, `metadata`, optional
+        `document_ref`). Upsert HTTP is added in 17.03; records are stored via
+        the insert-storage primitive.
+      parameters:
+        - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/CollectionName"
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 100
+      responses:
+        "200":
+          description: Page of records
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordList"
+        "404":
+          description: Collection not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/collections/{name}/records/{id}:
+    get:
+      operationId: getRecord
+      summary: Get a record by id
+      parameters:
+        - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/CollectionName"
+        - $ref: "#/components/parameters/RecordId"
+      responses:
+        "200":
+          description: Record found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Record"
+        "404":
+          description: Record or collection not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Dimension mismatch (insert/upsert paths)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
+  parameters:
+    ForgeProjectHeader:
+      name: X-Forge-Project
+      in: header
+      required: true
+      description: |
+        Project id for isolation (dev header). Identity-enforced ACL lands in 17.04.
+      schema:
+        type: string
+        example: proj-a
+    CollectionName:
+      name: name
+      in: path
+      required: true
+      description: Collection name (`a-z0-9_-`, 1–128 characters)
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: '^[a-z0-9][a-z0-9_-]{0,126}[a-z0-9]$|^[a-z0-9]$'
+        example: incidents
+    RecordId:
+      name: id
+      in: path
+      required: true
+      description: Record id (1–256 characters; no path separators)
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
+        example: rec-1
+
   schemas:
     HealthStatus:
       type: object
@@ -102,3 +303,99 @@ components:
           type: number
           format: double
           example: 12.5
+
+    CreateCollectionRequest:
+      type: object
+      required: [name, dim]
+      properties:
+        name:
+          type: string
+          example: incidents
+        dim:
+          type: integer
+          minimum: 1
+          maximum: 4096
+          example: 384
+        distance:
+          type: string
+          enum: [cosine]
+          default: cosine
+
+    Collection:
+      type: object
+      required: [name, project_id, dim, distance, count, created_at]
+      properties:
+        name:
+          type: string
+        project_id:
+          type: string
+        dim:
+          type: integer
+        distance:
+          type: string
+          enum: [cosine]
+        count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    CollectionList:
+      type: object
+      required: [collections]
+      properties:
+        collections:
+          type: array
+          items:
+            $ref: "#/components/schemas/Collection"
+
+    Record:
+      type: object
+      required: [id, vector, metadata]
+      properties:
+        id:
+          type: string
+        vector:
+          type: array
+          items:
+            type: number
+            format: float
+        metadata:
+          type: object
+          additionalProperties: true
+        document_ref:
+          type: string
+          description: Optional Forge Storage pointer
+
+    RecordList:
+      type: object
+      required: [records, offset, limit]
+      properties:
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/Record"
+        offset:
+          type: integer
+        limit:
+          type: integer
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+          enum:
+            - not_found
+            - conflict
+            - invalid
+            - invalid_name
+            - invalid_project
+            - dimension_mismatch
+            - unavailable
+            - corrupt
+            - internal
+          description: Machine-readable error code

@@ -15,6 +15,9 @@ pub struct Config {
     pub allowed_base: PathBuf,
     pub ready_retry_initial: Duration,
     pub ready_retry_max: Duration,
+    pub max_dim: usize,
+    pub list_page_size: usize,
+    pub max_metadata_bytes: usize,
 }
 
 impl Config {
@@ -78,6 +81,19 @@ impl Config {
         let ready_retry_max =
             Duration::from_millis(parse_u64_env("FORGE_MEMORY_READY_RETRY_MAX_MS", 10_000)?);
 
+        let max_dim = parse_u64_env("FORGE_MEMORY_MAX_DIM", 4096)? as usize;
+        if max_dim == 0 {
+            return Err("FORGE_MEMORY_MAX_DIM must be >= 1".into());
+        }
+        let list_page_size = parse_u64_env("FORGE_MEMORY_LIST_PAGE_SIZE", 100)? as usize;
+        if list_page_size == 0 {
+            return Err("FORGE_MEMORY_LIST_PAGE_SIZE must be >= 1".into());
+        }
+        let max_metadata_bytes = parse_u64_env("FORGE_MEMORY_MAX_METADATA_BYTES", 65_536)? as usize;
+        if max_metadata_bytes == 0 {
+            return Err("FORGE_MEMORY_MAX_METADATA_BYTES must be >= 1".into());
+        }
+
         Ok(Self {
             port,
             service_name,
@@ -89,6 +105,9 @@ impl Config {
             allowed_base,
             ready_retry_initial,
             ready_retry_max,
+            max_dim,
+            list_page_size,
+            max_metadata_bytes,
         })
     }
 }
@@ -141,6 +160,9 @@ mod tests {
             "FORGE_MEMORY_ALLOWED_BASE",
             "FORGE_MEMORY_READY_RETRY_INITIAL_MS",
             "FORGE_MEMORY_READY_RETRY_MAX_MS",
+            "FORGE_MEMORY_MAX_DIM",
+            "FORGE_MEMORY_LIST_PAGE_SIZE",
+            "FORGE_MEMORY_MAX_METADATA_BYTES",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()

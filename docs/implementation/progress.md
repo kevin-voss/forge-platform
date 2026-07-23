@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 115`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 116`**.
 
 ## Epics
 
@@ -25,7 +25,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [14](epics/14-forge-models.md) | Forge Models | Complete | 7/7 steps; demo 14 model-serving acceptance gate passed |
 | [15](epics/15-forge-agents.md) | Forge Agents | Complete | 8/8 steps; demo 15 agent-runtime acceptance gate passed |
 | [16](epics/16-forge-workflows.md) | Forge Workflows | Complete | 7/7 steps; demo 16 agent-workflow acceptance gate passed |
-| [17](epics/17-forge-memory.md) | Forge Memory | In progress | 1/6 steps; skeleton + durable persistence on `4303` |
+| [17](epics/17-forge-memory.md) | Forge Memory | In progress | 2/6 steps; collections + fixed-dim vectors + metadata |
 | [18](epics/18-managed-postgresql.md) | Managed PostgreSQL | Planning | 6 steps |
 | [19](epics/19-full-platform-demo.md) | Full platform demo | Planning | 6 steps; capstone |
 
@@ -148,7 +148,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **112** | [Compensation/rollback via Control](steps/16-forge-workflows/16.06-compensation-rollback.md) | Complete |  | Saga log + reverse compensators; Control rollback client; report `rolled_back` |
 | **113** | [Demo `16-agent-workflow` + gate](steps/16-forge-workflows/16.07-demo-and-gate.md) | Complete |  | Demo 16: event→diagnose→approve→rollback; restart-resume; epic gate |
 | **114** | [Skeleton + persistence](steps/17-forge-memory/17.01-skeleton-persistence.md) | Complete |  | Rust/Axum on `4303`; health/identity; `vectors/`+`meta/` durable root |
-| **115** | [Collections + fixed-dim vectors + metadata](steps/17-forge-memory/17.02-collections-vectors-metadata.md) | Not started |  |  |
+| **115** | [Collections + fixed-dim vectors + metadata](steps/17-forge-memory/17.02-collections-vectors-metadata.md) | Complete |  | Collection CRUD; mmap `.vec` + SQLite meta; record get/list; dim `422` |
 | **116** | [Upsert + cosine NN query](steps/17-forge-memory/17.03-upsert-cosine-nn.md) | Not started |  |  |
 | **117** | [Namespace/ACL via Identity project scope](steps/17-forge-memory/17.04-namespace-acl.md) | Not started |  |  |
 | **118** | [Models embed + Agents retrieval tool](steps/17-forge-memory/17.05-models-embed-agents-tool.md) | Not started |  |  |
