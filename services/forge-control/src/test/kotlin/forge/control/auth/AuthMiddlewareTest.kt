@@ -111,6 +111,8 @@ class AuthMiddlewareTest {
 
         assertIs<AuthTarget.Skip>(routes.resolve("GET", "/health/live"))
         assertIs<AuthTarget.Skip>(routes.resolve("POST", "/v1/nodes/register"))
+        assertIs<AuthTarget.Skip>(routes.resolve("GET", "/v1/kinds"))
+        assertIs<AuthTarget.Skip>(routes.resolve("POST", "/v1/kinds"))
     }
 
     @Test

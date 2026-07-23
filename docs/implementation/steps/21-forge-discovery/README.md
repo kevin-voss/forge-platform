@@ -4,7 +4,7 @@ Atomic steps for [Forge Discovery](../../epics/21-forge-discovery.md).
 
 | Step | N | File | Status |
 |---|---:|---|---|
-| 21.01 | 140 | [21.01-skeleton-and-registry-model.md](21.01-skeleton-and-registry-model.md) | Not started |
+| 21.01 | 140 | [21.01-skeleton-and-registry-model.md](21.01-skeleton-and-registry-model.md) | Complete |
 | 21.02 | 141 | [21.02-endpoint-registration-and-leases.md](21.02-endpoint-registration-and-leases.md) | Not started |
 | 21.03 | 142 | [21.03-readiness-selection-and-watch.md](21.03-readiness-selection-and-watch.md) | Not started |
 | 21.04 | 143 | [21.04-internal-dns-zone.md](21.04-internal-dns-zone.md) | Not started |

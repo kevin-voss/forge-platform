@@ -104,8 +104,9 @@ class RouteActionMap(
 
         if (p.startsWith("/health")) return AuthTarget.Skip
 
-        // Platform-internal (Runtime / scheduler) — not product-tenant mutations.
+        // Platform-internal (Runtime / scheduler / kind registration) — not product-tenant mutations.
         if (p.startsWith("/v1/nodes") || p.startsWith("/v1/placements")) return AuthTarget.Skip
+        if (p.startsWith("/v1/kinds")) return AuthTarget.Skip
         if (m == "POST" && DEPLOYMENT_STATUS.matches(p)) return AuthTarget.Skip
 
         match(m, p, PROJECTS_COLLECTION)?.let {

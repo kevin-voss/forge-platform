@@ -84,6 +84,7 @@ import forge.control.resource.KindRegistry
 import forge.control.resource.ResourceScope
 import forge.control.resource.http.applyRoutes
 import forge.control.resource.http.finalizerRoutes
+import forge.control.resource.http.kindRoutes
 import forge.control.resource.http.resourceRoutes
 import forge.control.resource.http.statusRoutes
 import forge.control.resource.http.watchRoutes
@@ -705,6 +706,9 @@ fun Application.forgeControlModule(
             if (cfg.resourceApiEnabled) {
                 val resources = services.resources
                 val kinds = services.kindRegistry
+                if (kinds != null) {
+                    kindRoutes(kinds = kinds, log = log)
+                }
                 if (resources != null && kinds != null) {
                     resourceRoutes(
                         resources = resources,
@@ -798,12 +802,14 @@ fun buildKindRegistry(): KindRegistry =
         reg("Project", "forgeprojects", ResourceScope.Cluster, "prj", "project-controller")
         reg("Environment", "forgeenvironments", ResourceScope.Project, "env", "environment-controller")
         reg("Application", "applications", ResourceScope.Environment, "app", "application-controller", allowsCascade = true)
+        // Discovery (epic 21) is the primary controller for Service/Endpoint status.
+        // Nested Application-parent path stays Project-scoped for the 20.07 facade.
         reg(
             "Service",
             "services",
             ResourceScope.Project,
             "svc",
-            "service-controller",
+            "forge-discovery",
             parentKind = "Application",
             allowsCascade = true,
         )

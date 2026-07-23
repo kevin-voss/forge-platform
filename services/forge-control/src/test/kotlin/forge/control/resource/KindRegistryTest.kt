@@ -57,4 +57,49 @@ class KindRegistryTest {
         assertNull(registry.get("Gadget"))
         assertTrue(registry.get("Widget") != null)
     }
+
+    @Test
+    fun registerIdempotentReturnsAlreadyRegistered() {
+        val registry = KindRegistry()
+        registry.register(widget())
+        val result = registry.registerIdempotent(widget())
+        assertTrue(result is KindRegisterResult.AlreadyRegistered)
+    }
+
+    @Test
+    fun registerIdempotentAllowsNamespacedAgainstProject() {
+        val registry = KindRegistry()
+        registry.register(
+            KindDescriptor(
+                kind = "Service",
+                plural = "services",
+                scope = ResourceScope.Project,
+                parentKind = "Application",
+                schemaVersion = 1,
+                owningController = "forge-discovery",
+                idPrefix = "svc",
+            ),
+        )
+        val result = registry.registerIdempotent(
+            KindDescriptor(
+                kind = "Service",
+                plural = "services",
+                scope = ResourceScope.Environment,
+                schemaVersion = 1,
+                owningController = "forge-discovery",
+                idPrefix = "svc",
+            ),
+        )
+        assertTrue(result is KindRegisterResult.AlreadyRegistered)
+    }
+
+    @Test
+    fun registerIdempotentConflictsOnControllerMismatch() {
+        val registry = KindRegistry()
+        registry.register(widget())
+        val result = registry.registerIdempotent(
+            widget().copy(owningController = "other-controller"),
+        )
+        assertTrue(result is KindRegisterResult.Conflict)
+    }
 }

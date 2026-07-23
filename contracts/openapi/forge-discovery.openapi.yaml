@@ -1,0 +1,63 @@
+openapi: 3.0.3
+info:
+  title: Forge Discovery API
+  version: 0.1.0
+  description: |
+    Forge Discovery (epic 21). Step 21.01 declares health endpoints only;
+    registration, selection, and DNS paths are added in later steps.
+servers:
+  - url: http://127.0.0.1:4109
+    description: Local Compose (host port 4109)
+
+paths:
+  /health/live:
+    get:
+      operationId: getHealthLive
+      summary: Liveness probe
+      description: Returns 200 when the process is alive.
+      security: []
+      responses:
+        "200":
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: ok
+
+  /health/ready:
+    get:
+      operationId: getHealthReady
+      summary: Readiness probe
+      description: |
+        Returns 200 when the discovery Postgres pool is reachable and Service/Endpoint
+        kinds have been registered with Control at least once; otherwise 503.
+      security: []
+      responses:
+        "200":
+          description: Ready to receive traffic
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: ok
+        "503":
+          description: Not ready (DB unreachable or kinds not registered)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: not_ready
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, not_ready]

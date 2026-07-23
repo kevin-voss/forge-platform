@@ -792,6 +792,43 @@ services:
       retries: 10
       start_period: 20s
 
+  forge-discovery:
+    build:
+      context: ./services/forge-discovery
+    image: forge/forge-discovery:local
+    container_name: forge-discovery
+    restart: unless-stopped
+    ports:
+      - "4109:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: forge-discovery
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-info}
+      FORGE_ENV: ${FORGE_ENV:-development}
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+      FORGE_SHUTDOWN_GRACE_SECONDS: ${FORGE_SHUTDOWN_GRACE_SECONDS:-10}
+      # Hardcoded docker DNS — do not interpolate host .env FORGE_DATABASE_URL (localhost:5001).
+      FORGE_DATABASE_URL: postgres://forge:forge@postgres:5432/forge?sslmode=disable
+      FORGE_DATABASE_SCHEMA: discovery
+      FORGE_DATABASE_POOL_MAX: ${FORGE_DATABASE_POOL_MAX:-10}
+      FORGE_DATABASE_MIGRATE_ON_START: ${FORGE_DATABASE_MIGRATE_ON_START:-true}
+      FORGE_CONTROL_URL: http://forge-control:8080
+      FORGE_OTEL_ENABLED: ${FORGE_OTEL_ENABLED:-true}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      forge-control:
+        condition: service_healthy
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health/live | grep -q ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
 volumes:
   forge-postgres-data:
   forge-nats-data:
