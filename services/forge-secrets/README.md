@@ -26,6 +26,15 @@ Rust/Axum secrets service (epic 10). Host port **4104**.
 * Default `FORGE_AUTH_MODE=enforce`; `dev` is an explicit insecure bypass
 * Identity outage fails closed for secret writes/reveals (`503`); config reads may use cache within TTL
 
+## Step 10.04 — runtime injection at deploy
+
+* `PUT/GET .../services/{svc}/bindings` — which secret/config names a service consumes
+* `POST .../services/{svc}/resolve` → `{ env, version_fingerprint }` (authorized reveal; audited stub)
+* Control reconciler fetches the bundle (service-account token) and passes it to Runtime `POST /v1/workloads`
+* `version_fingerprint` drift triggers rolling redeploy so workloads pick up rotated values
+* Missing bound secrets → resolve `422`; reconciler **holds** StartReplica (no workload without required secrets)
+* Runtime logs/status expose env **keys** + fingerprint only — never values
+
 ### Local
 
 ```bash

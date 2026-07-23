@@ -31,6 +31,8 @@ pub struct AppState {
     pub secrets_total: Arc<AtomicU64>,
     /// Counter of successful `:access` reveals.
     pub secret_access_total: Arc<AtomicU64>,
+    /// Counter of successful resolve (env bundle) calls.
+    pub secret_resolves_total: Arc<AtomicU64>,
     /// Counter of config upserts (best-effort).
     pub config_values_total: Arc<AtomicU64>,
     pub crypto_ok: bool,
@@ -244,6 +246,7 @@ pub async fn bootstrap(cfg: &crate::config::Config) -> AppState {
         data_keys_total,
         secrets_total,
         secret_access_total: Arc::new(AtomicU64::new(0)),
+        secret_resolves_total: Arc::new(AtomicU64::new(0)),
         config_values_total,
         crypto_ok,
         crypto_error,

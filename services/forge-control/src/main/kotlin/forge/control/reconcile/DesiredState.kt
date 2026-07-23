@@ -24,6 +24,15 @@ data class DesiredState(
     val serviceId: String = "",
     val serviceSlug: String = "svc",
     val port: Int = 8080,
+    /** Control project id (UUID string) for Secrets resolve. */
+    val projectId: String = "",
+    /** Environment name (e.g. production) for Secrets resolve. */
+    val environmentName: String = "",
+    /**
+     * Secrets/config version fingerprint for redeploy detection.
+     * Populated by the reconciler after resolve; empty when Secrets is disabled.
+     */
+    val secretsFingerprint: String = "",
 ) {
     init {
         require(deploymentId.isNotBlank()) { "deploymentId must not be blank" }
@@ -43,6 +52,9 @@ data class DesiredState(
             serviceId: UUID? = null,
             serviceSlug: String = "svc",
             port: Int = 8080,
+            projectId: String = "",
+            environmentName: String = "",
+            secretsFingerprint: String = "",
         ): DesiredState =
             DesiredState(
                 deploymentId = deploymentId.toString(),
@@ -52,6 +64,9 @@ data class DesiredState(
                 serviceId = serviceId?.toString().orEmpty(),
                 serviceSlug = WorkloadNamer.serviceSlug(serviceSlug),
                 port = port,
+                projectId = projectId,
+                environmentName = environmentName,
+                secretsFingerprint = secretsFingerprint,
             )
     }
 }

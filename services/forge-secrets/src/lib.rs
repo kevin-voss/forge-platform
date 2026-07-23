@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod bindings;
 pub mod config;
 pub mod config_store;
 pub mod crypto;
@@ -12,11 +13,12 @@ use crate::state::AppState;
 use axum::middleware;
 use axum::Router;
 
-/// Build the full HTTP application (health, data-keys, secrets, config + auth).
+/// Build the full HTTP application (health, data-keys, secrets, config, bindings + auth).
 pub fn app(state: AppState) -> Router {
     let protected = Router::new()
         .merge(secrets::routes::router())
         .merge(config_store::routes::router())
+        .merge(bindings::routes::router())
         .route_layer(middleware::from_fn_with_state(state.clone(), enforce));
 
     Router::new()

@@ -68,6 +68,7 @@ mod tests {
             data_keys_total: Arc::new(AtomicU64::new(0)),
             secrets_total: Arc::new(AtomicU64::new(0)),
             secret_access_total: Arc::new(AtomicU64::new(0)),
+            secret_resolves_total: Arc::new(AtomicU64::new(0)),
             config_values_total: Arc::new(AtomicU64::new(0)),
             crypto_ok: ready,
             crypto_error: if ready {

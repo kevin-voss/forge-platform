@@ -8,10 +8,18 @@ package forge.control.reconcile
  * `rollout.batchSize` and the minimum-available invariant:
  * `readyReplicas >= desired_replicas - batch_size`.
  */
+/** True when replica image + secrets fingerprint match desired (blank desired fingerprint = ignore). */
+fun replicaMatchesDesired(replica: ReplicaObservation, desired: DesiredState): Boolean {
+    val imageOk = replica.image.isNullOrBlank() || replica.image == desired.image
+    val fingerprintOk = desired.secretsFingerprint.isBlank() ||
+        replica.secretsFingerprint == desired.secretsFingerprint
+    return imageOk && fingerprintOk
+}
+
 fun needsRollingUpdate(desired: DesiredState, actual: ActualState): Boolean {
     val live = actual.replicas.filter { it.statusEnum() in SATISFYING }
     if (live.isEmpty()) return false
-    return live.any { !it.image.isNullOrBlank() && it.image != desired.image }
+    return live.any { !replicaMatchesDesired(it, desired) }
 }
 
 fun computeRollingPlan(desired: DesiredState, actual: ActualState): ReconcilePlan {
@@ -19,8 +27,8 @@ fun computeRollingPlan(desired: DesiredState, actual: ActualState): ReconcilePla
     val batchSize = desired.rollout.batchSize.coerceAtLeast(1)
     val minAvailable = (desired.replicas - batchSize).coerceAtLeast(0)
     val live = actual.replicas.filter { it.statusEnum() in SATISFYING }
-    val updated = live.filter { it.image == target }
-    val old = live.filter { it.image != target }
+    val updated = live.filter { replicaMatchesDesired(it, desired) }
+    val old = live.filter { !replicaMatchesDesired(it, desired) }
     val updatedReady = updated.filter { it.statusEnum() == ReplicaStatus.Ready }
     val pendingNew = updated.filter { it.statusEnum() != ReplicaStatus.Ready }
     val readyCount = live.count { it.statusEnum() == ReplicaStatus.Ready }
@@ -41,7 +49,7 @@ fun computeRollingPlan(desired: DesiredState, actual: ActualState): ReconcilePla
         }
         return base.withRollout(
             phase = phase,
-            updatedReplicas = live.count { it.image == null || it.image == target },
+            updatedReplicas = live.count { replicaMatchesDesired(it, desired) },
             totalReplicas = desired.replicas,
             currentImage = majorityImage(live) ?: desired.image,
             targetImage = desired.image,

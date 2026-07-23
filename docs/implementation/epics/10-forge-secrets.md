@@ -65,7 +65,7 @@ Logs → configured secret values masked
 | [10.01](../steps/10-forge-secrets/10.01-skeleton-and-encryption-key-bootstrap.md) | Skeleton + encryption key bootstrap | Complete | Rust service on 4104, master key + data keys |
 | [10.02](../steps/10-forge-secrets/10.02-encrypted-store-key-versioning-metadata.md) | Encrypted store + key versioning + metadata APIs | Complete | AEAD store, versions, metadata + `:access` |
 | [10.03](../steps/10-forge-secrets/10.03-config-vs-secrets-and-project-isolation.md) | Config vs secrets APIs; project isolation | Complete | Separate config; enforce project scope |
-| [10.04](../steps/10-forge-secrets/10.04-runtime-injection-at-deploy.md) | Runtime injection at deploy | Not started | Deliver secrets/config into workloads |
+| [10.04](../steps/10-forge-secrets/10.04-runtime-injection-at-deploy.md) | Runtime injection at deploy | Complete | Bindings + resolve; Control inject; fingerprint redeploy |
 | [10.05](../steps/10-forge-secrets/10.05-cli-secret-and-config.md) | CLI `forge secret` / `forge config` | Not started | set/list/rotate; config set/show |
 | [10.06](../steps/10-forge-secrets/10.06-access-audit-and-log-masking.md) | Access audit + log masking | Not started | Audit reads/writes; mask values in logs |
 | [10.07](../steps/10-forge-secrets/10.07-demo-10-secrets.md) | Demo `10-secrets` + gate | Not started | set/rotate/redeploy; epic gate |
@@ -87,4 +87,4 @@ Logs → configured secret values masked
 
 ## Next step to implement
 
-**[10.04](../steps/10-forge-secrets/10.04-runtime-injection-at-deploy.md) — Runtime injection at deploy**.
+**[10.05](../steps/10-forge-secrets/10.05-cli-secret-and-config.md) — CLI `forge secret` / `forge config`**.

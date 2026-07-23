@@ -1,5 +1,8 @@
+pub mod env;
+
 use crate::docker::{ContainerInspectInfo, CreateWorkloadParams, DockerEngine};
 use crate::node::{Node, NODE_ID_LABEL};
+use crate::workload::env::{env_keys_for_log, resolve_fingerprint, SECRETS_FINGERPRINT_LABEL};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -17,9 +20,13 @@ pub struct WorkloadSpec {
     pub port: u16,
     #[serde(default)]
     pub environment: HashMap<String, String>,
+    /// Secrets/config version fingerprint (hash only). Never a secret value.
+    #[serde(default)]
+    pub secrets_fingerprint: Option<String>,
 }
 
 /// Workload mapping returned by create/get (camelCase).
+/// Intentionally omits environment values — secrets must not appear in status.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkloadView {
@@ -29,6 +36,8 @@ pub struct WorkloadView {
     pub state: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secrets_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,11 +99,18 @@ pub fn container_name(deployment_id: &str) -> String {
 }
 
 /// Labels applied to every managed workload container.
-pub fn workload_labels(deployment_id: &str, node_id: &str) -> HashMap<String, String> {
+pub fn workload_labels(
+    deployment_id: &str,
+    node_id: &str,
+    secrets_fingerprint: Option<&str>,
+) -> HashMap<String, String> {
     let mut labels = HashMap::new();
     labels.insert(DEPLOYMENT_ID_LABEL.to_string(), deployment_id.to_string());
     labels.insert(NODE_ID_LABEL.to_string(), node_id.to_string());
     labels.insert(MANAGED_LABEL.to_string(), MANAGED_LABEL_VALUE.to_string());
+    if let Some(fp) = secrets_fingerprint.map(str::trim).filter(|s| !s.is_empty()) {
+        labels.insert(SECRETS_FINGERPRINT_LABEL.to_string(), fp.to_string());
+    }
     labels
 }
 
@@ -133,6 +149,10 @@ pub fn validate_spec(spec: &WorkloadSpec) -> Result<WorkloadSpec, WorkloadError>
         image,
         port: spec.port,
         environment: spec.environment.clone(),
+        secrets_fingerprint: resolve_fingerprint(
+            spec.secrets_fingerprint.as_deref(),
+            &spec.environment,
+        ),
     })
 }
 
@@ -173,14 +193,17 @@ pub async fn create_and_start(
 ) -> Result<WorkloadView, WorkloadError> {
     let spec = validate_spec(&spec)?;
     let name = container_name(&spec.deployment_id);
-    let labels = workload_labels(&spec.deployment_id, &node.info.id);
-    let env_keys: Vec<&str> = spec.environment.keys().map(String::as_str).collect();
+    let fingerprint = spec.secrets_fingerprint.clone();
+    let labels = workload_labels(&spec.deployment_id, &node.info.id, fingerprint.as_deref());
+    // Keys only — never log secret/config values.
+    let env_keys = env_keys_for_log(&spec.environment);
 
     info!(
         deployment_id = %spec.deployment_id,
         image = %spec.image,
         container_port = spec.port,
         env_keys = ?env_keys,
+        secrets_fingerprint = fingerprint.as_deref().unwrap_or(""),
         "workload create requested"
     );
 
@@ -282,6 +305,7 @@ pub async fn create_and_start(
         host_port,
         state: "starting".into(),
         image: Some(spec.image),
+        secrets_fingerprint: fingerprint,
     })
 }
 
@@ -324,6 +348,11 @@ pub async fn get_workload(
     let container_port = infer_container_port(&inspect).unwrap_or(0);
     let host_port = host_port_for(&inspect, container_port).unwrap_or(0);
     let state = map_docker_state(&inspect.state);
+    let secrets_fingerprint = inspect
+        .labels
+        .as_ref()
+        .and_then(|l| l.get(SECRETS_FINGERPRINT_LABEL).cloned())
+        .filter(|s| !s.is_empty());
 
     Ok(WorkloadView {
         deployment_id: deployment_id.to_string(),
@@ -331,6 +360,7 @@ pub async fn get_workload(
         host_port,
         state,
         image: inspect.image,
+        secrets_fingerprint,
     })
 }
 
@@ -388,7 +418,7 @@ mod tests {
         let name = container_name("deployment-123");
         assert_eq!(name, "forge-deployment-123");
 
-        let labels = workload_labels("deployment-123", "node-abc");
+        let labels = workload_labels("deployment-123", "node-abc", None);
         assert_eq!(
             labels.get(DEPLOYMENT_ID_LABEL).map(String::as_str),
             Some("deployment-123")
@@ -407,6 +437,7 @@ mod tests {
             image: "".into(),
             port: 8080,
             environment: HashMap::new(),
+            secrets_fingerprint: None,
         })
         .expect_err("image");
         assert!(matches!(err, WorkloadError::Validation(_)));
@@ -416,6 +447,7 @@ mod tests {
             image: "localhost:5000/demo-go:latest".into(),
             port: 0,
             environment: HashMap::new(),
+            secrets_fingerprint: None,
         })
         .expect_err("port");
         assert!(matches!(err, WorkloadError::Validation(_)));
@@ -428,6 +460,7 @@ mod tests {
             image: "localhost:5000/demo-go:latest".into(),
             port: 8080,
             environment: HashMap::from([("FORGE_ENV".into(), "development".into())]),
+            secrets_fingerprint: None,
         })
         .unwrap();
         assert_eq!(spec.deployment_id, "deployment-123");
@@ -442,6 +475,7 @@ mod tests {
             host_port: 49152,
             state: "starting".into(),
             image: Some("localhost:5000/demo-go:latest".into()),
+            secrets_fingerprint: None,
         };
         let json = serde_json::to_value(&view).unwrap();
         assert_eq!(json["deploymentId"], "deployment-123");
@@ -485,6 +519,7 @@ mod tests {
                 image: "localhost:5000/demo-go:latest".into(),
                 port: 8080,
                 environment: HashMap::from([("FORGE_ENV".into(), "development".into())]),
+                secrets_fingerprint: None,
             },
             Duration::from_secs(30),
         )
@@ -530,6 +565,7 @@ mod tests {
                 image: "localhost:5000/demo-go:latest".into(),
                 port: 8080,
                 environment: HashMap::new(),
+                secrets_fingerprint: None,
             },
             Duration::from_secs(30),
         )
@@ -559,6 +595,7 @@ mod tests {
                 image: "localhost:5000/does-not-exist:latest".into(),
                 port: 8080,
                 environment: HashMap::new(),
+                secrets_fingerprint: None,
             },
             Duration::from_secs(5),
         )
@@ -592,6 +629,7 @@ mod tests {
                 image: "localhost:5000/demo-go:latest".into(),
                 port: 8080,
                 environment: HashMap::new(),
+                secrets_fingerprint: None,
             },
             Duration::from_secs(5),
         )

@@ -1,5 +1,6 @@
 use crate::health::AppState;
 use crate::status::WorkloadStatus;
+use crate::workload::env::SECRETS_FINGERPRINT_LABEL;
 use crate::workload::{DEPLOYMENT_ID_LABEL, MANAGED_LABEL, MANAGED_LABEL_VALUE};
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -24,6 +25,8 @@ pub struct NodeWorkloadState {
     pub host_port: u16,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secrets_fingerprint: Option<String>,
 }
 
 pub fn router() -> Router<AppState> {
@@ -79,11 +82,17 @@ async fn build_state(state: &AppState) -> Result<NodeStateResponse, String> {
             },
         };
 
+        let secrets_fingerprint = labels
+            .get(SECRETS_FINGERPRINT_LABEL)
+            .cloned()
+            .filter(|s| !s.is_empty());
+
         workloads.push(NodeWorkloadState {
             deployment_id,
             status,
             host_port,
             image: inspect.image,
+            secrets_fingerprint,
         });
     }
 
@@ -157,6 +166,7 @@ mod tests {
                 image: "localhost:5000/demo-go:latest".into(),
                 port: 8080,
                 environment: HashMap::new(),
+                secrets_fingerprint: None,
             },
             Duration::from_secs(5),
         )

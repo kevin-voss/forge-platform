@@ -17,6 +17,10 @@ data class WorkloadEnsureRequest(
     val replicaIndex: Int,
     val image: String,
     val port: Int,
+    /** Extra env (secrets/config); merged with platform keys. Never logged. */
+    val environment: Map<String, String> = emptyMap(),
+    /** Secrets version fingerprint for redeploy detection (hash only). */
+    val secretsFingerprint: String = "",
 )
 
 enum class EnsureOutcome {
@@ -30,6 +34,7 @@ data class WorkloadHandle(
     val status: String,
     val hostPort: Int = 0,
     val image: String? = null,
+    val secretsFingerprint: String? = null,
 )
 
 /** Runtime lifecycle + observation seam for the reconciliation controller. */
@@ -97,6 +102,7 @@ class HttpRuntimeClient(
                     restartCount = restart,
                     workloadName = "forge-${workload.deploymentId}",
                     image = workload.image?.takeIf { it.isNotBlank() },
+                    secretsFingerprint = workload.secretsFingerprint?.takeIf { it.isNotBlank() },
                 )
             }
             .sortedBy { it.replicaIndex ?: Int.MAX_VALUE }
@@ -124,6 +130,7 @@ class HttpRuntimeClient(
                     status = view.state,
                     hostPort = view.hostPort,
                     image = view.image,
+                    secretsFingerprint = view.secretsFingerprint,
                 )
             }
             else -> throw RuntimeApiException(
@@ -142,13 +149,16 @@ class HttpRuntimeClient(
         if (existing != null) {
             val status = runCatching { ReplicaStatus.parse(existing.status) }.getOrNull()
             val imageMatches = existing.image.isNullOrBlank() || existing.image == request.image
+            val fingerprintMatches = request.secretsFingerprint.isBlank() ||
+                existing.secretsFingerprint == request.secretsFingerprint
             if (imageMatches &&
+                fingerprintMatches &&
                 (status == ReplicaStatus.Running || status == ReplicaStatus.Ready || status == ReplicaStatus.Pending)
             ) {
-                // Idempotent: healthy workload already present with desired image — skip create.
+                // Idempotent: healthy workload already present with desired image/fingerprint.
                 return EnsureOutcome.Adopted
             }
-            // Crashed/stopped or image mismatch: recreate by delete + create.
+            // Crashed/stopped, image mismatch, or secrets fingerprint drift: recreate.
             stopWorkload(runtimeId)
             restartCounts.merge(runtimeId, 1, Int::plus)
             createWorkload(runtimeId, request)
@@ -207,24 +217,34 @@ class HttpRuntimeClient(
                 status = workload.status,
                 hostPort = workload.hostPort,
                 image = workload.image,
+                secretsFingerprint = workload.secretsFingerprint,
             )
         }
     }
 
     private fun createWorkload(runtimeId: String, request: WorkloadEnsureRequest) {
         val base = runtimeUrl.trimEnd('/')
+        val environment = linkedMapOf(
+            "PORT" to request.port.toString(),
+            "FORGE_DEPLOYMENT_ID" to request.deploymentId.toString(),
+            "FORGE_SERVICE_ID" to request.serviceId,
+            "FORGE_REPLICA_INDEX" to request.replicaIndex.toString(),
+        )
+        // Merge injected secrets/config; platform keys win on collision.
+        for ((k, v) in request.environment) {
+            environment.putIfAbsent(k, v)
+        }
+        if (request.secretsFingerprint.isNotBlank()) {
+            environment["FORGE_SECRETS_FINGERPRINT"] = request.secretsFingerprint
+        }
         val body = json.encodeToString(
             WorkloadCreateBody.serializer(),
             WorkloadCreateBody(
                 deployment_id = runtimeId,
                 image = request.image,
                 port = request.port,
-                environment = mapOf(
-                    "PORT" to request.port.toString(),
-                    "FORGE_DEPLOYMENT_ID" to request.deploymentId.toString(),
-                    "FORGE_SERVICE_ID" to request.serviceId,
-                    "FORGE_REPLICA_INDEX" to request.replicaIndex.toString(),
-                ),
+                environment = environment,
+                secrets_fingerprint = request.secretsFingerprint.takeIf { it.isNotBlank() },
             ),
         )
         val httpRequest = HttpRequest.newBuilder()
@@ -288,6 +308,7 @@ private data class WorkloadCreateBody(
     val image: String,
     val port: Int,
     val environment: Map<String, String> = emptyMap(),
+    val secrets_fingerprint: String? = null,
 )
 
 @Serializable
@@ -297,6 +318,7 @@ private data class WorkloadViewResponse(
     val hostPort: Int = 0,
     val state: String = "pending",
     val image: String? = null,
+    val secretsFingerprint: String? = null,
 )
 
 @Serializable
@@ -311,4 +333,5 @@ private data class NodeWorkloadState(
     val status: String,
     val hostPort: Int = 0,
     val image: String? = null,
+    val secretsFingerprint: String? = null,
 )

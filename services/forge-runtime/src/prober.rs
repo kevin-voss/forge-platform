@@ -690,7 +690,7 @@ mod tests {
 
     impl ListingDocker {
         fn with_workload(host_port: u16) -> Self {
-            let labels = workload_labels("deployment-123", "node-1");
+            let labels = workload_labels("deployment-123", "node-1", None);
             let mut port_bindings = HashMap::new();
             port_bindings.insert("8080/tcp".into(), vec![host_port]);
             Self {

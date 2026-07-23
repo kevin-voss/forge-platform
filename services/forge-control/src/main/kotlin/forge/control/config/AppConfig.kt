@@ -28,6 +28,12 @@ data class AppConfig(
     val reconcileMaxActionsPerTick: Int = 5,
     val runtimeUrl: String = "http://forge-runtime:4102",
     val gatewayUrl: String = "http://forge-gateway:4000",
+    /** Base URL for forge-secrets resolve (empty disables injection). */
+    val secretsUrl: String = "http://forge-secrets:8080",
+    /** Bearer token Control uses to resolve env bundles (service account). */
+    val secretsServiceAccount: String = "",
+    /** When true, Control never logs injected secret values (names/fingerprint only). */
+    val injectMaskInLogs: Boolean = true,
     val rolloutBatchSizeOverride: Int? = null,
     val rolloutTimeoutOverride: Int? = null,
     val rollbackEnabled: Boolean = true,
@@ -155,6 +161,33 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
     if (!gatewayUrl.startsWith("http://") && !gatewayUrl.startsWith("https://")) {
         throw IllegalArgumentException(
             "FORGE_GATEWAY_URL must be an http(s) URL, got '$gatewayUrl'",
+        )
+    }
+
+    val secretsUrlRaw = env["FORGE_SECRETS_URL"]?.trim().orEmpty()
+    val secretsUrl = if (secretsUrlRaw.isEmpty()) {
+        "http://forge-secrets:8080"
+    } else if (secretsUrlRaw.equals("disabled", ignoreCase = true) || secretsUrlRaw == "-") {
+        ""
+    } else {
+        secretsUrlRaw
+    }
+    if (secretsUrl.isNotEmpty() &&
+        !secretsUrl.startsWith("http://") &&
+        !secretsUrl.startsWith("https://")
+    ) {
+        throw IllegalArgumentException(
+            "FORGE_SECRETS_URL must be an http(s) URL, 'disabled', or empty, got '$secretsUrlRaw'",
+        )
+    }
+    val secretsServiceAccount = env["FORGE_SECRETS_SERVICE_ACCOUNT"]?.trim().orEmpty()
+    val injectMaskRaw = env["FORGE_INJECT_MASK_IN_LOGS"]?.trim()?.lowercase().orEmpty()
+        .ifEmpty { "true" }
+    val injectMaskInLogs = when (injectMaskRaw) {
+        "true", "1", "yes" -> true
+        "false", "0", "no" -> false
+        else -> throw IllegalArgumentException(
+            "FORGE_INJECT_MASK_IN_LOGS must be true|false, got '$injectMaskRaw'",
         )
     }
 
@@ -393,6 +426,9 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         reconcileMaxActionsPerTick = reconcileMaxActionsPerTick,
         runtimeUrl = runtimeUrl,
         gatewayUrl = gatewayUrl,
+        secretsUrl = secretsUrl,
+        secretsServiceAccount = secretsServiceAccount,
+        injectMaskInLogs = injectMaskInLogs,
         rolloutBatchSizeOverride = rolloutBatchSizeOverride,
         rolloutTimeoutOverride = rolloutTimeoutOverride,
         rollbackEnabled = rollbackEnabled,

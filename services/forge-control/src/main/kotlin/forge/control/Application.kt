@@ -149,6 +149,8 @@ fun main() {
     val deploymentStore = RepositoryDeploymentStore(
         deploymentRepo,
         serviceRepo,
+        applications = applicationRepo,
+        environments = environmentRepo,
         rolloutBatchSizeOverride = cfg.rolloutBatchSizeOverride,
         rolloutTimeoutOverride = cfg.rolloutTimeoutOverride,
     )
@@ -248,6 +250,15 @@ fun main() {
             nodeOfflineHandler?.onStatusTransition(nodeId, status)
         },
     )
+    val secretsClient: forge.control.reconcile.SecretsClient =
+        if (cfg.secretsUrl.isNotBlank()) {
+            forge.control.reconcile.HttpSecretsClient(
+                secretsUrl = cfg.secretsUrl,
+                serviceAccountToken = cfg.secretsServiceAccount,
+            )
+        } else {
+            forge.control.reconcile.NoOpSecretsClient
+        }
     val reconcileController = ReconciliationController(
         deploymentStore = deploymentStore,
         runtimeClient = runtimeClient,
@@ -265,6 +276,8 @@ fun main() {
         transitionRecorder = transitionRecorder,
         placementService = if (cfg.schedulerEnabled) placementService else null,
         staleReplicaFencer = staleReplicaFencer,
+        secretsClient = secretsClient,
+        injectMaskInLogs = cfg.injectMaskInLogs,
     )
     val startupRecovery = StartupRecovery(
         deploymentStore = deploymentStore,

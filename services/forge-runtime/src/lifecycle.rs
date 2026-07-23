@@ -197,12 +197,21 @@ fn view_from_inspect(deployment_id: &str, inspect: &ContainerInspectInfo) -> Wor
     } else {
         "stopped".into()
     };
+    let secrets_fingerprint = inspect
+        .labels
+        .as_ref()
+        .and_then(|l| {
+            l.get(crate::workload::env::SECRETS_FINGERPRINT_LABEL)
+                .cloned()
+        })
+        .filter(|s| !s.is_empty());
     WorkloadView {
         deployment_id: deployment_id.to_string(),
         container_id: inspect.id.clone(),
         host_port,
         state,
         image: inspect.image.clone(),
+        secrets_fingerprint,
     }
 }
 
@@ -552,6 +561,7 @@ mod tests {
                 image: "localhost:5000/demo-go:latest".into(),
                 port: 8080,
                 environment: HashMap::new(),
+                secrets_fingerprint: None,
             },
             Duration::from_secs(5),
             Duration::from_secs(2),
@@ -590,6 +600,7 @@ mod tests {
             image: "localhost:5000/demo-go:latest".into(),
             port: 8080,
             environment: HashMap::new(),
+            secrets_fingerprint: None,
         };
 
         let first = ensure_workload(
@@ -653,6 +664,7 @@ mod tests {
             image: "localhost:5000/demo-go:latest".into(),
             port: 8080,
             environment: HashMap::new(),
+            secrets_fingerprint: None,
         };
 
         let d1 = Arc::clone(&docker);
@@ -732,6 +744,7 @@ mod tests {
                 image: "localhost:5000/demo-go:latest".into(),
                 port: 8080,
                 environment: HashMap::new(),
+                secrets_fingerprint: None,
             },
             Duration::from_secs(5),
             Duration::from_secs(1),
@@ -769,6 +782,7 @@ mod tests {
                 image: "localhost:5000/demo-go:latest".into(),
                 port: 8080,
                 environment: HashMap::new(),
+                secrets_fingerprint: None,
             },
             Duration::from_secs(5),
             Duration::from_secs(1),

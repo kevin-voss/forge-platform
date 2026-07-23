@@ -152,6 +152,7 @@ mod tests {
                 image: "localhost:5000/demo-go:latest".into(),
                 port: 8080,
                 environment: HashMap::new(),
+                secrets_fingerprint: None,
             },
             Duration::from_secs(5),
         )

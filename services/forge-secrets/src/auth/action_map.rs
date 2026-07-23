@@ -23,7 +23,7 @@ impl AuthAction {
     pub fn is_write_or_reveal(self, path: &str) -> bool {
         match self {
             Self::SecretWrite | Self::ConfigWrite => true,
-            Self::SecretRead => path.contains(":access"),
+            Self::SecretRead => path.contains(":access") || path.ends_with("/resolve"),
             Self::ConfigRead => false,
         }
     }
@@ -70,6 +70,29 @@ pub fn map_action(method: &str, path: &str) -> AuthTarget {
             return AuthTarget::Skip;
         };
         let name = parts.next();
+
+        // /v1/projects/{pid}/envs/{env}/services/{svc}/bindings|resolve
+        if kind == "services" {
+            let _service = name;
+            let Some(op) = parts.next() else {
+                return AuthTarget::Skip;
+            };
+            return match (op, m.as_str()) {
+                ("bindings", "GET") => AuthTarget::Authorize {
+                    action: AuthAction::SecretRead,
+                    project_id: project_id.to_string(),
+                },
+                ("bindings", "PUT") => AuthTarget::Authorize {
+                    action: AuthAction::SecretWrite,
+                    project_id: project_id.to_string(),
+                },
+                ("resolve", "POST") => AuthTarget::Authorize {
+                    action: AuthAction::SecretRead,
+                    project_id: project_id.to_string(),
+                },
+                _ => AuthTarget::Skip,
+            };
+        }
 
         match (kind, m.as_str(), name) {
             ("secrets", "GET", None) => AuthTarget::Authorize {
@@ -193,5 +216,34 @@ mod tests {
             map_action("POST", "/v1/projects/p/data-keys"),
             AuthTarget::Skip
         );
+    }
+
+    #[test]
+    fn maps_bindings_and_resolve() {
+        let put = map_action(
+            "PUT",
+            "/v1/projects/prj_1/envs/production/services/demo/bindings",
+        );
+        assert!(matches!(
+            put,
+            AuthTarget::Authorize {
+                action: AuthAction::SecretWrite,
+                ..
+            }
+        ));
+        let resolve = map_action(
+            "POST",
+            "/v1/projects/prj_1/envs/production/services/demo/resolve",
+        );
+        match resolve {
+            AuthTarget::Authorize { action, project_id } => {
+                assert_eq!(action, AuthAction::SecretRead);
+                assert_eq!(project_id, "prj_1");
+                assert!(action.is_write_or_reveal(
+                    "/v1/projects/prj_1/envs/production/services/demo/resolve"
+                ));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
     }
 }

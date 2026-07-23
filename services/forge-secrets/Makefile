@@ -109,6 +109,30 @@ test-integration: run
 		code=$$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
 			"http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/config/FEATURE_X"); \
 		test "$$code" = "204"
+	@# 10.04 — bindings + resolve env bundle + fingerprint; missing → 422.
+	@P="prj_10_04_$$(date +%s)"; E=production; S=demo; \
+		curl -sf -X PUT "http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/secrets/DATABASE_PASSWORD" \
+			-H 'content-type: application/json' -d '{"value":"pw1"}' \
+			| python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["version"]==1'; \
+		curl -sf -X PUT "http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/config/FEATURE_X" \
+			-H 'content-type: application/json' -d '{"value":"true"}' >/dev/null; \
+		curl -sf -X PUT "http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/services/$${S}/bindings" \
+			-H 'content-type: application/json' -d '{"secrets":["DATABASE_PASSWORD"],"config":["FEATURE_X"]}' \
+			| python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["secrets"]==["DATABASE_PASSWORD"]'; \
+		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/services/$${S}/resolve" \
+			-o /tmp/forge-secrets-resolve1.json; \
+		python3 -c "import json; from pathlib import Path; d=json.load(open('/tmp/forge-secrets-resolve1.json')); assert d['env']['DATABASE_PASSWORD']=='pw1'; assert d['env']['FEATURE_X']=='true'; assert d['version_fingerprint']; Path('/tmp/forge-secrets-fp1').write_text(d['version_fingerprint'])"; \
+		curl -sf -X PUT "http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/secrets/DATABASE_PASSWORD" \
+			-H 'content-type: application/json' -d '{"value":"pw2"}' >/dev/null; \
+		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/services/$${S}/resolve" \
+			-o /tmp/forge-secrets-resolve2.json; \
+		python3 -c "import json; from pathlib import Path; d=json.load(open('/tmp/forge-secrets-resolve2.json')); assert d['env']['DATABASE_PASSWORD']=='pw2'; fp=Path('/tmp/forge-secrets-fp1').read_text(); assert d['version_fingerprint']!=fp"; \
+		curl -sf -X PUT "http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/services/missing/bindings" \
+			-H 'content-type: application/json' -d '{"secrets":["DOES_NOT_EXIST"],"config":[]}' >/dev/null; \
+		code=$$(curl -s -o /tmp/forge-secrets-missing.json -w '%{http_code}' -X POST \
+			"http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/services/missing/resolve"); \
+		test "$$code" = "422"; \
+		python3 -c "import json; d=json.load(open('/tmp/forge-secrets-missing.json')); assert d.get('code')=='missing_bindings'; assert 'DOES_NOT_EXIST' in d.get('error','')"
 	@# Restart with enforce + no Identity → secret write fail-closed 503; unauthenticated 401.
 	@$(COMPOSE) stop $(SERVICE) >/dev/null
 	@docker rm -f forge-secrets-enforce >/dev/null 2>&1 || true
@@ -170,12 +194,12 @@ test-integration: run
 	@! $(COMPOSE) logs $(SERVICE) 2>&1 | grep -E 'bG9jYWwtZGV2LWZvcmdl|local-dev-forge-secrets-key'
 	@grep -q '4104' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
 	@# OpenAPI declares health + secrets + config + auth; secret list schema has no value.
-	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-secrets.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "operationId: setSecret" in p and "operationId: listSecrets" in p and "operationId: getSecretMetadata" in p and "operationId: accessSecret" in p; assert "secrets/{name}:access" in p; assert "operationId: setConfig" in p and "operationId: listConfig" in p and "operationId: deleteConfig" in p; assert "bearerAuth" in p; i=p.index("SecretListItem:"); j=p.index("SecretVersion:", i); assert "value:" not in p[i:j]; c=p.index("ConfigListItem:"); assert "value:" in p[c:c+350]'
+	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-secrets.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "operationId: setSecret" in p and "operationId: listSecrets" in p and "operationId: getSecretMetadata" in p and "operationId: accessSecret" in p; assert "secrets/{name}:access" in p; assert "operationId: setConfig" in p and "operationId: listConfig" in p and "operationId: deleteConfig" in p; assert "operationId: putServiceBindings" in p and "operationId: resolveServiceEnv" in p; assert "version_fingerprint" in p; assert "bearerAuth" in p; i=p.index("SecretListItem:"); j=p.index("SecretVersion:", i); assert "value:" not in p[i:j]; c=p.index("ConfigListItem:"); assert "value:" in p[c:c+350]'
 	@FORGE_SECRETS_DB_URL=$${FORGE_SECRETS_DB_URL:-postgres://forge:forge@127.0.0.1:5001/forge_secrets} \
 		FORGE_SECRETS_MASTER_KEY=$${FORGE_SECRETS_MASTER_KEY:-$(LOCAL_MASTER_KEY)} \
 		FORGE_SECRETS_MASTER_KEY_ID=$${FORGE_SECRETS_MASTER_KEY_ID:-m1} \
 		FORGE_AUTH_MODE=dev \
-		cargo test --test secrets_test --test isolation_test -- --ignored --nocapture
+		cargo test --test secrets_test --test isolation_test --test resolve_test -- --ignored --nocapture
 	@cid="$$($(COMPOSE) ps -q $(SERVICE))"; \
 		test -n "$$cid"; \
 		docker stop -t 15 "$$cid" >/dev/null; \

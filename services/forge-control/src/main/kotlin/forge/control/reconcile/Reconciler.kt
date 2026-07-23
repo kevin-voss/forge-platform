@@ -50,6 +50,8 @@ class Reconciler(
     private val readinessMaxWaitSeconds: Long = 60,
     private val placementService: PlacementService? = null,
     private val staleReplicaFencer: StaleReplicaFencer? = null,
+    private val secretsClient: SecretsClient = NoOpSecretsClient,
+    private val injectMaskInLogs: Boolean = true,
 ) {
     private val waitStartedAt = ConcurrentHashMap<String, Long>()
 
@@ -127,7 +129,18 @@ class Reconciler(
 
     private fun shouldHaltPlan(executed: ExecutedAction): Boolean =
         when (executed.result) {
-            ActionResult.Held, ActionResult.Failed ->
+            ActionResult.Held -> when (executed.action) {
+                ReconcileAction.StartReplica.name ->
+                    // Hold deploy when required secrets cannot be resolved (fail-safe).
+                    executed.detail?.startsWith("missing_secrets") == true ||
+                        executed.detail?.startsWith("secrets_") == true
+                ReconcileAction.WaitReady.name,
+                ReconcileAction.ShiftTraffic.name,
+                ReconcileAction.DrainReplica.name,
+                -> true
+                else -> false
+            }
+            ActionResult.Failed ->
                 executed.action in setOf(
                     ReconcileAction.WaitReady.name,
                     ReconcileAction.ShiftTraffic.name,
@@ -171,6 +184,31 @@ class Reconciler(
                     )
                 is PlaceResult.Ok, null -> Unit
             }
+
+            val inject = resolveInjectEnv(desired)
+            if (inject is InjectOutcome.Hold) {
+                return@inSpan ExecutedAction(
+                    action = ReconcileAction.StartReplica.name,
+                    replicaIndex = index,
+                    result = ActionResult.Held,
+                    durationMs = 0,
+                    detail = inject.detail,
+                )
+            }
+            val bundle = (inject as InjectOutcome.Ready).bundle
+
+            telemetry.inSpan("deploy.inject") {
+                // Log keys + fingerprint only — never values.
+                log.info(
+                    "deploy.inject",
+                    "deployment_id" to desired.deploymentId,
+                    "service" to desired.serviceSlug,
+                    "keys" to bundle.env.keys.sorted().joinToString(","),
+                    "version_fingerprint" to bundle.versionFingerprint,
+                    "masked" to injectMaskInLogs,
+                )
+            }
+
             val outcome = runtimeClient.ensureWorkload(
                 WorkloadEnsureRequest(
                     deploymentId = deploymentId,
@@ -179,6 +217,8 @@ class Reconciler(
                     replicaIndex = index,
                     image = desired.image,
                     port = desired.port,
+                    environment = bundle.env,
+                    secretsFingerprint = bundle.versionFingerprint,
                 ),
             )
             val result = when (outcome) {
@@ -193,6 +233,38 @@ class Reconciler(
                 durationMs = 0,
                 detail = outcome.name.lowercase(),
             )
+        }
+    }
+
+    private sealed class InjectOutcome {
+        data class Ready(val bundle: ResolvedEnvBundle) : InjectOutcome()
+        data class Hold(val detail: String) : InjectOutcome()
+    }
+
+    /**
+     * Fetch resolved secrets/config for the service. Holds deploy on missing
+     * required bindings or Secrets unavailability. Never persists plaintext.
+     */
+    private fun resolveInjectEnv(desired: DesiredState): InjectOutcome {
+        if (desired.projectId.isBlank() || desired.environmentName.isBlank()) {
+            return InjectOutcome.Ready(
+                ResolvedEnvBundle(env = emptyMap(), versionFingerprint = desired.secretsFingerprint),
+            )
+        }
+        return when (
+            val result = secretsClient.resolve(
+                projectId = desired.projectId,
+                environment = desired.environmentName,
+                service = desired.serviceSlug,
+            )
+        ) {
+            is SecretsResolveResult.Ok -> InjectOutcome.Ready(result.bundle)
+            is SecretsResolveResult.Missing ->
+                InjectOutcome.Hold("missing_secrets:${result.detail}")
+            is SecretsResolveResult.Unavailable ->
+                InjectOutcome.Hold("secrets_unavailable:${result.detail}")
+            is SecretsResolveResult.Failed ->
+                InjectOutcome.Hold("secrets_resolve_failed:${result.detail}")
         }
     }
 

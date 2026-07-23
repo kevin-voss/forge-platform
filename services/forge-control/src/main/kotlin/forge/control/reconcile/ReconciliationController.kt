@@ -39,6 +39,8 @@ class ReconciliationController(
     private val transitionRecorder: TransitionRecorder = StatusOnlyTransitionRecorder(deploymentStore),
     private val placementService: PlacementService? = null,
     private val staleReplicaFencer: StaleReplicaFencer? = null,
+    private val secretsClient: SecretsClient = NoOpSecretsClient,
+    private val injectMaskInLogs: Boolean = true,
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "forge-reconcile").apply { isDaemon = true }
     },
@@ -52,6 +54,8 @@ class ReconciliationController(
         readinessMaxWaitSeconds = readinessMaxWaitSeconds,
         placementService = placementService,
         staleReplicaFencer = staleReplicaFencer,
+        secretsClient = secretsClient,
+        injectMaskInLogs = injectMaskInLogs,
     ),
 ) : AutoCloseable {
     private val running = AtomicBoolean(false)
@@ -134,6 +138,10 @@ class ReconciliationController(
         val previous = statusStore.findByDeploymentId(deploymentId)
         restoreTimer(desired.deploymentId, previous)
 
+        // Resolve fingerprint (and warm resolve path) for redeploy detection.
+        // Values are not retained on DesiredState — only the fingerprint hash.
+        val desiredWithSecrets = attachSecretsFingerprint(desired)
+
         var healthy: Boolean
         var actualBefore: ActualState
         try {
@@ -142,22 +150,22 @@ class ReconciliationController(
         } catch (e: RuntimeUnreachableException) {
             log.warn(
                 "reconcile runtime unreachable",
-                "deployment_id" to desired.deploymentId,
-                "error" to (e.message ?: e.javaClass.simpleName),
+                    "deployment_id" to desiredWithSecrets.deploymentId,
+                    "error" to (e.message ?: e.javaClass.simpleName),
             )
             actualBefore = previous?.actual ?: ActualState()
             healthy = false
         }
 
         if (healthy) {
-            val fenced = reconciler.fenceStale(desired, actualBefore)
+            val fenced = reconciler.fenceStale(desiredWithSecrets, actualBefore)
             if (fenced.isNotEmpty()) {
                 try {
                     actualBefore = runtimeClient.observe(deploymentId)
                 } catch (e: RuntimeUnreachableException) {
                     log.warn(
                         "reconcile runtime unreachable after fence",
-                        "deployment_id" to desired.deploymentId,
+                        "deployment_id" to desiredWithSecrets.deploymentId,
                         "error" to (e.message ?: e.javaClass.simpleName),
                     )
                     healthy = false
@@ -165,9 +173,9 @@ class ReconciliationController(
             }
         }
 
-        val serviceKey = serviceKey(desired)
-        val lastHealthy = lastHealthyFor(desired)
-        var workingDesired = desired
+        val serviceKey = serviceKey(desiredWithSecrets)
+        val lastHealthy = lastHealthyFor(desiredWithSecrets)
+        var workingDesired = desiredWithSecrets
         var lifecycle = resolveLifecycle(deploymentId, previous)
         val rolling = healthy && needsRollingUpdate(workingDesired, actualBefore)
         val timedOut = rolloutTimer.isTimedOut(
@@ -532,6 +540,27 @@ class ReconciliationController(
         val started = previous?.rolloutStartedAt ?: return
         if (rolloutTimer.startedAt(deploymentId) == null) {
             rolloutTimer.markStarted(deploymentId, started)
+        }
+    }
+
+    /**
+     * Ask Secrets for the current version fingerprint (env values discarded).
+     * Missing/unavailable Secrets does not block the tick — StartReplica holds instead.
+     */
+    private fun attachSecretsFingerprint(desired: DesiredState): DesiredState {
+        if (desired.projectId.isBlank() || desired.environmentName.isBlank()) {
+            return desired
+        }
+        return when (
+            val result = secretsClient.resolve(
+                projectId = desired.projectId,
+                environment = desired.environmentName,
+                service = desired.serviceSlug,
+            )
+        ) {
+            is SecretsResolveResult.Ok ->
+                desired.copy(secretsFingerprint = result.bundle.versionFingerprint)
+            else -> desired
         }
     }
 }

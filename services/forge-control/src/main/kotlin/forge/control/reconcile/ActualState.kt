@@ -34,6 +34,8 @@ data class ReplicaObservation(
     val restartCount: Int = 0,
     val workloadName: String? = null,
     val image: String? = null,
+    /** Injected secrets fingerprint from Runtime (hash only — never values). */
+    val secretsFingerprint: String? = null,
 ) {
     init {
         require(replicaId.isNotBlank()) { "replicaId must not be blank" }

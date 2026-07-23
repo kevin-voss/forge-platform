@@ -55,6 +55,35 @@ impl ConfigStore {
         })
     }
 
+    pub async fn get(
+        &self,
+        project_id: &str,
+        environment: &str,
+        name: &str,
+    ) -> Result<Option<ConfigRow>, String> {
+        let row = sqlx::query(
+            r#"
+            SELECT project_id, environment, name, value, updated_at
+            FROM config_values
+            WHERE project_id = $1 AND environment = $2 AND name = $3
+            "#,
+        )
+        .bind(project_id)
+        .bind(environment)
+        .bind(name)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| format!("get config_values: {e}"))?;
+
+        Ok(row.map(|r| ConfigRow {
+            project_id: r.get("project_id"),
+            environment: r.get("environment"),
+            name: r.get("name"),
+            value: r.get("value"),
+            updated_at: r.get("updated_at"),
+        }))
+    }
+
     pub async fn list(
         &self,
         project_id: &str,

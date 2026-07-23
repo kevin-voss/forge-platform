@@ -217,6 +217,7 @@ async fn ensure_desired(ctx: &ConvergeCtx<'_>, dep: &DesiredDeployment) -> Resul
         image: dep.image.clone(),
         port,
         environment: dep.workload_environment(),
+        secrets_fingerprint: None,
     };
     let outcome = lifecycle::ensure_workload(
         ctx.docker,
@@ -520,6 +521,7 @@ mod tests {
                 image: "localhost:5000/demo-go:latest".into(),
                 port: 8080,
                 environment: HashMap::new(),
+                secrets_fingerprint: None,
             },
             Duration::from_secs(5),
             Duration::from_secs(1),
@@ -568,6 +570,7 @@ mod tests {
                 image: "localhost:5000/demo-go:latest".into(),
                 port: 8080,
                 environment: HashMap::new(),
+                secrets_fingerprint: None,
             },
             Duration::from_secs(5),
             Duration::from_secs(1),
