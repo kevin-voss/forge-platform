@@ -323,16 +323,22 @@ func hostSet(rs []routes.Route) map[string]bool {
 // BuildSource constructs the configured endpoint Source.
 // control → Control /v1/endpoints with Runtime interim fallback on 404/405.
 // runtime → Runtime /v1/node/state + Control metadata join.
-func BuildSource(routeSource, controlURL, runtimeURL, upstreamHost string, client HTTPDoer) (Source, error) {
+// discovery → Forge Discovery Ready endpoints + Service alias hostnames.
+func BuildSource(routeSource, controlURL, runtimeURL, upstreamHost, discoveryURL, hostPattern string, client HTTPDoer) (Source, error) {
 	routeSource = strings.ToLower(strings.TrimSpace(routeSource))
 	if routeSource == "" {
 		routeSource = "control"
 	}
 	controlURL = strings.TrimSpace(controlURL)
 	runtimeURL = strings.TrimSpace(runtimeURL)
+	discoveryURL = strings.TrimSpace(discoveryURL)
 	upstreamHost = strings.TrimSpace(upstreamHost)
 	if upstreamHost == "" {
 		upstreamHost = "127.0.0.1"
+	}
+	hostPattern = strings.TrimSpace(hostPattern)
+	if hostPattern == "" {
+		hostPattern = DefaultHostPattern
 	}
 
 	interim := func() *RuntimeInterimSource {
@@ -362,7 +368,16 @@ func BuildSource(routeSource, controlURL, runtimeURL, upstreamHost string, clien
 			return nil, fmt.Errorf("FORGE_CONTROL_URL is required when FORGE_ROUTE_SOURCE=runtime (hostname metadata)")
 		}
 		return interim(), nil
+	case "discovery":
+		if discoveryURL == "" {
+			return nil, fmt.Errorf("FORGE_DISCOVERY_URL is required when FORGE_ROUTE_SOURCE=discovery")
+		}
+		return &DiscoveryEndpointsSource{
+			BaseURL:     discoveryURL,
+			HostPattern: hostPattern,
+			Client:      client,
+		}, nil
 	default:
-		return nil, fmt.Errorf("FORGE_ROUTE_SOURCE must be control|runtime, got %q", routeSource)
+		return nil, fmt.Errorf("FORGE_ROUTE_SOURCE must be control|runtime|discovery, got %q", routeSource)
 	}
 }

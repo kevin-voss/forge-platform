@@ -42,9 +42,10 @@ make dev
 | `FORGE_AUTH_MODE` | `dev` | Edge auth deferred to epic 09. |
 | `FORGE_SHUTDOWN_GRACE_SECONDS` | `10` | Compose `stop_grace_period` should be ≥ this. |
 | `FORGE_GATEWAY_STATIC_ROUTES` | _(empty)_ | Optional path to a JSON route array loaded at boot. |
-| `FORGE_CONTROL_URL` | _(empty)_ | Control base URL; required to enable sync. |
+| `FORGE_CONTROL_URL` | _(empty)_ | Control base URL; required for `control`/`runtime` sync. |
 | `FORGE_RUNTIME_URL` | _(empty)_ | Runtime base URL; used as interim endpoint source / fallback. |
-| `FORGE_ROUTE_SOURCE` | `control` | `control` (primary + Runtime fallback on 404) or `runtime`. |
+| `FORGE_DISCOVERY_URL` | _(empty)_ | Discovery base URL; required when `FORGE_ROUTE_SOURCE=discovery`. |
+| `FORGE_ROUTE_SOURCE` | `control` | `control` (default, epic 05) \| `runtime` \| `discovery` (21.05). |
 | `FORGE_ROUTE_SYNC_INTERVAL_SECONDS` | `10` | Poll interval; `0` disables the background loop (refresh still works). |
 | `FORGE_HOST_PATTERN` | `{service}.{project}.demo.localhost` | Hostname template for derived routes. |
 | `FORGE_UPSTREAM_HOST` | `127.0.0.1` | Host paired with Runtime-published ports. Compose uses `host.docker.internal`. |
@@ -63,7 +64,8 @@ make dev
 | `FORGE_WS_IDLE_TIMEOUT_SECONDS` | `300` | Close idle WS/SSE streams after this many seconds with no bytes; `0` disables. |
 | `FORGE_STREAM_READ_TIMEOUT_SECONDS` | `0` | Optional fixed per-read deadline for streams when idle timeout is `0`; `0` = none. |
 
-Sync is enabled when `FORGE_CONTROL_URL` is set (`runtime` source also requires `FORGE_RUNTIME_URL`).
+Sync is enabled when the chosen source has its required URL(s): `control` → `FORGE_CONTROL_URL`;
+`runtime` → Control + Runtime; `discovery` → `FORGE_DISCOVERY_URL`.
 
 ## Health
 
@@ -124,16 +126,43 @@ Per-upstream state is `ready` or `unready`, driven by:
 Thresholds dampen flapping. Recovered upstreams are automatically re-added once the
 success threshold is met (or sync reports ready again).
 
-### Route sync (05.03)
+### Route sync (05.03 + 21.05)
 
 On an interval (and via refresh), the gateway:
 
-1. Fetches active endpoints from Control `GET /v1/endpoints` (documented contract).
-2. If that read model is missing (`404`/`405`), falls back to Runtime
-   `GET /v1/node/state` and joins Control project trees for `{service}` / `{project}` names.
-3. Derives routes (`host` + upstream URLs) and atomically replaces the table.
-4. Feeds per-upstream readiness into the health tracker.
-5. On source failure, keeps the last-good table and logs a warning.
+1. Fetches active endpoints from the configured `FORGE_ROUTE_SOURCE`:
+   * `control` (default) — Control `GET /v1/endpoints`; on `404`/`405` falls back to Runtime
+     `GET /v1/node/state` joined with Control project trees (byte-for-byte epic 05 path).
+   * `runtime` — Runtime node state + Control metadata only.
+   * `discovery` — Discovery `GET /v1/services` then Ready `GET .../services/{service}/endpoints`
+     per service; expands `Service.spec.aliases` into extra hostnames sharing the same upstreams.
+2. Derives routes (`host` + upstream URLs) via unchanged `DeriveRoutes` and atomically replaces the table.
+3. Feeds per-upstream readiness into the health tracker.
+4. On source failure, keeps the last-good table and logs a warning.
+
+#### Flipping to Discovery (21.05)
+
+Default remains `control` until parity is proven. Flip and revert are env-var + restart only:
+
+```bash
+# Flip
+FORGE_ROUTE_SOURCE=discovery FORGE_DISCOVERY_URL=http://localhost:4109 \
+  docker compose up -d forge-gateway
+curl -s -X POST localhost:4000/admin/routes/refresh | jq '.source'   # "discovery"
+
+# Revert (exact epic-05 sync path restored)
+FORGE_ROUTE_SOURCE=control docker compose up -d forge-gateway
+curl -s -X POST localhost:4000/admin/routes/refresh | jq '.source'   # "control"
+```
+
+**Parity checklist** before recommending the flip in a given environment:
+
+* Existing epic-05 sync unit tests (`go test ./internal/sync/...`) pass unmodified against
+  `control`/`runtime` fixtures.
+* With `FORGE_ROUTE_SOURCE=discovery`, Ready Discovery endpoints appear as the same
+  `{service}.{project}…` hosts `DeriveRoutes` would produce from Runtime interim sync.
+* Service aliases (`Service.spec.aliases`) resolve to the same upstream set as the canonical host.
+* Killing Discovery mid-run retains Gateway's last-good route table (no dropped routes).
 
 Expected Control endpoints shape (when implemented):
 

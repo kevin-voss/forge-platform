@@ -27,6 +27,44 @@ type ServicePortRow struct {
 	Protocol string `json:"protocol"`
 }
 
+// ListServices returns every service row (canonical name + aliases) for Gateway sync.
+func (db *DB) ListServices(ctx context.Context) ([]ServiceRow, error) {
+	rows, err := db.Pool.Query(ctx, `
+SELECT id, project, environment, name, ports, aliases, resource_version
+  FROM discovery.services
+ ORDER BY project, environment, name
+`)
+	if err != nil {
+		return nil, fmt.Errorf("list services: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]ServiceRow, 0)
+	for rows.Next() {
+		var row ServiceRow
+		var portsRaw, aliasesRaw []byte
+		if err := rows.Scan(
+			&row.ID, &row.Project, &row.Environment, &row.Name, &portsRaw, &aliasesRaw, &row.ResourceVersion,
+		); err != nil {
+			return nil, fmt.Errorf("list services scan: %w", err)
+		}
+		if err := json.Unmarshal(portsRaw, &row.Ports); err != nil {
+			row.Ports = nil
+		}
+		if err := json.Unmarshal(aliasesRaw, &row.Aliases); err != nil {
+			row.Aliases = nil
+		}
+		if row.Aliases == nil {
+			row.Aliases = []string{}
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list services: %w", err)
+	}
+	return out, nil
+}
+
 // LookupServiceByNameOrAlias finds a service by canonical name or alias within a scope.
 func (db *DB) LookupServiceByNameOrAlias(ctx context.Context, project, environment, nameOrAlias string) (ServiceRow, error) {
 	var row ServiceRow

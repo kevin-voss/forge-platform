@@ -16,6 +16,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FORGE_GATEWAY_STATIC_ROUTES", "")
 	t.Setenv("FORGE_CONTROL_URL", "")
 	t.Setenv("FORGE_RUNTIME_URL", "")
+	t.Setenv("FORGE_DISCOVERY_URL", "")
 	t.Setenv("FORGE_ROUTE_SOURCE", "")
 	t.Setenv("FORGE_ROUTE_SYNC_INTERVAL_SECONDS", "")
 	t.Setenv("FORGE_HOST_PATTERN", "")

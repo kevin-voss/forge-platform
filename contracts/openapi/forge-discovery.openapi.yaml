@@ -1,10 +1,11 @@
 openapi: 3.0.3
 info:
   title: Forge Discovery API
-  version: 0.3.0
+  version: 0.4.0
   description: |
     Forge Discovery (epic 21). Step 21.03 adds readiness-filtered endpoint selection,
-    a scoped SSE watch, and the Go `forge-discovery-client` library.
+    a scoped SSE watch, and the Go `forge-discovery-client` library. Step 21.05 adds
+    `GET /v1/services` for Gateway's flagged Discovery route source.
 
     Relationship to epic 20: Control's generic `GET /v1/watch/endpoints` (mirrored from
     Discovery writes in 21.02) remains available for uniform tooling even when Discovery's
@@ -15,6 +16,36 @@ servers:
     description: Local Compose (host port 4109)
 
 paths:
+  /v1/services:
+    get:
+      operationId: listServices
+      summary: List registered Service resources
+      description: |
+        Returns every Service known to Discovery (canonical name + aliases), used by
+        Gateway's `FORGE_ROUTE_SOURCE=discovery` sync to discover which services to
+        poll for Ready endpoints.
+      security: []
+      responses:
+        "200":
+          description: Service list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ServiceListItem"
+              example:
+                - project: invoice-platform
+                  environment: production
+                  name: invoice-api
+                  aliases: [legacy-invoice]
+        "503":
+          description: List query unavailable; retry after Retry-After
+          headers:
+            Retry-After:
+              schema:
+                type: string
+
   /health/live:
     get:
       operationId: getHealthLive
@@ -342,6 +373,21 @@ components:
           type: string
         port:
           type: integer
+
+    ServiceListItem:
+      type: object
+      required: [project, environment, name, aliases]
+      properties:
+        project:
+          type: string
+        environment:
+          type: string
+        name:
+          type: string
+        aliases:
+          type: array
+          items:
+            type: string
 
     EndpointListItem:
       type: object

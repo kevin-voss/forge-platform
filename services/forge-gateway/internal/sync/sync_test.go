@@ -405,7 +405,7 @@ func TestFallbackSourceUsesInterimOn404(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	src, err := BuildSource("control", srv.URL, srv.URL, "127.0.0.1", srv.Client())
+	src, err := BuildSource("control", srv.URL, srv.URL, "127.0.0.1", "", DefaultHostPattern, srv.Client())
 	if err != nil {
 		t.Fatal(err)
 	}

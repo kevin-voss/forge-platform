@@ -14,11 +14,18 @@ import (
 )
 
 type memEndpointStore struct {
-	rows map[string]store.EndpointRow
+	rows     map[string]store.EndpointRow
+	services []store.ServiceRow
 }
 
 func newMemStore() *memEndpointStore {
 	return &memEndpointStore{rows: map[string]store.EndpointRow{}}
+}
+
+func (m *memEndpointStore) ListServices(_ context.Context) ([]store.ServiceRow, error) {
+	out := make([]store.ServiceRow, len(m.services))
+	copy(out, m.services)
+	return out, nil
 }
 
 func (m *memEndpointStore) Register(ctx context.Context, in store.RegisterInput) (store.EndpointRow, error) {
@@ -301,6 +308,33 @@ func TestWatchReplayAndResync(t *testing.T) {
 	if containsAll(body, `"id":"x1"`) {
 		// x1 has RV=1; since=1 means rv>1, so x1 must not appear.
 		t.Fatalf("replay included since-boundary event: %q", body)
+	}
+}
+
+func TestListServicesHTTP(t *testing.T) {
+	st := newMemStore()
+	st.services = []store.ServiceRow{{
+		Project: "invoice-platform", Environment: "production", Name: "invoice-api",
+		Aliases: []string{"legacy-invoice"},
+	}}
+	h := &EndpointsHandler{Store: st, Watch: watchhub.New(watchhub.Config{})}
+	mux := NewRouterWith(RouterDeps{Ready: NewReadiness(nil), Endpoints: h})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/services", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d body=%s", rr.Code, rr.Body.String())
+	}
+	var got []serviceListItem
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "invoice-api" || got[0].Project != "invoice-platform" {
+		t.Fatalf("got=%+v", got)
+	}
+	if len(got[0].Aliases) != 1 || got[0].Aliases[0] != "legacy-invoice" {
+		t.Fatalf("aliases=%v", got[0].Aliases)
 	}
 }
 

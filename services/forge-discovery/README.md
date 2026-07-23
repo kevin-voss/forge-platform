@@ -120,8 +120,9 @@ contract.
 | `FORGE_OTEL_ENABLED` | `true` | OTLP export |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel-collector:4317` | OTLP gRPC |
 
-## HTTP API (21.03)
+## HTTP API (21.03 + 21.05)
 
+* `GET /v1/services` — list registered Services (`project`, `environment`, `name`, `aliases`) for Gateway sync
 * `POST /v1/projects/{project}/environments/{environment}/services/{service}/endpoints` — register (idempotent upsert by replica id)
 * `POST /v1/projects/{project}/environments/{environment}/endpoints/{id}/renew` — renew lease + readiness
 * `DELETE /v1/projects/{project}/environments/{environment}/endpoints/{id}` — deregister (`204`)

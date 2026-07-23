@@ -114,9 +114,12 @@ func run() error {
 
 	var syncer *gwync.Syncer
 	if cfg.SyncEnabled {
-		source, err := gwync.BuildSource(cfg.RouteSource, cfg.ControlURL, cfg.RuntimeURL, cfg.UpstreamHost, nil)
+		source, err := gwync.BuildSource(cfg.RouteSource, cfg.ControlURL, cfg.RuntimeURL, cfg.UpstreamHost, cfg.DiscoveryURL, cfg.HostPattern, nil)
 		if err != nil {
 			return err
+		}
+		if ds, ok := source.(*gwync.DiscoveryEndpointsSource); ok {
+			ds.Log = log
 		}
 		syncer = gwync.New(gwync.Config{
 			Table:    table,
@@ -128,7 +131,7 @@ func run() error {
 			Log:      log,
 		})
 	} else {
-		log.Info("route sync disabled (set FORGE_CONTROL_URL / FORGE_RUNTIME_URL to enable)")
+		log.Info("route sync disabled (set FORGE_CONTROL_URL / FORGE_RUNTIME_URL / FORGE_DISCOVERY_URL for the chosen FORGE_ROUTE_SOURCE)")
 		// Still expose refresh so callers get a clear response.
 		syncer = gwync.New(gwync.Config{
 			Table:    table,

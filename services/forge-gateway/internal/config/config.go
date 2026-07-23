@@ -21,6 +21,7 @@ type Config struct {
 
 	ControlURL        string
 	RuntimeURL        string
+	DiscoveryURL      string
 	RouteSource       string
 	RouteSyncInterval time.Duration
 	HostPattern       string
@@ -94,15 +95,16 @@ func Load() (Config, error) {
 
 	controlURL := strings.TrimSpace(os.Getenv("FORGE_CONTROL_URL"))
 	runtimeURL := strings.TrimSpace(os.Getenv("FORGE_RUNTIME_URL"))
+	discoveryURL := strings.TrimSpace(os.Getenv("FORGE_DISCOVERY_URL"))
 
 	routeSource := strings.ToLower(strings.TrimSpace(os.Getenv("FORGE_ROUTE_SOURCE")))
 	if routeSource == "" {
 		routeSource = "control"
 	}
 	switch routeSource {
-	case "control", "runtime":
+	case "control", "runtime", "discovery":
 	default:
-		return Config{}, fmt.Errorf("FORGE_ROUTE_SOURCE must be control|runtime, got %q", routeSource)
+		return Config{}, fmt.Errorf("FORGE_ROUTE_SOURCE must be control|runtime|discovery, got %q", routeSource)
 	}
 
 	syncRaw := strings.TrimSpace(os.Getenv("FORGE_ROUTE_SYNC_INTERVAL_SECONDS"))
@@ -124,14 +126,16 @@ func Load() (Config, error) {
 		upstreamHost = "127.0.0.1"
 	}
 
-	// Sync is enabled when at least one platform URL is configured.
-	// control source needs Control; runtime source needs both (metadata + state).
+	// Sync is enabled when the configured source's required URLs are present.
+	// control → Control; runtime → Control+Runtime; discovery → Discovery.
 	syncEnabled := false
 	switch routeSource {
 	case "control":
 		syncEnabled = controlURL != ""
 	case "runtime":
 		syncEnabled = controlURL != "" && runtimeURL != ""
+	case "discovery":
+		syncEnabled = discoveryURL != ""
 	}
 
 	probeIntervalRaw := strings.TrimSpace(os.Getenv("FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS"))
@@ -267,6 +271,7 @@ func Load() (Config, error) {
 		StaticRoutesPath:           strings.TrimSpace(os.Getenv("FORGE_GATEWAY_STATIC_ROUTES")),
 		ControlURL:                 controlURL,
 		RuntimeURL:                 runtimeURL,
+		DiscoveryURL:               discoveryURL,
 		RouteSource:                routeSource,
 		RouteSyncInterval:          time.Duration(syncSecs) * time.Second,
 		HostPattern:                hostPattern,

@@ -54,6 +54,7 @@ type EndpointsHandler struct {
 
 // Register mounts endpoint routes.
 func (h *EndpointsHandler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/services", h.handleListServices)
 	mux.HandleFunc("POST /v1/projects/{project}/environments/{environment}/services/{service}/endpoints", h.handleRegister)
 	mux.HandleFunc("GET /v1/projects/{project}/environments/{environment}/services/{service}/endpoints/watch", h.handleWatch)
 	mux.HandleFunc("GET /v1/projects/{project}/environments/{environment}/services/{service}/endpoints", h.handleList)
