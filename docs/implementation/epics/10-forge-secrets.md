@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Goal
 
@@ -68,7 +68,7 @@ Logs → configured secret values masked
 | [10.04](../steps/10-forge-secrets/10.04-runtime-injection-at-deploy.md) | Runtime injection at deploy | Complete | Bindings + resolve; Control inject; fingerprint redeploy |
 | [10.05](../steps/10-forge-secrets/10.05-cli-secret-and-config.md) | CLI `forge secret` / `forge config` | Complete | set/list/rotate; config set/show |
 | [10.06](../steps/10-forge-secrets/10.06-access-audit-and-log-masking.md) | Access audit + log masking | Complete | Audit reads/writes; mask values in logs |
-| [10.07](../steps/10-forge-secrets/10.07-demo-10-secrets.md) | Demo `10-secrets` + gate | Not started | set/rotate/redeploy; epic gate |
+| [10.07](../steps/10-forge-secrets/10.07-demo-10-secrets.md) | Demo `10-secrets` + gate | Complete | set/rotate/redeploy; epic gate |
 
 ## Assumptions
 
@@ -87,4 +87,4 @@ Logs → configured secret values masked
 
 ## Next step to implement
 
-**[10.06](../steps/10-forge-secrets/10.06-access-audit-and-log-masking.md) — Access audit + log masking**.
+Epic complete — proceed to epic [`11-forge-events`](11-forge-events.md).

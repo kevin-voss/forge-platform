@@ -1,0 +1,53 @@
+# Demo 10 overlay — Identity + Control (enforce) + Secrets (master key) + Runtime.
+# Used with the root compose file:
+#   docker compose -f compose.yaml -f demos/10-secrets/docker-compose.yml up -d ...
+#
+# FORGE_SECRETS_MASTER_KEY and FORGE_SECRETS_SERVICE_ACCOUNT are generated per
+# demo run (see run.sh). Demo-only; do not reuse outside this acceptance gate.
+
+services:
+  forge-secrets:
+    environment:
+      FORGE_AUTH_MODE: enforce
+      FORGE_IDENTITY_URL: http://forge-identity:8080
+      FORGE_SECRETS_MASTER_KEY: ${FORGE_SECRETS_MASTER_KEY:?FORGE_SECRETS_MASTER_KEY required for demo 10}
+      FORGE_SECRETS_MASTER_KEY_ID: ${FORGE_SECRETS_MASTER_KEY_ID:-demo-m1}
+      FORGE_INTROSPECT_CACHE_TTL_S: ${FORGE_INTROSPECT_CACHE_TTL_S:-2}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      forge-identity:
+        condition: service_healthy
+
+  forge-control:
+    environment:
+      FORGE_AUTH_MODE: enforce
+      FORGE_IDENTITY_URL: http://forge-identity:8080
+      FORGE_SECRETS_URL: http://forge-secrets:8080
+      FORGE_SECRETS_SERVICE_ACCOUNT: ${FORGE_SECRETS_SERVICE_ACCOUNT:-}
+      FORGE_INJECT_MASK_IN_LOGS: ${FORGE_INJECT_MASK_IN_LOGS:-true}
+      FORGE_INTROSPECT_CACHE_TTL_S: ${FORGE_INTROSPECT_CACHE_TTL_S:-2}
+      FORGE_AUTHZ_CACHE_TTL_S: ${FORGE_AUTHZ_CACHE_TTL_S:-2}
+      FORGE_RECONCILE_INTERVAL_MS: ${FORGE_RECONCILE_INTERVAL_MS:-2000}
+      FORGE_RUNTIME_URL: http://forge-runtime:8080
+      # Secrets demo does not exercise multi-node placement; avoid capacity holds.
+      FORGE_SCHEDULER_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      forge-identity:
+        condition: service_healthy
+      forge-secrets:
+        condition: service_healthy
+
+  forge-runtime:
+    environment:
+      # Runtime's own auth knob is unrelated to Control enforce; keep agent local-dev.
+      FORGE_AUTH_MODE: dev
+      FORGE_LIFECYCLE_OWNER: ${FORGE_LIFECYCLE_OWNER:-control}
+      FORGE_PROBE_INTERVAL_SECONDS: ${FORGE_PROBE_INTERVAL_SECONDS:-2}
+      FORGE_PROBE_FAILURE_THRESHOLD: ${FORGE_PROBE_FAILURE_THRESHOLD:-2}
+      FORGE_STOP_GRACE_SECONDS: ${FORGE_STOP_GRACE_SECONDS:-2}
+    depends_on:
+      forge-control:
+        condition: service_healthy
