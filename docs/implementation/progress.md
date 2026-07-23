@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 113`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 114`**.
 
 ## Epics
 
@@ -24,7 +24,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [13](epics/13-forge-storage.md) | Forge Storage | Complete | 7/7 steps; demo 13 object-storage acceptance gate passed |
 | [14](epics/14-forge-models.md) | Forge Models | Complete | 7/7 steps; demo 14 model-serving acceptance gate passed |
 | [15](epics/15-forge-agents.md) | Forge Agents | Complete | 8/8 steps; demo 15 agent-runtime acceptance gate passed |
-| [16](epics/16-forge-workflows.md) | Forge Workflows | In progress | 6/7 steps; saga compensation + Control-wired rollback |
+| [16](epics/16-forge-workflows.md) | Forge Workflows | Complete | 7/7 steps; demo 16 agent-workflow acceptance gate passed |
 | [17](epics/17-forge-memory.md) | Forge Memory | Planning | 6 steps |
 | [18](epics/18-managed-postgresql.md) | Managed PostgreSQL | Planning | 6 steps |
 | [19](epics/19-full-platform-demo.md) | Full platform demo | Planning | 6 steps; capstone |
@@ -146,7 +146,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **110** | [Event triggers + agent steps](steps/16-forge-workflows/16.04-event-triggers-agent-steps.md) | Complete |  | Durable Events consumer + event_dedup; agent step + fake/live client; `/v1/triggers/test` |
 | **111** | [Human approval across restarts](steps/16-forge-workflows/16.05-human-approval-restarts.md) | Complete |  | `approval` step + ApprovalStore; awaiting_approval survives restart; approve/deny/expire |
 | **112** | [Compensation/rollback via Control](steps/16-forge-workflows/16.06-compensation-rollback.md) | Complete |  | Saga log + reverse compensators; Control rollback client; report `rolled_back` |
-| **113** | [Demo `16-agent-workflow` + gate](steps/16-forge-workflows/16.07-demo-and-gate.md) | Not started |  |  |
+| **113** | [Demo `16-agent-workflow` + gate](steps/16-forge-workflows/16.07-demo-and-gate.md) | Complete |  | Demo 16: event→diagnose→approve→rollback; restart-resume; epic gate |
 | **114** | [Skeleton + persistence](steps/17-forge-memory/17.01-skeleton-persistence.md) | Not started |  |  |
 | **115** | [Collections + fixed-dim vectors + metadata](steps/17-forge-memory/17.02-collections-vectors-metadata.md) | Not started |  |  |
 | **116** | [Upsert + cosine NN query](steps/17-forge-memory/17.03-upsert-cosine-nn.md) | Not started |  |  |

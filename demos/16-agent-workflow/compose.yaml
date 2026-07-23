@@ -1,0 +1,130 @@
+# Demo 16 — Forge Workflows acceptance gate (standalone).
+# workflows + agents(fake) + models(fake) + Postgres (durable) + fake Control.
+# Event injection uses the documented /v1/triggers/test fixture path.
+#
+#   docker compose -f demos/16-agent-workflow/compose.yaml up -d --build
+
+name: forge-demo-16
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: forge-demo-16-postgres
+    environment:
+      POSTGRES_USER: forge
+      POSTGRES_PASSWORD: forge
+      POSTGRES_DB: forge
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./fixtures/postgres-init.sh:/docker-entrypoint-initdb.d/01-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forge -d forge"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  forge-models:
+    build:
+      context: ../../services/forge-models
+    image: forge/forge-models:local
+    container_name: forge-demo-16-models
+    ports:
+      - "4300:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: forge-models
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-info}
+      FORGE_ENV: development
+      FORGE_MODELS_BACKEND: ${FORGE_MODELS_BACKEND:-fake}
+      FORGE_MODELS_METRICS_ENABLED: "true"
+      FORGE_SHUTDOWN_GRACE_SECONDS: "10"
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health/ready | grep -q ready"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  forge-agents:
+    build:
+      context: ../../services/forge-agents
+    image: forge/forge-agents:local
+    container_name: forge-demo-16-agents
+    ports:
+      - "4301:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: forge-agents
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-info}
+      FORGE_ENV: development
+      FORGE_MODELS_URL: http://forge-models:8080
+      FORGE_AGENTS_DEFS_DIR: /app/agents
+      FORGE_AGENTS_TOOLS_MODE: ${FORGE_AGENTS_TOOLS_MODE:-fake}
+      FORGE_AGENTS_TOOL_TIMEOUT_SECONDS: "15"
+      FORGE_AGENTS_DB_PATH: /data/agents/runs.db
+      FORGE_AGENTS_MAX_CONCURRENT_RUNS: "4"
+      FORGE_AGENTS_APPROVAL_TTL_SECONDS: "3600"
+      FORGE_SHUTDOWN_GRACE_SECONDS: "10"
+    volumes:
+      - agents-data:/data/agents
+    depends_on:
+      forge-models:
+        condition: service_healthy
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health/ready | grep -q ready"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  forge-workflows:
+    build:
+      context: ../../services/forge-workflows
+    image: forge/forge-workflows:local
+    container_name: forge-demo-16-workflows
+    ports:
+      - "4302:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: forge-workflows
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-info}
+      FORGE_ENV: development
+      FORGE_SHUTDOWN_GRACE_SECONDS: "10"
+      FORGE_WORKFLOWS_DATABASE_URL: postgres://forge:forge@postgres:5432/forge_workflows
+      FORGE_WORKFLOWS_DEFS_DIR: /app/definitions
+      FORGE_WORKFLOWS_EVENTS_ENABLED: "false"
+      FORGE_EVENTS_URL: http://127.0.0.1:9
+      FORGE_AGENTS_URL: http://forge-agents:8080
+      FORGE_WORKFLOWS_AGENTS_MODE: ${FORGE_WORKFLOWS_AGENTS_MODE:-fake}
+      FORGE_WORKFLOWS_AGENT_POLL_MS: "50"
+      FORGE_WORKFLOWS_AGENT_STEP_TIMEOUT: "30000"
+      FORGE_WORKFLOWS_APPROVAL_TTL_SECONDS: "86400"
+      FORGE_WORKFLOWS_DEFAULT_PROJECT: ${FORGE_WORKFLOWS_PROJECT:-demo-16}
+      FORGE_CONTROL_URL: http://127.0.0.1:9
+      FORGE_WORKFLOWS_CONTROL_MODE: ${FORGE_WORKFLOWS_CONTROL_MODE:-fake}
+      FORGE_WORKFLOWS_CONTROL_HTTP_TIMEOUT_MS: "2000"
+      FORGE_WORKFLOWS_REPORT_BUCKET: wf-reports
+    volumes:
+      - ./definitions:/app/definitions:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      forge-agents:
+        condition: service_healthy
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health/ready | grep -q ready"]
+      interval: 2s
+      timeout: 5s
+      retries: 45
+      start_period: 40s
+
+volumes:
+  postgres-data:
+  agents-data:

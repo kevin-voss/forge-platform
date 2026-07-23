@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Goal
 
@@ -60,7 +60,7 @@ make demo DEMO=16
 | [16.04](../steps/16-forge-workflows/16.04-event-triggers-agent-steps.md) | Event triggers + agent steps | Complete | Durable consumer + event_dedup; agent step + Agents client |
 | [16.05](../steps/16-forge-workflows/16.05-human-approval-restarts.md) | Human approval across restarts | Complete | Durable ApprovalStore; awaiting_approval + restart; approve/deny/expire |
 | [16.06](../steps/16-forge-workflows/16.06-compensation-rollback.md) | Compensation/rollback via Control | Complete | Saga log + reverse compensators; Control rollback; report rolled_back |
-| [16.07](../steps/16-forge-workflows/16.07-demo-and-gate.md) | Demo `16-agent-workflow` + gate | Not started | Depends on 16.06 |
+| [16.07](../steps/16-forge-workflows/16.07-demo-and-gate.md) | Demo `16-agent-workflow` + gate | Complete | Depends on 16.06; `make demo DEMO=16` gate |
 
 ## Assumptions
 
@@ -79,4 +79,4 @@ make demo DEMO=16
 
 ## Next step to implement
 
-**[16.07](../steps/16-forge-workflows/16.07-demo-and-gate.md) — Demo `16-agent-workflow` + gate**.
+Epic complete. Next roadmap epic: [`17-forge-memory`](17-forge-memory.md).

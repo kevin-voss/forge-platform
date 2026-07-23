@@ -8,8 +8,8 @@ actions recorded in `workflow_saga_log`; on step failure or an explicit
 order (idempotent), including `control.rollback_deployment` via a Control client
 (fake or live PATCH to last healthy image). Final reports store `rolled_back`
 + `report_ref` on the run. Builds on durable approvals (16.05), event triggers +
-agent steps, YAML definitions, and the durable scheduler. Epic gate:
-`make demo DEMO=16` (`demos/16-agent-workflow`).
+agent steps, YAML definitions, and the durable scheduler. Epic gate
+(`make demo DEMO=16` / `demos/16-agent-workflow`) is complete.
 
 ## Local
 
