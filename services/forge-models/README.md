@@ -3,12 +3,11 @@
 Python/FastAPI model-serving service (epic 14). Host port **4300**.
 
 Skeleton (14.01) + model registry (14.02) + local embeddings (14.03) +
-generate/classify/summarize (14.04) + streaming/async jobs (14.05): health,
-identity, structured JSON logs, `GET /v1/models`, `POST .../embed`,
-synchronous `POST .../generate|classify|summarize`, SSE
-`POST .../generate?stream=true`, and in-memory `POST|GET|DELETE /v1/jobs`.
-Usage metrics arrive in 14.06; epic gate is `make demo DEMO=14`
-(`demos/14-model-serving`).
+generate/classify/summarize (14.04) + streaming/async jobs (14.05) + usage
+metrics/OpenAPI (14.06): health, identity, structured JSON logs,
+`GET /v1/models`, inference endpoints, SSE streaming, in-memory jobs,
+`GET /metrics` + `GET /v1/usage`, and optional `forge model` CLI. Epic gate is
+`make demo DEMO=14` (`demos/14-model-serving`).
 
 ## Local
 
@@ -16,6 +15,7 @@ Usage metrics arrive in 14.06; epic gate is `make demo DEMO=14`
 # from repo root
 make service-run SERVICE=forge-models
 make service-test SERVICE=forge-models
+make lint-openapi
 
 # or inside this directory
 make sync
@@ -49,9 +49,18 @@ JID=$(curl -fsS -XPOST $BASE/v1/jobs -H 'content-type: application/json' \
   -d '{"model":"'$M'","task":"summarize","input":"async summary please"}' \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["job_id"])')
 sleep 1; curl -fsS $BASE/v1/jobs/$JID -H 'X-Forge-Project: demo' | grep -q '"status"'
+curl -fsS -XPOST $BASE/v1/models/local-embed-small/embed -H 'content-type: application/json' \
+  -d '{"input":"x"}' >/dev/null
+curl -fsS $BASE/metrics | grep -q 'models_embed_requests_total'
+curl -fsS $BASE/v1/usage | grep -q 'by_model'
+# optional CLI (FORGE_MODELS_URL defaults to http://127.0.0.1:4300)
+# forge model list
+# forge model embed --model local-embed-small --text hello
+# forge model generate --model local-general --prompt "hi"
 ```
 
 OpenAPI (canonical): [`contracts/openapi/forge-models.openapi.yaml`](../../contracts/openapi/forge-models.openapi.yaml).
+Lint: `make lint-openapi`.
 
 ## Model registry
 
@@ -130,6 +139,36 @@ In-memory only (not durable across restart). Scoped by `X-Forge-Project`
 `queued|running|succeeded|failed|cancelled`. Concurrency capped by
 `FORGE_MODELS_MAX_CONCURRENT_JOBS`; timeout → `failed` / `timeout`.
 
+## Usage metrics
+
+Prometheus exposition at `GET /metrics` (scraped by Compose Prometheus as job
+`forge-models`). Aggregate snapshot at `GET /v1/usage`:
+
+```json
+{
+  "by_model": {
+    "local-embed-small": {
+      "requests": 12,
+      "tokens": 12,
+      "errors": 0,
+      "p95_latency_ms": 4.2
+    }
+  }
+}
+```
+
+Counters/histograms are labeled by `model` (and `capability` where applicable).
+Recording is best-effort and never breaks inference. Large prompt/response bodies
+are truncated in structured logs (`*_preview` fields).
+
+Optional CLI (`FORGE_MODELS_URL`, default `http://127.0.0.1:4300`):
+
+```bash
+forge model list
+forge model embed --model local-embed-small --text "hello"
+forge model generate --model local-general --prompt "hi"
+```
+
 ## Configuration
 
 | Variable | Default | Notes |
@@ -147,6 +186,8 @@ In-memory only (not durable across restart). Scoped by `X-Forge-Project`
 | `FORGE_MODELS_MAX_CONCURRENT_JOBS` | `4` | Worker concurrency cap |
 | `FORGE_MODELS_JOB_TIMEOUT_SECONDS` | `300` | Per-job wall timeout → `failed`/`timeout` |
 | `FORGE_MODELS_LOCAL_MODEL_PATH` | _(empty)_ | Optional on-disk sentence-transformer path |
+| `FORGE_MODELS_METRICS_ENABLED` | `true` | Prometheus + `/v1/usage` recording |
+| `FORGE_OTEL_EXPORTER_OTLP_ENDPOINT` | _(empty)_ | Optional OTEL push target (Prometheus scrape is primary) |
 | `FORGE_LOG_LEVEL` | `info` | `debug\|info\|warn\|error` |
 | `FORGE_SERVICE_NAME` | `forge-models` | Identity + log field |
 | `FORGE_SERVICE_VERSION` | `0.1.0` | Identity payload |
@@ -158,10 +199,11 @@ In-memory only (not durable across restart). Scoped by `X-Forge-Project`
 ```text
 services/forge-models/
 ├── app/
-│   ├── main.py                 # FastAPI factory + lifespan (job worker)
+│   ├── main.py                 # FastAPI factory + lifespan (job worker, /metrics)
 │   ├── config.py               # pydantic-settings
 │   ├── health.py               # /health/live, /health/ready
 │   ├── logging.py              # JSON logs + X-Request-ID middleware
+│   ├── metrics.py              # Prometheus + usage snapshot + redaction
 │   ├── registry.py             # models.yaml loader + in-memory registry
 │   ├── streaming.py            # SSE chunk helpers for generate?stream=true
 │   ├── models.yaml             # default model definitions
@@ -171,6 +213,7 @@ services/forge-models/
 │   ├── api/classify.py         # POST /v1/models/{model}/classify
 │   ├── api/summarize.py        # POST /v1/models/{model}/summarize
 │   ├── api/jobs.py             # POST/GET/DELETE /v1/jobs
+│   ├── api/usage.py            # GET /v1/usage
 │   ├── jobs/                   # JobStore + background worker
 │   └── adapters/               # ModelAdapter, FakeAdapter, LocalEmbedding*, LocalGeneration*
 ├── tests/

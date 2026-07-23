@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from app.adapters.local_gen import LocalGenerationAdapter
+from app.metrics import UsageMetrics
 
 logger = logging.getLogger("forge-models")
 
@@ -68,11 +69,13 @@ async def sse_generate_events(
     model_id: str,
     timeout_seconds: float,
     on_active: Callable[[int], None] | None = None,
+    usage_metrics: UsageMetrics | None = None,
 ) -> AsyncIterator[str]:
     """Async generator of SSE frames ending with ``data: [DONE]``."""
     started = time.perf_counter()
     chunks = 0
     cancelled = False
+    timed_out = False
 
     if on_active is not None:
         on_active(1)
@@ -90,6 +93,7 @@ async def sse_generate_events(
                 yield format_sse_data({"delta": delta})
             yield format_sse_data(DONE_SENTINEL)
     except TimeoutError:
+        timed_out = True
         logger.warning(
             "stream timed out",
             extra={"model": model_id, "chunks": chunks, "timeout_seconds": timeout_seconds},
@@ -106,7 +110,16 @@ async def sse_generate_events(
     finally:
         if on_active is not None:
             on_active(-1)
-        duration_ms = round((time.perf_counter() - started) * 1000.0, 3)
+        duration = time.perf_counter() - started
+        duration_ms = round(duration * 1000.0, 3)
+        if usage_metrics is not None:
+            usage_metrics.record(
+                model=model_id,
+                capability="generate",
+                latency_seconds=duration,
+                tokens=max(0, chunks),
+                error=timed_out or cancelled,
+            )
         logger.info(
             "stream ended",
             extra={"model": model_id, "chunks": chunks, "duration_ms": duration_ms},

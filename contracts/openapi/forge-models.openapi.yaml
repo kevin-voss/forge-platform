@@ -1,12 +1,13 @@
 openapi: 3.0.3
 info:
   title: Forge Models API
-  version: 0.5.0
+  version: 0.6.0
   description: |
     Platform model-serving service (epic 14). Health/identity from 14.01;
     model registry read APIs from 14.02; local embeddings (`POST .../embed`)
     from 14.03; generate/classify/summarize from 14.04; SSE streaming generate
-    and in-memory async jobs from 14.05. Usage metrics land in 14.06.
+    and in-memory async jobs from 14.05; usage metrics (`GET /metrics`,
+    `GET /v1/usage`) and finalized OpenAPI from 14.06.
 servers:
   - url: http://127.0.0.1:4300
     description: Local Compose (host port 4300)
@@ -563,6 +564,53 @@ paths:
                     error: "input must be a non-empty string"
                     code: invalid_params
 
+  /v1/usage:
+    get:
+      operationId: getUsage
+      summary: Aggregate model usage snapshot
+      description: |
+        In-memory aggregate counters since process start (not durable).
+        Per-model totals include requests, approximate tokens, errors, and
+        p95 latency in milliseconds.
+      responses:
+        "200":
+          description: Usage aggregates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageResponse"
+              example:
+                by_model:
+                  local-embed-small:
+                    requests: 12
+                    tokens: 12
+                    errors: 0
+                    p95_latency_ms: 4.2
+                  local-general:
+                    requests: 8
+                    tokens: 140
+                    errors: 1
+                    p95_latency_ms: 18.5
+
+  /metrics:
+    get:
+      operationId: getPrometheusMetrics
+      summary: Prometheus metrics exposition
+      description: |
+        Prometheus text format for Observe scrapes. Internal-only; not routed
+        publicly via Gateway. Disabled when `FORGE_MODELS_METRICS_ENABLED=false`.
+      responses:
+        "200":
+          description: Prometheus text exposition
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: |
+                # HELP models_embed_requests_total Total embed inference requests
+                # TYPE models_embed_requests_total counter
+                models_embed_requests_total{model="local-embed-small"} 1.0
+
 components:
   parameters:
     ModelId:
@@ -956,3 +1004,37 @@ components:
         status:
           type: string
           enum: [cancelled]
+
+    UsageModelStats:
+      type: object
+      additionalProperties: false
+      required:
+        - requests
+        - tokens
+        - errors
+        - p95_latency_ms
+      properties:
+        requests:
+          type: integer
+          minimum: 0
+        tokens:
+          type: integer
+          minimum: 0
+        errors:
+          type: integer
+          minimum: 0
+        p95_latency_ms:
+          type: number
+          minimum: 0
+
+    UsageResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - by_model
+      properties:
+        by_model:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/UsageModelStats"
+          description: Aggregate stats keyed by model id

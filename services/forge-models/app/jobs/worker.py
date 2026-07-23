@@ -11,6 +11,7 @@ from app.adapters.local_embed import LocalEmbeddingAdapter
 from app.adapters.local_gen import LocalGenerationAdapter, summarize_prompt
 from app.config import Settings
 from app.jobs.store import InvalidTransitionError, Job, JobStatus, JobStore
+from app.metrics import UsageMetrics
 from app.registry import ModelRegistry
 
 logger = logging.getLogger("forge-models")
@@ -28,10 +29,12 @@ class JobWorker:
         store: JobStore,
         registry: ModelRegistry,
         settings: Settings,
+        usage_metrics: UsageMetrics | None = None,
     ) -> None:
         self._store = store
         self._registry = registry
         self._settings = settings
+        self._usage = usage_metrics
         self._sem = asyncio.Semaphore(settings.forge_models_max_concurrent_jobs)
         self._wake = asyncio.Event()
         self._stopped = asyncio.Event()
@@ -138,19 +141,27 @@ class JobWorker:
         except InvalidTransitionError:
             return
 
+        if self._usage is not None:
+            self._usage.bump_jobs_active(1)
+        started = asyncio.get_running_loop().time()
+        error = False
+        tokens = 0
         timeout = float(self._settings.forge_models_job_timeout_seconds)
         try:
             async with asyncio.timeout(timeout):
                 result = await self._run_task(job)
                 if job.cancel_event.is_set():
                     raise JobCancelled()
+                tokens = _tokens_from_result(result)
                 self._store.transition(job_id, JobStatus.SUCCEEDED, result=result)
         except JobCancelled:
+            error = True
             try:
                 self._store.transition(job_id, JobStatus.CANCELLED)
             except InvalidTransitionError:
                 pass
         except TimeoutError:
+            error = True
             try:
                 self._store.transition(
                     job_id,
@@ -160,6 +171,7 @@ class JobWorker:
             except InvalidTransitionError:
                 pass
         except asyncio.CancelledError:
+            error = True
             try:
                 self._store.transition(
                     job_id,
@@ -170,6 +182,7 @@ class JobWorker:
                 pass
             raise
         except Exception as exc:  # noqa: BLE001 — mark job failed, keep worker alive
+            error = True
             logger.exception("job failed", extra={"job_id": job_id})
             try:
                 self._store.transition(
@@ -179,6 +192,16 @@ class JobWorker:
                 )
             except InvalidTransitionError:
                 pass
+        finally:
+            if self._usage is not None:
+                self._usage.bump_jobs_active(-1)
+                self._usage.record(
+                    model=job.model,
+                    capability=job.task,
+                    latency_seconds=max(0.0, asyncio.get_running_loop().time() - started),
+                    tokens=tokens,
+                    error=error,
+                )
 
     async def _run_task(self, job: Job) -> Any:
         if job.delay_ms > 0:
@@ -372,3 +395,15 @@ class JobWorker:
                     f"{settings.forge_models_embed_max_chars} characters"
                 )
         return texts
+
+
+def _tokens_from_result(result: Any) -> int:
+    if not isinstance(result, dict):
+        return 0
+    usage = result.get("usage")
+    if isinstance(usage, dict):
+        if isinstance(usage.get("total_tokens"), int):
+            return max(0, usage["total_tokens"])
+        if isinstance(usage.get("input_count"), int):
+            return max(0, usage["input_count"])
+    return 0

@@ -51,6 +51,10 @@ func NewRootCommand(version string) *cobra.Command {
 			if isCLIProfileConfigCommand(cmd, args) {
 				return nil
 			}
+			// forge model talks to forge-models via FORGE_MODELS_URL; no Control profile required.
+			if isModelCommand(cmd) {
+				return nil
+			}
 			return state.resolve()
 		},
 	}
@@ -79,6 +83,7 @@ func NewRootCommand(version string) *cobra.Command {
 		newDeploymentCommand(state),
 		newSecretCommand(state),
 		newLogsCommand(state),
+		newModelCommand(state),
 	)
 	return root
 }

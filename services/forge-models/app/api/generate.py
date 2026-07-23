@@ -14,6 +14,7 @@ from app.adapters.base import Capability
 from app.adapters.local_gen import LocalGenerationAdapter
 from app.config import Settings
 from app.jobs.store import JobStore
+from app.metrics import UsageMetrics, redact_for_log
 from app.registry import ModelRegistry
 from app.streaming import sse_generate_events
 
@@ -132,12 +133,18 @@ async def generate_model(
 
     if stream:
         store = _job_store(request)
+        usage: UsageMetrics | None = getattr(request.app.state, "usage_metrics", None)
 
         def _on_active(delta: int) -> None:
             if store is not None:
                 store.metrics.bump_stream_active(delta)
+            if usage is not None:
+                usage.bump_stream_active(delta)
 
-        logger.info("stream started", extra={"model": model_id})
+        logger.info(
+            "stream started",
+            extra={"model": model_id, "prompt_preview": redact_for_log(body.prompt)},
+        )
         return StreamingResponse(
             sse_generate_events(
                 adapter,
@@ -147,6 +154,7 @@ async def generate_model(
                 model_id=model_id,
                 timeout_seconds=float(settings.forge_models_stream_timeout_seconds),
                 on_active=_on_active,
+                usage_metrics=usage,
             ),
             media_type="text/event-stream",
             headers={
@@ -162,6 +170,9 @@ async def generate_model(
 
     metrics = _registry(request).metrics
     metrics.record_generate(latency_seconds)
+    request.state.usage_tokens = result.usage.total_tokens
+    request.state.usage_model = model_id
+    request.state.usage_capability = "generate"
 
     logger.info(
         "generate completed",
@@ -172,6 +183,8 @@ async def generate_model(
             "total_tokens": result.usage.total_tokens,
             "finish_reason": result.finish_reason,
             "latency_ms": round(latency_seconds * 1000.0, 3),
+            "prompt_preview": redact_for_log(body.prompt),
+            "text_preview": redact_for_log(result.text),
         },
     )
 

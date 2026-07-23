@@ -70,6 +70,20 @@ def test_stream_and_job_limits_from_env(clean_env: pytest.MonkeyPatch) -> None:
     assert settings.forge_models_job_timeout_seconds == 45.5
 
 
+def test_metrics_flags_from_env(clean_env: pytest.MonkeyPatch) -> None:
+    clean_env.setenv("PORT", "8080")
+    settings = get_settings()
+    assert settings.forge_models_metrics_enabled is True
+    assert settings.forge_otel_exporter_otlp_endpoint == ""
+
+    clear_settings_cache()
+    clean_env.setenv("FORGE_MODELS_METRICS_ENABLED", "false")
+    clean_env.setenv("FORGE_OTEL_EXPORTER_OTLP_ENDPOINT", " http://otel:4317 ")
+    settings = get_settings()
+    assert settings.forge_models_metrics_enabled is False
+    assert settings.forge_otel_exporter_otlp_endpoint == "http://otel:4317"
+
+
 def test_accepts_local_backend(clean_env: pytest.MonkeyPatch) -> None:
     clean_env.setenv("PORT", "8080")
     clean_env.setenv("FORGE_MODELS_BACKEND", "local")

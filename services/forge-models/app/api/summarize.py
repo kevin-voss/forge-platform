@@ -14,6 +14,7 @@ from app.adapters.base import Capability
 from app.adapters.local_gen import summarize_prompt
 from app.api.generate import resolve_gen_adapter, validate_generate_params
 from app.config import Settings
+from app.metrics import redact_for_log
 from app.registry import ModelRegistry
 
 logger = logging.getLogger("forge-models")
@@ -72,6 +73,9 @@ async def summarize_model(model_id: str, body: SummarizeRequest, request: Reques
 
     metrics = _registry(request).metrics
     metrics.record_summarize(latency_seconds)
+    request.state.usage_tokens = result.usage.total_tokens
+    request.state.usage_model = model_id
+    request.state.usage_capability = "summarize"
 
     logger.info(
         "summarize completed",
@@ -81,6 +85,8 @@ async def summarize_model(model_id: str, body: SummarizeRequest, request: Reques
             "completion_tokens": result.usage.completion_tokens,
             "total_tokens": result.usage.total_tokens,
             "latency_ms": round(latency_seconds * 1000.0, 3),
+            "input_preview": redact_for_log(body.input),
+            "summary_preview": redact_for_log(result.text),
         },
     )
 

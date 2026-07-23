@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from app.adapters.base import Capability
 from app.adapters.local_embed import LocalEmbeddingAdapter
 from app.config import Settings
+from app.metrics import redact_for_log
 from app.registry import ModelRegistry
 
 logger = logging.getLogger("forge-models")
@@ -148,6 +149,9 @@ async def embed_model(model_id: str, body: EmbedRequest, request: Request) -> JS
 
     metrics = registry.metrics
     metrics.record_embed(latency_seconds)
+    request.state.usage_tokens = len(texts)
+    request.state.usage_model = model_id
+    request.state.usage_capability = "embed"
 
     logger.info(
         "embed completed",
@@ -157,6 +161,7 @@ async def embed_model(model_id: str, body: EmbedRequest, request: Request) -> JS
             "latency_ms": round(latency_seconds * 1000.0, 3),
             "dim": dim,
             "embed_mode": adapter.embed_mode,
+            "input_preview": redact_for_log(texts[0] if len(texts) == 1 else texts),
         },
     )
 

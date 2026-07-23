@@ -16,7 +16,7 @@ SHUTDOWN_TIMEOUT ?= 10s
 
 .PHONY: help setup env-check infra-up infra-down dev stop restart status logs \
 	build build-cli test test-unit test-integration test-e2e test-infrastructure \
-	contract-validate \
+	contract-validate lint-openapi \
 	lint format clean reset demo service-test service-run wait
 
 help:
@@ -36,6 +36,7 @@ help:
 	@echo "  make test-infrastructure   Verify local infrastructure health"
 	@echo "  make contract-validate     Validate a running workload (BASE_URL=...)"
 	@echo "  make lint                  Run repository lint checks"
+	@echo "  make lint-openapi          Validate contracts/openapi/*.openapi.yaml"
 	@echo "  make format                Format repository files where applicable"
 	@echo "  make clean                 Remove local build artifacts"
 	@echo "  make reset                 Destroy local volumes and restart clean"
@@ -133,11 +134,14 @@ contract-validate:
 	if [[ -n "$(SHUTDOWN_CONTAINER)" ]]; then args+=(--shutdown-container "$(SHUTDOWN_CONTAINER)"); fi; \
 	./tools/contract-validator/run.sh "$${args[@]}"
 
-lint:
+lint: lint-openapi
 	@echo "Checking shell scripts with bash -n..."
 	@find scripts demos tests tools -name '*.sh' -print0 | xargs -0 -n1 bash -n
-	@python3 -m py_compile tools/contract-validator/validate.py tools/contract-validator/fixture_server.py
+	@python3 -m py_compile tools/contract-validator/validate.py tools/contract-validator/fixture_server.py scripts/lint-openapi.py
 	@echo "Lint complete."
+
+lint-openapi:
+	@python3 scripts/lint-openapi.py
 
 format:
 	@echo "No formatters configured in Step 00."

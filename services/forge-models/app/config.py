@@ -80,6 +80,14 @@ class Settings(BaseSettings):
         le=86400.0,
     )
     forge_models_local_model_path: str = Field(default="", alias="FORGE_MODELS_LOCAL_MODEL_PATH")
+    forge_models_metrics_enabled: bool = Field(
+        default=True,
+        alias="FORGE_MODELS_METRICS_ENABLED",
+    )
+    forge_otel_exporter_otlp_endpoint: str = Field(
+        default="",
+        alias="FORGE_OTEL_EXPORTER_OTLP_ENDPOINT",
+    )
     forge_service_name: str = Field(default="forge-models", alias="FORGE_SERVICE_NAME")
     forge_service_version: str = Field(default="0.1.0", alias="FORGE_SERVICE_VERSION")
     forge_env: str = Field(default="development", alias="FORGE_ENV")
@@ -112,11 +120,27 @@ class Settings(BaseSettings):
             return stripped if stripped else None
         return value
 
-    @field_validator("forge_models_config", "forge_models_local_model_path", mode="before")
+    @field_validator(
+        "forge_models_config",
+        "forge_models_local_model_path",
+        "forge_otel_exporter_otlp_endpoint",
+        mode="before",
+    )
     @classmethod
     def strip_config_path(cls, value: object) -> object:
         if isinstance(value, str):
             return value.strip()
+        return value
+
+    @field_validator("forge_models_metrics_enabled", mode="before")
+    @classmethod
+    def normalize_bool(cls, value: object) -> object:
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"1", "true", "yes", "on"}:
+                return True
+            if lowered in {"0", "false", "no", "off"}:
+                return False
         return value
 
 

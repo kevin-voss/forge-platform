@@ -12,12 +12,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Shell syntax check
         run: make lint
+      - name: OpenAPI lint
+        run: make lint-openapi
       - name: Ensure setup scripts are executable intent
         run: |
           test -f Makefile
           test -f compose.yaml
           test -f .env.example
           test -f docs/implementation/progress.md
+          test -f scripts/lint-openapi.py
 
   infrastructure:
     runs-on: ubuntu-latest

@@ -62,7 +62,7 @@ make demo DEMO=14
 | [14.03](../steps/14-forge-models/14.03-local-embeddings-adapter.md) | Local embeddings adapter | Complete | Deterministic local embed + `/embed`; no external API in CI |
 | [14.04](../steps/14-forge-models/14.04-generate-classify-summarize.md) | Generate/classify/summarize endpoints | Complete | Deterministic local gen + `/generate|/classify|/summarize` |
 | [14.05](../steps/14-forge-models/14.05-streaming-async-jobs.md) | Streaming + async jobs | Complete | SSE stream + in-memory jobs; depends on 14.04 |
-| [14.06](../steps/14-forge-models/14.06-usage-metrics-openapi-cli.md) | Usage metrics + OpenAPI; optional CLI | Not started | Depends on 14.05 |
+| [14.06](../steps/14-forge-models/14.06-usage-metrics-openapi-cli.md) | Usage metrics + OpenAPI; optional CLI | Complete | Prometheus + `/v1/usage` + OpenAPI lint + `forge model` |
 | [14.07](../steps/14-forge-models/14.07-demo-and-gate.md) | Demo `14-model-serving` + gate | Not started | Depends on 14.06 |
 
 ## Assumptions
@@ -82,4 +82,4 @@ make demo DEMO=14
 
 ## Next step to implement
 
-**[14.06](../steps/14-forge-models/14.06-usage-metrics-openapi-cli.md) — Usage metrics + OpenAPI; optional CLI**.
+**[14.07](../steps/14-forge-models/14.07-demo-and-gate.md) — Demo `14-model-serving` + gate**.

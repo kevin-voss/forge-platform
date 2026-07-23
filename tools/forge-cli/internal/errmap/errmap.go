@@ -85,6 +85,14 @@ func ExitCode(err error) int {
 		}
 	}
 
+	var modelsError *sharedclient.ModelsAPIError
+	if errors.As(err, &modelsError) {
+		switch modelsError.Status {
+		case http.StatusNotFound:
+			return NotFound
+		}
+	}
+
 	var networkError net.Error
 	if errors.As(err, &networkError) && (networkError.Timeout() || control.IsNetworkError(err)) {
 		return Timeout

@@ -48,6 +48,8 @@ def test_openapi_documents_model_list_get_health() -> None:
     assert "/v1/models/{model}/summarize" in paths
     assert "/v1/jobs" in paths
     assert "/v1/jobs/{job_id}" in paths
+    assert "/v1/usage" in paths
+    assert "/metrics" in paths
     for path_key in (
         "/v1/models/{model}/embed",
         "/v1/models/{model}/generate",
@@ -91,6 +93,17 @@ def test_openapi_documents_model_list_get_health() -> None:
     assert "CancelJobResponse" in schemas
     assert "JobStatus" in schemas
     assert "JobTask" in schemas
+    assert "UsageResponse" in schemas
+    assert "UsageModelStats" in schemas
+    usage_resp = schemas["UsageResponse"]
+    assert set(usage_resp["required"]) >= {"by_model"}
+    usage_stats = schemas["UsageModelStats"]
+    assert set(usage_stats["required"]) >= {
+        "requests",
+        "tokens",
+        "errors",
+        "p95_latency_ms",
+    }
     embed_resp = schemas["EmbedResponse"]
     assert set(embed_resp["required"]) >= {"model", "embeddings", "dim", "usage"}
     assert "dim" in embed_resp["properties"]
@@ -298,6 +311,14 @@ def test_live_ready_identity_match_contract(client: TestClient) -> None:
     body = identity.json()
     for key in ("service", "language", "status", "version"):
         assert key in body
+
+    usage = client.get("/v1/usage")
+    assert usage.status_code == 200
+    assert isinstance(usage.json().get("by_model"), dict)
+
+    metrics = client.get("/metrics")
+    assert metrics.status_code == 200
+    assert "text/plain" in metrics.headers.get("content-type", "")
 
 
 def test_invalid_backend_fails_create_app(clean_env: pytest.MonkeyPatch) -> None:

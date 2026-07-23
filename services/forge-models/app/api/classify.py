@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from app.adapters.base import Capability
 from app.api.generate import resolve_gen_adapter
 from app.config import Settings
+from app.metrics import redact_for_log
 from app.registry import ModelRegistry
 
 logger = logging.getLogger("forge-models")
@@ -75,6 +76,9 @@ async def classify_model(model_id: str, body: ClassifyRequest, request: Request)
 
     metrics = _registry(request).metrics
     metrics.record_classify(latency_seconds)
+    request.state.usage_tokens = max(1, len(body.input.split()))
+    request.state.usage_model = model_id
+    request.state.usage_capability = "classify"
 
     logger.info(
         "classify completed",
@@ -82,6 +86,7 @@ async def classify_model(model_id: str, body: ClassifyRequest, request: Request)
             "model": model_id,
             "label_count": len(body.labels),
             "latency_ms": round(latency_seconds * 1000.0, 3),
+            "input_preview": redact_for_log(body.input),
         },
     )
 

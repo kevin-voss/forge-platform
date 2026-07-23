@@ -64,6 +64,21 @@ class JsonLogFormatter(logging.Formatter):
             "index",
             "got_dim",
             "expected_dim",
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+            "finish_reason",
+            "label_count",
+            "chunks",
+            "duration_ms",
+            "timeout_seconds",
+            "max_concurrent_jobs",
+            "metrics_enabled",
+            "otel_endpoint",
+            "input_preview",
+            "prompt_preview",
+            "text_preview",
+            "summary_preview",
         ):
             if hasattr(record, key):
                 value = getattr(record, key)

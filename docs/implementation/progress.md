@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 97`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 98`**.
 
 ## Epics
 
@@ -22,7 +22,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [11](epics/11-forge-events.md) | Forge Events | Complete | 7/7 steps; demo 11 event-driven acceptance gate passed |
 | [12](epics/12-forge-observe.md) | Forge Observe | Complete | 7/7 steps; demo 12 observability acceptance gate passed |
 | [13](epics/13-forge-storage.md) | Forge Storage | Complete | 7/7 steps; demo 13 object-storage acceptance gate passed |
-| [14](epics/14-forge-models.md) | Forge Models | In progress | 5/7 steps; registry + embed + gen + stream/async jobs |
+| [14](epics/14-forge-models.md) | Forge Models | In progress | 6/7 steps; usage metrics + OpenAPI + optional `forge model` CLI |
 | [15](epics/15-forge-agents.md) | Forge Agents | Planning | 8 steps |
 | [16](epics/16-forge-workflows.md) | Forge Workflows | Planning | 7 steps |
 | [17](epics/17-forge-memory.md) | Forge Memory | Planning | 6 steps |
@@ -130,7 +130,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **94** | [Local embeddings adapter](steps/14-forge-models/14.03-local-embeddings-adapter.md) | Complete |  | Deterministic local embed + `POST /v1/models/{model}/embed` |
 | **95** | [Generate/classify/summarize endpoints](steps/14-forge-models/14.04-generate-classify-summarize.md) | Complete |  | Deterministic local gen + `POST .../generate|classify|summarize` |
 | **96** | [Streaming + async jobs](steps/14-forge-models/14.05-streaming-async-jobs.md) | Complete |  | SSE `generate?stream=true`; in-memory `/v1/jobs` submit/poll/cancel |
-| **97** | [Usage metrics + OpenAPI; optional CLI `forge model`](steps/14-forge-models/14.06-usage-metrics-openapi-cli.md) | Not started |  |  |
+| **97** | [Usage metrics + OpenAPI; optional CLI `forge model`](steps/14-forge-models/14.06-usage-metrics-openapi-cli.md) | Complete |  | Prometheus `/metrics` + `/v1/usage`; OpenAPI lint; `forge model` CLI |
 | **98** | [Demo `14-model-serving` + gate](steps/14-forge-models/14.07-demo-and-gate.md) | Not started |  |  |
 | **99** | [Skeleton](steps/15-forge-agents/15.01-skeleton.md) | Not started |  |  |
 | **100** | [Agent registry + YAML definitions](steps/15-forge-agents/15.02-agent-registry-yaml.md) | Not started |  |  |
