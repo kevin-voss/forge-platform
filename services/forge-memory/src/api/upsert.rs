@@ -2,7 +2,7 @@
 
 use crate::api::collections::collection_err;
 use crate::api::validate::{validate_collection_name, validate_record_id};
-use crate::project::ProjectContext;
+use crate::scope::ProjectContext;
 use crate::state::AppState;
 use axum::extract::{Extension, Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -122,7 +122,12 @@ async fn upsert(
         })
         .collect();
 
-    match collections.upsert_batch(&project.project_id, &name, &batch) {
+    match collections.upsert_batch(
+        &project.project_id,
+        &project.namespace,
+        &name,
+        &batch,
+    ) {
         Ok(upserted) => {
             state
                 .metrics
@@ -134,6 +139,7 @@ async fn upsert(
                 .fetch_add(upserted as u64, Ordering::Relaxed);
             info!(
                 project_id = %project.project_id,
+                namespace = %project.namespace,
                 collection = %name,
                 upserted,
                 request_id = %rid,

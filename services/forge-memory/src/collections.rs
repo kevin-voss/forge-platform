@@ -120,41 +120,79 @@ impl CollectionStore {
         &self.meta
     }
 
-    fn vec_path(&self, name: &str) -> PathBuf {
-        self.vectors_dir.join(format!("{name}.vec"))
+    fn file_key(project_id: &str, namespace: &str, name: &str) -> String {
+        format!("{project_id}\0{namespace}\0{name}")
+    }
+
+    fn sanitize_segment(raw: &str) -> String {
+        if raw.is_empty() {
+            return "_default".into();
+        }
+        raw.chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect()
+    }
+
+    fn vec_path(&self, project_id: &str, namespace: &str, name: &str) -> PathBuf {
+        self.vectors_dir
+            .join(Self::sanitize_segment(project_id))
+            .join(Self::sanitize_segment(namespace))
+            .join(format!("{name}.vec"))
     }
 
     pub(crate) fn open_vector_file(
         &self,
+        project_id: &str,
+        namespace: &str,
         name: &str,
         dim: usize,
     ) -> Result<Arc<Mutex<VectorFile>>, CollectionError> {
+        let key = Self::file_key(project_id, namespace, name);
         let mut guard = self
             .files
             .lock()
             .map_err(|_| CollectionError::Internal("files lock".into()))?;
-        if let Some(existing) = guard.get(name) {
+        if let Some(existing) = guard.get(&key) {
             return Ok(Arc::clone(existing));
         }
-        let path = self.vec_path(name);
+        let path = self.vec_path(project_id, namespace, name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                CollectionError::Internal(format!("create vector dir {}: {e}", parent.display()))
+            })?;
+        }
         let vf = VectorFile::open(&path, dim)?;
         let arc = Arc::new(Mutex::new(vf));
-        guard.insert(name.to_string(), Arc::clone(&arc));
+        guard.insert(key, Arc::clone(&arc));
         Ok(arc)
     }
 
-    fn drop_vector_file(&self, name: &str) {
+    fn drop_vector_file(&self, project_id: &str, namespace: &str, name: &str) {
+        let key = Self::file_key(project_id, namespace, name);
         if let Ok(mut guard) = self.files.lock() {
-            guard.remove(name);
+            guard.remove(&key);
         }
-        if let Err(e) = remove_file(&self.vec_path(name)) {
-            warn!(collection = %name, error = %e, "failed to remove vector file");
+        if let Err(e) = remove_file(&self.vec_path(project_id, namespace, name)) {
+            warn!(
+                project_id = %project_id,
+                namespace = %namespace,
+                collection = %name,
+                error = %e,
+                "failed to remove vector file"
+            );
         }
     }
 
     pub fn create_collection(
         &self,
         project_id: &str,
+        namespace: &str,
         name: &str,
         dim: i64,
         distance: &str,
@@ -172,11 +210,12 @@ impl CollectionStore {
         }
         let collection = self
             .meta
-            .create_collection(project_id, name, dim, distance)?;
+            .create_collection(project_id, namespace, name, dim, distance)?;
         // Touch/create empty vector file so corrupt detection applies on reopen.
-        let _ = self.open_vector_file(name, dim as usize)?;
+        let _ = self.open_vector_file(project_id, namespace, name, dim as usize)?;
         info!(
             project_id = %project_id,
+            namespace = %namespace,
             collection = %name,
             dim,
             distance,
@@ -185,24 +224,35 @@ impl CollectionStore {
         Ok(collection)
     }
 
-    pub fn list_collections(&self, project_id: &str) -> Result<Vec<Collection>, CollectionError> {
-        Ok(self.meta.list_collections(project_id)?)
+    pub fn list_collections(
+        &self,
+        project_id: &str,
+        namespace: Option<&str>,
+    ) -> Result<Vec<Collection>, CollectionError> {
+        Ok(self.meta.list_collections(project_id, namespace)?)
     }
 
     pub fn get_collection(
         &self,
         project_id: &str,
+        namespace: &str,
         name: &str,
     ) -> Result<Collection, CollectionError> {
-        Ok(self.meta.get_collection(project_id, name)?)
+        Ok(self.meta.get_collection(project_id, namespace, name)?)
     }
 
-    pub fn delete_collection(&self, project_id: &str, name: &str) -> Result<(), CollectionError> {
-        let existing = self.meta.get_collection(project_id, name)?;
-        self.meta.delete_collection(project_id, name)?;
-        self.drop_vector_file(name);
+    pub fn delete_collection(
+        &self,
+        project_id: &str,
+        namespace: &str,
+        name: &str,
+    ) -> Result<(), CollectionError> {
+        let existing = self.meta.get_collection(project_id, namespace, name)?;
+        self.meta.delete_collection(project_id, namespace, name)?;
+        self.drop_vector_file(project_id, namespace, name);
         info!(
             project_id = %project_id,
+            namespace = %namespace,
             collection = %name,
             count = existing.count,
             "collection deleted"
@@ -237,27 +287,30 @@ impl CollectionStore {
     pub fn insert_record(
         &self,
         project_id: &str,
+        namespace: &str,
         collection: &str,
         id: &str,
         vector: &[f32],
         metadata: serde_json::Value,
         document_ref: Option<String>,
     ) -> Result<Record, CollectionError> {
-        let col = self.meta.get_collection(project_id, collection)?;
+        let col = self.meta.get_collection(project_id, namespace, collection)?;
         let expected = col.dim as usize;
         self.validate_vector_and_metadata(expected, vector, &metadata)?;
 
-        let vf = self.open_vector_file(collection, expected)?;
+        let vf = self.open_vector_file(project_id, namespace, collection, expected)?;
         let offset = {
             let mut file = vf
                 .lock()
                 .map_err(|_| CollectionError::Internal("vector lock".into()))?;
-            let next = self.meta.next_vector_offset(collection)?;
+            let next = self.meta.next_vector_offset(project_id, namespace, collection)?;
             file.write_at(next as u64, vector)?;
             next
         };
 
         let _meta = self.meta.insert_record_meta(
+            project_id,
+            namespace,
             collection,
             id,
             offset,
@@ -277,24 +330,27 @@ impl CollectionStore {
     pub fn upsert_record(
         &self,
         project_id: &str,
+        namespace: &str,
         collection: &str,
         id: &str,
         vector: &[f32],
         metadata: serde_json::Value,
         document_ref: Option<String>,
     ) -> Result<Record, CollectionError> {
-        let col = self.meta.get_collection(project_id, collection)?;
+        let col = self.meta.get_collection(project_id, namespace, collection)?;
         let expected = col.dim as usize;
         self.validate_vector_and_metadata(expected, vector, &metadata)?;
 
         let normalized = l2_normalize(vector);
-        let prior = self.meta.get_record_meta_any(project_id, collection, id)?;
+        let prior = self
+            .meta
+            .get_record_meta_any(project_id, namespace, collection, id)?;
         let offset = match &prior {
             Some(existing) => existing.offset,
-            None => self.meta.next_vector_offset(collection)?,
+            None => self.meta.next_vector_offset(project_id, namespace, collection)?,
         };
 
-        let vf = self.open_vector_file(collection, expected)?;
+        let vf = self.open_vector_file(project_id, namespace, collection, expected)?;
         {
             let mut file = vf
                 .lock()
@@ -302,8 +358,15 @@ impl CollectionStore {
             file.write_at(offset as u64, &normalized)?;
         }
 
-        self.meta
-            .upsert_record_meta(collection, id, offset, &metadata, document_ref.as_deref())?;
+        self.meta.upsert_record_meta(
+            project_id,
+            namespace,
+            collection,
+            id,
+            offset,
+            &metadata,
+            document_ref.as_deref(),
+        )?;
 
         Ok(Record {
             id: id.to_string(),
@@ -317,15 +380,16 @@ impl CollectionStore {
     pub fn upsert_batch(
         &self,
         project_id: &str,
+        namespace: &str,
         collection: &str,
         records: &[(String, Vec<f32>, serde_json::Value, Option<String>)],
     ) -> Result<usize, CollectionError> {
-        // Ensure collection exists once up front.
-        let _ = self.meta.get_collection(project_id, collection)?;
+        let _ = self.meta.get_collection(project_id, namespace, collection)?;
         let mut n = 0usize;
         for (id, vector, metadata, document_ref) in records {
             self.upsert_record(
                 project_id,
+                namespace,
                 collection,
                 id,
                 vector,
@@ -341,13 +405,14 @@ impl CollectionStore {
     pub fn query(
         &self,
         project_id: &str,
+        namespace: &str,
         collection: &str,
         vector: &[f32],
         top_k: usize,
         filter: Option<&serde_json::Value>,
     ) -> Result<QueryOutcome, CollectionError> {
         let started = Instant::now();
-        let col = self.meta.get_collection(project_id, collection)?;
+        let col = self.meta.get_collection(project_id, namespace, collection)?;
         let expected = col.dim as usize;
         if vector.len() != expected {
             return Err(CollectionError::DimensionMismatch {
@@ -358,8 +423,8 @@ impl CollectionStore {
         let query_norm = l2_normalize(vector);
         let live = self
             .meta
-            .list_all_live_record_meta(project_id, collection)?;
-        let vf = self.open_vector_file(collection, expected)?;
+            .list_all_live_record_meta(project_id, namespace, collection)?;
+        let vf = self.open_vector_file(project_id, namespace, collection, expected)?;
         let file = vf
             .lock()
             .map_err(|_| CollectionError::Internal("vector lock".into()))?;
@@ -411,12 +476,15 @@ impl CollectionStore {
     pub fn delete_record(
         &self,
         project_id: &str,
+        namespace: &str,
         collection: &str,
         id: &str,
     ) -> Result<(), CollectionError> {
-        self.meta.tombstone_record(project_id, collection, id)?;
+        self.meta
+            .tombstone_record(project_id, namespace, collection, id)?;
         info!(
             project_id = %project_id,
+            namespace = %namespace,
             collection = %collection,
             record_id = %id,
             "record tombstoned"
@@ -427,9 +495,10 @@ impl CollectionStore {
     pub fn compact_collection(
         &self,
         project_id: &str,
+        namespace: &str,
         name: &str,
     ) -> Result<usize, CollectionError> {
-        vectors::compact_collection(self, project_id, name)
+        vectors::compact_collection(self, project_id, namespace, name)
     }
 
     pub fn compact_all(&self) -> Result<usize, CollectionError> {
@@ -439,12 +508,15 @@ impl CollectionStore {
     pub fn get_record(
         &self,
         project_id: &str,
+        namespace: &str,
         collection: &str,
         id: &str,
     ) -> Result<Record, CollectionError> {
-        let col = self.meta.get_collection(project_id, collection)?;
-        let meta: RecordMeta = self.meta.get_record_meta(project_id, collection, id)?;
-        let vf = self.open_vector_file(collection, col.dim as usize)?;
+        let col = self.meta.get_collection(project_id, namespace, collection)?;
+        let meta: RecordMeta = self
+            .meta
+            .get_record_meta(project_id, namespace, collection, id)?;
+        let vf = self.open_vector_file(project_id, namespace, collection, col.dim as usize)?;
         let vector = {
             let file = vf
                 .lock()
@@ -462,15 +534,16 @@ impl CollectionStore {
     pub fn list_records(
         &self,
         project_id: &str,
+        namespace: &str,
         collection: &str,
         offset: i64,
         limit: i64,
     ) -> Result<Vec<Record>, CollectionError> {
-        let col = self.meta.get_collection(project_id, collection)?;
+        let col = self.meta.get_collection(project_id, namespace, collection)?;
         let metas = self
             .meta
-            .list_record_meta(project_id, collection, offset, limit)?;
-        let vf = self.open_vector_file(collection, col.dim as usize)?;
+            .list_record_meta(project_id, namespace, collection, offset, limit)?;
+        let vf = self.open_vector_file(project_id, namespace, collection, col.dim as usize)?;
         let file = vf
             .lock()
             .map_err(|_| CollectionError::Internal("vector lock".into()))?;
@@ -503,11 +576,12 @@ mod tests {
         let dir = tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("vectors")).unwrap();
         let s = store(dir.path());
-        s.create_collection("proj-a", "incidents", 4, "cosine")
+        s.create_collection("proj-a", "", "incidents", 4, "cosine")
             .unwrap();
         let err = s
             .insert_record(
                 "proj-a",
+                "",
                 "incidents",
                 "r1",
                 &[1.0, 2.0],
@@ -533,10 +607,11 @@ mod tests {
         {
             let meta = Arc::new(MetaStore::open(&meta_path).unwrap());
             let s = CollectionStore::new(Arc::clone(&meta), vectors.clone(), 4096, 65_536);
-            s.create_collection("proj-a", "incidents", 3, "cosine")
+            s.create_collection("proj-a", "", "incidents", 3, "cosine")
                 .unwrap();
             s.insert_record(
                 "proj-a",
+                "",
                 "incidents",
                 "r1",
                 &[0.1, 0.2, 0.3],
@@ -547,10 +622,10 @@ mod tests {
         }
         let meta = Arc::new(MetaStore::open(&meta_path).unwrap());
         let s = CollectionStore::new(meta, vectors, 4096, 65_536);
-        let col = s.get_collection("proj-a", "incidents").unwrap();
+        let col = s.get_collection("proj-a", "", "incidents").unwrap();
         assert_eq!(col.dim, 3);
         assert_eq!(col.count, 1);
-        let rec = s.get_record("proj-a", "incidents", "r1").unwrap();
+        let rec = s.get_record("proj-a", "", "incidents", "r1").unwrap();
         assert_eq!(rec.vector, vec![0.1, 0.2, 0.3]);
         assert_eq!(rec.metadata["type"], "deploy");
         assert_eq!(rec.document_ref.as_deref(), Some("storage://bucket/obj"));
@@ -561,10 +636,11 @@ mod tests {
         let dir = tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("vectors")).unwrap();
         let s = store(dir.path());
-        s.create_collection("proj-a", "incidents", 2, "cosine")
+        s.create_collection("proj-a", "", "incidents", 2, "cosine")
             .unwrap();
         s.upsert_record(
             "proj-a",
+            "",
             "incidents",
             "r1",
             &[1.0, 0.0],
@@ -574,10 +650,11 @@ mod tests {
         .unwrap();
         let before = s
             .meta()
-            .get_record_meta("proj-a", "incidents", "r1")
+            .get_record_meta("proj-a", "", "incidents", "r1")
             .unwrap();
         s.upsert_record(
             "proj-a",
+            "",
             "incidents",
             "r1",
             &[0.0, 1.0],
@@ -587,14 +664,13 @@ mod tests {
         .unwrap();
         let after = s
             .meta()
-            .get_record_meta("proj-a", "incidents", "r1")
+            .get_record_meta("proj-a", "", "incidents", "r1")
             .unwrap();
         assert_eq!(before.offset, after.offset);
         assert_eq!(after.metadata["v"], 2);
-        let col = s.get_collection("proj-a", "incidents").unwrap();
+        let col = s.get_collection("proj-a", "", "incidents").unwrap();
         assert_eq!(col.count, 1);
-        let rec = s.get_record("proj-a", "incidents", "r1").unwrap();
-        // Stored L2-normalized.
+        let rec = s.get_record("proj-a", "", "incidents", "r1").unwrap();
         assert!((rec.vector[0] - 0.0).abs() < 1e-5);
         assert!((rec.vector[1] - 1.0).abs() < 1e-5);
     }
@@ -604,10 +680,11 @@ mod tests {
         let dir = tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("vectors")).unwrap();
         let s = store(dir.path());
-        s.create_collection("proj-a", "incidents", 2, "cosine")
+        s.create_collection("proj-a", "", "incidents", 2, "cosine")
             .unwrap();
         s.upsert_record(
             "proj-a",
+            "",
             "incidents",
             "east",
             &[1.0, 0.0],
@@ -617,6 +694,7 @@ mod tests {
         .unwrap();
         s.upsert_record(
             "proj-a",
+            "",
             "incidents",
             "north",
             &[0.0, 1.0],
@@ -626,6 +704,7 @@ mod tests {
         .unwrap();
         s.upsert_record(
             "proj-a",
+            "",
             "incidents",
             "diag",
             &[0.8, 0.2],
@@ -635,7 +714,7 @@ mod tests {
         .unwrap();
 
         let out = s
-            .query("proj-a", "incidents", &[1.0, 0.0], 2, None)
+            .query("proj-a", "", "incidents", &[1.0, 0.0], 2, None)
             .unwrap();
         assert_eq!(out.results.len(), 2);
         assert_eq!(out.results[0].id, "east");
@@ -645,6 +724,7 @@ mod tests {
         let filtered = s
             .query(
                 "proj-a",
+                "",
                 "incidents",
                 &[1.0, 0.0],
                 5,
@@ -659,14 +739,51 @@ mod tests {
     }
 
     #[test]
+    fn namespace_isolates_queries() {
+        let dir = tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("vectors")).unwrap();
+        let s = store(dir.path());
+        s.create_collection("proj-a", "agent-memory", "incidents", 2, "cosine")
+            .unwrap();
+        s.create_collection("proj-a", "docs", "incidents", 2, "cosine")
+            .unwrap();
+        s.upsert_record(
+            "proj-a",
+            "agent-memory",
+            "incidents",
+            "a1",
+            &[1.0, 0.0],
+            serde_json::json!({}),
+            None,
+        )
+        .unwrap();
+        s.upsert_record(
+            "proj-a",
+            "docs",
+            "incidents",
+            "d1",
+            &[0.0, 1.0],
+            serde_json::json!({}),
+            None,
+        )
+        .unwrap();
+        let out = s
+            .query("proj-a", "agent-memory", "incidents", &[1.0, 0.0], 5, None)
+            .unwrap();
+        assert_eq!(out.results.len(), 1);
+        assert_eq!(out.results[0].id, "a1");
+    }
+
+    #[test]
     fn delete_excludes_then_compaction_reclaims() {
         let dir = tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("vectors")).unwrap();
         let s = store(dir.path());
-        s.create_collection("proj-a", "incidents", 2, "cosine")
+        s.create_collection("proj-a", "", "incidents", 2, "cosine")
             .unwrap();
         s.upsert_record(
             "proj-a",
+            "",
             "incidents",
             "keep",
             &[1.0, 0.0],
@@ -676,6 +793,7 @@ mod tests {
         .unwrap();
         s.upsert_record(
             "proj-a",
+            "",
             "incidents",
             "drop",
             &[0.0, 1.0],
@@ -683,17 +801,23 @@ mod tests {
             None,
         )
         .unwrap();
-        s.delete_record("proj-a", "incidents", "drop").unwrap();
+        s.delete_record("proj-a", "", "incidents", "drop").unwrap();
         let out = s
-            .query("proj-a", "incidents", &[1.0, 0.0], 5, None)
+            .query("proj-a", "", "incidents", &[1.0, 0.0], 5, None)
             .unwrap();
         assert_eq!(out.results.len(), 1);
         assert_eq!(out.results[0].id, "keep");
-        assert_eq!(s.meta().count_tombstoned("incidents").unwrap(), 1);
-        let removed = s.compact_collection("proj-a", "incidents").unwrap();
+        assert_eq!(
+            s.meta().count_tombstoned("proj-a", "", "incidents").unwrap(),
+            1
+        );
+        let removed = s.compact_collection("proj-a", "", "incidents").unwrap();
         assert_eq!(removed, 1);
-        assert_eq!(s.meta().count_tombstoned("incidents").unwrap(), 0);
-        let vf = s.open_vector_file("incidents", 2).unwrap();
+        assert_eq!(
+            s.meta().count_tombstoned("proj-a", "", "incidents").unwrap(),
+            0
+        );
+        let vf = s.open_vector_file("proj-a", "", "incidents", 2).unwrap();
         assert_eq!(vf.lock().unwrap().len(), 1);
     }
 }

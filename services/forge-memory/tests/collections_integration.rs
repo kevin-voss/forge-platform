@@ -65,6 +65,8 @@ fn app_state(root: &std::path::Path, base: &std::path::Path) -> AppState {
         max_upsert_batch: 512,
         compact_on_boot: false,
         meta_path,
+        auth_mode: forge_memory::config::AuthMode::Dev,
+        identity: None,
     };
     state
 }
@@ -143,13 +145,14 @@ async fn record_persist_restart_and_wrong_dim() {
     {
         let meta = Arc::new(MetaStore::open(&meta_path).unwrap());
         let cs = CollectionStore::new(Arc::clone(&meta), vectors.clone(), 4096, 65_536);
-        cs.create_collection("proj-a", "incidents", 384, "cosine")
+        cs.create_collection("proj-a", "", "incidents", 384, "cosine")
             .unwrap();
         let mut vec = vec![0.0_f32; 384];
         vec[0] = 1.0;
         vec[1] = 0.5;
         cs.insert_record(
             "proj-a",
+            "",
             "incidents",
             "rec-1",
             &vec,
@@ -160,6 +163,7 @@ async fn record_persist_restart_and_wrong_dim() {
         let err = cs
             .insert_record(
                 "proj-a",
+                "",
                 "incidents",
                 "bad",
                 &[1.0, 2.0],

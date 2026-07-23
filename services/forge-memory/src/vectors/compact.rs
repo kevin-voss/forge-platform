@@ -10,13 +10,16 @@ use tracing::info;
 pub fn compact_collection(
     store: &CollectionStore,
     project_id: &str,
+    namespace: &str,
     name: &str,
 ) -> Result<usize, CollectionError> {
-    let col = store.get_collection(project_id, name)?;
+    let col = store.get_collection(project_id, namespace, name)?;
     let dim = col.dim as usize;
-    let live = store.meta().list_all_live_record_meta(project_id, name)?;
+    let live = store
+        .meta()
+        .list_all_live_record_meta(project_id, namespace, name)?;
 
-    let vf = store.open_vector_file(name, dim)?;
+    let vf = store.open_vector_file(project_id, namespace, name, dim)?;
     let mut payloads: Vec<(RecordMeta, Vec<f32>)> = Vec::with_capacity(live.len());
     {
         let file = vf
@@ -42,6 +45,8 @@ pub fn compact_collection(
     let mut new_metas = Vec::with_capacity(live_count);
     for (i, (meta, _)) in payloads.into_iter().enumerate() {
         new_metas.push(RecordMeta {
+            project_id: meta.project_id,
+            namespace: meta.namespace,
             collection: meta.collection,
             id: meta.id,
             offset: i as i64,
@@ -51,9 +56,12 @@ pub fn compact_collection(
         });
     }
 
-    let removed = store.meta().apply_compaction(name, &new_metas)?;
+    let removed = store
+        .meta()
+        .apply_compaction(project_id, namespace, name, &new_metas)?;
     info!(
         project_id = %project_id,
+        namespace = %namespace,
         collection = %name,
         live = live_count,
         tombstones_removed = removed,
@@ -67,7 +75,7 @@ pub fn compact_all(store: &CollectionStore) -> Result<usize, CollectionError> {
     let cols = store.meta().list_all_collections()?;
     let mut total = 0usize;
     for c in cols {
-        total += compact_collection(store, &c.project_id, &c.name)?;
+        total += compact_collection(store, &c.project_id, &c.namespace, &c.name)?;
     }
     Ok(total)
 }

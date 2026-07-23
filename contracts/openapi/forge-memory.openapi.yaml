@@ -5,7 +5,8 @@ info:
   description: |
     Platform semantic vector-memory service (epic 17). Health/identity, durable
     persistence root, collections with fixed-dimension vectors + metadata, batch
-    upsert, and brute-force cosine nearest-neighbor query (17.03).
+    upsert, cosine nearest-neighbor query, and project namespaces with Identity
+    ACL (17.04).
 servers:
   - url: http://127.0.0.1:4303
     description: Local Compose (host port 4303)
@@ -79,10 +80,14 @@ paths:
       summary: Create a collection
       description: |
         Creates a project-scoped collection with a fixed vector dimension and
-        cosine distance. Project context comes from `X-Forge-Project` (dev
-        header until Identity ACL in 17.04).
+        cosine distance. Project context comes from Identity bearer token
+        (`FORGE_AUTH_MODE=enforce`) or `X-Forge-Project` (dev).
+      security:
+        - bearerAuth: []
+        - {}
       parameters:
         - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/NamespaceQuery"
       requestBody:
         required: true
         content:
@@ -106,6 +111,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/invalid bearer token (enforce mode)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Authenticated but role cannot write
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "409":
           description: Collection name already exists
           content:
@@ -121,8 +138,12 @@ paths:
     get:
       operationId: listCollections
       summary: List collections for the caller's project
+      security:
+        - bearerAuth: []
+        - {}
       parameters:
         - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/NamespaceQuery"
       responses:
         "200":
           description: Collections visible to the caller's project
@@ -141,8 +162,12 @@ paths:
     get:
       operationId: getCollection
       summary: Get a collection by name
+      security:
+        - bearerAuth: []
+        - {}
       parameters:
         - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/NamespaceQuery"
         - $ref: "#/components/parameters/CollectionName"
       responses:
         "200":
@@ -160,8 +185,12 @@ paths:
     delete:
       operationId: deleteCollection
       summary: Delete a collection and its records
+      security:
+        - bearerAuth: []
+        - {}
       parameters:
         - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/NamespaceQuery"
         - $ref: "#/components/parameters/CollectionName"
       responses:
         "204":
@@ -180,8 +209,12 @@ paths:
       description: |
         Insert or update records by id. Vectors are L2-normalized before storage.
         Batch size is capped by `FORGE_MEMORY_MAX_UPSERT_BATCH` (default 512).
+      security:
+        - bearerAuth: []
+        - {}
       parameters:
         - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/NamespaceQuery"
         - $ref: "#/components/parameters/CollectionName"
       requestBody:
         required: true
@@ -231,8 +264,12 @@ paths:
         L2-normalizes the query vector, scores all live (non-tombstoned) records
         with optional metadata filter (equality / `$in`), and returns top-k by
         score descending. `top_k` is capped by `FORGE_MEMORY_MAX_TOP_K` (default 100).
+      security:
+        - bearerAuth: []
+        - {}
       parameters:
         - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/NamespaceQuery"
         - $ref: "#/components/parameters/CollectionName"
       requestBody:
         required: true
@@ -284,8 +321,12 @@ paths:
       description: |
         Paginated list of live records (`id`, `vector`, `metadata`, optional
         `document_ref`). Tombstoned records are omitted.
+      security:
+        - bearerAuth: []
+        - {}
       parameters:
         - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/NamespaceQuery"
         - $ref: "#/components/parameters/CollectionName"
         - name: offset
           in: query
@@ -320,8 +361,12 @@ paths:
     get:
       operationId: getRecord
       summary: Get a record by id
+      security:
+        - bearerAuth: []
+        - {}
       parameters:
         - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/NamespaceQuery"
         - $ref: "#/components/parameters/CollectionName"
         - $ref: "#/components/parameters/RecordId"
       responses:
@@ -349,8 +394,12 @@ paths:
       description: |
         Marks the record deleted so it is excluded from queries. Vector slots
         are reclaimed by boot/periodic compaction (`FORGE_MEMORY_COMPACT_ON_BOOT`).
+      security:
+        - bearerAuth: []
+        - {}
       parameters:
         - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/NamespaceQuery"
         - $ref: "#/components/parameters/CollectionName"
         - $ref: "#/components/parameters/RecordId"
       responses:
@@ -364,16 +413,35 @@ paths:
                 $ref: "#/components/schemas/Error"
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: Identity session or API token (`FORGE_AUTH_MODE=enforce`)
   parameters:
     ForgeProjectHeader:
       name: X-Forge-Project
       in: header
-      required: true
+      required: false
       description: |
-        Project id for isolation (dev header). Identity-enforced ACL lands in 17.04.
+        Project id for isolation. Required in `FORGE_AUTH_MODE=dev`. In enforce
+        mode, optional when the bearer token already carries `project_id`; else
+        must name a project the principal may access.
       schema:
         type: string
         example: proj-a
+    NamespaceQuery:
+      name: namespace
+      in: query
+      required: false
+      description: |
+        Optional sub-namespace within the project (e.g. `agent-memory`, `docs`).
+        Empty/omitted uses the project default namespace. Unknown namespaces are
+        treated as empty (no existence leak beyond `404` on missing collections).
+      schema:
+        type: string
+        example: agent-memory
     CollectionName:
       name: name
       in: path
@@ -442,15 +510,23 @@ components:
           type: string
           enum: [cosine]
           default: cosine
+        namespace:
+          type: string
+          description: Optional; overrides `?namespace=` when set
+          example: docs
 
     Collection:
       type: object
-      required: [name, project_id, dim, distance, count, created_at]
+      required: [name, project_id, namespace, dim, distance, count, created_at]
       properties:
         name:
           type: string
         project_id:
           type: string
+        namespace:
+          type: string
+          description: Sub-namespace within the project (empty string = default)
+          example: agent-memory
         dim:
           type: integer
         distance:

@@ -97,6 +97,8 @@ mod tests {
             max_upsert_batch: 512,
             compact_on_boot: false,
             meta_path: root.join("meta/index.db"),
+            auth_mode: crate::config::AuthMode::Dev,
+            identity: None,
         }
     }
 

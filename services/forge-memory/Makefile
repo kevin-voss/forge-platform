@@ -75,7 +75,7 @@ test-integration: run
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
 	@grep -q '4303' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-memory.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "/v1/collections" in p; assert "/upsert" in p and "/query" in p; assert "dimension_mismatch" in p; assert "forge-memory" in p; paths=[l for l in p.splitlines() if l.startswith("  /")]; assert len(paths)>=8, paths'
+	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-memory.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "/v1/collections" in p; assert "/upsert" in p and "/query" in p; assert "dimension_mismatch" in p; assert "namespace" in p; assert "bearerAuth" in p; assert "forge-memory" in p; paths=[l for l in p.splitlines() if l.startswith("  /")]; assert len(paths)>=8, paths'
 	@BASE=http://127.0.0.1:$(HOST_PORT); P='-H X-Forge-Project:proj-a'; \
 		curl -fsS $$P -XPOST $$BASE/v1/collections -H 'content-type: application/json' \
 			-d '{"name":"incidents","dim":384,"distance":"cosine"}' | grep -q '"dim":384'; \
@@ -85,6 +85,11 @@ test-integration: run
 		test "$$code" = "409"; \
 		grep -q '"code":"conflict"' /tmp/forge-memory-dup.json; \
 		code=$$(curl -s -o /tmp/forge-memory-miss.json -w '%{http_code}' $$P $$BASE/v1/collections/missing); \
+		test "$$code" = "404"; \
+		curl -fsS $$P $$BASE/v1/collections | grep -q incidents; \
+		test "$$(curl -fsS -H 'X-Forge-Project: proj-b' $$BASE/v1/collections | grep -c incidents)" = "0"; \
+		code=$$(curl -s -o /tmp/forge-memory-xproj.json -w '%{http_code}' \
+			-H 'X-Forge-Project: proj-b' $$BASE/v1/collections/incidents); \
 		test "$$code" = "404"
 	@cid="$$($(COMPOSE) ps -q $(SERVICE))"; \
 		test -n "$$cid"; \
@@ -95,7 +100,7 @@ test-integration: run
 	@$(MAKE) wait
 	@! PORT=not-a-port FORGE_MEMORY_ROOT=/tmp/x cargo run --quiet >/tmp/forge-memory-bad-port.out 2>&1
 	@grep -q 'PORT' /tmp/forge-memory-bad-port.out
-	@echo "Integration checks passed (health, identity, collections CRUD, FS layout, restart durability, RO→503, OpenAPI, SIGTERM)."
+	@echo "Integration checks passed (health, identity, collections CRUD, project isolation, FS layout, restart durability, RO→503, OpenAPI, SIGTERM)."
 
 lint:
 	@cargo fmt --check

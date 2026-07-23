@@ -707,6 +707,10 @@ services:
       FORGE_SHUTDOWN_GRACE_SECONDS: ${FORGE_SHUTDOWN_GRACE_SECONDS:-10}
       FORGE_MEMORY_ROOT: ${FORGE_MEMORY_ROOT:-/data/memory}
       FORGE_MEMORY_ALLOWED_BASE: ${FORGE_MEMORY_ALLOWED_BASE:-/data}
+      # Default dev (17.04). Set enforce + FORGE_IDENTITY_URL for Identity ACL.
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+      FORGE_IDENTITY_URL: ${FORGE_IDENTITY_URL:-http://forge-identity:8080}
+      FORGE_INTROSPECT_CACHE_TTL_S: ${FORGE_INTROSPECT_CACHE_TTL_S:-10}
     volumes:
       - forge-memory-data:/data/memory
     stop_grace_period: 15s

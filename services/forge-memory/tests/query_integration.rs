@@ -54,6 +54,8 @@ fn app_state(root: &std::path::Path, base: &std::path::Path) -> AppState {
         max_top_k: 100,
         max_upsert_batch: 512,
         compact_on_boot: false,
+        auth_mode: forge_memory::config::AuthMode::Dev,
+        identity: None,
         meta_path: root.join("meta/index.db"),
     }
 }

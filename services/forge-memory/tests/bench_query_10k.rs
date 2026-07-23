@@ -16,7 +16,7 @@ fn brute_force_query_10k_fixture_scale() {
     let store = CollectionStore::new(meta, dir.path().join("vectors"), 4096, 65_536);
     let dim = 32usize;
     store
-        .create_collection("proj-a", "bench", dim as i64, "cosine")
+        .create_collection("proj-a", "", "bench", dim as i64, "cosine")
         .unwrap();
 
     let n = 10_000usize;
@@ -30,6 +30,7 @@ fn brute_force_query_10k_fixture_scale() {
         store
             .upsert_record(
                 "proj-a",
+                "",
                 "bench",
                 &format!("r{i}"),
                 &v,
@@ -43,7 +44,7 @@ fn brute_force_query_10k_fixture_scale() {
     q[seed_axis] = 1.0;
 
     let started = Instant::now();
-    let out = store.query("proj-a", "bench", &q, 10, None).unwrap();
+    let out = store.query("proj-a", "", "bench", &q, 10, None).unwrap();
     let elapsed = started.elapsed();
 
     assert_eq!(out.results.len(), 10);

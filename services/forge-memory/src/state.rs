@@ -1,5 +1,6 @@
 use crate::collections::CollectionStore;
-use crate::config::Config;
+use crate::config::{AuthMode, Config};
+use crate::identity::{HttpIdentityClient, IdentityClient};
 use crate::meta::MetaStore;
 use crate::store::{LocalStore, Store, StoreError};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -16,6 +17,7 @@ pub struct MemoryMetrics {
     pub memory_query_candidates: AtomicU64,
     pub memory_query_latency_micros_total: AtomicU64,
     pub memory_query_count: AtomicU64,
+    pub memory_acl_denied_total: AtomicU64,
 }
 
 /// Shared application state for health, identity, and collection APIs.
@@ -35,6 +37,8 @@ pub struct AppState {
     pub max_upsert_batch: usize,
     pub compact_on_boot: bool,
     pub meta_path: std::path::PathBuf,
+    pub auth_mode: AuthMode,
+    pub identity: Option<Arc<dyn IdentityClient>>,
 }
 
 impl AppState {
@@ -106,8 +110,23 @@ pub async fn bootstrap(cfg: &Config) -> Result<AppState, String> {
         memory_root = %cfg.memory_root.display(),
         allowed_base = %cfg.allowed_base.display(),
         meta_path = %meta_path.display(),
+        auth_mode = %cfg.auth_mode,
         "initializing local filesystem memory store"
     );
+
+    let identity: Option<Arc<dyn IdentityClient>> = match cfg.auth_mode {
+        AuthMode::Enforce => {
+            let url = cfg.identity_url.as_deref().ok_or_else(|| {
+                "FORGE_IDENTITY_URL is required when FORGE_AUTH_MODE=enforce".to_string()
+            })?;
+            Some(HttpIdentityClient::new(url, cfg.identity_cache_ttl_secs)?
+                as Arc<dyn IdentityClient>)
+        }
+        AuthMode::Dev => {
+            warn!("FORGE_AUTH_MODE=dev — project isolation via X-Forge-Project only (insecure)");
+            None
+        }
+    };
 
     let state = AppState {
         service_name: cfg.service_name.clone(),
@@ -124,6 +143,8 @@ pub async fn bootstrap(cfg: &Config) -> Result<AppState, String> {
         max_upsert_batch: cfg.max_upsert_batch,
         compact_on_boot: cfg.compact_on_boot,
         meta_path,
+        auth_mode: cfg.auth_mode,
+        identity,
     };
 
     match store.init().await {

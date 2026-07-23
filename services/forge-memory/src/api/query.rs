@@ -3,7 +3,7 @@
 use crate::api::collections::collection_err;
 use crate::api::validate::validate_collection_name;
 use crate::collections::QueryHit;
-use crate::project::ProjectContext;
+use crate::scope::ProjectContext;
 use crate::state::AppState;
 use axum::extract::{Extension, Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -85,6 +85,7 @@ async fn query(
 
     match collections.query(
         &project.project_id,
+        &project.namespace,
         &name,
         &body.vector,
         body.top_k,
@@ -105,6 +106,7 @@ async fn query(
                 .fetch_add(1, Ordering::Relaxed);
             info!(
                 project_id = %project.project_id,
+                namespace = %project.namespace,
                 collection = %name,
                 top_k = body.top_k,
                 results = outcome.results.len(),

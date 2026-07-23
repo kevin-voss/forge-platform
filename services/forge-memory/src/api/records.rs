@@ -3,7 +3,7 @@
 use crate::api::collections::collection_err;
 use crate::api::validate::{validate_collection_name, validate_record_id};
 use crate::collections::Record;
-use crate::project::ProjectContext;
+use crate::scope::ProjectContext;
 use crate::state::AppState;
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -63,7 +63,12 @@ async fn get_record(
     let Ok(collections) = state.ensure_collections() else {
         return unavailable();
     };
-    match collections.get_record(&project.project_id, &name, id.trim()) {
+    match collections.get_record(
+        &project.project_id,
+        &project.namespace,
+        &name,
+        id.trim(),
+    ) {
         Ok(rec) => (StatusCode::OK, Json(rec)).into_response(),
         Err(crate::collections::CollectionError::NotFound) => not_found("record not found"),
         Err(err) => collection_err(err),
@@ -87,7 +92,13 @@ async fn list_records(
         .unwrap_or(state.list_page_size as i64)
         .clamp(1, state.list_page_size as i64);
     let offset = query.offset.max(0);
-    match collections.list_records(&project.project_id, &name, offset, limit) {
+    match collections.list_records(
+        &project.project_id,
+        &project.namespace,
+        &name,
+        offset,
+        limit,
+    ) {
         Ok(records) => (
             StatusCode::OK,
             Json(RecordListResponse {
@@ -115,10 +126,16 @@ async fn delete_record(
     let Ok(collections) = state.ensure_collections() else {
         return unavailable();
     };
-    match collections.delete_record(&project.project_id, &name, id.trim()) {
+    match collections.delete_record(
+        &project.project_id,
+        &project.namespace,
+        &name,
+        id.trim(),
+    ) {
         Ok(()) => {
             info!(
                 project_id = %project.project_id,
+                namespace = %project.namespace,
                 collection = %name,
                 record_id = %id,
                 request_id = %rid,

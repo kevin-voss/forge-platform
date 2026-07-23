@@ -3,7 +3,7 @@
 use crate::api::validate::validate_collection_name;
 use crate::collections::CollectionError;
 use crate::meta::Collection;
-use crate::project::ProjectContext;
+use crate::scope::{normalize_namespace, ProjectContext};
 use crate::state::AppState;
 use axum::extract::{Extension, Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -20,6 +20,9 @@ pub struct CreateCollectionRequest {
     pub dim: i64,
     #[serde(default = "default_distance")]
     pub distance: String,
+    /// Optional sub-namespace; falls back to request scope (`?namespace=`).
+    #[serde(default)]
+    pub namespace: Option<String>,
 }
 
 fn default_distance() -> String {
@@ -132,11 +135,29 @@ async fn create_collection(
         )
             .into_response();
     }
+    let namespace = if let Some(raw) = body.namespace.as_deref() {
+        match normalize_namespace(raw) {
+            Ok(ns) => ns,
+            Err(msg) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorBody {
+                        error: msg,
+                        code: Some("invalid"),
+                    }),
+                )
+                    .into_response();
+            }
+        }
+    } else {
+        project.namespace.clone()
+    };
     let Ok(collections) = state.ensure_collections() else {
         return unavailable();
     };
     match collections.create_collection(
         &project.project_id,
+        &namespace,
         body.name.trim(),
         body.dim,
         body.distance.trim(),
@@ -148,6 +169,7 @@ async fn create_collection(
                 .fetch_add(1, Ordering::Relaxed);
             info!(
                 project_id = %project.project_id,
+                namespace = %collection.namespace,
                 collection = %collection.name,
                 dim = collection.dim,
                 request_id = %rid,
@@ -166,7 +188,14 @@ async fn list_collections(
     let Ok(collections) = state.ensure_collections() else {
         return unavailable();
     };
-    match collections.list_collections(&project.project_id) {
+    // When caller supplied `?namespace=`, middleware sets it; empty means list all namespaces.
+    // Spec: optional namespace filter — empty default lists the whole project.
+    let filter = if project.namespace.is_empty() {
+        None
+    } else {
+        Some(project.namespace.as_str())
+    };
+    match collections.list_collections(&project.project_id, filter) {
         Ok(list) => (
             StatusCode::OK,
             Json(CollectionListResponse { collections: list }),
@@ -194,7 +223,7 @@ async fn get_collection(
     let Ok(collections) = state.ensure_collections() else {
         return unavailable();
     };
-    match collections.get_collection(&project.project_id, &name) {
+    match collections.get_collection(&project.project_id, &project.namespace, &name) {
         Ok(c) => (StatusCode::OK, Json(c)).into_response(),
         Err(err) => collection_err(err),
     }
@@ -220,7 +249,7 @@ async fn delete_collection(
     let Ok(collections) = state.ensure_collections() else {
         return unavailable();
     };
-    match collections.delete_collection(&project.project_id, &name) {
+    match collections.delete_collection(&project.project_id, &project.namespace, &name) {
         Ok(()) => {
             state
                 .metrics
@@ -231,6 +260,7 @@ async fn delete_collection(
                 .ok();
             info!(
                 project_id = %project.project_id,
+                namespace = %project.namespace,
                 collection = %name,
                 request_id = %rid,
                 "collection deleted"

@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 117`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 118`**.
 
 ## Epics
 
@@ -150,7 +150,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **114** | [Skeleton + persistence](steps/17-forge-memory/17.01-skeleton-persistence.md) | Complete |  | Rust/Axum on `4303`; health/identity; `vectors/`+`meta/` durable root |
 | **115** | [Collections + fixed-dim vectors + metadata](steps/17-forge-memory/17.02-collections-vectors-metadata.md) | Complete |  | Collection CRUD; mmap `.vec` + SQLite meta; record get/list; dim `422` |
 | **116** | [Upsert + cosine NN query](steps/17-forge-memory/17.03-upsert-cosine-nn.md) | Complete |  | Upsert/query/delete; cosine top-k + filters; boot compaction; ~27ms @10k |
-| **117** | [Namespace/ACL via Identity project scope](steps/17-forge-memory/17.04-namespace-acl.md) | Not started |  |  |
+| **117** | [Namespace/ACL via Identity project scope](steps/17-forge-memory/17.04-namespace-acl.md) | Complete |  | Project+namespace scope; Identity enforce; cross-project `404`; OpenAPI auth |
 | **118** | [Models embed + Agents retrieval tool](steps/17-forge-memory/17.05-models-embed-agents-tool.md) | Not started |  |  |
 | **119** | [Demo `17-agent-memory` + gate](steps/17-forge-memory/17.06-demo-and-gate.md) | Not started |  |  |
 | **120** | [Control APIs + provisioner skeleton](steps/18-managed-postgresql/18.01-control-apis-provisioner-skeleton.md) | Not started |  |  |

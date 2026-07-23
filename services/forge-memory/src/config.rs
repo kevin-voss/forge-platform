@@ -1,6 +1,35 @@
 use std::env;
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+
+/// Authentication mode for project isolation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthMode {
+    Dev,
+    Enforce,
+}
+
+impl AuthMode {
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "" | "dev" => Ok(Self::Dev),
+            "enforce" | "enforced" => Ok(Self::Enforce),
+            other => Err(format!(
+                "FORGE_AUTH_MODE must be enforce|dev, got {other:?}"
+            )),
+        }
+    }
+}
+
+impl fmt::Display for AuthMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Dev => write!(f, "dev"),
+            Self::Enforce => write!(f, "enforce"),
+        }
+    }
+}
 
 /// Env-backed configuration for forge-memory.
 #[derive(Debug, Clone)]
@@ -21,6 +50,9 @@ pub struct Config {
     pub max_top_k: usize,
     pub max_upsert_batch: usize,
     pub compact_on_boot: bool,
+    pub auth_mode: AuthMode,
+    pub identity_url: Option<String>,
+    pub identity_cache_ttl_secs: u64,
 }
 
 impl Config {
@@ -106,6 +138,17 @@ impl Config {
         }
         let compact_on_boot = parse_bool_env("FORGE_MEMORY_COMPACT_ON_BOOT", true)?;
 
+        let auth_mode =
+            AuthMode::parse(&env::var("FORGE_AUTH_MODE").unwrap_or_else(|_| "dev".into()))?;
+        let identity_url = match env::var("FORGE_IDENTITY_URL") {
+            Ok(v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        };
+        let identity_cache_ttl_secs = parse_u64_env("FORGE_INTROSPECT_CACHE_TTL_S", 10)?;
+        if auth_mode == AuthMode::Enforce && identity_url.is_none() {
+            return Err("FORGE_IDENTITY_URL is required when FORGE_AUTH_MODE=enforce".into());
+        }
+
         Ok(Self {
             port,
             service_name,
@@ -123,6 +166,9 @@ impl Config {
             max_top_k,
             max_upsert_batch,
             compact_on_boot,
+            auth_mode,
+            identity_url,
+            identity_cache_ttl_secs,
         })
     }
 }
@@ -198,6 +244,9 @@ mod tests {
             "FORGE_MEMORY_MAX_TOP_K",
             "FORGE_MEMORY_MAX_UPSERT_BATCH",
             "FORGE_MEMORY_COMPACT_ON_BOOT",
+            "FORGE_AUTH_MODE",
+            "FORGE_IDENTITY_URL",
+            "FORGE_INTROSPECT_CACHE_TTL_S",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()
@@ -233,7 +282,30 @@ mod tests {
             assert_eq!(cfg.memory_root, PathBuf::from("/data/memory"));
             assert_eq!(cfg.allowed_base, PathBuf::from("/data"));
             assert_eq!(cfg.log_level, "info");
+            assert_eq!(cfg.auth_mode, AuthMode::Dev);
         });
+    }
+
+    #[test]
+    fn enforce_requires_identity_url() {
+        with_env(&[("FORGE_AUTH_MODE", Some("enforce"))], || {
+            let err = Config::from_env().expect_err("enforce without identity");
+            assert!(err.contains("FORGE_IDENTITY_URL"), "{err}");
+        });
+    }
+
+    #[test]
+    fn accepts_enforced_alias() {
+        with_env(
+            &[
+                ("FORGE_AUTH_MODE", Some("enforced")),
+                ("FORGE_IDENTITY_URL", Some("http://identity:8080")),
+            ],
+            || {
+                let cfg = Config::from_env().expect("config");
+                assert_eq!(cfg.auth_mode, AuthMode::Enforce);
+            },
+        );
     }
 
     #[test]

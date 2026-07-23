@@ -42,6 +42,8 @@ fn base_state(store: Arc<LocalStore>, ready: bool) -> AppState {
         max_upsert_batch: 512,
         compact_on_boot: false,
         meta_path,
+        auth_mode: forge_memory::config::AuthMode::Dev,
+        identity: None,
     }
 }
 

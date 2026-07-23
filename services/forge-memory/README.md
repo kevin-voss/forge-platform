@@ -2,9 +2,9 @@
 
 Rust/Axum semantic vector-memory service (epic 17). Host port **4303**.
 
-Step `17.03` adds batch upsert, brute-force cosine nearest-neighbor query,
-metadata filters, tombstone delete, and boot compaction on top of collections
-(mmap `.vec` + SQLite meta).
+Step `17.04` adds project namespaces and Identity-backed access control on top of
+upsert/query (17.03): every collection/record/query is scoped by `project_id`
+(+ optional `namespace`), with cross-project access returning `404`.
 
 ## Local
 
@@ -18,13 +18,12 @@ make service-test SERVICE=forge-memory
 
 ```bash
 docker compose up -d forge-memory
-BASE=localhost:4303; P='-H X-Forge-Project:proj-a'
-curl -fsS $P -XPOST $BASE/v1/collections -H 'content-type: application/json' \
+BASE=localhost:4303
+curl -fsS -H 'X-Forge-Project: proj-a' -XPOST $BASE/v1/collections \
+  -H 'content-type: application/json' \
   -d '{"name":"incidents","dim":3,"distance":"cosine"}'
-curl -fsS $P -XPOST $BASE/v1/collections/incidents/upsert -H 'content-type: application/json' \
-  -d '{"records":[{"id":"i1","vector":[1,0,0],"metadata":{"type":"deploy"}}]}'
-curl -fsS $P -XPOST $BASE/v1/collections/incidents/query -H 'content-type: application/json' \
-  -d '{"vector":[1,0,0],"top_k":3}' | grep -q '"results"'
+curl -fsS -H 'X-Forge-Project: proj-a' $BASE/v1/collections | grep -q incidents
+test "$(curl -fsS -H 'X-Forge-Project: proj-b' $BASE/v1/collections | grep -c incidents)" = 0
 ```
 
 ### Configuration
@@ -34,6 +33,9 @@ curl -fsS $P -XPOST $BASE/v1/collections/incidents/query -H 'content-type: appli
 | `PORT` | `4303` (Compose: `8080`) | Listen port |
 | `FORGE_MEMORY_ROOT` | `/data/memory` | Durable FS root |
 | `FORGE_MEMORY_ALLOWED_BASE` | parent of root | Root must resolve under this base |
+| `FORGE_AUTH_MODE` | `dev` | `dev` (header) or `enforce`/`enforced` (Identity) |
+| `FORGE_IDENTITY_URL` | — | Required when `FORGE_AUTH_MODE=enforce` |
+| `FORGE_INTROSPECT_CACHE_TTL_S` | `10` | Introspect cache TTL |
 | `FORGE_MEMORY_MAX_DIM` | `4096` | Sanity cap on collection dim |
 | `FORGE_MEMORY_LIST_PAGE_SIZE` | `100` | Default/max page size for record list |
 | `FORGE_MEMORY_MAX_METADATA_BYTES` | `65536` | Cap on serialized record metadata |
@@ -47,26 +49,36 @@ curl -fsS $P -XPOST $BASE/v1/collections/incidents/query -H 'content-type: appli
 
 OpenAPI: [`contracts/openapi/forge-memory.openapi.yaml`](../../contracts/openapi/forge-memory.openapi.yaml)
 
+### Auth + namespaces
+
+* **Dev** (`FORGE_AUTH_MODE=dev`): require `X-Forge-Project` (logged as insecure bypass).
+* **Enforce**: require `Authorization: Bearer …`; Identity introspect must be active
+  and permit the project. Missing/invalid token → `401`. Read-only roles (`viewer`,
+  etc.) → `403` on writes. Cross-project ids → `404` (no existence leak).
+* Optional `?namespace=` (e.g. `agent-memory`, `docs`) isolates collections within
+  a project. Uniqueness is `(project_id, namespace, name)`. Unknown namespace is
+  treated as empty for lookups (miss → `404`).
+
 ### On-disk layout
 
 ```text
 $FORGE_MEMORY_ROOT/
 ├── vectors/
-│   └── <collection>.vec   # fixed-stride f32 mmap (dim × 4 bytes)
+│   └── <project>/<namespace|_default>/<collection>.vec
 └── meta/
-    └── index.db           # collections + records (id → offset, metadata, deleted)
+    └── index.db           # collections + records (project + namespace scoped)
 ```
 
 Readiness returns `200` only when the root is writable with `vectors/` and `meta/`
 present (not world-writable) and the SQLite metadata index is attached.
 
-### API (17.03)
+### API (17.04)
 
 | Method | Path | Notes |
 |---|---|---|
-| `POST` | `/v1/collections` | `{name, dim, distance:"cosine"}` → `201` |
-| `GET` | `/v1/collections` | List for project |
-| `GET` | `/v1/collections/{name}` | Fetch |
+| `POST` | `/v1/collections` | `{name, dim, distance:"cosine", namespace?}` → `201` |
+| `GET` | `/v1/collections` | List for project (`?namespace=` filters) |
+| `GET` | `/v1/collections/{name}` | Fetch (scoped) |
 | `DELETE` | `/v1/collections/{name}` | Delete collection + vector file |
 | `POST` | `/v1/collections/{name}/upsert` | Batch `{records:[{id,vector,metadata}]}` → `{upserted}` |
 | `POST` | `/v1/collections/{name}/query` | `{vector, top_k, filter?}` → ranked `{results}` |
@@ -74,8 +86,8 @@ present (not world-writable) and the SQLite metadata index is attached.
 | `GET` | `/v1/collections/{name}/records/{id}` | Get record |
 | `DELETE` | `/v1/collections/{name}/records/{id}` | Tombstone (excluded from queries) |
 
-Duplicate collection → `409`; missing → `404`; vector length ≠ dim or over-cap
-`top_k` / batch → `422`.
+Duplicate collection → `409`; missing / cross-project → `404`; vector length ≠ dim
+or over-cap `top_k` / batch → `422`; enforce unauthenticated → `401`.
 
 ### Benchmark (fixture scale)
 
