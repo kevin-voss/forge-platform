@@ -353,7 +353,7 @@ class ManagedDbService(
                 password = password,
             )
             isolation.assertNotControlDatabase(result.endpointRef)
-            val secretName = "managed-db-${created.id}"
+            val secretName = secretNameFor("managed_db", created.id)
             val secretRef = secrets.putSecret(instance.projectId, secretName, password)
             val credential = store.createCredential(
                 databaseId = created.id,
@@ -483,7 +483,7 @@ class ManagedDbService(
         isolation.assertNotControlDatabase(url)
 
         val attachmentId = UUID.randomUUID()
-        val urlSecretName = "managed-db-url-$attachmentId"
+        val urlSecretName = secretNameFor("managed_db_url", attachmentId)
         val urlSecretRef = try {
             secrets.putSecret(instance.projectId, urlSecretName, url)
         } catch (e: ManagedDbSecretsException) {
@@ -943,5 +943,9 @@ class ManagedDbService(
 
     companion object {
         private val ENV_VAR_PATTERN = Regex("^[A-Za-z_][A-Za-z0-9_]*$")
+
+        /** Secrets names must match `[A-Za-z_][A-Za-z0-9_]*` — no hyphens. */
+        fun secretNameFor(prefix: String, id: UUID): String =
+            "${prefix}_${id.toString().replace("-", "")}"
     }
 }

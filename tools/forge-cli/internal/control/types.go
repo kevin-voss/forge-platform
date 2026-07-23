@@ -70,6 +70,127 @@ type createDeploymentRequest struct {
 	EnvironmentID   string `json:"environmentId"`
 }
 
+// DbInstance is a managed PostgreSQL instance.
+type DbInstance struct {
+	ID                 string `json:"id"`
+	ProjectID          string `json:"projectId"`
+	Name               string `json:"name"`
+	Status             string `json:"status"`
+	Engine             string `json:"engine"`
+	DeletionProtection bool   `json:"deletionProtection"`
+	StatusReason       string `json:"statusReason,omitempty"`
+	EndpointRef        string `json:"endpointRef,omitempty"`
+	Host               string `json:"host,omitempty"`
+	Port               int    `json:"port,omitempty"`
+	ContainerID        string `json:"containerId,omitempty"`
+	CreatedAt          string `json:"createdAt"`
+	UpdatedAt          string `json:"updatedAt"`
+}
+
+// DbDatabase is a managed database on an instance.
+type DbDatabase struct {
+	ID                 string `json:"id"`
+	InstanceID         string `json:"instanceId"`
+	Name               string `json:"name"`
+	Status             string `json:"status"`
+	StatusReason       string `json:"statusReason,omitempty"`
+	DeletionProtection bool   `json:"deletionProtection"`
+	Host               string `json:"host,omitempty"`
+	Port               int    `json:"port,omitempty"`
+	SecretRef          string `json:"secretRef,omitempty"`
+	Username           string `json:"username,omitempty"`
+	// Password is present only on create/rotate (one-time reveal).
+	Password  string `json:"password,omitempty"`
+	CreatedAt string `json:"createdAt"`
+}
+
+// DbAttachment binds a managed database to an application for env injection.
+type DbAttachment struct {
+	ID            string `json:"id"`
+	DatabaseID    string `json:"databaseId"`
+	ApplicationID string `json:"applicationId"`
+	EnvVar        string `json:"envVar"`
+	SecretRef     string `json:"secretRef,omitempty"`
+	CreatedAt     string `json:"createdAt"`
+}
+
+// DatabaseListItem is a flattened project database row for CLI list output.
+type DatabaseListItem struct {
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	InstanceID         string `json:"instanceId"`
+	InstanceName       string `json:"instanceName"`
+	Status             string `json:"status"`
+	Host               string `json:"host,omitempty"`
+	Port               int    `json:"port,omitempty"`
+	SecretRef          string `json:"secretRef,omitempty"`
+	DeletionProtection bool   `json:"deletionProtection"`
+}
+
+// DbBackup is an on-demand managed-database backup.
+type DbBackup struct {
+	ID                     string `json:"id"`
+	DatabaseID             string `json:"databaseId"`
+	Status                 string `json:"status"`
+	Location               string `json:"location,omitempty"`
+	Checksum               string `json:"checksum,omitempty"`
+	SizeBytes              int64  `json:"sizeBytes,omitempty"`
+	StatusReason           string `json:"statusReason,omitempty"`
+	CompletedAt            string `json:"completedAt,omitempty"`
+	RestoreStatus          string `json:"restoreStatus,omitempty"`
+	RestoreTargetDatabaseID string `json:"restoreTargetDatabaseId,omitempty"`
+	RestoreStatusReason    string `json:"restoreStatusReason,omitempty"`
+	RestoreCompletedAt     string `json:"restoreCompletedAt,omitempty"`
+	CreatedAt              string `json:"createdAt"`
+}
+
+// RestoreBackupResponse is returned when a restore is accepted.
+type RestoreBackupResponse struct {
+	BackupID         string `json:"backupId"`
+	TargetDatabaseID string `json:"targetDatabaseId"`
+	Status           string `json:"status"`
+	StatusReason     string `json:"statusReason,omitempty"`
+}
+
+// RotateCredentialsResponse is returned from credential rotation.
+type RotateCredentialsResponse struct {
+	Credential RotatedCredential `json:"credential"`
+	SecretRef  string            `json:"secretRef"`
+}
+
+// RotatedCredential is the one-time reveal of a rotated role password.
+type RotatedCredential struct {
+	ID        string `json:"id"`
+	Username  string `json:"username"`
+	Password  string `json:"password,omitempty"`
+	Status    string `json:"status"`
+	SecretRef string `json:"secretRef,omitempty"`
+	CreatedAt string `json:"createdAt"`
+	RotatedAt string `json:"rotatedAt,omitempty"`
+}
+
+type createDbInstanceRequest struct {
+	Name      string `json:"name"`
+	ProjectID string `json:"projectId,omitempty"`
+}
+
+type createDbDatabaseRequest struct {
+	Name string `json:"name"`
+}
+
+type attachDatabaseRequest struct {
+	ApplicationID string `json:"applicationId"`
+	EnvVar        string `json:"envVar,omitempty"`
+}
+
+type patchDeletionProtectionRequest struct {
+	DeletionProtection bool `json:"deletionProtection"`
+}
+
+type restoreBackupRequest struct {
+	TargetDatabaseID string `json:"targetDatabaseId"`
+}
+
 type errorEnvelope struct {
 	Error struct {
 		Code      string            `json:"code"`

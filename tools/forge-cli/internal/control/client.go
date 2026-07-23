@@ -164,6 +164,200 @@ func (c *Client) ListDeployments(ctx context.Context, serviceID string) ([]Deplo
 	return deployments, err
 }
 
+// CreateDbInstance provisions a managed database instance for a project.
+func (c *Client) CreateDbInstance(ctx context.Context, projectID, name string) (DbInstance, error) {
+	var instance DbInstance
+	err := c.doJSONWithHeaders(
+		ctx,
+		http.MethodPost,
+		"/v1/databases/instances",
+		createDbInstanceRequest{Name: name, ProjectID: projectID},
+		&instance,
+		projectHeaders(projectID),
+	)
+	return instance, err
+}
+
+// ListDbInstances lists managed database instances for a project.
+func (c *Client) ListDbInstances(ctx context.Context, projectID string) ([]DbInstance, error) {
+	var instances []DbInstance
+	path := "/v1/databases/instances?projectId=" + url.QueryEscape(projectID)
+	err := c.doJSONWithHeaders(ctx, http.MethodGet, path, nil, &instances, projectHeaders(projectID))
+	return instances, err
+}
+
+// GetDbInstance returns a managed database instance by ID.
+func (c *Client) GetDbInstance(ctx context.Context, instanceID string) (DbInstance, error) {
+	var instance DbInstance
+	err := c.doJSON(ctx, http.MethodGet, "/v1/databases/instances/"+url.PathEscape(instanceID), nil, &instance)
+	return instance, err
+}
+
+// PatchDbInstanceDeletionProtection updates deletion protection on an instance.
+func (c *Client) PatchDbInstanceDeletionProtection(ctx context.Context, instanceID string, enabled bool) (DbInstance, error) {
+	var instance DbInstance
+	err := c.doJSON(
+		ctx,
+		http.MethodPatch,
+		"/v1/databases/instances/"+url.PathEscape(instanceID),
+		patchDeletionProtectionRequest{DeletionProtection: enabled},
+		&instance,
+	)
+	return instance, err
+}
+
+// DeleteDbInstance deletes a managed database instance (force required when protected).
+func (c *Client) DeleteDbInstance(ctx context.Context, instanceID string, force bool) error {
+	path := "/v1/databases/instances/" + url.PathEscape(instanceID)
+	if force {
+		path += "?force=true"
+	}
+	return c.doJSON(ctx, http.MethodDelete, path, nil, nil)
+}
+
+// CreateDbDatabase creates a database + credentials on an instance.
+func (c *Client) CreateDbDatabase(ctx context.Context, instanceID, name string) (DbDatabase, error) {
+	var database DbDatabase
+	err := c.doJSON(
+		ctx,
+		http.MethodPost,
+		"/v1/databases/instances/"+url.PathEscape(instanceID)+"/databases",
+		createDbDatabaseRequest{Name: name},
+		&database,
+	)
+	return database, err
+}
+
+// ListDbDatabases lists databases on an instance.
+func (c *Client) ListDbDatabases(ctx context.Context, instanceID string) ([]DbDatabase, error) {
+	var databases []DbDatabase
+	err := c.doJSON(ctx, http.MethodGet, "/v1/databases/instances/"+url.PathEscape(instanceID)+"/databases", nil, &databases)
+	return databases, err
+}
+
+// GetDbDatabase returns a managed database by ID.
+func (c *Client) GetDbDatabase(ctx context.Context, databaseID string) (DbDatabase, error) {
+	var database DbDatabase
+	err := c.doJSON(ctx, http.MethodGet, "/v1/databases/"+url.PathEscape(databaseID), nil, &database)
+	return database, err
+}
+
+// PatchDbDatabaseDeletionProtection updates deletion protection on a database.
+func (c *Client) PatchDbDatabaseDeletionProtection(ctx context.Context, databaseID string, enabled bool) (DbDatabase, error) {
+	var database DbDatabase
+	err := c.doJSON(
+		ctx,
+		http.MethodPatch,
+		"/v1/databases/"+url.PathEscape(databaseID),
+		patchDeletionProtectionRequest{DeletionProtection: enabled},
+		&database,
+	)
+	return database, err
+}
+
+// DeleteDbDatabase deletes a managed database (force required when protected).
+func (c *Client) DeleteDbDatabase(ctx context.Context, databaseID string, force bool) error {
+	path := "/v1/databases/" + url.PathEscape(databaseID)
+	if force {
+		path += "?force=true"
+	}
+	return c.doJSON(ctx, http.MethodDelete, path, nil, nil)
+}
+
+// AttachDbDatabase attaches a database to an application for env injection.
+func (c *Client) AttachDbDatabase(ctx context.Context, databaseID, applicationID, envVar string) (DbAttachment, error) {
+	var attachment DbAttachment
+	body := attachDatabaseRequest{ApplicationID: applicationID}
+	if strings.TrimSpace(envVar) != "" {
+		body.EnvVar = envVar
+	}
+	err := c.doJSON(ctx, http.MethodPost, "/v1/databases/"+url.PathEscape(databaseID)+"/attach", body, &attachment)
+	return attachment, err
+}
+
+// DetachDbAttachment removes a database attachment.
+func (c *Client) DetachDbAttachment(ctx context.Context, attachmentID string) error {
+	return c.doJSON(ctx, http.MethodDelete, "/v1/databases/attachments/"+url.PathEscape(attachmentID), nil, nil)
+}
+
+// ListApplicationDatabases lists attachments for an application.
+func (c *Client) ListApplicationDatabases(ctx context.Context, applicationID string) ([]DbAttachment, error) {
+	var attachments []DbAttachment
+	err := c.doJSON(ctx, http.MethodGet, "/v1/applications/"+url.PathEscape(applicationID)+"/databases", nil, &attachments)
+	return attachments, err
+}
+
+// CreateDbBackup starts an on-demand backup for a database.
+func (c *Client) CreateDbBackup(ctx context.Context, projectID, databaseID string) (DbBackup, error) {
+	var backup DbBackup
+	err := c.doJSONWithHeaders(
+		ctx,
+		http.MethodPost,
+		"/v1/databases/"+url.PathEscape(databaseID)+"/backups",
+		nil,
+		&backup,
+		projectHeaders(projectID),
+	)
+	return backup, err
+}
+
+// ListDbBackups lists backups for a database.
+func (c *Client) ListDbBackups(ctx context.Context, projectID, databaseID string) ([]DbBackup, error) {
+	var backups []DbBackup
+	err := c.doJSONWithHeaders(
+		ctx,
+		http.MethodGet,
+		"/v1/databases/"+url.PathEscape(databaseID)+"/backups",
+		nil,
+		&backups,
+		projectHeaders(projectID),
+	)
+	return backups, err
+}
+
+// GetDbBackup returns a backup by ID.
+func (c *Client) GetDbBackup(ctx context.Context, projectID, databaseID, backupID string) (DbBackup, error) {
+	var backup DbBackup
+	err := c.doJSONWithHeaders(
+		ctx,
+		http.MethodGet,
+		"/v1/databases/"+url.PathEscape(databaseID)+"/backups/"+url.PathEscape(backupID),
+		nil,
+		&backup,
+		projectHeaders(projectID),
+	)
+	return backup, err
+}
+
+// RestoreDbBackup restores a backup into a target database.
+func (c *Client) RestoreDbBackup(ctx context.Context, projectID, backupID, targetDatabaseID string) (RestoreBackupResponse, error) {
+	var result RestoreBackupResponse
+	err := c.doJSONWithHeaders(
+		ctx,
+		http.MethodPost,
+		"/v1/databases/backups/"+url.PathEscape(backupID)+"/restore",
+		restoreBackupRequest{TargetDatabaseID: targetDatabaseID},
+		&result,
+		projectHeaders(projectID),
+	)
+	return result, err
+}
+
+// RotateDbCredentials rotates credentials for a managed database.
+func (c *Client) RotateDbCredentials(ctx context.Context, databaseID string) (RotateCredentialsResponse, error) {
+	var result RotateCredentialsResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/databases/"+url.PathEscape(databaseID)+"/rotate-credentials", nil, &result)
+	return result, err
+}
+
+func projectHeaders(projectID string) http.Header {
+	headers := make(http.Header)
+	if strings.TrimSpace(projectID) != "" {
+		headers.Set("X-Forge-Project", projectID)
+	}
+	return headers
+}
+
 func (c *Client) doJSON(ctx context.Context, method, path string, input, output any) error {
 	return c.doJSONWithHeaders(ctx, method, path, input, output, nil)
 }
@@ -177,7 +371,11 @@ func (c *Client) doJSONWithHeaders(ctx context.Context, method, path string, inp
 		}
 		body = bytes.NewReader(payload)
 	}
-	requestURL := c.client.BaseURL.ResolveReference(&url.URL{Path: path})
+	ref, err := url.Parse(path)
+	if err != nil {
+		return fmt.Errorf("parse Control path: %w", err)
+	}
+	requestURL := c.client.BaseURL.ResolveReference(ref)
 	request, err := http.NewRequestWithContext(ctx, method, requestURL.String(), body)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)

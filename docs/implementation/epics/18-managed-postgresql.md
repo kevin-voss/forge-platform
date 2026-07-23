@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Goal
 
@@ -61,7 +61,7 @@ make demo DEMO=18
 | [18.03](../steps/18-managed-postgresql/18.03-attach-secrets-runtime-injection.md) | Attach + Secrets/Runtime URL injection | Complete | Attach + URL secret; reconciler injects on deploy |
 | [18.04](../steps/18-managed-postgresql/18.04-backup-restore.md) | Backup + restore | Complete | On-demand dump/restore + checksum |
 | [18.05](../steps/18-managed-postgresql/18.05-rotation-deletion-protection.md) | Credential rotation + deletion protection | Complete | RotationRunner + DeletionGuard; grace revoke; force delete |
-| [18.06](../steps/18-managed-postgresql/18.06-cli-demo-and-gate.md) | CLI `forge database *` + demo + gate | Not started | Depends on 18.05; 03 |
+| [18.06](../steps/18-managed-postgresql/18.06-cli-demo-and-gate.md) | CLI `forge database *` + demo + gate | Complete | `forge database *` + demos/18-managed-database gate |
 
 ## Assumptions
 
@@ -80,4 +80,4 @@ make demo DEMO=18
 
 ## Next step to implement
 
-**[18.06](../steps/18-managed-postgresql/18.06-cli-demo-and-gate.md) — CLI `forge database *` + demo + gate**.
+Epic complete. Next roadmap epic: [`19-full-platform-demo`](19-full-platform-demo.md).

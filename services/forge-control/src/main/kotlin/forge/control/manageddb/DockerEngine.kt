@@ -52,14 +52,15 @@ class CliDockerEngine(
         labels: Map<String, String>,
     ): ContainerInfo {
         ensureNetwork(network)
-        // Publish on loopback so host-side Control can health-check; network alias for in-net peers.
+        // Publish on all interfaces so Control/Runtime containers can reach the
+        // host-mapped port via host.docker.internal; network alias for in-net peers.
         val args = mutableListOf(
             "run", "-d",
             "--name", name,
             "--network", network,
             "--network-alias", name,
             "-e", "POSTGRES_PASSWORD=$adminPassword",
-            "-p", "127.0.0.1::5432",
+            "-p", "0.0.0.0::5432",
         )
         for ((k, v) in labels) {
             args += listOf("--label", "$k=$v")

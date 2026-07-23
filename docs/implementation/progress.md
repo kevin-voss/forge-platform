@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 125`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 127`**.
 
 ## Epics
 
@@ -26,8 +26,8 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [15](epics/15-forge-agents.md) | Forge Agents | Complete | 8/8 steps; demo 15 agent-runtime acceptance gate passed |
 | [16](epics/16-forge-workflows.md) | Forge Workflows | Complete | 7/7 steps; demo 16 agent-workflow acceptance gate passed |
 | [17](epics/17-forge-memory.md) | Forge Memory | Complete | 6/6 steps; demo 17 agent-memory acceptance gate passed |
-| [18](epics/18-managed-postgresql.md) | Managed PostgreSQL | In progress | 5/6 steps; credential rotation + deletion protection |
-| [19](epics/19-full-platform-demo.md) | Full platform demo | Planning | 6 steps; capstone |
+| [18](epics/18-managed-postgresql.md) | Managed PostgreSQL | Complete | 6/6 steps; demo 18 managed-database acceptance gate passed |
+| [19](epics/19-full-platform-demo.md) | Full platform demo | In progress | 1/6 steps; polyglot product scaffolded |
 
 ## Steps
 
@@ -158,8 +158,8 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **122** | [Attach + Secrets/Runtime URL injection](steps/18-managed-postgresql/18.03-attach-secrets-runtime-injection.md) | Complete |  | Attach APIs; URL in Secrets; reconciler injects env on deploy |
 | **123** | [Backup + restore](steps/18-managed-postgresql/18.04-backup-restore.md) | Complete |  | On-demand `pg_dump`/restore; checksum; volume|storage archives; project-scoped APIs |
 | **124** | [Credential rotation + deletion protection](steps/18-managed-postgresql/18.05-rotation-deletion-protection.md) | Complete |  | Rotation + Secrets update; deletion protection + force; pre-delete backup |
-| **125** | [CLI `forge database *` + demo + gate](steps/18-managed-postgresql/18.06-cli-demo-and-gate.md) | Not started |  |  |
-| **126** | [Polyglot sample product](steps/19-full-platform-demo/19.01-polyglot-product-scaffold.md) | Not started |  |  |
+| **125** | [CLI `forge database *` + demo + gate](steps/18-managed-postgresql/18.06-cli-demo-and-gate.md) | Complete |  | `forge database *` CLI; demo 18 create→attach→deploy→backup→restore gate |
+| **126** | [Polyglot sample product](steps/19-full-platform-demo/19.01-polyglot-product-scaffold.md) | Complete |  | Five product services under `demos/09-full-platform/product/`; contract + compose smoke |
 | **127** | [Deploy path: Build→Runtime→Gateway→Events](steps/19-full-platform-demo/19.02-deploy-path.md) | Not started |  |  |
 | **128** | [Identity, Secrets, Observe, Storage, managed DB](steps/19-full-platform-demo/19.03-identity-secrets-observe-storage-db.md) | Not started |  |  |
 | **129** | [Models + Agents + Memory for diagnosis](steps/19-full-platform-demo/19.04-models-agents-memory.md) | Not started |  |  |

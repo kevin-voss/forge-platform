@@ -86,6 +86,7 @@ func NewRootCommand(version string) *cobra.Command {
 		newServiceCommand(state),
 		newDeploymentCommand(state),
 		newSecretCommand(state),
+		newDatabaseCommand(state),
 		newLogsCommand(state),
 		newModelCommand(state),
 		newAgentCommand(state),

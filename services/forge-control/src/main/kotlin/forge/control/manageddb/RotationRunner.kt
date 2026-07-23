@@ -78,7 +78,7 @@ class RotationRunner(
             provisionedUsername = result.username ?: newUsername
             isolation.assertNotControlDatabase(result.endpointRef)
 
-            val secretName = "managed-db-${UUID.randomUUID()}"
+            val secretName = ManagedDbService.secretNameFor("managed_db", UUID.randomUUID())
             val secretRef = secrets.putSecret(instance.projectId, secretName, newPassword)
             val created = store.createCredential(
                 databaseId = databaseId,

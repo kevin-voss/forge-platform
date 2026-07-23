@@ -79,6 +79,43 @@ func Write(writer io.Writer, format string, value any) error {
 		for _, item := range value {
 			fmt.Fprintf(table, "%s\t%s\t%s\n", item.Name, item.Value, item.UpdatedAt)
 		}
+	case control.DbInstance:
+		fmt.Fprintln(table, "ID\tPROJECT ID\tNAME\tSTATUS\tENGINE")
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n", value.ID, value.ProjectID, value.Name, value.Status, value.Engine)
+	case []control.DbInstance:
+		fmt.Fprintln(table, "ID\tPROJECT ID\tNAME\tSTATUS\tENGINE")
+		for _, instance := range value {
+			fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n", instance.ID, instance.ProjectID, instance.Name, instance.Status, instance.Engine)
+		}
+	case control.DbDatabase:
+		fmt.Fprintln(table, "ID\tINSTANCE ID\tNAME\tSTATUS\tSECRET REF")
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n", value.ID, value.InstanceID, value.Name, value.Status, value.SecretRef)
+	case []control.DbDatabase:
+		fmt.Fprintln(table, "ID\tINSTANCE ID\tNAME\tSTATUS\tSECRET REF")
+		for _, database := range value {
+			fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n", database.ID, database.InstanceID, database.Name, database.Status, database.SecretRef)
+		}
+	case control.DbAttachment:
+		fmt.Fprintln(table, "ID\tDATABASE ID\tAPPLICATION ID\tENV VAR\tSECRET REF")
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n", value.ID, value.DatabaseID, value.ApplicationID, value.EnvVar, value.SecretRef)
+	case []control.DbAttachment:
+		fmt.Fprintln(table, "ID\tDATABASE ID\tAPPLICATION ID\tENV VAR\tSECRET REF")
+		for _, attachment := range value {
+			fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n", attachment.ID, attachment.DatabaseID, attachment.ApplicationID, attachment.EnvVar, attachment.SecretRef)
+		}
+	case control.DbBackup:
+		fmt.Fprintln(table, "ID\tDATABASE ID\tSTATUS\tCHECKSUM\tSIZE")
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%d\n", value.ID, value.DatabaseID, value.Status, value.Checksum, value.SizeBytes)
+	case []control.DbBackup:
+		fmt.Fprintln(table, "ID\tDATABASE ID\tSTATUS\tCHECKSUM\tSIZE")
+		for _, backup := range value {
+			fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%d\n", backup.ID, backup.DatabaseID, backup.Status, backup.Checksum, backup.SizeBytes)
+		}
+	case []control.DatabaseListItem:
+		fmt.Fprintln(table, "ID\tNAME\tINSTANCE\tSTATUS\tSECRET REF")
+		for _, item := range value {
+			fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n", item.ID, item.Name, item.InstanceName, item.Status, item.SecretRef)
+		}
 	default:
 		return fmt.Errorf("unsupported table output type %T", value)
 	}

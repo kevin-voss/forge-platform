@@ -149,10 +149,10 @@ make dev
 | `FORGE_SCHEDULER_LOCAL_NODE_ID` | `node-local` | Fallback sole node for `single-node` when the fleet is empty |
 | `FORGE_RESCHEDULE_ENABLED` | `true` | On node offline, mark placements lost and request replacements (`08.05`) |
 | `FORGE_RESCHEDULE_GRACE_S` | `5` | Wait after offline before rescheduling (suppresses fast flaps) |
-| `FORGE_DB_PROVISIONER` | `fake` | `fake` (CI no-op) \| `local` (Docker Postgres per instance) |
+| `FORGE_DB_PROVISIONER` | `fake` | `fake` (CI no-op) \| `local` (Docker Postgres per instance; requires docker CLI + socket) |
 | `FORGE_DB_MANAGED_NETWORK` | `forge-net` | Docker network for product Postgres containers |
 | `FORGE_DB_POSTGRES_IMAGE` | `postgres:16` | Image used by `LocalProvisioner` |
-| `FORGE_DB_ENDPOINT_HOST` | `127.0.0.1` | Host published ports are reached on (Control health checks) |
+| `FORGE_DB_ENDPOINT_HOST` | `127.0.0.1` | Host published ports are reached on (use `host.docker.internal` when Control/Runtime run in Compose) |
 | `FORGE_DB_DEFAULT_ENV_VAR` | `DATABASE_URL` | Default env var name when attaching a managed database |
 | `FORGE_DB_BACKUP_TARGET` | `storage` if `FORGE_STORAGE_URL` set, else `volume` | `storage` \| `volume` for backup archives |
 | `FORGE_DB_BACKUP_BUCKET` | `db-backups` | Forge Storage bucket when target=`storage` |
