@@ -116,3 +116,13 @@ Brute-force cosine at **N = 10_000**, **dim = 32** (test `bench_query_10k`):
 Reproduce: `cargo test --test bench_query_10k -- --nocapture` from
 `services/forge-memory`. No hard SLA this epic; numbers are for regression
 awareness.
+
+### Epic gate
+
+```bash
+make demo DEMO=17
+```
+
+`demos/17-agent-memory` seeds historical incidents (Models embed), asserts cosine
+NN ordering, runs an agent that cites `memory.search` results, checks project
+isolation, and verifies vectors survive a `forge-memory` restart.

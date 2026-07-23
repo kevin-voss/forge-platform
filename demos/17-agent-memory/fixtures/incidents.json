@@ -1,0 +1,50 @@
+{
+  "collection": "incidents",
+  "dim": 384,
+  "distance": "cosine",
+  "model": "local-embed-small",
+  "expected_id": "incident-db-timeout",
+  "new_failure_text": "Postgres connection pool exhausted during deploy rollout; readiness probes failing with connection refused",
+  "incidents": [
+    {
+      "id": "incident-db-timeout",
+      "text": "Postgres connection pool exhausted during deploy rollout; readiness probes failing with connection refused",
+      "metadata": {
+        "type": "incident",
+        "summary": "Postgres connection pool exhausted during deploy",
+        "service": "api",
+        "severity": "high"
+      }
+    },
+    {
+      "id": "incident-dns-blip",
+      "text": "Transient DNS resolution failure caused intermittent upstream 502s across the gateway",
+      "metadata": {
+        "type": "incident",
+        "summary": "Transient DNS resolution failure",
+        "service": "gateway",
+        "severity": "medium"
+      }
+    },
+    {
+      "id": "incident-oom-kill",
+      "text": "Container OOMKilled after memory limit breach during traffic spike; restart loop observed",
+      "metadata": {
+        "type": "incident",
+        "summary": "OOM kill during traffic spike",
+        "service": "worker",
+        "severity": "high"
+      }
+    },
+    {
+      "id": "incident-cert-expiry",
+      "text": "TLS certificate expired on ingress; clients saw handshake failures and browser warnings",
+      "metadata": {
+        "type": "incident",
+        "summary": "TLS certificate expired on ingress",
+        "service": "ingress",
+        "severity": "critical"
+      }
+    }
+  ]
+}

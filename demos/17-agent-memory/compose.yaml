@@ -1,0 +1,108 @@
+# Demo 17 — Forge Memory acceptance gate (standalone).
+# forge-memory + forge-models(fake) + forge-agents(fake) + incident fixtures.
+#
+#   docker compose -f demos/17-agent-memory/compose.yaml up -d --build
+
+name: forge-demo-17
+
+services:
+  forge-models:
+    build:
+      context: ../../services/forge-models
+    image: forge/forge-models:local
+    container_name: forge-demo-17-models
+    ports:
+      - "4300:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: forge-models
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-info}
+      FORGE_ENV: development
+      FORGE_MODELS_BACKEND: ${FORGE_MODELS_BACKEND:-fake}
+      FORGE_MODELS_METRICS_ENABLED: ${FORGE_MODELS_METRICS_ENABLED:-true}
+      FORGE_SHUTDOWN_GRACE_SECONDS: "10"
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health/ready | grep -q ready"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  forge-memory:
+    build:
+      context: ../../services/forge-memory
+    image: forge/forge-memory:local
+    container_name: forge-demo-17-memory
+    ports:
+      - "4303:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: forge-memory
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-info}
+      FORGE_ENV: development
+      FORGE_SHUTDOWN_GRACE_SECONDS: "10"
+      FORGE_MEMORY_ROOT: /data/memory
+      FORGE_MEMORY_ALLOWED_BASE: /data
+      FORGE_MODELS_URL: http://forge-models:8080
+      FORGE_MEMORY_DEFAULT_MODEL: ${FORGE_MEMORY_DEFAULT_MODEL:-local-embed-small}
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+    volumes:
+      - memory-data:/data/memory
+    depends_on:
+      forge-models:
+        condition: service_healthy
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health/ready | grep -q ready"]
+      interval: 2s
+      timeout: 5s
+      retries: 45
+      start_period: 40s
+
+  forge-agents:
+    build:
+      context: ../../services/forge-agents
+    image: forge/forge-agents:local
+    container_name: forge-demo-17-agents
+    ports:
+      - "4301:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: forge-agents
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-info}
+      FORGE_ENV: development
+      FORGE_MODELS_URL: http://forge-models:8080
+      FORGE_MEMORY_URL: http://forge-memory:8080
+      FORGE_AGENTS_DEFS_DIR: /app/agents
+      FORGE_AGENTS_TOOLS_MODE: ${FORGE_AGENTS_TOOLS_MODE:-fake}
+      FORGE_AGENTS_TOOL_TIMEOUT_SECONDS: "15"
+      FORGE_AGENTS_DB_PATH: /data/agents/runs.db
+      FORGE_AGENTS_MAX_CONCURRENT_RUNS: "4"
+      FORGE_AGENTS_APPROVAL_TTL_SECONDS: "3600"
+      FORGE_SHUTDOWN_GRACE_SECONDS: "10"
+    volumes:
+      - agents-data:/data/agents
+      # Demo-only agent that uses memory.search for incident citation.
+      - ./agents:/app/agents:ro
+      # Fixture ids match seeded incidents (deterministic citation).
+      - ./fixtures/memory.search.json:/app/app/tools/fixtures/memory.search.json:ro
+    depends_on:
+      forge-models:
+        condition: service_healthy
+      forge-memory:
+        condition: service_healthy
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health/ready | grep -q ready"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+volumes:
+  memory-data:
+  agents-data:

@@ -1,0 +1,9 @@
+name: incident-memory
+model: local-general
+tools:
+  - memory.search
+permissions:
+  - memory:read
+limits:
+  max_steps: 6
+  timeout_seconds: 60

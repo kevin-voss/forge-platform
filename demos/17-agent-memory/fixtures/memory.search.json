@@ -1,0 +1,24 @@
+{
+  "results": [
+    {
+      "id": "incident-db-timeout",
+      "score": 0.91,
+      "metadata": {
+        "summary": "Postgres connection pool exhausted during deploy",
+        "type": "incident",
+        "service": "api",
+        "severity": "high"
+      }
+    },
+    {
+      "id": "incident-dns-blip",
+      "score": 0.72,
+      "metadata": {
+        "summary": "Transient DNS resolution failure",
+        "type": "incident",
+        "service": "gateway",
+        "severity": "medium"
+      }
+    }
+  ]
+}
