@@ -46,6 +46,8 @@ def test_openapi_documents_model_list_get_health() -> None:
     assert "/v1/models/{model}/generate" in paths
     assert "/v1/models/{model}/classify" in paths
     assert "/v1/models/{model}/summarize" in paths
+    assert "/v1/jobs" in paths
+    assert "/v1/jobs/{job_id}" in paths
     for path_key in (
         "/v1/models/{model}/embed",
         "/v1/models/{model}/generate",
@@ -56,6 +58,18 @@ def test_openapi_documents_model_list_get_health() -> None:
         assert "200" in op["responses"]
         assert "404" in op["responses"]
         assert "422" in op["responses"]
+    gen_op = paths["/v1/models/{model}/generate"]["post"]
+    stream_param = next(p for p in gen_op["parameters"] if p.get("name") == "stream")
+    assert stream_param["in"] == "query"
+    assert "text/event-stream" in gen_op["responses"]["200"]["content"]
+    jobs_post = paths["/v1/jobs"]["post"]
+    assert "202" in jobs_post["responses"]
+    jobs_get = paths["/v1/jobs/{job_id}"]["get"]
+    assert "200" in jobs_get["responses"]
+    assert "404" in jobs_get["responses"]
+    jobs_del = paths["/v1/jobs/{job_id}"]["delete"]
+    assert "200" in jobs_del["responses"]
+    assert "409" in jobs_del["responses"]
     schemas = doc["components"]["schemas"]
     assert "Model" in schemas
     assert "ModelListResponse" in schemas
@@ -71,6 +85,12 @@ def test_openapi_documents_model_list_get_health() -> None:
     assert "ClassifyResponse" in schemas
     assert "SummarizeRequest" in schemas
     assert "SummarizeResponse" in schemas
+    assert "CreateJobRequest" in schemas
+    assert "CreateJobResponse" in schemas
+    assert "JobStatusResponse" in schemas
+    assert "CancelJobResponse" in schemas
+    assert "JobStatus" in schemas
+    assert "JobTask" in schemas
     embed_resp = schemas["EmbedResponse"]
     assert set(embed_resp["required"]) >= {"model", "embeddings", "dim", "usage"}
     assert "dim" in embed_resp["properties"]
@@ -83,9 +103,23 @@ def test_openapi_documents_model_list_get_health() -> None:
     assert set(classify_resp["required"]) >= {"labels"}
     summarize_resp = schemas["SummarizeResponse"]
     assert set(summarize_resp["required"]) >= {"summary", "usage"}
+    job_resp = schemas["JobStatusResponse"]
+    assert set(job_resp["required"]) >= {"status"}
+    assert "result" in job_resp["properties"]
+    assert "error" in job_resp["properties"]
+    create_resp = schemas["CreateJobResponse"]
+    assert set(create_resp["required"]) >= {"job_id", "status"}
     caps = schemas["ModelCapability"]["enum"]
     assert set(caps) == ALLOWED_CAPS
     assert schemas["Model"]["properties"]["embedding_dim"].get("nullable") is True
+    assert set(schemas["JobTask"]["enum"]) == {"generate", "classify", "summarize", "embed"}
+    assert set(schemas["JobStatus"]["enum"]) == {
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled",
+    }
 
 
 def _assert_embed_shape(body: dict) -> None:
@@ -204,6 +238,39 @@ def test_list_get_health_responses_validate(client: TestClient) -> None:
         )
         assert summarized.status_code == 200
         _assert_summarize_shape(summarized.json())
+
+        with client.stream(
+            "POST",
+            f"/v1/models/{gen_model}/generate?stream=true",
+            json={"prompt": "contract stream", "max_tokens": 16, "temperature": 0},
+        ) as streamed:
+            assert streamed.status_code == 200
+            assert "text/event-stream" in streamed.headers.get("content-type", "")
+            stream_body = "".join(streamed.iter_text())
+        assert "data: [DONE]" in stream_body
+
+        job = client.post(
+            "/v1/jobs",
+            headers={"X-Forge-Project": "contract-proj"},
+            json={"model": gen_model, "task": "summarize", "input": "contract job"},
+        )
+        assert job.status_code == 202
+        job_body = job.json()
+        assert job_body["status"] == "queued"
+        assert isinstance(job_body.get("job_id"), str) and job_body["job_id"]
+        # Poll briefly for a valid status shape.
+        status = client.get(
+            f"/v1/jobs/{job_body['job_id']}",
+            headers={"X-Forge-Project": "contract-proj"},
+        )
+        assert status.status_code == 200
+        assert status.json()["status"] in {
+            "queued",
+            "running",
+            "succeeded",
+            "failed",
+            "cancelled",
+        }
 
     embed_only = next(
         (

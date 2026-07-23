@@ -1,4 +1,4 @@
-"""POST /v1/models/{model}/generate — local text generation."""
+"""POST /v1/models/{model}/generate — local text generation (sync or SSE stream)."""
 
 from __future__ import annotations
 
@@ -6,14 +6,16 @@ import logging
 import time
 from typing import Any
 
-from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Query, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.adapters.base import Capability
 from app.adapters.local_gen import LocalGenerationAdapter
 from app.config import Settings
+from app.jobs.store import JobStore
 from app.registry import ModelRegistry
+from app.streaming import sse_generate_events
 
 logger = logging.getLogger("forge-models")
 
@@ -41,6 +43,10 @@ def _registry(request: Request) -> ModelRegistry:
 
 def _settings(request: Request) -> Settings:
     return request.app.state.settings
+
+
+def _job_store(request: Request) -> JobStore | None:
+    return getattr(request.app.state, "job_store", None)
 
 
 def _error(status: int, *, code: str, error: str) -> JSONResponse:
@@ -99,8 +105,13 @@ def validate_generate_params(
     return resolved_max, float(resolved_temp)
 
 
-@router.post("/v1/models/{model_id}/generate")
-async def generate_model(model_id: str, body: GenerateRequest, request: Request) -> JSONResponse:
+@router.post("/v1/models/{model_id}/generate", response_model=None)
+async def generate_model(
+    model_id: str,
+    body: GenerateRequest,
+    request: Request,
+    stream: bool = Query(default=False, description="When true, stream SSE token chunks"),
+) -> JSONResponse | StreamingResponse:
     settings = _settings(request)
     adapter, err = resolve_gen_adapter(request, model_id, capability=Capability.GENERATE)
     if err is not None:
@@ -118,6 +129,32 @@ async def generate_model(model_id: str, body: GenerateRequest, request: Request)
     if isinstance(params, JSONResponse):
         return params
     max_tokens, temperature = params
+
+    if stream:
+        store = _job_store(request)
+
+        def _on_active(delta: int) -> None:
+            if store is not None:
+                store.metrics.bump_stream_active(delta)
+
+        logger.info("stream started", extra={"model": model_id})
+        return StreamingResponse(
+            sse_generate_events(
+                adapter,
+                body.prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                model_id=model_id,
+                timeout_seconds=float(settings.forge_models_stream_timeout_seconds),
+                on_active=_on_active,
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     started = time.perf_counter()
     result = adapter.generate(body.prompt, max_tokens=max_tokens, temperature=temperature)

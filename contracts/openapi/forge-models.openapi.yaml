@@ -1,12 +1,12 @@
 openapi: 3.0.3
 info:
   title: Forge Models API
-  version: 0.4.0
+  version: 0.5.0
   description: |
     Platform model-serving service (epic 14). Health/identity from 14.01;
     model registry read APIs from 14.02; local embeddings (`POST .../embed`)
-    from 14.03; generate/classify/summarize from 14.04. Streaming, async jobs,
-    and usage metrics land in later steps.
+    from 14.03; generate/classify/summarize from 14.04; SSE streaming generate
+    and in-memory async jobs from 14.05. Usage metrics land in 14.06.
 servers:
   - url: http://127.0.0.1:4300
     description: Local Compose (host port 4300)
@@ -232,11 +232,22 @@ paths:
       operationId: generateModel
       summary: Generate text with a registered model
       description: |
-        Synchronous text generation via the local/fake generation adapter.
+        Text generation via the local/fake generation adapter.
         At `temperature=0` (default) output is deterministic for CI.
         `max_tokens` is capped by `FORGE_MODELS_GEN_MAX_TOKENS` (default 512).
+        When `stream=true`, the response is Server-Sent Events
+        (`text/event-stream`) with `data: {"delta":"..."}` chunks followed by
+        `data: [DONE]`. Stream timeout is `FORGE_MODELS_STREAM_TIMEOUT_SECONDS`
+        (default 60); client disconnect cancels generation.
       parameters:
         - $ref: "#/components/parameters/ModelId"
+        - name: stream
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: When true, stream incremental SSE chunks instead of JSON
       requestBody:
         required: true
         content:
@@ -249,7 +260,8 @@ paths:
               temperature: 0
       responses:
         "200":
-          description: Generated text
+          description: |
+            Generated text as JSON, or SSE stream when `stream=true`.
           content:
             application/json:
               schema:
@@ -261,6 +273,18 @@ paths:
                   prompt_tokens: 3
                   completion_tokens: 4
                   total_tokens: 7
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  SSE events: `data: {"delta":"<chunk>"}` repeated, then
+                  `data: [DONE]`.
+              example: |
+                data: {"delta":"[forge-gen]"}
+
+                data: {"delta":" hello"}
+
+                data: [DONE]
         "404":
           description: Unknown model id
           content:
@@ -286,6 +310,142 @@ paths:
                   value:
                     error: "max_tokens 9999 exceeds cap 512"
                     code: invalid_params
+
+  /v1/jobs:
+    post:
+      operationId: createJob
+      summary: Submit an asynchronous inference job
+      description: |
+        Queues a generate/classify/summarize/embed job in the in-memory job
+        store (not durable across restart). Requires `X-Forge-Project`.
+        Concurrency is capped by `FORGE_MODELS_MAX_CONCURRENT_JOBS` (default 4).
+        Jobs that exceed `FORGE_MODELS_JOB_TIMEOUT_SECONDS` end as `failed`
+        with error code `timeout`.
+      parameters:
+        - $ref: "#/components/parameters/ForgeProject"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateJobRequest"
+            example:
+              model: local-general
+              task: summarize
+              input: long incident text about database connection refused
+      responses:
+        "202":
+          description: Job accepted and queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateJobResponse"
+              example:
+                job_id: 550e8400-e29b-41d4-a716-446655440000
+                status: queued
+        "400":
+          description: Missing project header
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+              example:
+                error: X-Forge-Project header is required
+                code: project_required
+        "422":
+          description: Invalid job request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+
+  /v1/jobs/{job_id}:
+    get:
+      operationId: getJob
+      summary: Get async job status and result
+      description: |
+        Returns job status for the caller's project. Cross-project reads return
+        404 (no existence leak). Completed jobs are GC'd after
+        `FORGE_MODELS_JOB_TTL_SECONDS` (default 3600).
+      parameters:
+        - $ref: "#/components/parameters/ForgeProject"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatusResponse"
+              examples:
+                succeeded:
+                  value:
+                    status: succeeded
+                    result:
+                      summary: "[forge-summary] long incident"
+                      usage:
+                        prompt_tokens: 12
+                        completion_tokens: 5
+                        total_tokens: 17
+                failed:
+                  value:
+                    status: failed
+                    error:
+                      code: timeout
+                      message: job exceeded timeout
+        "400":
+          description: Missing project header
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: Unknown job or wrong project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+              example:
+                error: "job not found: nope"
+                code: job_not_found
+    delete:
+      operationId: cancelJob
+      summary: Cancel an async job
+      description: |
+        Cancels a queued or running job. Cancelling a terminal job returns 409.
+      parameters:
+        - $ref: "#/components/parameters/ForgeProject"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Job cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancelJobResponse"
+              example:
+                status: cancelled
+        "400":
+          description: Missing project header
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: Unknown job or wrong project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "409":
+          description: Job already terminal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+              example:
+                error: "job abc is already in a terminal state"
+                code: job_terminal
 
   /v1/models/{model}/classify:
     post:
@@ -413,6 +573,26 @@ components:
         type: string
         minLength: 1
       description: Registry model identifier
+
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+      description: Async job identifier
+
+    ForgeProject:
+      name: X-Forge-Project
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+      description: |
+        Project scope for job isolation (dev-mode header; Identity token
+        enforcement may replace this later).
 
   schemas:
     HealthStatus:
@@ -700,3 +880,79 @@ components:
           minLength: 1
         usage:
           $ref: "#/components/schemas/TokenUsage"
+
+    JobTask:
+      type: string
+      enum: [generate, classify, summarize, embed]
+
+    JobStatus:
+      type: string
+      enum: [queued, running, succeeded, failed, cancelled]
+
+    CreateJobRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - model
+        - task
+        - input
+      properties:
+        model:
+          type: string
+          minLength: 1
+        task:
+          $ref: "#/components/schemas/JobTask"
+        input:
+          description: |
+            Task-specific payload. Strings are accepted for generate/summarize/
+            embed; classify requires `{input, labels}`.
+
+    CreateJobResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - job_id
+        - status
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued]
+
+    JobError:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          example: timeout
+        message:
+          type: string
+
+    JobStatusResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+      properties:
+        status:
+          $ref: "#/components/schemas/JobStatus"
+        result:
+          description: Task result when status is succeeded
+        error:
+          $ref: "#/components/schemas/JobError"
+
+    CancelJobResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [cancelled]

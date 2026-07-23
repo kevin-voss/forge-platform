@@ -3,10 +3,12 @@
 Python/FastAPI model-serving service (epic 14). Host port **4300**.
 
 Skeleton (14.01) + model registry (14.02) + local embeddings (14.03) +
-generate/classify/summarize (14.04): health, identity, structured JSON logs,
-`GET /v1/models`, `POST .../embed`, and synchronous
-`POST .../generate|classify|summarize`. Streaming/async jobs arrive in 14.05;
-epic gate is `make demo DEMO=14` (`demos/14-model-serving`).
+generate/classify/summarize (14.04) + streaming/async jobs (14.05): health,
+identity, structured JSON logs, `GET /v1/models`, `POST .../embed`,
+synchronous `POST .../generate|classify|summarize`, SSE
+`POST .../generate?stream=true`, and in-memory `POST|GET|DELETE /v1/jobs`.
+Usage metrics arrive in 14.06; epic gate is `make demo DEMO=14`
+(`demos/14-model-serving`).
 
 ## Local
 
@@ -40,6 +42,13 @@ curl -fsS -XPOST $BASE/v1/models/$M/classify -H 'content-type: application/json'
   -d '{"input":"database connection refused","labels":["network","auth","disk"]}'
 curl -fsS -XPOST $BASE/v1/models/$M/summarize -H 'content-type: application/json' \
   -d '{"input":"long incident text about database connection refused ..."}'
+curl -fsS -N -XPOST "$BASE/v1/models/$M/generate?stream=true" \
+  -H 'content-type: application/json' -d '{"prompt":"stream please","max_tokens":16}' | head
+JID=$(curl -fsS -XPOST $BASE/v1/jobs -H 'content-type: application/json' \
+  -H 'X-Forge-Project: demo' \
+  -d '{"model":"'$M'","task":"summarize","input":"async summary please"}' \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["job_id"])')
+sleep 1; curl -fsS $BASE/v1/jobs/$JID -H 'X-Forge-Project: demo' | grep -q '"status"'
 ```
 
 OpenAPI (canonical): [`contracts/openapi/forge-models.openapi.yaml`](../../contracts/openapi/forge-models.openapi.yaml).
@@ -96,12 +105,30 @@ All three endpoints are served by `LocalGenerationAdapter` on `local-general`
 | Endpoint | Request | Response |
 |---|---|---|
 | `POST .../generate` | `{ "prompt", "max_tokens"?, "temperature"? }` | `{ "text", "finish_reason", "usage" }` |
+| `POST .../generate?stream=true` | same | SSE `data: {"delta":"..."}` … `data: [DONE]` |
 | `POST .../classify` | `{ "input", "labels": [...] }` | `{ "labels": [{ "label", "score" }] }` (score desc) |
 | `POST .../summarize` | `{ "input", "max_tokens"?, "temperature"? }` | `{ "summary", "usage" }` |
 
 `usage` is `{ prompt_tokens, completion_tokens, total_tokens }` (approximate word
 counts for the fake adapter). Capability mismatches and invalid params return
 `422` / `capability_unsupported` or `invalid_params`; unknown models → `404`.
+Streams cancel work on client disconnect and close on
+`FORGE_MODELS_STREAM_TIMEOUT_SECONDS`.
+
+## Async jobs
+
+In-memory only (not durable across restart). Scoped by `X-Forge-Project`
+(cross-project read → `404`).
+
+| Endpoint | Behavior |
+|---|---|
+| `POST /v1/jobs` | `{ model, task, input }` → `202 { job_id, status: queued }` |
+| `GET /v1/jobs/{id}` | `{ status, result?, error? }` |
+| `DELETE /v1/jobs/{id}` | cancel → `200 { status: cancelled }` or `409` if terminal |
+
+`task` is one of `generate|classify|summarize|embed`. States:
+`queued|running|succeeded|failed|cancelled`. Concurrency capped by
+`FORGE_MODELS_MAX_CONCURRENT_JOBS`; timeout → `failed` / `timeout`.
 
 ## Configuration
 
@@ -115,6 +142,10 @@ counts for the fake adapter). Capability mismatches and invalid params return
 | `FORGE_MODELS_GEN_MAX_TOKENS` | `512` | Cap for `max_tokens` on generate/summarize |
 | `FORGE_MODELS_GEN_DEFAULT_TEMP` | `0.0` | Default temperature (deterministic) |
 | `FORGE_MODELS_CLASSIFY_MAX_LABELS` | `32` | Max labels per `/classify` request |
+| `FORGE_MODELS_STREAM_TIMEOUT_SECONDS` | `60` | SSE generate stream timeout |
+| `FORGE_MODELS_JOB_TTL_SECONDS` | `3600` | GC TTL for terminal jobs |
+| `FORGE_MODELS_MAX_CONCURRENT_JOBS` | `4` | Worker concurrency cap |
+| `FORGE_MODELS_JOB_TIMEOUT_SECONDS` | `300` | Per-job wall timeout → `failed`/`timeout` |
 | `FORGE_MODELS_LOCAL_MODEL_PATH` | _(empty)_ | Optional on-disk sentence-transformer path |
 | `FORGE_LOG_LEVEL` | `info` | `debug\|info\|warn\|error` |
 | `FORGE_SERVICE_NAME` | `forge-models` | Identity + log field |
@@ -127,17 +158,20 @@ counts for the fake adapter). Capability mismatches and invalid params return
 ```text
 services/forge-models/
 ├── app/
-│   ├── main.py                 # FastAPI factory + lifespan
+│   ├── main.py                 # FastAPI factory + lifespan (job worker)
 │   ├── config.py               # pydantic-settings
 │   ├── health.py               # /health/live, /health/ready
 │   ├── logging.py              # JSON logs + X-Request-ID middleware
 │   ├── registry.py             # models.yaml loader + in-memory registry
+│   ├── streaming.py            # SSE chunk helpers for generate?stream=true
 │   ├── models.yaml             # default model definitions
 │   ├── api/models.py           # GET /v1/models*
 │   ├── api/embed.py            # POST /v1/models/{model}/embed
 │   ├── api/generate.py         # POST /v1/models/{model}/generate
 │   ├── api/classify.py         # POST /v1/models/{model}/classify
 │   ├── api/summarize.py        # POST /v1/models/{model}/summarize
+│   ├── api/jobs.py             # POST/GET/DELETE /v1/jobs
+│   ├── jobs/                   # JobStore + background worker
 │   └── adapters/               # ModelAdapter, FakeAdapter, LocalEmbedding*, LocalGeneration*
 ├── tests/
 ├── pyproject.toml

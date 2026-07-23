@@ -55,6 +55,30 @@ class Settings(BaseSettings):
         ge=1,
         le=1000,
     )
+    forge_models_stream_timeout_seconds: int = Field(
+        default=60,
+        alias="FORGE_MODELS_STREAM_TIMEOUT_SECONDS",
+        ge=1,
+        le=3600,
+    )
+    forge_models_job_ttl_seconds: int = Field(
+        default=3600,
+        alias="FORGE_MODELS_JOB_TTL_SECONDS",
+        ge=1,
+        le=86400 * 7,
+    )
+    forge_models_max_concurrent_jobs: int = Field(
+        default=4,
+        alias="FORGE_MODELS_MAX_CONCURRENT_JOBS",
+        ge=1,
+        le=256,
+    )
+    forge_models_job_timeout_seconds: float = Field(
+        default=300.0,
+        alias="FORGE_MODELS_JOB_TIMEOUT_SECONDS",
+        gt=0.0,
+        le=86400.0,
+    )
     forge_models_local_model_path: str = Field(default="", alias="FORGE_MODELS_LOCAL_MODEL_PATH")
     forge_service_name: str = Field(default="forge-models", alias="FORGE_SERVICE_NAME")
     forge_service_version: str = Field(default="0.1.0", alias="FORGE_SERVICE_VERSION")

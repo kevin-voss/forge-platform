@@ -14,10 +14,13 @@ from app import __version__
 from app.api.classify import router as classify_router
 from app.api.embed import router as embed_router
 from app.api.generate import router as generate_router
+from app.api.jobs import router as jobs_router
 from app.api.models import router as models_router
 from app.api.summarize import router as summarize_router
 from app.config import Settings, clear_settings_cache, get_settings
 from app.health import router as health_router
+from app.jobs.store import JobStore
+from app.jobs.worker import JobWorker
 from app.logging import RequestIdMiddleware, configure_logging
 from app.registry import RegistryLoadError, load_registry
 
@@ -30,17 +33,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.started_at = time.time()
     app.state.ready = True
     metrics = app.state.registry.metrics
+    worker: JobWorker = app.state.job_worker
+    await worker.start()
     logger.info(
         "starting forge-models",
         extra={
             "backend": settings.forge_models_backend,
             "models_registry_size": metrics.models_registry_size,
+            "max_concurrent_jobs": settings.forge_models_max_concurrent_jobs,
         },
     )
     try:
         yield
     finally:
         app.state.ready = False
+        await worker.stop()
         logger.info("shutdown complete")
 
 
@@ -66,6 +73,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     application.state.settings = resolved
     application.state.registry = registry
+    application.state.job_store = JobStore(ttl_seconds=resolved.forge_models_job_ttl_seconds)
+    application.state.job_worker = JobWorker(
+        application.state.job_store,
+        registry,
+        resolved,
+    )
     application.state.ready = False
     application.state.started_at = time.time()
 
@@ -76,6 +89,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(generate_router)
     application.include_router(classify_router)
     application.include_router(summarize_router)
+    application.include_router(jobs_router)
 
     @application.get("/")
     async def identity(request: Request) -> JSONResponse:
