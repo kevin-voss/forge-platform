@@ -22,6 +22,13 @@ data class ResourceRequirements(
     val slots: Int = 1,
     val cpuMillis: Int? = null,
     val memMb: Int? = null,
+    val diskMb: Int? = null,
+    val requests: ResourceBundle? = null,
+    val limits: ResourceBundle? = null,
+    /** True when [slots] was explicitly supplied by the caller (not derived). */
+    val slotsExplicit: Boolean = false,
+    /** Cached authority flag after resolution; null means unresolved. */
+    val requestsAuthoritative: Boolean? = null,
 )
 
 enum class AntiAffinity {

@@ -38,7 +38,7 @@ async fn handle_create(
     Json(spec): Json<WorkloadSpec>,
 ) -> impl IntoResponse {
     let container_port = spec.port;
-    match lifecycle::ensure_workload(
+    match lifecycle::ensure_workload_with_limits(
         state.docker.as_ref(),
         state.node.as_ref(),
         state.deployment_locks.as_ref(),
@@ -46,6 +46,7 @@ async fn handle_create(
         state.pull_timeout,
         state.stop_grace,
         state.on_config_conflict,
+        state.enforce_limits,
     )
     .await
     {
@@ -190,6 +191,7 @@ mod tests {
             stop_grace: Duration::from_secs(2),
             on_config_conflict: OnConfigConflict::Recreate,
             deployment_locks: Arc::new(DeploymentLocks::new()),
+            enforce_limits: true,
         };
         Router::new().merge(router()).with_state(state)
     }

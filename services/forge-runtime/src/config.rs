@@ -51,6 +51,10 @@ pub struct Config {
     pub node_id: Option<String>,
     /// Advertised slot capacity when registering with Control.
     pub node_slots: u32,
+    /// Capacity source: `host` (introspect) or `slots-only` (deterministic demos/CI).
+    pub node_capacity_source: String,
+    /// When true, apply workload `limits` as Docker resource constraints.
+    pub enforce_limits: bool,
     /// Optional advertised address for Control registration.
     pub node_address: Option<String>,
     /// Single-use bootstrap token for join handshake (`FORGE_NODE_BOOTSTRAP_TOKEN`).
@@ -319,6 +323,30 @@ impl Config {
             ));
         }
 
+        let node_capacity_source = env::var("FORGE_NODE_CAPACITY_SOURCE")
+            .unwrap_or_else(|_| "host".into())
+            .trim()
+            .to_ascii_lowercase();
+        if node_capacity_source != "host" && node_capacity_source != "slots-only" {
+            return Err(format!(
+                "FORGE_NODE_CAPACITY_SOURCE must be host|slots-only, got {node_capacity_source:?}"
+            ));
+        }
+
+        let enforce_limits_raw = env::var("FORGE_ENFORCE_LIMITS")
+            .unwrap_or_else(|_| "true".into())
+            .trim()
+            .to_ascii_lowercase();
+        let enforce_limits = match enforce_limits_raw.as_str() {
+            "true" | "1" | "yes" => true,
+            "false" | "0" | "no" => false,
+            other => {
+                return Err(format!(
+                    "FORGE_ENFORCE_LIMITS must be true|false, got {other:?}"
+                ));
+            }
+        };
+
         let node_address = env::var("FORGE_NODE_ADDRESS")
             .ok()
             .map(|s| s.trim().to_string())
@@ -525,6 +553,8 @@ impl Config {
             on_config_conflict,
             node_id,
             node_slots,
+            node_capacity_source,
+            enforce_limits,
             node_address,
             bootstrap_token,
             key_dir,

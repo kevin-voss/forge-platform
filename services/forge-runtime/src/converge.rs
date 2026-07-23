@@ -218,7 +218,8 @@ async fn ensure_desired(ctx: &ConvergeCtx<'_>, dep: &DesiredDeployment) -> Resul
         port,
         environment: dep.workload_environment(),
         secrets_fingerprint: None,
-    };
+        limits: None,
+        };
     let outcome = lifecycle::ensure_workload(
         ctx.docker,
         ctx.node,
@@ -522,7 +523,8 @@ mod tests {
                 port: 8080,
                 environment: HashMap::new(),
                 secrets_fingerprint: None,
-            },
+                limits: None,
+        },
             Duration::from_secs(5),
             Duration::from_secs(1),
             OnConfigConflict::Recreate,
@@ -571,7 +573,8 @@ mod tests {
                 port: 8080,
                 environment: HashMap::new(),
                 secrets_fingerprint: None,
-            },
+                limits: None,
+        },
             Duration::from_secs(5),
             Duration::from_secs(1),
             OnConfigConflict::Recreate,

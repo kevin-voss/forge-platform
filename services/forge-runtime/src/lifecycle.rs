@@ -247,6 +247,29 @@ pub async fn ensure_workload(
     stop_grace: Duration,
     on_conflict: OnConfigConflict,
 ) -> Result<EnsureOutcome, WorkloadError> {
+    ensure_workload_with_limits(
+        docker,
+        node,
+        locks,
+        spec,
+        pull_timeout,
+        stop_grace,
+        on_conflict,
+        true,
+    )
+    .await
+}
+
+pub async fn ensure_workload_with_limits(
+    docker: &dyn DockerEngine,
+    node: &Node,
+    locks: &DeploymentLocks,
+    spec: WorkloadSpec,
+    pull_timeout: Duration,
+    stop_grace: Duration,
+    on_conflict: OnConfigConflict,
+    enforce_limits: bool,
+) -> Result<EnsureOutcome, WorkloadError> {
     let spec = validate_spec(&spec)?;
     let _guard = locks.lock(&spec.deployment_id).await;
 
@@ -256,7 +279,14 @@ pub async fn ensure_workload(
 
     match action {
         IdempotentAction::CreateNew => {
-            let view = workload::create_and_start(docker, node, spec, pull_timeout).await?;
+            let view = workload::create_and_start_with_limits(
+                docker,
+                node,
+                spec,
+                pull_timeout,
+                enforce_limits,
+            )
+            .await?;
             Ok(EnsureOutcome::Created(view))
         }
         IdempotentAction::ReturnExisting => {
@@ -301,7 +331,14 @@ pub async fn ensure_workload(
                 "config conflict; recreating container"
             );
             stop_and_remove_managed(docker, &inspect, stop_grace).await?;
-            let view = workload::create_and_start(docker, node, spec, pull_timeout).await?;
+            let view = workload::create_and_start_with_limits(
+                docker,
+                node,
+                spec,
+                pull_timeout,
+                enforce_limits,
+            )
+            .await?;
             Ok(EnsureOutcome::Created(view))
         }
         IdempotentAction::RejectConflict => {
@@ -562,7 +599,8 @@ mod tests {
                 port: 8080,
                 environment: HashMap::new(),
                 secrets_fingerprint: None,
-            },
+                limits: None,
+        },
             Duration::from_secs(5),
             Duration::from_secs(2),
             OnConfigConflict::Recreate,
@@ -601,6 +639,7 @@ mod tests {
             port: 8080,
             environment: HashMap::new(),
             secrets_fingerprint: None,
+            limits: None,
         };
 
         let first = ensure_workload(
@@ -665,6 +704,7 @@ mod tests {
             port: 8080,
             environment: HashMap::new(),
             secrets_fingerprint: None,
+            limits: None,
         };
 
         let d1 = Arc::clone(&docker);
@@ -745,7 +785,8 @@ mod tests {
                 port: 8080,
                 environment: HashMap::new(),
                 secrets_fingerprint: None,
-            },
+                limits: None,
+        },
             Duration::from_secs(5),
             Duration::from_secs(1),
             OnConfigConflict::Recreate,
@@ -783,7 +824,8 @@ mod tests {
                 port: 8080,
                 environment: HashMap::new(),
                 secrets_fingerprint: None,
-            },
+                limits: None,
+        },
             Duration::from_secs(5),
             Duration::from_secs(1),
             OnConfigConflict::Recreate,

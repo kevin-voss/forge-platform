@@ -147,6 +147,7 @@ mod tests {
             stop_grace: Duration::from_secs(10),
             on_config_conflict: crate::lifecycle::OnConfigConflict::Recreate,
             deployment_locks: Arc::new(DeploymentLocks::new()),
+            enforce_limits: true,
         };
         router().with_state(state)
     }
@@ -167,7 +168,8 @@ mod tests {
                 port: 8080,
                 environment: HashMap::new(),
                 secrets_fingerprint: None,
-            },
+                limits: None,
+        },
             Duration::from_secs(5),
         )
         .await

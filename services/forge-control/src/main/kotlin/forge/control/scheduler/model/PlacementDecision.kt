@@ -9,6 +9,7 @@ sealed class PlacementDecision {
         val nodeId: String,
         val strategy: String,
         val reason: String,
+        val trace: PlacementTrace? = null,
     ) : PlacementDecision() {
         init {
             require(nodeId.isNotBlank()) { "nodeId must not be blank" }
@@ -18,5 +19,7 @@ sealed class PlacementDecision {
 
     data class NoNodeAvailable(
         val reason: String = "no node available",
+        val unschedulableReasons: List<UnschedulableReasonEntry> = emptyList(),
+        val trace: PlacementTrace? = null,
     ) : PlacementDecision()
 }

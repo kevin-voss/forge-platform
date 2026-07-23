@@ -29,6 +29,13 @@ offline node's placements `lost`, frees capacity, and requests replacements
 `StaleReplicaFencer` stops surplus replicas when a recovered node would exceed
 desired count. Flow is idempotent via `recoverLostReplicas()` on Control start.
 
+**Resource requests/limits (25.01):** `RequirementsResolver` derives CPU/memory
+from slots (or the reverse). Nodes store `allocatable_json` (capacity ×
+overcommit − reserved). Placement filters emit structured
+`unschedulable_reasons` and a `trace.filters[capacity]` record.
+`GET /v1/placements/{id}` returns requests/limits/trace. Runtime reports host
+capacity and optionally enforces Docker limits (`FORGE_ENFORCE_LIMITS`).
+
 **Demo gate (08.06):** `make demo DEMO=08` (`demos/08-multi-node`) runs two
 Runtime agents, asserts 2+2 placement distribution, then stops `node-b` and
 checks reschedule onto `node-a` via `/v1/nodes` + `/v1/placements`.

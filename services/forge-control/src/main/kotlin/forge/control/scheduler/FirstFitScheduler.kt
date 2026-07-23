@@ -3,6 +3,8 @@ package forge.control.scheduler
 import forge.control.scheduler.model.AntiAffinity
 import forge.control.scheduler.model.PlacementDecision
 import forge.control.scheduler.model.PlacementRequest
+import forge.control.scheduler.model.PlacementTrace
+import forge.control.scheduler.model.UnschedulableReasons
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.trace.Span
 
@@ -45,27 +47,43 @@ internal object CapacityAwarePlacement {
         pick: (List<FleetNode>) -> FleetNode,
         reasonFor: (FleetNode, Int) -> String,
     ): PlacementDecision {
+        val resolved = RequirementsResolver.resolve(request.requirements)
+        val reserveReqs = resolved.toResourceRequirements()
         val excluded = linkedSetOf<String>()
         var softFallbackUsed = false
+        var lastEliminated = PlacementCapacity.eliminated(nodes, request.requirements, excluded)
         while (true) {
             val capacityCandidates = PlacementCapacity.candidates(
                 nodes,
                 request.requirements,
                 excluded,
             )
+            lastEliminated = PlacementCapacity.eliminated(nodes, request.requirements, excluded)
             Span.current().setAttribute(
                 AttributeKey.longKey("candidates"),
                 capacityCandidates.size.toLong(),
             )
             Span.current().setAttribute(AttributeKey.stringKey("strategy"), strategy)
+            resolved.cpuMillis?.let {
+                Span.current().setAttribute(AttributeKey.longKey("requested_cpu_millis"), it.toLong())
+            }
+            resolved.memoryMb?.let {
+                Span.current().setAttribute(AttributeKey.longKey("requested_memory_mb"), it.toLong())
+            }
             if (capacityCandidates.isEmpty()) {
+                val reason = when {
+                    excluded.isNotEmpty() -> "no node available after reservation retries"
+                    lastEliminated.isNotEmpty() -> UnschedulableReasons.summarize(lastEliminated)
+                    else -> "no node with ${resolved.slots} free slot" +
+                        if (resolved.slots == 1) "" else "s"
+                }
+                val trace = PlacementTrace()
+                    .withStrategy(strategy)
+                    .withCapacityFilter(lastEliminated)
                 return PlacementDecision.NoNodeAvailable(
-                    reason = if (excluded.isEmpty()) {
-                        "no node with ${request.requirements.slots} free slot" +
-                            if (request.requirements.slots == 1) "" else "s"
-                    } else {
-                        "no node available after reservation retries"
-                    },
+                    reason = reason,
+                    unschedulableReasons = lastEliminated,
+                    trace = trace,
                 )
             }
 
@@ -73,8 +91,13 @@ internal object CapacityAwarePlacement {
             val candidates = when {
                 preferred.isNotEmpty() -> preferred
                 request.antiAffinity == AntiAffinity.Hard -> {
+                    val trace = PlacementTrace()
+                        .withStrategy(strategy)
+                        .withCapacityFilter(lastEliminated)
                     return PlacementDecision.NoNodeAvailable(
                         reason = "anti-affinity: no distinct node for service",
+                        unschedulableReasons = lastEliminated,
+                        trace = trace,
                     )
                 }
                 else -> {
@@ -88,15 +111,19 @@ internal object CapacityAwarePlacement {
 
             val chosen = pick(candidates)
             val freeBefore = PlacementCapacity.freeSlots(chosen)
-            if (!reservation.tryReserve(chosen.id, request.requirements)) {
+            if (!reservation.tryReserve(chosen.id, reserveReqs)) {
                 excluded.add(chosen.id)
                 continue
             }
             Span.current().setAttribute(AttributeKey.stringKey("node"), chosen.id)
+            val trace = PlacementTrace()
+                .withStrategy(strategy)
+                .withCapacityFilter(lastEliminated)
             return PlacementDecision.Assigned(
                 nodeId = chosen.id,
                 strategy = strategy,
                 reason = reasonFor(chosen, freeBefore),
+                trace = trace,
             )
         }
     }

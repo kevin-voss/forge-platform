@@ -237,6 +237,13 @@ class Telemetry private constructor(
         placementRejectedNoCapacity.add(1)
     }
 
+    fun recordPlacementUnschedulable(reason: String) {
+        placementRejectedNoCapacity.add(
+            1,
+            Attributes.of(AttributeKey.stringKey("reason"), reason),
+        )
+    }
+
     fun recordAntiAffinityFallback() {
         antiAffinityFallback.add(1)
     }

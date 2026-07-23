@@ -22,6 +22,7 @@ data class NodeCapacityDto(
     val slots: Int? = null,
     @SerialName("cpu_millis") val cpuMillis: Int? = null,
     @SerialName("mem_mb") val memMb: Int? = null,
+    @SerialName("disk_mb") val diskMb: Int? = null,
 )
 
 @Serializable
@@ -36,6 +37,7 @@ data class NodeResourcesDto(
     val slots: Int? = null,
     @SerialName("cpu_millis") val cpuMillis: Int? = null,
     @SerialName("mem_mb") val memMb: Int? = null,
+    @SerialName("disk_mb") val diskMb: Int? = null,
 )
 
 @Serializable
@@ -60,6 +62,7 @@ data class NodeResponse(
     val capacity: NodeCapacityDto,
     val allocated: NodeResourcesDto,
     val free: NodeResourcesDto,
+    val allocatable: NodeCapacityDto? = null,
     @SerialName("running_replicas") val runningReplicas: List<String> = emptyList(),
     @SerialName("last_heartbeat_at") val lastHeartbeatAt: String,
     @SerialName("registered_at") val registeredAt: String,
@@ -71,14 +74,15 @@ data class NodeResponse(
 
 fun NodeCapacityDto.toModel(): NodeCapacity? {
     val slots = slots ?: return null
-    return NodeCapacity(slots = slots, cpuMillis = cpuMillis, memMb = memMb)
+    return NodeCapacity(slots = slots, cpuMillis = cpuMillis, memMb = memMb, diskMb = diskMb)
 }
 
 fun NodeCapacity.toDto(): NodeCapacityDto =
-    NodeCapacityDto(slots = slots, cpuMillis = cpuMillis, memMb = memMb)
+    NodeCapacityDto(slots = slots, cpuMillis = cpuMillis, memMb = memMb, diskMb = diskMb)
 
 fun FleetNode.toResponse(peers: List<PeerInfo> = emptyList()): NodeResponse {
     val freeSlots = LivenessMonitor.freeSlots(this)
+    val alloc = allocatable
     val network = if (networkCidr != null && networkGateway != null) {
         NetworkAssignmentDto(cidr = networkCidr, gateway = networkGateway)
     } else {
@@ -90,18 +94,23 @@ fun FleetNode.toResponse(peers: List<PeerInfo> = emptyList()): NodeResponse {
         address = address,
         status = status,
         capacity = capacity.toDto(),
+        allocatable = alloc?.toDto(),
         allocated = NodeResourcesDto(
             slots = allocation.slots,
             cpuMillis = allocation.cpuMillis,
             memMb = allocation.memMb,
+            diskMb = allocation.diskMb,
         ),
         free = NodeResourcesDto(
             slots = freeSlots,
-            cpuMillis = capacity.cpuMillis?.let { total ->
-                allocation.cpuMillis?.let { used -> (total - used).coerceAtLeast(0) }
+            cpuMillis = (alloc?.cpuMillis ?: capacity.cpuMillis)?.let { total ->
+                (total - (allocation.cpuMillis ?: 0)).coerceAtLeast(0)
             },
-            memMb = capacity.memMb?.let { total ->
-                allocation.memMb?.let { used -> (total - used).coerceAtLeast(0) }
+            memMb = (alloc?.memMb ?: capacity.memMb)?.let { total ->
+                (total - (allocation.memMb ?: 0)).coerceAtLeast(0)
+            },
+            diskMb = (alloc?.diskMb ?: capacity.diskMb)?.let { total ->
+                (total - (allocation.diskMb ?: 0)).coerceAtLeast(0)
             },
         ),
         runningReplicas = allocation.runningReplicas,
@@ -131,6 +140,7 @@ fun HeartbeatRequest.toAllocation(capacitySlots: Int): NodeAllocation {
         slots = allocatedSlots.coerceAtLeast(0),
         cpuMillis = allocated?.cpuMillis,
         memMb = allocated?.memMb,
+        diskMb = allocated?.diskMb,
         runningReplicas = runningReplicas.orEmpty(),
     )
 }

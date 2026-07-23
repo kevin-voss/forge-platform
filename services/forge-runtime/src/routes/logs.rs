@@ -195,7 +195,8 @@ mod tests {
             stop_grace: Duration::from_secs(10),
             on_config_conflict: crate::lifecycle::OnConfigConflict::Recreate,
             deployment_locks: Arc::new(crate::lifecycle::DeploymentLocks::new()),
-        };
+            enforce_limits: true,
+};
         Router::new()
             .merge(crate::routes::workloads::router())
             .merge(router())
@@ -324,7 +325,8 @@ mod tests {
                 port: 8080,
                 environment: Default::default(),
                 secrets_fingerprint: None,
-            },
+                limits: None,
+        },
             Duration::from_secs(5),
         )
         .await
@@ -349,7 +351,8 @@ mod tests {
             stop_grace: Duration::from_secs(10),
             on_config_conflict: crate::lifecycle::OnConfigConflict::Recreate,
             deployment_locks: Arc::new(crate::lifecycle::DeploymentLocks::new()),
-        };
+            enforce_limits: true,
+};
         let app = Router::new().merge(router()).with_state(state);
 
         let response = app

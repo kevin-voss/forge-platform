@@ -37,6 +37,13 @@ class PlacementOpenApiContractTest {
         assertTrue(yaml.contains("lost"))
         assertTrue(yaml.contains("rescheduled_from_node") || yaml.contains("rescheduledFromNode"))
         assertTrue(yaml.contains("anti_affinity") || yaml.contains("anti-affinity"))
+        assertTrue(yaml.contains("requests") || yaml.contains("ResourceBundle"))
+        assertTrue(yaml.contains("limits"))
+        assertTrue(yaml.contains("trace") || yaml.contains("PlacementTrace"))
+        assertTrue(yaml.contains("unschedulable_reasons") || yaml.contains("UnschedulableReason"))
+        assertTrue(yaml.contains("/v1/placements/{placementId}") || yaml.contains("getPlacement"))
+        assertTrue(yaml.contains("allocatable"))
+        assertTrue(yaml.contains("\"slots\": 1") || yaml.contains("slots: 1") || yaml.contains("legacySlots"))
     }
 
     @Test

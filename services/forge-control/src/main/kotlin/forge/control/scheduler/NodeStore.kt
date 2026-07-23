@@ -17,6 +17,7 @@ data class NodeCapacity(
     val slots: Int,
     @SerialName("cpu_millis") val cpuMillis: Int? = null,
     @SerialName("mem_mb") val memMb: Int? = null,
+    @SerialName("disk_mb") val diskMb: Int? = null,
 )
 
 @Serializable
@@ -24,6 +25,7 @@ data class NodeAllocation(
     val slots: Int = 0,
     @SerialName("cpu_millis") val cpuMillis: Int? = null,
     @SerialName("mem_mb") val memMb: Int? = null,
+    @SerialName("disk_mb") val diskMb: Int? = null,
     @SerialName("running_replicas") val runningReplicas: List<String> = emptyList(),
 )
 
@@ -40,6 +42,8 @@ data class FleetNode(
     val networkGateway: String? = null,
     val joinedAt: Instant? = null,
     val keyRevokedAt: Instant? = null,
+    val allocatable: NodeCapacity? = null,
+    val reserved: NodeReserved = NodeReserved(),
 ) {
     val keyRevoked: Boolean get() = keyRevokedAt != null
 }
@@ -51,6 +55,7 @@ interface NodeStore {
         address: String,
         capacity: NodeCapacity,
         at: Instant = Instant.now(),
+        reserved: NodeReserved = NodeReserved(),
     ): FleetNode
 
     /**
@@ -68,6 +73,7 @@ interface NodeStore {
         joinedAt: Instant?,
         at: Instant = Instant.now(),
         clearKeyRevocation: Boolean = false,
+        reserved: NodeReserved = NodeReserved(),
     ): FleetNode
 
     fun heartbeat(
@@ -112,25 +118,34 @@ private val json = Json {
 
 class JdbcNodeStore(
     private val dataSource: DataSource,
+    private val overcommit: OvercommitConfig = OvercommitConfig(),
 ) : NodeStore {
     override fun register(
         id: String,
         address: String,
         capacity: NodeCapacity,
         at: Instant,
+        reserved: NodeReserved,
     ): FleetNode = runSql {
         dataSource.withConnection { conn ->
             val capacityJson = json.encodeToString(capacity)
+            val reservedJson = json.encodeToString(reserved)
+            val allocatableJson = json.encodeToString(
+                CapacityAccounting.allocatable(capacity, reserved, overcommit),
+            )
             conn.prepareStatement(
                 """
                 INSERT INTO nodes (
-                    id, address, capacity_json, allocation_json, status, last_heartbeat_at, registered_at
-                ) VALUES (?, ?, ?::jsonb, '{}'::jsonb, 'online', ?, ?)
+                    id, address, capacity_json, allocation_json, status, last_heartbeat_at, registered_at,
+                    allocatable_json, reserved_json
+                ) VALUES (?, ?, ?::jsonb, '{}'::jsonb, 'online', ?, ?, ?::jsonb, ?::jsonb)
                 ON CONFLICT (id) DO UPDATE SET
                     address = EXCLUDED.address,
                     capacity_json = EXCLUDED.capacity_json,
                     status = 'online',
-                    last_heartbeat_at = EXCLUDED.last_heartbeat_at
+                    last_heartbeat_at = EXCLUDED.last_heartbeat_at,
+                    allocatable_json = EXCLUDED.allocatable_json,
+                    reserved_json = EXCLUDED.reserved_json
                 """.trimIndent(),
             ).use { ps ->
                 ps.setString(1, id)
@@ -138,6 +153,8 @@ class JdbcNodeStore(
                 ps.setString(3, capacityJson)
                 ps.setTimestamp(4, java.sql.Timestamp.from(at))
                 ps.setTimestamp(5, java.sql.Timestamp.from(at))
+                ps.setString(6, allocatableJson)
+                ps.setString(7, reservedJson)
                 ps.executeUpdate()
             }
             find(conn, id) ?: error("node missing after register")
@@ -155,19 +172,26 @@ class JdbcNodeStore(
         joinedAt: Instant?,
         at: Instant,
         clearKeyRevocation: Boolean,
+        reserved: NodeReserved,
     ): FleetNode = runSql {
         dataSource.withConnection { conn ->
             val capacityJson = json.encodeToString(capacity)
+            val reservedJson = json.encodeToString(reserved)
+            val allocatableJson = json.encodeToString(
+                CapacityAccounting.allocatable(capacity, reserved, overcommit),
+            )
             conn.prepareStatement(
                 """
                 INSERT INTO nodes (
                     id, address, capacity_json, allocation_json, status,
                     last_heartbeat_at, registered_at,
-                    wireguard_public_key, network_cidr, network_gateway, joined_at, key_revoked_at
+                    wireguard_public_key, network_cidr, network_gateway, joined_at, key_revoked_at,
+                    allocatable_json, reserved_json
                 ) VALUES (
                     ?, ?, ?::jsonb, '{}'::jsonb, ?,
                     ?, ?,
-                    ?, ?::cidr, ?::inet, ?, NULL
+                    ?, ?::cidr, ?::inet, ?, NULL,
+                    ?::jsonb, ?::jsonb
                 )
                 ON CONFLICT (id) DO UPDATE SET
                     address = EXCLUDED.address,
@@ -181,7 +205,9 @@ class JdbcNodeStore(
                     key_revoked_at = CASE
                         WHEN ? THEN NULL
                         ELSE nodes.key_revoked_at
-                    END
+                    END,
+                    allocatable_json = EXCLUDED.allocatable_json,
+                    reserved_json = EXCLUDED.reserved_json
                 """.trimIndent(),
             ).use { ps ->
                 ps.setString(1, id)
@@ -198,7 +224,9 @@ class JdbcNodeStore(
                 } else {
                     ps.setTimestamp(10, null)
                 }
-                ps.setBoolean(11, clearKeyRevocation)
+                ps.setString(11, allocatableJson)
+                ps.setString(12, reservedJson)
+                ps.setBoolean(13, clearKeyRevocation)
                 ps.executeUpdate()
             }
             find(conn, id) ?: error("node missing after join register")
@@ -214,6 +242,9 @@ class JdbcNodeStore(
             val existing = find(conn, id) ?: return@withConnection null
             if (existing.keyRevoked) return@withConnection existing
             val allocationJson = json.encodeToString(allocation)
+            val allocatableJson = json.encodeToString(
+                CapacityAccounting.allocatable(existing.capacity, existing.reserved, overcommit),
+            )
             val nextStatus = when (existing.status) {
                 "joining" -> "online"
                 "pending-network" -> "pending-network"
@@ -226,7 +257,8 @@ class JdbcNodeStore(
                 UPDATE nodes
                 SET allocation_json = ?::jsonb,
                     last_heartbeat_at = ?,
-                    status = ?
+                    status = ?,
+                    allocatable_json = ?::jsonb
                 WHERE id = ?
                   AND key_revoked_at IS NULL
                 """.trimIndent(),
@@ -234,7 +266,8 @@ class JdbcNodeStore(
                 ps.setString(1, allocationJson)
                 ps.setTimestamp(2, java.sql.Timestamp.from(at))
                 ps.setString(3, nextStatus)
-                ps.setString(4, id)
+                ps.setString(4, allocatableJson)
+                ps.setString(5, id)
                 if (ps.executeUpdate() == 0) return@withConnection null
             }
             find(conn, id)
@@ -273,7 +306,7 @@ class JdbcNodeStore(
                 SELECT id, address, capacity_json, allocation_json, status,
                        last_heartbeat_at, registered_at,
                        wireguard_public_key, network_cidr::text, network_gateway::text,
-                       joined_at, key_revoked_at
+                       joined_at, key_revoked_at, allocatable_json, reserved_json
                 FROM nodes
                 ORDER BY id
                 """.trimIndent(),
@@ -435,7 +468,7 @@ class JdbcNodeStore(
             SELECT id, address, capacity_json, allocation_json, status,
                    last_heartbeat_at, registered_at,
                    wireguard_public_key, network_cidr::text, network_gateway::text,
-                   joined_at, key_revoked_at
+                   joined_at, key_revoked_at, allocatable_json, reserved_json
             FROM nodes
             WHERE id = ?
             """.trimIndent(),
@@ -451,10 +484,23 @@ class JdbcNodeStore(
     private fun mapRow(rs: java.sql.ResultSet): FleetNode {
         val capacityRaw = rs.getString("capacity_json")
         val allocationRaw = rs.getString("allocation_json")
+        val capacity = json.decodeFromString(NodeCapacity.serializer(), capacityRaw)
+        val reservedRaw = rs.getString("reserved_json")
+        val reserved = if (reservedRaw.isNullOrBlank() || reservedRaw == "{}") {
+            NodeReserved()
+        } else {
+            json.decodeFromString(NodeReserved.serializer(), reservedRaw)
+        }
+        val allocatableRaw = rs.getString("allocatable_json")
+        val allocatable = if (allocatableRaw.isNullOrBlank() || allocatableRaw == "{}") {
+            CapacityAccounting.allocatable(capacity, reserved, overcommit)
+        } else {
+            json.decodeFromString(NodeCapacity.serializer(), allocatableRaw)
+        }
         return FleetNode(
             id = rs.getString("id"),
             address = rs.getString("address"),
-            capacity = json.decodeFromString(NodeCapacity.serializer(), capacityRaw),
+            capacity = capacity,
             allocation = if (allocationRaw.isNullOrBlank() || allocationRaw == "{}") {
                 NodeAllocation()
             } else {
@@ -468,12 +514,16 @@ class JdbcNodeStore(
             networkGateway = rs.getString("network_gateway"),
             joinedAt = rs.getTimestamp("joined_at")?.toInstant(),
             keyRevokedAt = rs.getTimestamp("key_revoked_at")?.toInstant(),
+            allocatable = allocatable,
+            reserved = reserved,
         )
     }
 }
 
 /** In-memory store for unit tests. */
-class InMemoryNodeStore : NodeStore {
+class InMemoryNodeStore(
+    private val overcommit: OvercommitConfig = OvercommitConfig(),
+) : NodeStore {
     private val rows = ConcurrentHashMap<String, FleetNode>()
 
     override fun register(
@@ -481,6 +531,7 @@ class InMemoryNodeStore : NodeStore {
         address: String,
         capacity: NodeCapacity,
         at: Instant,
+        reserved: NodeReserved,
     ): FleetNode {
         val existing = rows[id]
         val node = FleetNode(
@@ -496,6 +547,8 @@ class InMemoryNodeStore : NodeStore {
             networkGateway = existing?.networkGateway,
             joinedAt = existing?.joinedAt,
             keyRevokedAt = existing?.keyRevokedAt,
+            allocatable = CapacityAccounting.allocatable(capacity, reserved, overcommit),
+            reserved = reserved,
         )
         rows[id] = node
         return node
@@ -512,6 +565,7 @@ class InMemoryNodeStore : NodeStore {
         joinedAt: Instant?,
         at: Instant,
         clearKeyRevocation: Boolean,
+        reserved: NodeReserved,
     ): FleetNode {
         val existing = rows[id]
         val node = FleetNode(
@@ -527,6 +581,8 @@ class InMemoryNodeStore : NodeStore {
             networkGateway = networkGateway,
             joinedAt = joinedAt ?: existing?.joinedAt,
             keyRevokedAt = if (clearKeyRevocation) null else existing?.keyRevokedAt,
+            allocatable = CapacityAccounting.allocatable(capacity, reserved, overcommit),
+            reserved = reserved,
         )
         rows[id] = node
         return node
@@ -550,6 +606,11 @@ class InMemoryNodeStore : NodeStore {
             allocation = allocation,
             status = nextStatus,
             lastHeartbeatAt = at,
+            allocatable = CapacityAccounting.allocatable(
+                existing.capacity,
+                existing.reserved,
+                overcommit,
+            ),
         )
         rows[id] = updated
         return updated
@@ -640,18 +701,31 @@ private fun bumpAllocation(
     requirements: ResourceRequirements,
     release: Boolean,
 ): NodeAllocation {
-    val deltaSlots = if (release) -requirements.slots else requirements.slots
+    val resolved = RequirementsResolver.resolve(requirements)
+    val deltaSlots = if (release) -resolved.slots else resolved.slots
     val nextSlots = (current.slots + deltaSlots).coerceAtLeast(0)
+    // Slots-authoritative path reserves slots only (epic-08 compatibility).
+    // Real-unit reservations apply only when requests are authoritative.
+    if (!resolved.requestsAuthoritative) {
+        return current.copy(slots = nextSlots)
+    }
+    val needCpu = resolved.cpuMillis
     val nextCpu = when {
-        requirements.cpuMillis == null -> current.cpuMillis
-        release -> current.cpuMillis?.let { (it - requirements.cpuMillis).coerceAtLeast(0) }
-            ?: 0
-        else -> (current.cpuMillis ?: 0) + requirements.cpuMillis
+        needCpu == null -> current.cpuMillis
+        release -> current.cpuMillis?.let { (it - needCpu).coerceAtLeast(0) } ?: 0
+        else -> (current.cpuMillis ?: 0) + needCpu
     }
+    val needMem = resolved.memoryMb
     val nextMem = when {
-        requirements.memMb == null -> current.memMb
-        release -> current.memMb?.let { (it - requirements.memMb).coerceAtLeast(0) } ?: 0
-        else -> (current.memMb ?: 0) + requirements.memMb
+        needMem == null -> current.memMb
+        release -> current.memMb?.let { (it - needMem).coerceAtLeast(0) } ?: 0
+        else -> (current.memMb ?: 0) + needMem
     }
-    return current.copy(slots = nextSlots, cpuMillis = nextCpu, memMb = nextMem)
+    val needDisk = resolved.diskMb
+    val nextDisk = when {
+        needDisk == null -> current.diskMb
+        release -> current.diskMb?.let { (it - needDisk).coerceAtLeast(0) } ?: 0
+        else -> (current.diskMb ?: 0) + needDisk
+    }
+    return current.copy(slots = nextSlots, cpuMillis = nextCpu, memMb = nextMem, diskMb = nextDisk)
 }

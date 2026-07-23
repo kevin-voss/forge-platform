@@ -82,11 +82,21 @@ class QueueProcessor(
 
     private fun tryPlace(pending: Placement): Boolean {
         if (pending.status != PendingQueue.STATUS_PENDING) return false
+        val requirements = when {
+            pending.requests != null && !pending.requests.isEmpty() ->
+                ResourceRequirements(
+                    slots = pending.slots.coerceAtLeast(1),
+                    requests = pending.requests,
+                    limits = pending.limits,
+                    slotsExplicit = true,
+                )
+            else -> ResourceRequirements(slots = pending.slots.coerceAtLeast(1), slotsExplicit = true)
+        }
         val request = PlacementRequest(
             deploymentId = pending.deploymentId.toString(),
             replicaIndex = pending.replicaIndex,
             serviceId = pending.serviceId,
-            requirements = ResourceRequirements(slots = pending.slots),
+            requirements = requirements,
             antiAffinity = AntiAffinity.parse(pending.antiAffinity),
         )
         return when (val decision = scheduler.place(request)) {
@@ -98,6 +108,7 @@ class QueueProcessor(
                     nodeId = decision.nodeId,
                     strategy = decision.strategy,
                     reason = decision.reason,
+                    trace = decision.trace,
                 )
                 true
             }

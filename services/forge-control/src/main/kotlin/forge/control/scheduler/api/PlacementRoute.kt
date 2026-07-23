@@ -2,9 +2,12 @@ package forge.control.scheduler.api
 
 import forge.control.http.ApiException
 import forge.control.repo.RepositoryException
+import forge.control.scheduler.LimitsNarrowerThanRequestsException
 import forge.control.scheduler.PlaceResult
 import forge.control.scheduler.PlacementService
+import forge.control.scheduler.RequirementsResolver
 import forge.control.scheduler.model.AntiAffinity
+import forge.control.scheduler.model.ResourceRequirements
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -30,7 +33,8 @@ fun Route.placementRoutes(placements: PlacementService) {
                     mapOf("field" to "replica_index"),
                 )
             }
-            val slots = body.requirements?.slots ?: 1
+            val slotsProvided = body.requirements?.slots
+            val slots = slotsProvided ?: 1
             if (slots < 1) {
                 throw ApiException.BadRequest(
                     "requirements.slots must be >= 1",
@@ -46,12 +50,28 @@ fun Route.placementRoutes(placements: PlacementService) {
                 )
             }
 
+            val requirements = ResourceRequirements(
+                slots = slots,
+                requests = body.requirements?.requests,
+                limits = body.requirements?.limits,
+                slotsExplicit = slotsProvided != null,
+            )
+            try {
+                RequirementsResolver.resolve(requirements)
+            } catch (e: LimitsNarrowerThanRequestsException) {
+                throw ApiException.BadRequest(
+                    e.message ?: "limits narrower than requests",
+                    mapOf("field" to "requirements.limits"),
+                    code = "limits_narrower_than_requests",
+                )
+            }
+
             val result = try {
                 placements.placeAndPersist(
                     deploymentId = deploymentId,
                     replicaIndex = replicaIndex,
                     serviceId = body.serviceId?.trim()?.takeIf { it.isNotEmpty() },
-                    slots = slots,
+                    requirements = requirements,
                     antiAffinity = antiAffinity,
                 )
             } catch (_: RepositoryException.ConstraintViolation) {
@@ -108,6 +128,21 @@ fun Route.placementRoutes(placements: PlacementService) {
             }
             val deploymentId = parseDeploymentId(deploymentRaw)
             call.respond(placements.list(deploymentId, status).map { it.toResponse() })
+        }
+        get("/{id}") {
+            val id = call.parameters["id"]?.trim().orEmpty()
+            if (id.isEmpty()) {
+                throw ApiException.BadRequest(
+                    "placement id is required",
+                    mapOf("field" to "id"),
+                )
+            }
+            val placement = placements.get(id)
+                ?: throw ApiException.NotFound(
+                    "placement not found",
+                    mapOf("placement_id" to id),
+                )
+            call.respond(placement.toResponse())
         }
     }
 }

@@ -1,6 +1,8 @@
 package forge.control.scheduler
 
 import forge.control.scheduler.model.AntiAffinity
+import forge.control.scheduler.model.PlacementTrace
+import forge.control.scheduler.model.ResourceBundle
 import java.time.Instant
 import java.util.UUID
 
@@ -36,6 +38,9 @@ class PendingQueue(
         serviceId: String? = null,
         strategy: String = STRATEGY_PENDING,
         rescheduledFromNode: String? = null,
+        requests: ResourceBundle? = null,
+        limits: ResourceBundle? = null,
+        trace: PlacementTrace? = null,
     ): Placement {
         store.find(deploymentId, replicaIndex)?.let { return it }
         if (store.countPending() >= maxLen) {
@@ -55,6 +60,9 @@ class PendingQueue(
                 slots = slots.coerceAtLeast(1),
                 serviceId = serviceId,
                 rescheduledFromNode = rescheduledFromNode,
+                requests = requests,
+                limits = limits,
+                trace = trace,
             ),
         )
     }

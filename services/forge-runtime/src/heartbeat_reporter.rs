@@ -13,6 +13,8 @@ pub struct CapacityReport {
     pub cpu_millis: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mem_mb: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disk_mb: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -267,6 +269,7 @@ mod tests {
                 slots: 4,
                 cpu_millis: Some(4000),
                 mem_mb: Some(4096),
+                disk_mb: None,
             },
             docker,
         )
@@ -313,6 +316,7 @@ mod tests {
                     slots: 4,
                     cpu_millis: Some(4000),
                     mem_mb: Some(4096),
+                    disk_mb: None,
                 },
                 docker,
             )

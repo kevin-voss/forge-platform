@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 168`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 169`**.
 
 ## Epics
 
@@ -186,7 +186,7 @@ next implementable step is still the one named at the top of this file. Plan:
 | [22](epics/22-forge-network.md) | Forge Network | M1 | Complete | 7/7 steps; demo 22 forge-network acceptance gate passed |
 | [23](epics/23-forge-infrastructure.md) | Forge Infrastructure | M1 | Complete | 7/7 steps; demo 23 local-cloud-simulation gate passed |
 | [24](epics/24-forge-autoscaler.md) | Forge Autoscaler | M1 | Complete | 8/8 steps; `make demo DEMO=24` autoscaling gate passed |
-| [25](epics/25-scheduling-enhancements.md) | Scheduling enhancements | M1 | Planning | 6 steps (`N = 168`–`173`); M1 exit gate |
+| [25](epics/25-scheduling-enhancements.md) | Scheduling enhancements | M1 | In progress | 1/6 steps (`N = 168` complete); next `25.02` (`N = 169`) |
 | [26](epics/26-forge-registry.md) | Forge Registry | M2 | Catalog | steps not yet materialized |
 | [27](epics/27-deployment-strategies.md) | Deployment strategies | M2 | Catalog | canary, blue-green, traffic shifting |
 | [28](epics/28-forge-queue.md) | Forge Queue | M2 | Catalog | job semantics over Forge Events |
@@ -246,7 +246,8 @@ next implementable step is still the one named at the top of this file. Plan:
 | **165** | [Node autoscaling — scale up](steps/24-forge-autoscaler/24.06-node-autoscaling-scale-up.md) | Complete |  | Pending/reservation → NodePool select → desiredNodes + Infrastructure create; idempotent op id |
 | **166** | [Scale down, draining, and safeguards](steps/24-forge-autoscaler/24.07-scale-down-draining-and-safeguards.md) | Complete |  | Underutil scoring; cordon/drain via desiredNodes; disruption/stateful guards; idempotent delete |
 | **167** | [Demo `24-autoscaling` + epic gate](steps/24-forge-autoscaler/24.08-demo-24-autoscaling.md) | Complete |  | `make demo DEMO=24`; HTTP/queue/node up+down; override + outage hold |
-| **168**–**173** | Epic 25 — Scheduling enhancements (`25.01`–`25.06`) | Not started |  | |
+| **168** | [CPU/memory/disk requests and limits + real capacity accounting](steps/25-scheduling-enhancements/25.01-resource-requests-limits-and-capacity.md) | Complete |  | Slots derived view; allocatable/overcommit; unschedulable reasons; Runtime limit enforcement |
+| **169**–**173** | Epic 25 — Scheduling enhancements (`25.02`–`25.06`) | Not started |  | |
 
 Per-step rows live in each epic's steps README; the global lookup is
 [`STEPS.md`](STEPS.md#future-queue--standalone-cloud-epics-2025).

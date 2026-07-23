@@ -24,6 +24,7 @@ pub struct NodeInfo {
     pub docker_version: String,
     pub cpu: u32,
     pub memory_bytes: u64,
+    pub disk_bytes: u64,
     pub started_at: DateTime<Utc>,
     /// WireGuard public key (`b64:...`); never includes the private key.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -110,6 +111,7 @@ impl Node {
             docker_version,
             cpu: cpu_count(),
             memory_bytes: memory_bytes(),
+            disk_bytes: disk_bytes(),
             started_at: Utc::now(),
             wireguard_public_key: Some(public_key.as_str().to_string()),
         };
@@ -244,6 +246,41 @@ fn memory_bytes() -> u64 {
     #[cfg(not(target_os = "linux"))]
     {
         // Best-effort outside Linux; macOS/dev hosts report 0 rather than inventing a value.
+        0
+    }
+}
+
+fn disk_bytes() -> u64 {
+    // Prefer explicit override for demos/CI; otherwise best-effort Linux probe via `df`.
+    if let Ok(raw) = std::env::var("FORGE_NODE_DISK_MB") {
+        if let Ok(mb) = raw.trim().parse::<u64>() {
+            return mb.saturating_mul(1024 * 1024);
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(output) = std::process::Command::new("df")
+            .args(["-B1", "-P", "/"])
+            .output()
+        {
+            if output.status.success() {
+                if let Ok(text) = String::from_utf8(output.stdout) {
+                    // Filesystem 1024-blocks Used Available Capacity Mounted
+                    if let Some(line) = text.lines().nth(1) {
+                        let cols: Vec<&str> = line.split_whitespace().collect();
+                        if cols.len() >= 2 {
+                            if let Ok(total) = cols[1].parse::<u64>() {
+                                return total;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
         0
     }
 }

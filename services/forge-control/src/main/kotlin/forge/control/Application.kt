@@ -259,7 +259,20 @@ fun main() {
         rolloutTimeoutOverride = cfg.rolloutTimeoutOverride,
     )
     val placementStore = JdbcPlacementStore(db.dataSource)
-    val nodeStore = JdbcNodeStore(db.dataSource)
+    forge.control.scheduler.RequirementsResolver.defaultConfig =
+        forge.control.scheduler.SlotConversionConfig(
+            slotCpuMillis = cfg.slotCpuMillis,
+            slotMemoryMb = cfg.slotMemoryMb,
+        )
+    val nodeStore = JdbcNodeStore(
+        db.dataSource,
+        overcommit = forge.control.scheduler.OvercommitConfig(
+            cpuRatio = cfg.overcommitCpuRatio,
+            memoryRatio = cfg.overcommitMemoryRatio,
+            systemReservedCpuMillis = cfg.systemReservedCpuMillis,
+            systemReservedMemoryMb = cfg.systemReservedMemoryMb,
+        ),
+    )
     val runtimeClient: RuntimeClient = PlacementAwareRuntimeClient(
         fallback = HttpRuntimeClient(cfg.runtimeUrl),
         nodeStore = nodeStore,

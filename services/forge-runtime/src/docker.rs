@@ -60,6 +60,14 @@ pub trait DockerProbe: Send + Sync {
     async fn engine_version(&self) -> Result<String, String>;
 }
 
+/// Optional Docker resource constraints applied at container creation.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ResourceLimits {
+    pub cpu_millis: Option<u32>,
+    pub memory_mb: Option<u32>,
+    pub disk_mb: Option<u32>,
+}
+
 /// Parameters for creating a managed workload container.
 #[derive(Debug, Clone)]
 pub struct CreateWorkloadParams {
@@ -68,6 +76,7 @@ pub struct CreateWorkloadParams {
     pub container_port: u16,
     pub env: HashMap<String, String>,
     pub labels: HashMap<String, String>,
+    pub limits: Option<ResourceLimits>,
 }
 
 /// Subset of inspect facts Runtime needs for workload APIs.
@@ -197,17 +206,34 @@ impl DockerEngine for BollardDocker {
 
         let env: Vec<String> = params.env.iter().map(|(k, v)| format!("{k}={v}")).collect();
 
+        let mut host_config = HostConfig {
+            port_bindings: Some(port_bindings),
+            // Publish all exposed ports (bindings already set explicitly).
+            publish_all_ports: Some(false),
+            ..Default::default()
+        };
+        if let Some(limits) = &params.limits {
+            if let Some(cpu_millis) = limits.cpu_millis {
+                // Docker NanoCPUs: 1e9 = 1 CPU.
+                host_config.nano_cpus = Some(i64::from(cpu_millis) * 1_000_000);
+            }
+            if let Some(memory_mb) = limits.memory_mb {
+                host_config.memory = Some(i64::from(memory_mb) * 1024 * 1024);
+            }
+            if let Some(disk_mb) = limits.disk_mb {
+                // StorageOpt disk quota where the graph driver supports it.
+                let mut storage = HashMap::new();
+                storage.insert("size".into(), format!("{disk_mb}M"));
+                host_config.storage_opt = Some(storage);
+            }
+        }
+
         let config = Config {
             image: Some(params.image.clone()),
             env: Some(env),
             labels: Some(params.labels.clone()),
             exposed_ports: Some(exposed),
-            host_config: Some(HostConfig {
-                port_bindings: Some(port_bindings),
-                // Publish all exposed ports (bindings already set explicitly).
-                publish_all_ports: Some(false),
-                ..Default::default()
-            }),
+            host_config: Some(host_config),
             ..Default::default()
         };
 

@@ -30,7 +30,7 @@ use prober::{DiscoveryDefaults, ProbeConfig, Prober, StatusCache};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::signal;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -220,21 +220,12 @@ async fn run() -> Result<(), String> {
 
     let _control_heartbeat_task = if let Some(control_url) = cfg.control_url.as_deref() {
         let address = advertise_address(cfg.node_address.as_deref(), cfg.port);
-        let cpu_millis = node.info.cpu.saturating_mul(1000);
-        let mem_mb = if node.info.memory_bytes > 0 {
-            Some((node.info.memory_bytes / (1024 * 1024)) as u32)
-        } else {
-            None
-        };
+        let capacity = build_capacity_report(&cfg, &node);
         match HeartbeatReporter::new_with_join(
             control_url,
             node.info.id.clone(),
             address,
-            CapacityReport {
-                slots: cfg.node_slots,
-                cpu_millis: Some(cpu_millis),
-                mem_mb,
-            },
+            capacity,
             cfg.bootstrap_token.clone(),
             node.wireguard_public_key
                 .as_ref()
@@ -391,6 +382,7 @@ async fn run() -> Result<(), String> {
         stop_grace: cfg.stop_grace,
         on_config_conflict: cfg.on_config_conflict,
         deployment_locks,
+        enforce_limits: cfg.enforce_limits,
     };
 
     let otel_layer = std::sync::Arc::clone(&otel);
@@ -486,4 +478,40 @@ async fn shutdown_signal(grace: std::time::Duration) {
     // must be >= FORGE_SHUTDOWN_GRACE_SECONDS. We do not sleep the full grace here so unit
     // and integration SIGTERM checks observe a prompt exit 0.
     let _ = grace;
+}
+
+fn build_capacity_report(cfg: &Config, node: &Node) -> CapacityReport {
+    if cfg.node_capacity_source == "slots-only" {
+        let slots = cfg.node_slots;
+        return CapacityReport {
+            slots,
+            cpu_millis: Some(slots.saturating_mul(1000)),
+            mem_mb: Some(slots.saturating_mul(1024)),
+            disk_mb: None,
+        };
+    }
+
+    let cpu_millis = if node.info.cpu > 0 {
+        Some(node.info.cpu.saturating_mul(1000))
+    } else {
+        warn!("host CPU introspection unavailable; deriving capacity from FORGE_NODE_SLOTS");
+        Some(cfg.node_slots.saturating_mul(1000))
+    };
+    let mem_mb = if node.info.memory_bytes > 0 {
+        Some((node.info.memory_bytes / (1024 * 1024)) as u32)
+    } else {
+        warn!("host memory introspection unavailable; deriving capacity from FORGE_NODE_SLOTS");
+        Some(cfg.node_slots.saturating_mul(1024))
+    };
+    let disk_mb = if node.info.disk_bytes > 0 {
+        Some((node.info.disk_bytes / (1024 * 1024)) as u32)
+    } else {
+        None
+    };
+    CapacityReport {
+        slots: cfg.node_slots,
+        cpu_millis,
+        mem_mb,
+        disk_mb,
+    }
 }

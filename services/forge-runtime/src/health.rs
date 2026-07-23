@@ -24,6 +24,7 @@ pub struct AppState {
     pub stop_grace: Duration,
     pub on_config_conflict: OnConfigConflict,
     pub deployment_locks: Arc<DeploymentLocks>,
+    pub enforce_limits: bool,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -101,6 +102,7 @@ mod tests {
             stop_grace: Duration::from_secs(10),
             on_config_conflict: OnConfigConflict::Recreate,
             deployment_locks: Arc::new(DeploymentLocks::new()),
+            enforce_limits: true,
         }
     }
 

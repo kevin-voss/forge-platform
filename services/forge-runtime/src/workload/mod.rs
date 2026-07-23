@@ -1,6 +1,6 @@
 pub mod env;
 
-use crate::docker::{ContainerInspectInfo, CreateWorkloadParams, DockerEngine};
+use crate::docker::{ContainerInspectInfo, CreateWorkloadParams, DockerEngine, ResourceLimits};
 use crate::node::{Node, NODE_ID_LABEL};
 use crate::workload::env::{env_keys_for_log, resolve_fingerprint, SECRETS_FINGERPRINT_LABEL};
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,19 @@ pub struct WorkloadSpec {
     /// Secrets/config version fingerprint (hash only). Never a secret value.
     #[serde(default)]
     pub secrets_fingerprint: Option<String>,
+    /// Optional resource limits enforced at container creation when enabled.
+    #[serde(default)]
+    pub limits: Option<WorkloadLimits>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct WorkloadLimits {
+    #[serde(default)]
+    pub cpu_millis: Option<u32>,
+    #[serde(default)]
+    pub memory_mb: Option<u32>,
+    #[serde(default)]
+    pub disk_mb: Option<u32>,
 }
 
 /// Workload mapping returned by create/get (camelCase).
@@ -153,6 +166,7 @@ pub fn validate_spec(spec: &WorkloadSpec) -> Result<WorkloadSpec, WorkloadError>
             spec.secrets_fingerprint.as_deref(),
             &spec.environment,
         ),
+        limits: spec.limits.clone(),
     })
 }
 
@@ -191,6 +205,17 @@ pub async fn create_and_start(
     spec: WorkloadSpec,
     pull_timeout: Duration,
 ) -> Result<WorkloadView, WorkloadError> {
+    create_and_start_with_limits(docker, node, spec, pull_timeout, true).await
+}
+
+/// Pull → create → start, optionally applying resource limits.
+pub async fn create_and_start_with_limits(
+    docker: &dyn DockerEngine,
+    node: &Node,
+    spec: WorkloadSpec,
+    pull_timeout: Duration,
+    enforce_limits: bool,
+) -> Result<WorkloadView, WorkloadError> {
     let spec = validate_spec(&spec)?;
     let name = container_name(&spec.deployment_id);
     let fingerprint = spec.secrets_fingerprint.clone();
@@ -204,6 +229,7 @@ pub async fn create_and_start(
         container_port = spec.port,
         env_keys = ?env_keys,
         secrets_fingerprint = fingerprint.as_deref().unwrap_or(""),
+        enforce_limits,
         "workload create requested"
     );
 
@@ -220,12 +246,23 @@ pub async fn create_and_start(
         "image pull finished"
     );
 
+    let limits = if enforce_limits {
+        spec.limits.as_ref().map(|l| ResourceLimits {
+            cpu_millis: l.cpu_millis,
+            memory_mb: l.memory_mb,
+            disk_mb: l.disk_mb,
+        })
+    } else {
+        None
+    };
+
     let params = CreateWorkloadParams {
         name: name.clone(),
         image: spec.image.clone(),
         container_port: spec.port,
         env: spec.environment.clone(),
         labels,
+        limits,
     };
 
     let container_id = match docker.create_container(&params).await {
@@ -438,6 +475,7 @@ mod tests {
             port: 8080,
             environment: HashMap::new(),
             secrets_fingerprint: None,
+            limits: None,
         })
         .expect_err("image");
         assert!(matches!(err, WorkloadError::Validation(_)));
@@ -448,6 +486,7 @@ mod tests {
             port: 0,
             environment: HashMap::new(),
             secrets_fingerprint: None,
+            limits: None,
         })
         .expect_err("port");
         assert!(matches!(err, WorkloadError::Validation(_)));
@@ -461,6 +500,7 @@ mod tests {
             port: 8080,
             environment: HashMap::from([("FORGE_ENV".into(), "development".into())]),
             secrets_fingerprint: None,
+            limits: None,
         })
         .unwrap();
         assert_eq!(spec.deployment_id, "deployment-123");
@@ -520,7 +560,8 @@ mod tests {
                 port: 8080,
                 environment: HashMap::from([("FORGE_ENV".into(), "development".into())]),
                 secrets_fingerprint: None,
-            },
+                limits: None,
+        },
             Duration::from_secs(30),
         )
         .await
@@ -566,7 +607,8 @@ mod tests {
                 port: 8080,
                 environment: HashMap::new(),
                 secrets_fingerprint: None,
-            },
+                limits: None,
+        },
             Duration::from_secs(30),
         )
         .await
@@ -596,7 +638,8 @@ mod tests {
                 port: 8080,
                 environment: HashMap::new(),
                 secrets_fingerprint: None,
-            },
+                limits: None,
+        },
             Duration::from_secs(5),
         )
         .await
@@ -630,7 +673,8 @@ mod tests {
                 port: 8080,
                 environment: HashMap::new(),
                 secrets_fingerprint: None,
-            },
+                limits: None,
+        },
             Duration::from_secs(5),
         )
         .await

@@ -88,7 +88,8 @@ mod tests {
             stop_grace: std::time::Duration::from_secs(10),
             on_config_conflict: crate::lifecycle::OnConfigConflict::Recreate,
             deployment_locks: Arc::new(crate::lifecycle::DeploymentLocks::new()),
-        };
+            enforce_limits: true,
+};
         (router().with_state(state), node, heartbeat)
     }
 

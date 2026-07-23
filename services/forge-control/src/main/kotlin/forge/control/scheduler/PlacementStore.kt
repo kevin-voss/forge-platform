@@ -4,10 +4,21 @@ import forge.control.repo.instant
 import forge.control.repo.runSql
 import forge.control.repo.uuid
 import forge.control.repo.withConnection
+import forge.control.scheduler.model.PlacementTrace
+import forge.control.scheduler.model.ResourceBundle
+import forge.control.scheduler.model.UnschedulableReasonEntry
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.sql.DataSource
+
+private val placementJson = Json {
+    encodeDefaults = true
+    ignoreUnknownKeys = true
+    explicitNulls = false
+}
 
 data class Placement(
     val id: String,
@@ -22,7 +33,16 @@ data class Placement(
     val slots: Int = 1,
     val serviceId: String? = null,
     val rescheduledFromNode: String? = null,
-)
+    val requests: ResourceBundle? = null,
+    val limits: ResourceBundle? = null,
+    val trace: PlacementTrace? = null,
+) {
+    val unschedulableReasons: List<UnschedulableReasonEntry>
+        get() = trace?.filters
+            ?.firstOrNull { it.name == "capacity" }
+            ?.eliminated
+            .orEmpty()
+}
 
 interface PlacementStore {
     /** Idempotent upsert of an active (placed|pending) row; returns existing active on conflict. */
@@ -53,7 +73,11 @@ interface PlacementStore {
         nodeId: String,
         strategy: String,
         reason: String?,
+        trace: PlacementTrace? = null,
     ): Placement?
+
+    /** Active placement by id, or null. */
+    fun findById(id: String): Placement?
 
     /** Placed (or filtered) placements currently assigned to [nodeId]. */
     fun listByNode(nodeId: String, status: String? = PendingQueue.STATUS_PLACED): List<Placement>
@@ -74,8 +98,9 @@ class JdbcPlacementStore(
                 """
                 INSERT INTO placements (
                     id, deployment_id, replica_index, node_id, strategy, reason, created_at,
-                    status, anti_affinity, slots, service_id, rescheduled_from_node
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    status, anti_affinity, slots, service_id, rescheduled_from_node,
+                    requests_json, limits_json, trace_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb)
                 ON CONFLICT (deployment_id, replica_index)
                     WHERE status IN ('placed', 'pending')
                 DO NOTHING
@@ -93,6 +118,9 @@ class JdbcPlacementStore(
                 ps.setInt(10, placement.slots)
                 ps.setString(11, placement.serviceId)
                 ps.setString(12, placement.rescheduledFromNode)
+                ps.setString(13, placement.requests?.let { placementJson.encodeToString(it) })
+                ps.setString(14, placement.limits?.let { placementJson.encodeToString(it) })
+                ps.setString(15, placement.trace?.let { placementJson.encodeToString(it) })
                 ps.executeUpdate()
             }
             find(conn, placement.deploymentId, placement.replicaIndex)
@@ -110,7 +138,8 @@ class JdbcPlacementStore(
                 append(
                     """
                     SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
-                           status, anti_affinity, slots, service_id, rescheduled_from_node
+                           status, anti_affinity, slots, service_id, rescheduled_from_node,
+                           requests_json, limits_json, trace_json
                     FROM placements
                     WHERE deployment_id = ?
                     """.trimIndent(),
@@ -174,7 +203,8 @@ class JdbcPlacementStore(
             conn.prepareStatement(
                 """
                 SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
-                       status, anti_affinity, slots, service_id, rescheduled_from_node
+                       status, anti_affinity, slots, service_id, rescheduled_from_node,
+                       requests_json, limits_json, trace_json
                 FROM placements
                 WHERE status = 'pending'
                 ORDER BY created_at ASC, replica_index ASC
@@ -209,23 +239,48 @@ class JdbcPlacementStore(
         nodeId: String,
         strategy: String,
         reason: String?,
+        trace: PlacementTrace?,
     ): Placement? = runSql {
         dataSource.withConnection { conn ->
             conn.prepareStatement(
                 """
                 UPDATE placements
-                SET node_id = ?, strategy = ?, reason = ?, status = 'placed'
+                SET node_id = ?, strategy = ?, reason = ?, status = 'placed',
+                    trace_json = COALESCE(?::jsonb, trace_json)
                 WHERE deployment_id = ? AND replica_index = ? AND status = 'pending'
                 """.trimIndent(),
             ).use { ps ->
                 ps.setString(1, nodeId)
                 ps.setString(2, strategy)
                 ps.setString(3, reason)
-                ps.setObject(4, deploymentId)
-                ps.setInt(5, replicaIndex)
+                ps.setString(4, trace?.let { placementJson.encodeToString(it) })
+                ps.setObject(5, deploymentId)
+                ps.setInt(6, replicaIndex)
                 if (ps.executeUpdate() == 0) return@withConnection null
             }
             find(conn, deploymentId, replicaIndex)
+        }
+    }
+
+    override fun findById(id: String): Placement? = runSql {
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
+                       status, anti_affinity, slots, service_id, rescheduled_from_node,
+                       requests_json, limits_json, trace_json
+                FROM placements
+                WHERE id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setString(1, id)
+                ps.executeQuery().use { rs ->
+                    if (!rs.next()) return@withConnection null
+                    readPlacement(rs)
+                }
+            }
         }
     }
 
@@ -235,7 +290,8 @@ class JdbcPlacementStore(
                 append(
                     """
                     SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
-                           status, anti_affinity, slots, service_id, rescheduled_from_node
+                           status, anti_affinity, slots, service_id, rescheduled_from_node,
+                           requests_json, limits_json, trace_json
                     FROM placements
                     WHERE node_id = ?
                     """.trimIndent(),
@@ -278,7 +334,7 @@ class JdbcPlacementStore(
                 """
                 SELECT l.id, l.deployment_id, l.replica_index, l.node_id, l.strategy, l.reason,
                        l.created_at, l.status, l.anti_affinity, l.slots, l.service_id,
-                       l.rescheduled_from_node
+                       l.rescheduled_from_node, l.requests_json, l.limits_json, l.trace_json
                 FROM placements l
                 WHERE l.status = 'lost'
                   AND NOT EXISTS (
@@ -317,7 +373,8 @@ class JdbcPlacementStore(
             append(
                 """
                 SELECT id, deployment_id, replica_index, node_id, strategy, reason, created_at,
-                       status, anti_affinity, slots, service_id, rescheduled_from_node
+                       status, anti_affinity, slots, service_id, rescheduled_from_node,
+                       requests_json, limits_json, trace_json
                 FROM placements
                 WHERE deployment_id = ? AND replica_index = ?
                 """.trimIndent(),
@@ -339,8 +396,11 @@ class JdbcPlacementStore(
         }
     }
 
-    private fun readPlacement(rs: java.sql.ResultSet): Placement =
-        Placement(
+    private fun readPlacement(rs: java.sql.ResultSet): Placement {
+        val requestsRaw = runCatching { rs.getString("requests_json") }.getOrNull()
+        val limitsRaw = runCatching { rs.getString("limits_json") }.getOrNull()
+        val traceRaw = runCatching { rs.getString("trace_json") }.getOrNull()
+        return Placement(
             id = rs.getString("id"),
             deploymentId = rs.uuid("deployment_id"),
             replicaIndex = rs.getInt("replica_index"),
@@ -353,7 +413,25 @@ class JdbcPlacementStore(
             slots = rs.getInt("slots").takeIf { !rs.wasNull() } ?: 1,
             serviceId = rs.getString("service_id"),
             rescheduledFromNode = rs.getString("rescheduled_from_node"),
+            requests = decodeBundle(requestsRaw),
+            limits = decodeBundle(limitsRaw),
+            trace = decodeTrace(traceRaw),
         )
+    }
+
+    private fun decodeBundle(raw: String?): ResourceBundle? {
+        if (raw.isNullOrBlank() || raw == "{}") return null
+        return runCatching {
+            placementJson.decodeFromString(ResourceBundle.serializer(), raw)
+        }.getOrNull()
+    }
+
+    private fun decodeTrace(raw: String?): PlacementTrace? {
+        if (raw.isNullOrBlank() || raw == "{}") return null
+        return runCatching {
+            placementJson.decodeFromString(PlacementTrace.serializer(), raw)
+        }.getOrNull()
+    }
 }
 
 /** In-memory store for unit tests. */
@@ -409,6 +487,7 @@ class InMemoryPlacementStore : PlacementStore {
         nodeId: String,
         strategy: String,
         reason: String?,
+        trace: PlacementTrace?,
     ): Placement? {
         val existing = find(deploymentId, replicaIndex) ?: return null
         if (existing.status != PendingQueue.STATUS_PENDING) return null
@@ -417,10 +496,13 @@ class InMemoryPlacementStore : PlacementStore {
             strategy = strategy,
             reason = reason,
             status = PendingQueue.STATUS_PLACED,
+            trace = trace ?: existing.trace,
         )
         rows[existing.id] = updated
         return updated
     }
+
+    override fun findById(id: String): Placement? = rows[id]
 
     override fun listByNode(nodeId: String, status: String?): List<Placement> =
         rows.values

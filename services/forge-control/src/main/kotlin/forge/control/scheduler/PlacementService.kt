@@ -33,6 +33,7 @@ class PlacementService(
         replicaIndex: Int,
         serviceId: String? = null,
         slots: Int = 1,
+        requirements: ResourceRequirements? = null,
         antiAffinity: AntiAffinity? = null,
         rescheduledFromNode: String? = null,
     ): PlaceResult {
@@ -44,17 +45,25 @@ class PlacementService(
         }
 
         val affinity = antiAffinity ?: defaultAntiAffinity
-        val requirements = ResourceRequirements(slots = slots)
+        val resolvedReqs = RequirementsResolver.resolve(
+            requirements ?: ResourceRequirements(slots = slots, slotsExplicit = true),
+        )
         val request = PlacementRequest(
             deploymentId = deploymentId.toString(),
             replicaIndex = replicaIndex,
             serviceId = serviceId,
-            requirements = requirements,
+            requirements = resolvedReqs.toResourceRequirements(),
             antiAffinity = affinity,
         )
         val decision = telemetry.inSpan("scheduler.place") {
             val result = scheduler.place(request)
             val span = Span.current()
+            resolvedReqs.cpuMillis?.let {
+                span.setAttribute(AttributeKey.longKey("requested_cpu_millis"), it.toLong())
+            }
+            resolvedReqs.memoryMb?.let {
+                span.setAttribute(AttributeKey.longKey("requested_memory_mb"), it.toLong())
+            }
             when (result) {
                 is PlacementDecision.Assigned -> {
                     span.setAttribute(AttributeKey.stringKey("strategy"), result.strategy)
@@ -64,6 +73,9 @@ class PlacementService(
                 is PlacementDecision.NoNodeAvailable -> {
                     span.setAttribute(AttributeKey.stringKey("strategy"), "none")
                     span.setAttribute(AttributeKey.longKey("candidates"), 0)
+                    result.unschedulableReasons.forEach { entry ->
+                        telemetry.recordPlacementUnschedulable(entry.reason)
+                    }
                 }
             }
             result
@@ -78,6 +90,7 @@ class PlacementService(
                         "deployment_id" to deploymentId.toString(),
                         "replica_index" to replicaIndex,
                         "reason" to decision.reason,
+                        "requested" to resolvedReqs.requests.toString(),
                     )
                     return PlaceResult.NoNode(decision.reason)
                 }
@@ -86,10 +99,14 @@ class PlacementService(
                         deploymentId = deploymentId,
                         replicaIndex = replicaIndex,
                         reason = decision.reason,
-                        slots = slots,
+                        slots = resolvedReqs.slots,
                         antiAffinity = affinity,
                         serviceId = serviceId,
                         rescheduledFromNode = rescheduledFromNode,
+                        requests = resolvedReqs.requests
+                            .takeIf { resolvedReqs.requestsAuthoritative && !it.isEmpty() },
+                        limits = resolvedReqs.limits,
+                        trace = decision.trace,
                     )
                     telemetry.setPlacementsPending(queue.count())
                     log.info(
@@ -99,6 +116,7 @@ class PlacementService(
                         "reason" to decision.reason,
                         "placement_id" to pending.id,
                         "anti_affinity" to affinity.wire(),
+                        "requested" to resolvedReqs.requests.toString(),
                     )
                     PlaceResult.Pending(pending, created = true)
                 } catch (e: QueueFullException) {
@@ -124,9 +142,13 @@ class PlacementService(
                         createdAt = clock(),
                         status = PendingQueue.STATUS_PLACED,
                         antiAffinity = affinity.wire(),
-                        slots = slots,
+                        slots = resolvedReqs.slots,
                         serviceId = serviceId,
                         rescheduledFromNode = rescheduledFromNode,
+                        requests = resolvedReqs.requests
+                            .takeIf { resolvedReqs.requestsAuthoritative && !it.isEmpty() },
+                        limits = resolvedReqs.limits,
+                        trace = decision.trace,
                     ),
                 )
                 log.info(
@@ -138,6 +160,8 @@ class PlacementService(
                     "reason" to (placement.reason ?: ""),
                     "placement_id" to placement.id,
                     "status" to placement.status,
+                    "requested" to resolvedReqs.requests.toString(),
+                    "chosen_node" to decision.nodeId,
                 )
                 telemetry.recordPlacement(placement.strategy)
                 telemetry.recordPlacementDecision(placement.strategy, placement.nodeId ?: "")
@@ -145,6 +169,8 @@ class PlacementService(
             }
         }
     }
+
+    fun get(id: String): Placement? = store.findById(id)
 
     fun list(deploymentId: UUID, status: String? = null): List<Placement> =
         store.listByDeployment(deploymentId, status)
@@ -163,7 +189,19 @@ class PlacementService(
     ): Placement? {
         val deleted = store.delete(deploymentId, replicaIndex) ?: return null
         if (deleted.status == PendingQueue.STATUS_PLACED && !deleted.nodeId.isNullOrBlank()) {
-            reservation?.releaseSlots(deleted.nodeId, deleted.slots.coerceAtLeast(slots))
+            val releaseReqs = when {
+                deleted.requests != null && !deleted.requests.isEmpty() ->
+                    RequirementsResolver.resolve(
+                        ResourceRequirements(
+                            slots = deleted.slots.coerceAtLeast(slots),
+                            requests = deleted.requests,
+                            limits = deleted.limits,
+                            slotsExplicit = true,
+                        ),
+                    ).toResourceRequirements()
+                else -> ResourceRequirements(slots = deleted.slots.coerceAtLeast(slots))
+            }
+            reservation?.release(deleted.nodeId, releaseReqs)
         }
         log.info(
             "placement released",

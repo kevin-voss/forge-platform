@@ -1,6 +1,9 @@
 package forge.control.scheduler.api
 
 import forge.control.scheduler.Placement
+import forge.control.scheduler.model.PlacementTrace
+import forge.control.scheduler.model.ResourceBundle
+import forge.control.scheduler.model.UnschedulableReasonEntry
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -16,6 +19,8 @@ data class CreatePlacementRequest(
 @Serializable
 data class PlacementRequirementsDto(
     val slots: Int? = null,
+    val requests: ResourceBundle? = null,
+    val limits: ResourceBundle? = null,
 )
 
 @Serializable
@@ -31,6 +36,10 @@ data class PlacementResponse(
     @SerialName("rescheduled_from_node") val rescheduledFromNode: String? = null,
     val slots: Int = 1,
     @SerialName("service_id") val serviceId: String? = null,
+    val requests: ResourceBundle? = null,
+    val limits: ResourceBundle? = null,
+    val trace: PlacementTrace? = null,
+    @SerialName("unschedulable_reasons") val unschedulableReasons: List<UnschedulableReasonEntry>? = null,
 )
 
 fun Placement.toResponse(): PlacementResponse =
@@ -46,4 +55,8 @@ fun Placement.toResponse(): PlacementResponse =
         rescheduledFromNode = rescheduledFromNode,
         slots = slots.coerceAtLeast(1),
         serviceId = serviceId,
+        requests = requests,
+        limits = limits,
+        trace = trace,
+        unschedulableReasons = unschedulableReasons.takeIf { it.isNotEmpty() },
     )

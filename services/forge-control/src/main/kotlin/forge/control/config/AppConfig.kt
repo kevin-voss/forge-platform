@@ -56,6 +56,14 @@ data class AppConfig(
     val antiAffinityDefault: String = "soft",
     val queueRetryMs: Long = 2_000,
     val queueMaxLen: Int = 1000,
+    /** Millicores represented by one abstract slot when only slots are requested. */
+    val slotCpuMillis: Int = 1000,
+    /** Memory MB represented by one abstract slot when only slots are requested. */
+    val slotMemoryMb: Int = 1024,
+    val overcommitCpuRatio: Double = 1.0,
+    val overcommitMemoryRatio: Double = 1.0,
+    val systemReservedCpuMillis: Int = 100,
+    val systemReservedMemoryMb: Int = 256,
     val rescheduleEnabled: Boolean = true,
     val rescheduleGraceSeconds: Long = 5,
     /** Managed DB provisioner: `fake` (CI default) or `local` (real Docker provisioner). */
@@ -444,6 +452,37 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         )
     }
 
+    val slotCpuMillis = env["FORGE_SLOT_CPU_MILLIS"]?.trim().orEmpty().ifEmpty { "1000" }
+        .toIntOrNull()
+        ?.takeIf { it >= 1 }
+        ?: throw IllegalArgumentException("FORGE_SLOT_CPU_MILLIS must be a positive integer")
+    val slotMemoryMb = env["FORGE_SLOT_MEMORY_MB"]?.trim().orEmpty().ifEmpty { "1024" }
+        .toIntOrNull()
+        ?.takeIf { it >= 1 }
+        ?: throw IllegalArgumentException("FORGE_SLOT_MEMORY_MB must be a positive integer")
+    val overcommitCpuRatio = env["FORGE_OVERCOMMIT_CPU_RATIO"]?.trim().orEmpty().ifEmpty { "1.0" }
+        .toDoubleOrNull()
+        ?.takeIf { it > 0.0 }
+        ?: throw IllegalArgumentException("FORGE_OVERCOMMIT_CPU_RATIO must be a positive number")
+    val overcommitMemoryRatio = env["FORGE_OVERCOMMIT_MEMORY_RATIO"]?.trim().orEmpty().ifEmpty { "1.0" }
+        .toDoubleOrNull()
+        ?.takeIf { it > 0.0 }
+        ?: throw IllegalArgumentException("FORGE_OVERCOMMIT_MEMORY_RATIO must be a positive number")
+    val systemReservedCpuMillis = env["FORGE_SYSTEM_RESERVED_CPU_MILLIS"]?.trim().orEmpty()
+        .ifEmpty { "100" }
+        .toIntOrNull()
+        ?.takeIf { it >= 0 }
+        ?: throw IllegalArgumentException(
+            "FORGE_SYSTEM_RESERVED_CPU_MILLIS must be a non-negative integer",
+        )
+    val systemReservedMemoryMb = env["FORGE_SYSTEM_RESERVED_MEMORY_MB"]?.trim().orEmpty()
+        .ifEmpty { "256" }
+        .toIntOrNull()
+        ?.takeIf { it >= 0 }
+        ?: throw IllegalArgumentException(
+            "FORGE_SYSTEM_RESERVED_MEMORY_MB must be a non-negative integer",
+        )
+
     val rescheduleEnabledRaw = env["FORGE_RESCHEDULE_ENABLED"]?.trim()?.lowercase().orEmpty()
         .ifEmpty { "true" }
     val rescheduleEnabled = when (rescheduleEnabledRaw) {
@@ -667,6 +706,12 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         antiAffinityDefault = antiAffinityDefault,
         queueRetryMs = queueRetryMs,
         queueMaxLen = queueMaxLen,
+        slotCpuMillis = slotCpuMillis,
+        slotMemoryMb = slotMemoryMb,
+        overcommitCpuRatio = overcommitCpuRatio,
+        overcommitMemoryRatio = overcommitMemoryRatio,
+        systemReservedCpuMillis = systemReservedCpuMillis,
+        systemReservedMemoryMb = systemReservedMemoryMb,
         rescheduleEnabled = rescheduleEnabled,
         rescheduleGraceSeconds = rescheduleGraceSeconds,
         dbProvisioner = dbProvisioner,
