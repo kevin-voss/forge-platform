@@ -1,0 +1,51 @@
+{
+  "collection": "incidents",
+  "dim": 384,
+  "distance": "cosine",
+  "model": "local-embed-small",
+  "expected_id": "incident-readiness-broken-release",
+  "new_failure_text": "Broken release after deploy: readiness probes failing with connection refused; deployment ready=false and metrics up=0",
+  "incidents": [
+    {
+      "id": "incident-readiness-broken-release",
+      "text": "Broken release after deploy: readiness probes failing with connection refused; deployment ready=false and metrics up=0",
+      "metadata": {
+        "type": "incident",
+        "summary": "Broken release readiness probe failure",
+        "service": "api",
+        "severity": "high",
+        "remediation": "runtime.restart after human approval, then rollback"
+      }
+    },
+    {
+      "id": "incident-db-pool-exhausted",
+      "text": "Postgres connection pool exhausted during traffic spike; API returned 503 while connections waited",
+      "metadata": {
+        "type": "incident",
+        "summary": "Postgres connection pool exhausted",
+        "service": "api",
+        "severity": "high"
+      }
+    },
+    {
+      "id": "incident-dns-blip",
+      "text": "Transient DNS resolution failure caused intermittent upstream 502s across the gateway",
+      "metadata": {
+        "type": "incident",
+        "summary": "Transient DNS resolution failure",
+        "service": "gateway",
+        "severity": "medium"
+      }
+    },
+    {
+      "id": "incident-cert-expiry",
+      "text": "TLS certificate expired on ingress; clients saw handshake failures and browser warnings",
+      "metadata": {
+        "type": "incident",
+        "summary": "TLS certificate expired on ingress",
+        "service": "ingress",
+        "severity": "critical"
+      }
+    }
+  ]
+}

@@ -132,5 +132,45 @@ services:
       FORGE_AUTH_MODE: ${FORGE_STORAGE_AUTH_MODE:-dev}
       FORGE_STORAGE_SIGNING_KEY: ${FORGE_STORAGE_SIGNING_KEY:-capstone-storage-signing-key}
 
+  # 19.04 — Models / Agents / Memory for incident diagnosis (fake in CI).
+  forge-models:
+    environment:
+      FORGE_MODELS_BACKEND: ${FORGE_MODELS_BACKEND:-fake}
+
+  forge-memory:
+    environment:
+      FORGE_AUTH_MODE: ${FORGE_MEMORY_AUTH_MODE:-dev}
+      FORGE_MODELS_URL: http://forge-models:8080
+      FORGE_MEMORY_DEFAULT_MODEL: ${FORGE_MEMORY_DEFAULT_MODEL:-local-embed-small}
+    depends_on:
+      forge-models:
+        condition: service_healthy
+
+  forge-agents:
+    environment:
+      FORGE_MODELS_URL: http://forge-models:8080
+      FORGE_MEMORY_URL: http://forge-memory:8080
+      # Absolute http(s) URLs only (host env may set FORGE_EVENTS_URL to nats://).
+      FORGE_CONTROL_URL: http://forge-control:4001
+      FORGE_RUNTIME_URL: http://forge-runtime:4102
+      FORGE_OBSERVE_URL: http://forge-observe:4106
+      FORGE_STORAGE_URL: http://forge-storage:4107
+      FORGE_EVENTS_URL: http://forge-events:4105
+      # Capstone prefers live against platform; CI/fake fallback via env.
+      FORGE_AGENTS_TOOLS_MODE: ${FORGE_AGENTS_TOOLS_MODE:-fake}
+      FORGE_AGENTS_DEFS_DIR: /app/agents
+    volumes:
+      # Capstone investigator includes memory.search (+ approval-gated restart).
+      - ./demos/09-full-platform/ai/deployment-investigator.yaml:/app/agents/deployment-investigator.yaml:ro
+      - ./demos/09-full-platform/ai/fixtures/memory.search.json:/app/app/tools/fixtures/memory.search.json:ro
+      - ./demos/09-full-platform/ai/fixtures/deployment.read.json:/app/app/tools/fixtures/deployment.read.json:ro
+      - ./demos/09-full-platform/ai/fixtures/logs.search.json:/app/app/tools/fixtures/logs.search.json:ro
+      - ./demos/09-full-platform/ai/fixtures/metrics.query.json:/app/app/tools/fixtures/metrics.query.json:ro
+    depends_on:
+      forge-models:
+        condition: service_healthy
+      forge-memory:
+        condition: service_healthy
+
 volumes:
   forge-capstone-db-backups:

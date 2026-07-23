@@ -1,0 +1,31 @@
+{
+  "entries": [
+    {
+      "time": "2026-07-23T12:00:00.000000001Z",
+      "service": "runtime",
+      "level": "error",
+      "message": "readiness probe failed: connection refused",
+      "deployment": "dep-capstone",
+      "project": "capstone",
+      "trace_id": "capstone-trace-readiness-001"
+    },
+    {
+      "time": "2026-07-23T12:00:01.000000001Z",
+      "service": "incident-api",
+      "level": "error",
+      "message": "health/ready returning 503 after broken release",
+      "deployment": "dep-capstone",
+      "project": "capstone",
+      "trace_id": "capstone-trace-readiness-001"
+    },
+    {
+      "time": "2026-07-23T12:00:02.000000001Z",
+      "service": "runtime",
+      "level": "info",
+      "message": "container started",
+      "deployment": "dep-capstone",
+      "project": "capstone"
+    }
+  ],
+  "next_cursor": ""
+}

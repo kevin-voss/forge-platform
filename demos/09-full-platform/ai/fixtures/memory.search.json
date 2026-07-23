@@ -1,0 +1,25 @@
+{
+  "results": [
+    {
+      "id": "incident-readiness-broken-release",
+      "score": 0.94,
+      "metadata": {
+        "summary": "Broken release readiness probe failure",
+        "type": "incident",
+        "service": "api",
+        "severity": "high",
+        "remediation": "runtime.restart after human approval, then rollback"
+      }
+    },
+    {
+      "id": "incident-db-pool-exhausted",
+      "score": 0.71,
+      "metadata": {
+        "summary": "Postgres connection pool exhausted",
+        "type": "incident",
+        "service": "api",
+        "severity": "high"
+      }
+    }
+  ]
+}

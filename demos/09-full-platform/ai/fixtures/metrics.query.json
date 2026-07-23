@@ -1,0 +1,16 @@
+{
+  "query": "up{deployment=\"dep-capstone\"}",
+  "result_type": "vector",
+  "samples": [
+    {
+      "metric": {
+        "__name__": "up",
+        "job": "forge-runtime",
+        "deployment": "dep-capstone",
+        "project": "capstone"
+      },
+      "value": 0,
+      "timestamp": 1721743200
+    }
+  ]
+}

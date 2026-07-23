@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Demo 09 full-platform (19.03): Identity + Secrets + Observe + Storage +
-# managed DB wired into the polyglot product via Build→Runtime→Gateway→Events.
+# Demo 09 full-platform (19.03–19.04): Identity/Secrets/Observe/Storage/DB plus
+# Models + Agents + Memory diagnosis loop for the polyglot product.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -31,6 +31,8 @@ export FORGE_DB_MANAGED_NETWORK="${FORGE_DB_MANAGED_NETWORK:-forge-net}"
 export FORGE_INJECT_MASK_IN_LOGS="${FORGE_INJECT_MASK_IN_LOGS:-true}"
 export FORGE_INTROSPECT_CACHE_TTL_S="${FORGE_INTROSPECT_CACHE_TTL_S:-2}"
 export FORGE_AUTHZ_CACHE_TTL_S="${FORGE_AUTHZ_CACHE_TTL_S:-2}"
+export FORGE_MODELS_BACKEND="${FORGE_MODELS_BACKEND:-fake}"
+export FORGE_AGENTS_TOOLS_MODE="${FORGE_AGENTS_TOOLS_MODE:-fake}"
 export DOCKER_GID="${DOCKER_GID:-$(id -g)}"
 
 if [[ -z "${FORGE_SECRETS_MASTER_KEY:-}" ]]; then
@@ -56,6 +58,9 @@ EVENTS_URL="${FORGE_EVENTS_HOST_URL:-http://127.0.0.1:4105}"
 OBSERVE_URL="${FORGE_OBSERVE_URL:-http://127.0.0.1:4106}"
 STORAGE_URL="${FORGE_STORAGE_URL:-http://127.0.0.1:4107}"
 TEMPO_URL="${FORGE_TEMPO_URL:-http://127.0.0.1:3002}"
+MODELS_URL="${FORGE_MODELS_URL:-http://127.0.0.1:4300}"
+AGENTS_URL="${FORGE_AGENTS_URL:-http://127.0.0.1:4301}"
+MEMORY_URL="${FORGE_MEMORY_URL:-http://127.0.0.1:4303}"
 REGISTRY="${FORGE_REGISTRY:-localhost:5000}"
 PROJECT_NAME="${FORGE_CAPSTONE_PROJECT:-capstone}"
 ENV_NAME="${FORGE_CAPSTONE_ENV:-development}"
@@ -591,17 +596,21 @@ echo "Recreating Control with secrets resolve token..."
 "${COMPOSE[@]}" up -d --force-recreate --no-deps forge-control
 wait_http "${CONTROL_URL}/health/ready" "Control"
 
-echo "Starting Runtime, Gateway, Build, Events, Observe, Storage..."
+echo "Starting Runtime, Gateway, Build, Events, Observe, Storage, Models, Memory, Agents..."
 "${COMPOSE[@]}" stop forge-runtime >/dev/null 2>&1 || true
 purge_stale_deployments
 "${COMPOSE[@]}" up -d --build --force-recreate \
-  forge-runtime forge-gateway forge-build forge-events forge-observe forge-storage
+  forge-runtime forge-gateway forge-build forge-events forge-observe forge-storage \
+  forge-models forge-memory forge-agents
 wait_http "${RUNTIME_URL}/health/ready" "Runtime"
 wait_http "${GATEWAY_URL}/health/ready" "Gateway"
 wait_http "${BUILD_URL}/health/ready" "Build"
 wait_http "${EVENTS_URL}/health/ready" "Events"
 wait_http "${OBSERVE_URL}/health/ready" "Observe"
 wait_http "${STORAGE_URL}/health/ready" "Storage"
+wait_http "${MODELS_URL}/health/ready" "Models"
+wait_http "${MEMORY_URL}/health/ready" "Memory"
+wait_http "${AGENTS_URL}/health/ready" "Agents"
 
 docker exec forge-gateway printenv FORGE_HOST_PATTERN 2>/dev/null |
   grep -Fq '{service}' ||
@@ -688,6 +697,18 @@ done
 assert_product_foundations
 assert_distributed_trace
 
+echo "Running AI diagnosis loop (19.04) against live stack..."
+FORGE_AI_SKIP_COMPOSE=1 \
+FORGE_AI_KEEP=1 \
+FORGE_MODELS_URL="${MODELS_URL}" \
+FORGE_AGENTS_URL="${AGENTS_URL}" \
+FORGE_MEMORY_URL="${MEMORY_URL}" \
+FORGE_MEMORY_PROJECT="${PROJECT_NAME}" \
+FORGE_MEMORY_PROJECT_B="${PROJECT_NAME}-b" \
+FORGE_AGENTS_TOOLS_MODE="${FORGE_AGENTS_TOOLS_MODE}" \
+FORGE_MODELS_BACKEND="${FORGE_MODELS_BACKEND}" \
+  "${DEMO_DIR}/ai/verify-diagnosis.sh" || fail "19.04 AI diagnosis verification failed"
+
 # Events consumer catch-up (best effort after authenticated create).
 echo "Waiting for logs consumer to process incident.created ..."
 processed=0
@@ -709,7 +730,7 @@ done
 [[ "${processed}" -ge 1 ]] || echo "  WARN: logs consumer lag (non-fatal for 19.03 foundations); status=$(cat "${TMP_DIR}/ev-status.json" 2>/dev/null || true)"
 
 echo
-echo "Capstone 19.03 foundations passed."
+echo "Capstone 19.03–19.04 foundations + AI diagnosis passed."
 echo "  Project:     ${PROJECT_ID}"
 echo "  Environment: ${ENVIRONMENT_ID}"
 echo "  Application: ${APPLICATION_ID}"
@@ -723,8 +744,13 @@ echo "  Identity:    ${IDENTITY_URL}"
 echo "  Secrets:     ${SECRETS_URL}"
 echo "  Storage:     ${STORAGE_URL}"
 echo "  Observe:     ${OBSERVE_URL}"
+echo "  Models:      ${MODELS_URL}"
+echo "  Agents:      ${AGENTS_URL}"
+echo "  Memory:      ${MEMORY_URL}"
 echo
 echo "Manual checks:"
 echo "  # viewer cannot deploy (already asserted)"
 echo "  curl -fsS -H 'Host: api.demo.localhost' -H \"Authorization: Bearer \$DEV_TOKEN\" ${GATEWAY_URL}/db-status"
 echo "  curl -fsS -H 'Host: api.demo.localhost' -H \"Authorization: Bearer \$DEV_TOKEN\" ${GATEWAY_URL}/secret-status"
+echo "  ./ai/seed-memory.sh"
+echo "  forge agent run deployment-investigator --project ${PROJECT_NAME} --deployment dep-capstone --dry-run"

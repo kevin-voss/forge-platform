@@ -7,10 +7,10 @@ Capstone polyglot product exercising the whole platform. **Capstone folder: `dem
 | Step | Title | Status | Depends on |
 |---|---|---|---|
 | [19.01](19.01-polyglot-product-scaffold.md) | Polyglot sample product | Complete | 01 |
-| [19.02](19.02-deploy-path.md) | Deploy path: Build→Runtime→Gateway→Events | Not started | 19.01, 06/02/04/05/11 |
-| [19.03](19.03-identity-secrets-observe-storage-db.md) | Identity, Secrets, Observe, Storage, managed DB | Not started | 19.02, 09/10/12/13/18 |
-| [19.04](19.04-models-agents-memory.md) | Models + Agents + Memory for diagnosis | Not started | 19.03, 14/15/17 |
+| [19.02](19.02-deploy-path.md) | Deploy path: Build→Runtime→Gateway→Events | Complete | 19.01, 06/02/04/05/11 |
+| [19.03](19.03-identity-secrets-observe-storage-db.md) | Identity, Secrets, Observe, Storage, managed DB | Complete | 19.02, 09/10/12/13/18 |
+| [19.04](19.04-models-agents-memory.md) | Models + Agents + Memory for diagnosis | Complete | 19.03, 14/15/17 |
 | [19.05](19.05-failure-injection-workflow.md) | Failure injection + Workflows approval/rollback | Not started | 19.04, 16/07 |
 | [19.06](19.06-acceptance-suite-and-gate.md) | `demos/09-full-platform` acceptance suite + docs | Not started | 19.05, all epics |
 
-Next to implement: **19.02**.
+Next to implement: **19.05**.
