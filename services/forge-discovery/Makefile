@@ -21,6 +21,10 @@ dev:
 	FORGE_DATABASE_POOL_MAX=$${FORGE_DATABASE_POOL_MAX:-10} \
 	FORGE_DATABASE_MIGRATE_ON_START=$${FORGE_DATABASE_MIGRATE_ON_START:-true} \
 	FORGE_CONTROL_URL=$${FORGE_CONTROL_URL:-http://127.0.0.1:4001} \
+	FORGE_DISCOVERY_LEASE_SECONDS_DEFAULT=$${FORGE_DISCOVERY_LEASE_SECONDS_DEFAULT:-20} \
+	FORGE_DISCOVERY_SWEEP_INTERVAL_SECONDS=$${FORGE_DISCOVERY_SWEEP_INTERVAL_SECONDS:-5} \
+	FORGE_DISCOVERY_REAP_AFTER_SECONDS=$${FORGE_DISCOVERY_REAP_AFTER_SECONDS:-300} \
+	FORGE_DISCOVERY_NODE_WATCH_RESYNC_SECONDS=$${FORGE_DISCOVERY_NODE_WATCH_RESYNC_SECONDS:-30} \
 	FORGE_OTEL_ENABLED=$${FORGE_OTEL_ENABLED:-false} \
 	go run .
 
@@ -48,6 +52,21 @@ test-integration: run
 	@curl -sf "http://127.0.0.1:4001/v1/kinds" | tee /tmp/forge-discovery-kinds.json | grep -q '"plural":"endpoints"'
 	@grep -q '"plural":"services"' /tmp/forge-discovery-kinds.json
 	@grep -q '"controller":"forge-discovery"' /tmp/forge-discovery-kinds.json
+	@# Register → renew → Ready.
+	@curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/services/demo-echo/endpoints" \
+		-H 'content-type: application/json' \
+		-d '{"id":"demo-echo-itest-0","node":"node-a","address":{"ip":"172.20.0.10","port":8080},"leaseSeconds":20}' \
+		| tee /tmp/forge-discovery-register.json | grep -q '"id":"demo-echo-itest-0"'
+	@curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/endpoints/demo-echo-itest-0/renew" \
+		-H 'content-type: application/json' -d '{"ready":true,"leaseSeconds":20}' \
+		| tee /tmp/forge-discovery-renew.json | grep -q '"phase":"Ready"'
+	@# Idempotent re-register (same replica id).
+	@curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/services/demo-echo/endpoints" \
+		-H 'content-type: application/json' \
+		-d '{"id":"demo-echo-itest-0","node":"node-a","address":{"ip":"172.20.0.10","port":8080},"leaseSeconds":20}' >/dev/null
+	@count="$$(curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/services/demo-echo/endpoints" | grep -o 'demo-echo-itest-0' | wc -l | tr -d ' ')"; \
+		test "$$count" = "1"
+	@curl -sf -X DELETE "http://127.0.0.1:$(HOST_PORT)/v1/projects/demo/environments/local/endpoints/demo-echo-itest-0" -o /dev/null -w '%{http_code}' | grep -q 204
 	@# Restart re-registers kinds idempotently.
 	@$(COMPOSE) restart $(SERVICE) >/dev/null
 	@$(MAKE) wait
@@ -60,7 +79,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (health + kinds + idempotent restart + graceful SIGTERM)."
+	@echo "Integration checks passed (health + kinds + register/renew/deregister + graceful SIGTERM)."
 
 lint:
 	@go vet ./...

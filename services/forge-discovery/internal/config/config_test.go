@@ -18,6 +18,10 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FORGE_DATABASE_POOL_MAX", "")
 	t.Setenv("FORGE_DATABASE_MIGRATE_ON_START", "")
 	t.Setenv("FORGE_CONTROL_URL", "")
+	t.Setenv("FORGE_DISCOVERY_LEASE_SECONDS_DEFAULT", "")
+	t.Setenv("FORGE_DISCOVERY_SWEEP_INTERVAL_SECONDS", "")
+	t.Setenv("FORGE_DISCOVERY_REAP_AFTER_SECONDS", "")
+	t.Setenv("FORGE_DISCOVERY_NODE_WATCH_RESYNC_SECONDS", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -37,6 +41,15 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if !cfg.DatabaseMigrateOnStart {
 		t.Fatal("expected migrate on start")
+	}
+	if cfg.LeaseSecondsDefault != 20 {
+		t.Fatalf("LeaseSecondsDefault = %d", cfg.LeaseSecondsDefault)
+	}
+	if cfg.SweepInterval != 5*time.Second {
+		t.Fatalf("SweepInterval = %v", cfg.SweepInterval)
+	}
+	if cfg.ReapAfter != 300*time.Second {
+		t.Fatalf("ReapAfter = %v", cfg.ReapAfter)
 	}
 }
 

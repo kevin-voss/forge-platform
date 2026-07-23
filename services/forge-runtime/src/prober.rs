@@ -1,3 +1,4 @@
+use crate::discovery::{DiscoveryClient, RegisterRequest, RenewRequest};
 use crate::docker::{ContainerInspectInfo, DockerEngine};
 use crate::status::{
     derive_status, DeriveInputs, DockerState, LastProbe, StatusView, WorkloadStatus,
@@ -333,6 +334,25 @@ pub struct Prober {
     cache: Arc<StatusCache>,
     client: ProbeClient,
     cfg: ProbeConfig,
+    discovery: Option<Arc<DiscoveryClient>>,
+    /// Defaults used when workload labels omit project/environment/service.
+    discovery_defaults: DiscoveryDefaults,
+}
+
+/// Fallback scope for Discovery registration when labels are absent.
+#[derive(Debug, Clone)]
+pub struct DiscoveryDefaults {
+    pub project: String,
+    pub environment: String,
+}
+
+impl Default for DiscoveryDefaults {
+    fn default() -> Self {
+        Self {
+            project: "demo".into(),
+            environment: "local".into(),
+        }
+    }
 }
 
 impl Prober {
@@ -347,11 +367,27 @@ impl Prober {
             cache,
             client,
             cfg,
+            discovery: None,
+            discovery_defaults: DiscoveryDefaults::default(),
         })
+    }
+
+    pub fn with_discovery(
+        mut self,
+        discovery: Arc<DiscoveryClient>,
+        defaults: DiscoveryDefaults,
+    ) -> Self {
+        self.discovery = Some(discovery);
+        self.discovery_defaults = defaults;
+        self
     }
 
     pub fn cache(&self) -> Arc<StatusCache> {
         Arc::clone(&self.cache)
+    }
+
+    pub fn discovery(&self) -> Option<Arc<DiscoveryClient>> {
+        self.discovery.as_ref().map(Arc::clone)
     }
 
     /// Rediscover managed containers and seed the cache (service restart safety).
@@ -450,12 +486,13 @@ impl Prober {
                     meta: WorkloadMeta {
                         host_port,
                         container_port,
-                        container_ip,
-                        container_id: Some(info.id),
+                        container_ip: container_ip.clone(),
+                        container_id: Some(info.id.clone()),
                         restarts: info.restart_count,
                     },
                 },
             );
+            self.sync_discovery(deployment_id, &info, ready_ok).await;
             Ok::<(), String>(())
         }
         .await;
@@ -516,6 +553,80 @@ impl Prober {
             .ok_or_else(|| format!("status missing after probe for {deployment_id}"))
     }
 
+    async fn sync_discovery(
+        &self,
+        deployment_id: &str,
+        info: &ContainerInspectInfo,
+        ready_ok: bool,
+    ) {
+        let Some(discovery) = self.discovery.as_ref() else {
+            return;
+        };
+        if !discovery.enabled() {
+            return;
+        }
+
+        let labels = info.labels.as_ref();
+        let project = label_or(labels, "forge.project", &self.discovery_defaults.project);
+        let environment = label_or(
+            labels,
+            "forge.environment",
+            &self.discovery_defaults.environment,
+        );
+        let service = label_or(labels, "forge.service", deployment_id);
+        let address_ip = info
+            .ip_address
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "127.0.0.1".into());
+        let address_port = ports_from(info)
+            .1
+            .or(ports_from(info).0)
+            .unwrap_or(8080);
+
+        if !discovery.is_registered(deployment_id) {
+            if !ready_ok {
+                return;
+            }
+            if let Err(err) = discovery
+                .register(RegisterRequest {
+                    project: project.clone(),
+                    environment: environment.clone(),
+                    service: service.clone(),
+                    id: deployment_id.to_string(),
+                    address_ip,
+                    address_port,
+                    protocol: "http".into(),
+                    revision: labels.and_then(|l| l.get("forge.revision").cloned()),
+                })
+                .await
+            {
+                warn!(
+                    deployment_id = %deployment_id,
+                    error = %err,
+                    "discovery register failed"
+                );
+                return;
+            }
+        }
+
+        if let Err(err) = discovery
+            .renew(RenewRequest {
+                project,
+                environment,
+                id: deployment_id.to_string(),
+                ready: ready_ok,
+            })
+            .await
+        {
+            warn!(
+                deployment_id = %deployment_id,
+                error = %err,
+                "discovery renew failed"
+            );
+        }
+    }
+
     /// Spawn a supervised probe loop. Per-workload errors never crash the process.
     pub fn spawn(self: &Arc<Self>) -> JoinHandle<()> {
         let state = Arc::clone(self);
@@ -550,6 +661,17 @@ fn deployment_id_from(info: &ContainerInspectInfo) -> Option<String> {
         .as_ref()
         .and_then(|l| l.get(DEPLOYMENT_ID_LABEL).cloned())
         .filter(|s| !s.is_empty())
+}
+
+fn label_or(
+    labels: Option<&HashMap<String, String>>,
+    key: &str,
+    default: &str,
+) -> String {
+    labels
+        .and_then(|l| l.get(key).cloned())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| default.to_string())
 }
 
 fn ports_from(info: &ContainerInspectInfo) -> (Option<u16>, Option<u16>) {

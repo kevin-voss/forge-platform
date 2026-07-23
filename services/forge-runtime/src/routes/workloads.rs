@@ -88,6 +88,9 @@ async fn handle_delete(
         .prober
         .cache()
         .mark_stopped_by_operator(&deployment_id);
+    if let Some(discovery) = state.prober.discovery() {
+        discovery.deregister_known(&deployment_id).await;
+    }
     match lifecycle::delete_workload(
         state.docker.as_ref(),
         state.deployment_locks.as_ref(),

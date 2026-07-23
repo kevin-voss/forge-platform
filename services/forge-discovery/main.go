@@ -17,8 +17,10 @@ import (
 	"forge.local/services/forge-discovery/internal/controlmirror"
 	"forge.local/services/forge-discovery/internal/httpapi"
 	"forge.local/services/forge-discovery/internal/middleware"
+	"forge.local/services/forge-discovery/internal/nodewatch"
 	"forge.local/services/forge-discovery/internal/observability"
 	"forge.local/services/forge-discovery/internal/store"
+	"forge.local/services/forge-discovery/internal/sweeper"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -60,8 +62,24 @@ func run() error {
 	}
 	defer db.Close()
 
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	defer bgCancel()
+
+	mirror := controlmirror.NewWorker(cfg.ControlURL, log)
+	go mirror.Run(bgCtx)
+
 	ready := httpapi.NewReadiness(db)
-	mux := httpapi.NewRouter(ready)
+	endpoints := &httpapi.EndpointsHandler{
+		Store:        db,
+		Log:          log,
+		DefaultLease: cfg.LeaseSecondsDefault,
+		Mirror:       mirror,
+	}
+	mux := httpapi.NewRouterWith(httpapi.RouterDeps{
+		Ready:     ready,
+		Endpoints: endpoints,
+		Log:       log,
+	})
 
 	var handler http.Handler = mux
 	handler = middleware.RequestID(middleware.DefaultRequestIDHeader)(handler)
@@ -101,6 +119,28 @@ func run() error {
 		ready.MarkKindsRegistered()
 	}
 
+	sweep := &sweeper.Runner{
+		Store: db,
+		Log:   log,
+		Cfg: sweeper.Config{
+			Interval:  cfg.SweepInterval,
+			ReapAfter: cfg.ReapAfter,
+		},
+		Mirror: mirror,
+	}
+	go sweep.Run(bgCtx)
+
+	nodes := &nodewatch.Subscriber{
+		Store: db,
+		Log:   log,
+		Cfg: nodewatch.Config{
+			ControlURL:  cfg.ControlURL,
+			ResyncEvery: cfg.NodeWatchResync,
+		},
+		Tracer: otelProvider.Tracer,
+	}
+	go nodes.Run(bgCtx)
+
 	log.Info("discovery started",
 		"event", "discovery.started",
 		"port", cfg.Port,
@@ -111,6 +151,9 @@ func run() error {
 		"env", cfg.Env,
 		"auth_mode", cfg.AuthMode,
 		"kinds_registered", ready.KindsRegistered(),
+		"lease_seconds_default", cfg.LeaseSecondsDefault,
+		"sweep_interval_seconds", int(cfg.SweepInterval.Seconds()),
+		"reap_after_seconds", int(cfg.ReapAfter.Seconds()),
 	)
 
 	sigCh := make(chan os.Signal, 1)
@@ -118,11 +161,13 @@ func run() error {
 
 	select {
 	case err := <-errCh:
+		bgCancel()
 		return err
 	case sig := <-sigCh:
 		log.Info("shutdown signal received", "signal", sig.String())
 	}
 
+	bgCancel()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownGrace)
 	defer cancel()
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {

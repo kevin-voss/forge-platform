@@ -2,11 +2,10 @@
 
 Platform service discovery directory (epic 21). Host port `4109` / container `8080`.
 
-This step (`21.01`) ships the runnable skeleton: health probes, graceful shutdown,
-OTEL wiring, the `discovery` Postgres schema (`services` / `endpoints`), and
-idempotent `Service` / `Endpoint` kind registration against Control's
-`POST /v1/kinds` facade. Registration, leases, selection, and DNS land in later
-steps.
+Step `21.02` adds endpoint registration with TTL leases, a background sweeper that
+expires unrenewed leases, a node-watch path that marks all endpoints on an
+unreachable node `Unready` in one transaction, an async Control mirror worker,
+and Runtime's outbound register/renew/deregister client.
 
 ## Quick start
 
@@ -16,7 +15,13 @@ make -C services/forge-discovery run
 
 curl -sf localhost:4109/health/live | jq
 curl -sf localhost:4109/health/ready | jq
-curl -s localhost:4001/v1/kinds | jq '.[] | select(.plural=="endpoints" or .plural=="services")'
+
+curl -s -X POST localhost:4109/v1/projects/demo/environments/local/services/demo-echo/endpoints \
+  -H 'content-type: application/json' \
+  -d '{"id":"demo-echo-abc123-0","node":"node-a","address":{"ip":"172.20.0.10","port":8080},"leaseSeconds":20}' | jq
+
+curl -s -X POST localhost:4109/v1/projects/demo/environments/local/endpoints/demo-echo-abc123-0/renew \
+  -H 'content-type: application/json' -d '{"ready":true,"leaseSeconds":20}' | jq '.phase'
 ```
 
 ## Configuration
@@ -34,9 +39,20 @@ curl -s localhost:4001/v1/kinds | jq '.[] | select(.plural=="endpoints" or .plur
 | `FORGE_DATABASE_SCHEMA` | `discovery` | Authoritative serving store |
 | `FORGE_DATABASE_POOL_MAX` | `10` | pgx pool size |
 | `FORGE_DATABASE_MIGRATE_ON_START` | `true` | Fail fast on migration errors |
-| `FORGE_CONTROL_URL` | `http://forge-control:8080` | Kind registration target |
+| `FORGE_CONTROL_URL` | `http://forge-control:8080` | Kind registration + mirror + node watch |
+| `FORGE_DISCOVERY_LEASE_SECONDS_DEFAULT` | `20` | Default lease TTL |
+| `FORGE_DISCOVERY_SWEEP_INTERVAL_SECONDS` | `5` | Expire/reap loop cadence |
+| `FORGE_DISCOVERY_REAP_AFTER_SECONDS` | `300` | GC long-`Unready` endpoints |
+| `FORGE_DISCOVERY_NODE_WATCH_RESYNC_SECONDS` | `30` | Full resync if watch drops |
 | `FORGE_OTEL_ENABLED` | `true` | OTLP export |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel-collector:4317` | OTLP gRPC |
+
+## HTTP API (21.02)
+
+* `POST /v1/projects/{project}/environments/{environment}/services/{service}/endpoints` — register (idempotent upsert by replica id)
+* `POST /v1/projects/{project}/environments/{environment}/endpoints/{id}/renew` — renew lease + readiness
+* `DELETE /v1/projects/{project}/environments/{environment}/endpoints/{id}` — deregister (`204`)
+* `GET /v1/projects/{project}/environments/{environment}/services/{service}/endpoints` — list (all phases; readiness-filtered selection is 21.03)
 
 ## Health
 
@@ -45,5 +61,7 @@ curl -s localhost:4001/v1/kinds | jq '.[] | select(.plural=="endpoints" or .plur
 
 ## Persistence
 
-Schema `discovery` is the fast, authoritative-for-serving store. Control's generic
-resource store receives an async mirror in later steps — not the hot path.
+Schema `discovery` is the fast, authoritative-for-serving store. Lease columns
+(`ready`, `lease_seconds`, `expires_at`, `unready_reason`) live on
+`discovery.endpoints`. Control's generic resource store receives an async mirror
+of accepted writes (eventually consistent; retried on Control outage).

@@ -24,6 +24,11 @@ type Config struct {
 	DatabaseMigrateOnStart bool
 
 	ControlURL string
+
+	LeaseSecondsDefault int
+	SweepInterval       time.Duration
+	ReapAfter           time.Duration
+	NodeWatchResync     time.Duration
 }
 
 // Load reads configuration from the process environment.
@@ -101,6 +106,23 @@ func Load() (Config, error) {
 		controlURL = "http://forge-control:8080"
 	}
 
+	leaseDefault, err := positiveIntEnv("FORGE_DISCOVERY_LEASE_SECONDS_DEFAULT", 20)
+	if err != nil {
+		return Config{}, err
+	}
+	sweepSecs, err := positiveIntEnv("FORGE_DISCOVERY_SWEEP_INTERVAL_SECONDS", 5)
+	if err != nil {
+		return Config{}, err
+	}
+	reapSecs, err := positiveIntEnv("FORGE_DISCOVERY_REAP_AFTER_SECONDS", 300)
+	if err != nil {
+		return Config{}, err
+	}
+	resyncSecs, err := positiveIntEnv("FORGE_DISCOVERY_NODE_WATCH_RESYNC_SECONDS", 30)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		Port:                   port,
 		ServiceName:            name,
@@ -114,5 +136,21 @@ func Load() (Config, error) {
 		DatabasePoolMax:        poolMax,
 		DatabaseMigrateOnStart: migrateOnStart,
 		ControlURL:             strings.TrimRight(controlURL, "/"),
+		LeaseSecondsDefault:    leaseDefault,
+		SweepInterval:          time.Duration(sweepSecs) * time.Second,
+		ReapAfter:              time.Duration(reapSecs) * time.Second,
+		NodeWatchResync:        time.Duration(resyncSecs) * time.Second,
 	}, nil
+}
+
+func positiveIntEnv(key string, def int) (int, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("%s must be a positive integer, got %q", key, raw)
+	}
+	return n, nil
 }

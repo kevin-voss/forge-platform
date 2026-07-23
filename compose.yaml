@@ -406,6 +406,10 @@ services:
       FORGE_CONTROL_REPORT_MODE: ${FORGE_CONTROL_REPORT_MODE:-push}
       # Epic 07: Control owns create/stop; demos 04–06 set FORGE_LIFECYCLE_OWNER=runtime.
       FORGE_LIFECYCLE_OWNER: ${FORGE_LIFECYCLE_OWNER:-control}
+      # Epic 21.02: register/renew endpoint leases with Discovery after readiness.
+      FORGE_DISCOVERY_URL: ${FORGE_DISCOVERY_URL-http://forge-discovery:8080}
+      FORGE_DISCOVERY_REGISTER_ENABLED: ${FORGE_DISCOVERY_REGISTER_ENABLED:-true}
+      FORGE_DISCOVERY_LEASE_SECONDS: ${FORGE_DISCOVERY_LEASE_SECONDS:-20}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -419,6 +423,8 @@ services:
       - "${DOCKER_GID:-0}"
     depends_on:
       forge-control:
+        condition: service_healthy
+      forge-discovery:
         condition: service_healthy
     stop_grace_period: 15s
     healthcheck:
@@ -814,6 +820,10 @@ services:
       FORGE_DATABASE_POOL_MAX: ${FORGE_DATABASE_POOL_MAX:-10}
       FORGE_DATABASE_MIGRATE_ON_START: ${FORGE_DATABASE_MIGRATE_ON_START:-true}
       FORGE_CONTROL_URL: http://forge-control:8080
+      FORGE_DISCOVERY_LEASE_SECONDS_DEFAULT: ${FORGE_DISCOVERY_LEASE_SECONDS_DEFAULT:-20}
+      FORGE_DISCOVERY_SWEEP_INTERVAL_SECONDS: ${FORGE_DISCOVERY_SWEEP_INTERVAL_SECONDS:-5}
+      FORGE_DISCOVERY_REAP_AFTER_SECONDS: ${FORGE_DISCOVERY_REAP_AFTER_SECONDS:-300}
+      FORGE_DISCOVERY_NODE_WATCH_RESYNC_SECONDS: ${FORGE_DISCOVERY_NODE_WATCH_RESYNC_SECONDS:-30}
       FORGE_OTEL_ENABLED: ${FORGE_OTEL_ENABLED:-true}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
     depends_on:

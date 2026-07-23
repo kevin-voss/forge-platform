@@ -1,10 +1,10 @@
 openapi: 3.0.3
 info:
   title: Forge Discovery API
-  version: 0.1.0
+  version: 0.2.0
   description: |
-    Forge Discovery (epic 21). Step 21.01 declares health endpoints only;
-    registration, selection, and DNS paths are added in later steps.
+    Forge Discovery (epic 21). Step 21.02 adds endpoint registration, lease renew,
+    and deregister. Selection/watch and DNS land in later steps.
 servers:
   - url: http://127.0.0.1:4109
     description: Local Compose (host port 4109)
@@ -52,7 +52,127 @@ paths:
               example:
                 status: not_ready
 
+  /v1/projects/{project}/environments/{environment}/services/{service}/endpoints:
+    parameters:
+      - $ref: "#/components/parameters/Project"
+      - $ref: "#/components/parameters/Environment"
+      - $ref: "#/components/parameters/Service"
+    post:
+      operationId: registerEndpoint
+      summary: Register (or upsert) an endpoint lease
+      description: Idempotent upsert keyed by replica id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterEndpointRequest"
+            example:
+              id: invoice-api-7f3a2b1c-0
+              node: node-b
+              address:
+                ip: 172.20.0.14
+                port: 8080
+              protocol: http
+              revision: v2
+              leaseSeconds: 20
+      responses:
+        "200":
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterEndpointResponse"
+              example:
+                id: invoice-api-7f3a2b1c-0
+                service: invoice-api
+                phase: Pending
+                expiresAt: "2026-07-22T10:00:20Z"
+    get:
+      operationId: listServiceEndpoints
+      summary: List endpoints for a service (all phases)
+      responses:
+        "200":
+          description: Endpoint list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EndpointListItem"
+
+  /v1/projects/{project}/environments/{environment}/endpoints/{id}/renew:
+    parameters:
+      - $ref: "#/components/parameters/Project"
+      - $ref: "#/components/parameters/Environment"
+      - $ref: "#/components/parameters/EndpointId"
+    post:
+      operationId: renewEndpoint
+      summary: Renew lease and report readiness
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenewEndpointRequest"
+            example:
+              ready: true
+              leaseSeconds: 20
+      responses:
+        "200":
+          description: Renewed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RenewEndpointResponse"
+              example:
+                id: invoice-api-7f3a2b1c-0
+                phase: Ready
+                expiresAt: "2026-07-22T10:00:40Z"
+        "404":
+          description: Endpoint not found
+
+  /v1/projects/{project}/environments/{environment}/endpoints/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Project"
+      - $ref: "#/components/parameters/Environment"
+      - $ref: "#/components/parameters/EndpointId"
+    delete:
+      operationId: deregisterEndpoint
+      summary: Explicit deregister on graceful stop
+      responses:
+        "204":
+          description: Removed
+        "404":
+          description: Endpoint not found
+
 components:
+  parameters:
+    Project:
+      name: project
+      in: path
+      required: true
+      schema:
+        type: string
+    Environment:
+      name: environment
+      in: path
+      required: true
+      schema:
+        type: string
+    Service:
+      name: service
+      in: path
+      required: true
+      schema:
+        type: string
+    EndpointId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+
   schemas:
     HealthStatus:
       type: object
@@ -61,3 +181,92 @@ components:
         status:
           type: string
           enum: [ok, not_ready]
+
+    RegisterEndpointRequest:
+      type: object
+      required: [id, node, address]
+      properties:
+        id:
+          type: string
+        node:
+          type: string
+        address:
+          $ref: "#/components/schemas/EndpointAddress"
+        protocol:
+          type: string
+          default: http
+        revision:
+          type: string
+        leaseSeconds:
+          type: integer
+          default: 20
+
+    RegisterEndpointResponse:
+      type: object
+      required: [id, service, phase, expiresAt]
+      properties:
+        id:
+          type: string
+        service:
+          type: string
+        phase:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+
+    RenewEndpointRequest:
+      type: object
+      required: [ready]
+      properties:
+        ready:
+          type: boolean
+        leaseSeconds:
+          type: integer
+          default: 20
+
+    RenewEndpointResponse:
+      type: object
+      required: [id, phase, expiresAt]
+      properties:
+        id:
+          type: string
+        phase:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+
+    EndpointAddress:
+      type: object
+      required: [ip, port]
+      properties:
+        ip:
+          type: string
+        port:
+          type: integer
+
+    EndpointListItem:
+      type: object
+      properties:
+        id:
+          type: string
+        service:
+          type: string
+        node:
+          type: string
+        phase:
+          type: string
+        ready:
+          type: boolean
+        expiresAt:
+          type: string
+          format: date-time
+        address:
+          $ref: "#/components/schemas/EndpointAddress"
+        protocol:
+          type: string
+        revision:
+          type: string
+        unreadyReason:
+          type: string

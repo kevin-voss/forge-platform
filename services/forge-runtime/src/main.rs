@@ -1,6 +1,7 @@
 mod config;
 mod control_client;
 mod converge;
+mod discovery;
 mod docker;
 mod health;
 mod heartbeat;
@@ -17,13 +18,14 @@ mod workload;
 use config::Config;
 use control_client::ControlClient;
 use converge::{spawn_reconciler, ReconcilerConfig};
+use discovery::DiscoveryClient;
 use docker::{startup_ping, BollardDocker};
 use health::{router as health_router, AppState};
 use heartbeat::Heartbeat;
 use heartbeat_reporter::{CapacityReport, HeartbeatReporter};
 use lifecycle::DeploymentLocks;
 use node::{advertise_address, Node};
-use prober::{ProbeConfig, Prober, StatusCache};
+use prober::{DiscoveryDefaults, ProbeConfig, Prober, StatusCache};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::signal;
@@ -132,11 +134,41 @@ async fn run() -> Result<(), String> {
         live_path: cfg.probe_live_path.clone(),
         probe_host: cfg.probe_host.clone(),
     };
-    let prober = Arc::new(Prober::new(
+    let mut prober_builder = Prober::new(
         Arc::clone(&docker) as Arc<dyn docker::DockerEngine>,
         Arc::new(StatusCache::new()),
         probe_cfg,
-    )?);
+    )?;
+    if let Some(discovery_url) = cfg.discovery_url.as_deref() {
+        match DiscoveryClient::new(
+            discovery_url,
+            node.info.id.clone(),
+            cfg.discovery_register_enabled,
+            cfg.discovery_lease_seconds,
+        ) {
+            Ok(client) => {
+                info!(
+                    discovery_url = %discovery_url,
+                    enabled = cfg.discovery_register_enabled,
+                    lease_seconds = cfg.discovery_lease_seconds,
+                    "wiring discovery registration client"
+                );
+                prober_builder = prober_builder.with_discovery(
+                    Arc::new(client),
+                    DiscoveryDefaults {
+                        project: cfg.discovery_default_project.clone(),
+                        environment: cfg.discovery_default_environment.clone(),
+                    },
+                );
+            }
+            Err(err) => {
+                error!(error = %err, "invalid discovery client config; registration disabled");
+            }
+        }
+    } else {
+        info!("discovery registration disabled (FORGE_DISCOVERY_URL unset)");
+    }
+    let prober = Arc::new(prober_builder);
     let _prober_task = prober.spawn();
 
     let node = Arc::new(node);
@@ -220,7 +252,7 @@ async fn run() -> Result<(), String> {
         node,
         heartbeat,
         pull_timeout: cfg.pull_timeout,
-        prober,
+        prober: Arc::clone(&prober),
         log_default_tail: cfg.log_default_tail,
         log_stream_buffer: cfg.log_stream_buffer,
         stop_grace: cfg.stop_grace,
@@ -254,6 +286,10 @@ async fn run() -> Result<(), String> {
         .with_graceful_shutdown(shutdown_signal(grace))
         .await
         .map_err(|e| format!("serve: {e}"))?;
+
+    if let Some(discovery) = prober.discovery() {
+        discovery.deregister_all().await;
+    }
 
     otel_shutdown.shutdown();
     info!("shutdown complete");

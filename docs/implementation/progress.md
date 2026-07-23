@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 141`** (epic 21 in progress; `21.01` complete).
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 142`** (epic 21 in progress; `21.02` complete).
 
 ## Epics
 
@@ -182,7 +182,7 @@ next implementable step is still the one named at the top of this file. Plan:
 | Epic | Title | Milestone | Status | Notes |
 |---|---|---|---|---|
 | [20](epics/20-declarative-resource-api.md) | Declarative resource API | M1 | Complete | 8/8 steps; demo 20 declarative-resources acceptance gate passed |
-| [21](epics/21-forge-discovery.md) | Forge Discovery | M1 | In progress | 1/6 steps (`21.01` complete; `N = 141`–`145` remain) |
+| [21](epics/21-forge-discovery.md) | Forge Discovery | M1 | In progress | 2/6 steps (`21.02` complete; `N = 142`–`145` remain) |
 | [22](epics/22-forge-network.md) | Forge Network | M1 | Planning | 7 steps (`N = 146`–`152`) |
 | [23](epics/23-forge-infrastructure.md) | Forge Infrastructure | M1 | Planning | 7 steps (`N = 153`–`159`); Docker/SSH/bare-metal/Hetzner/AWS/Azure |
 | [24](epics/24-forge-autoscaler.md) | Forge Autoscaler | M1 | Planning | 8 steps (`N = 160`–`167`); workload + worker + node scaling |
@@ -219,7 +219,8 @@ next implementable step is still the one named at the top of this file. Plan:
 | **138** | [Compatibility facade for shipped APIs + `forge apply`](steps/20-declarative-resource-api/20.07-compat-facade-and-forge-apply.md) | Complete |  | Compat repository for shipped kinds; `POST /v1/apply` + dry-run; `forge apply -f`; legacy route parity |
 | **139** | [Demo `20-declarative-resources` + epic gate](steps/20-declarative-resource-api/20.08-demo-20-declarative-resources.md) | Complete |  | `make demo DEMO=20`; apply/watch/generation/Ready; portable + legacy smoke |
 | **140** | [Service skeleton + Service/Endpoint resource model](steps/21-forge-discovery/21.01-skeleton-and-registry-model.md) | Complete |  | `forge-discovery` on 4109; `discovery` schema; `POST/GET /v1/kinds`; Service/Endpoint kinds |
-| **141**–**145** | Epic 21 — Forge Discovery (`21.02`–`21.06`) | Not started |  | |
+| **141** | [Endpoint registration + TTL leases](steps/21-forge-discovery/21.02-endpoint-registration-and-leases.md) | Complete |  | register/renew/deregister; sweeper; node-watch; Runtime discoveryclient; Control mirror |
+| **142**–**145** | Epic 21 — Forge Discovery (`21.03`–`21.06`) | Not started |  | |
 | **146**–**152** | Epic 22 — Forge Network (`22.01`–`22.07`) | Not started |  | |
 | **153**–**159** | Epic 23 — Forge Infrastructure (`23.01`–`23.07`) | Not started |  | |
 | **160**–**167** | Epic 24 — Forge Autoscaler (`24.01`–`24.08`) | Not started |  | |

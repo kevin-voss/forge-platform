@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestOpenAPIDeclaresHealthEndpoints(t *testing.T) {
+func TestOpenAPIDeclaresHealthAndLeaseEndpoints(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed")
@@ -29,6 +29,14 @@ func TestOpenAPIDeclaresHealthEndpoints(t *testing.T) {
 		"status: not_ready",
 		"getHealthLive",
 		"getHealthReady",
+		"registerEndpoint",
+		"renewEndpoint",
+		"deregisterEndpoint",
+		"/renew:",
+		"leaseSeconds",
+		"expiresAt",
+		"RegisterEndpointRequest",
+		"RenewEndpointRequest",
 	} {
 		if !strings.Contains(text, needle) {
 			t.Fatalf("openapi missing %q", needle)

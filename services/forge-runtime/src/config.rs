@@ -55,6 +55,16 @@ pub struct Config {
     pub node_address: Option<String>,
     /// Interval for Control register/heartbeat reporting.
     pub control_heartbeat_interval: Duration,
+    /// Optional Discovery base URL for endpoint lease registration (epic 21.02).
+    pub discovery_url: Option<String>,
+    /// When false, Runtime skips Discovery register/renew/deregister.
+    pub discovery_register_enabled: bool,
+    /// Lease TTL advertised on register/renew.
+    pub discovery_lease_seconds: u32,
+    /// Default project when workload lacks `forge.project`.
+    pub discovery_default_project: String,
+    /// Default environment when workload lacks `forge.environment`.
+    pub discovery_default_environment: String,
 }
 
 impl Config {
@@ -279,6 +289,34 @@ impl Config {
             ));
         }
 
+        let discovery_url = env::var("FORGE_DISCOVERY_URL")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let discovery_register_enabled = match env::var("FORGE_DISCOVERY_REGISTER_ENABLED")
+            .unwrap_or_else(|_| "true".into())
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "false" | "0" | "no" => false,
+            _ => true,
+        };
+        let lease_raw =
+            env::var("FORGE_DISCOVERY_LEASE_SECONDS").unwrap_or_else(|_| "20".into());
+        let discovery_lease_seconds: u32 = lease_raw.trim().parse().map_err(|_| {
+            format!("FORGE_DISCOVERY_LEASE_SECONDS must be a positive integer, got {lease_raw:?}")
+        })?;
+        if discovery_lease_seconds == 0 {
+            return Err(format!(
+                "FORGE_DISCOVERY_LEASE_SECONDS must be a positive integer, got {lease_raw:?}"
+            ));
+        }
+        let discovery_default_project =
+            non_empty_env("FORGE_DISCOVERY_DEFAULT_PROJECT", "demo");
+        let discovery_default_environment =
+            non_empty_env("FORGE_DISCOVERY_DEFAULT_ENVIRONMENT", "local");
+
         Ok(Self {
             port,
             service_name,
@@ -312,6 +350,11 @@ impl Config {
             node_slots,
             node_address,
             control_heartbeat_interval: Duration::from_millis(control_hb_ms),
+            discovery_url,
+            discovery_register_enabled,
+            discovery_lease_seconds,
+            discovery_default_project,
+            discovery_default_environment,
         })
     }
 }
@@ -371,6 +414,11 @@ mod tests {
             "FORGE_NODE_SLOTS",
             "FORGE_NODE_ADDRESS",
             "FORGE_HEARTBEAT_INTERVAL_MS",
+            "FORGE_DISCOVERY_URL",
+            "FORGE_DISCOVERY_REGISTER_ENABLED",
+            "FORGE_DISCOVERY_LEASE_SECONDS",
+            "FORGE_DISCOVERY_DEFAULT_PROJECT",
+            "FORGE_DISCOVERY_DEFAULT_ENVIRONMENT",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()
