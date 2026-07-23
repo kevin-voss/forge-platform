@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning
+In progress
 
 ## Goal
 
@@ -63,7 +63,7 @@ An induced error fires the error-rate alert
 
 | Step | Title | Status | Notes |
 |---|---|---|---|
-| [12.01](../steps/12-forge-observe/12.01-skeleton-and-correlation-api-design.md) | Skeleton + correlation API design | Not started | Go service on 4106; correlation model |
+| [12.01](../steps/12-forge-observe/12.01-skeleton-and-correlation-api-design.md) | Skeleton + correlation API design | Complete | Go service on 4106; correlation model |
 | [12.02](../steps/12-forge-observe/12.02-instrumentation-checklist.md) | Instrumentation checklist on Control/Runtime/Gateway/Build | Not started | Trace propagation + structured logs + metrics |
 | [12.03](../steps/12-forge-observe/12.03-grafana-dashboards.md) | Grafana dashboards (platform/service/deployment/runtime) | Not started | Provisioned dashboards |
 | [12.04](../steps/12-forge-observe/12.04-log-query-and-filter.md) | Log query/filter by project/deployment/request/trace ID | Not started | Correlated log search API |
@@ -88,4 +88,4 @@ An induced error fires the error-rate alert
 
 ## Next step to implement
 
-**[12.01](../steps/12-forge-observe/12.01-skeleton-and-correlation-api-design.md) — Skeleton + correlation API design** (Go service on 4106 + the correlation attribute model that instrumentation and queries depend on).
+**[12.02](../steps/12-forge-observe/12.02-instrumentation-checklist.md) — Instrumentation checklist on Control/Runtime/Gateway/Build** (trace propagation + structured logs + metrics using the 12.01 correlation contract).

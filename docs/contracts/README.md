@@ -62,3 +62,12 @@ query contract:
 * Human doc: [secret-log-masking.md](secret-log-masking.md)
 * OpenAPI: [`contracts/openapi/forge-secrets.openapi.yaml`](../../contracts/openapi/forge-secrets.openapi.yaml)
   (`GET /v1/projects/{project_id}/audit`, env-scoped variant, `AuditEvent` schema)
+
+## Observability correlation (epic 12)
+
+Cross-service trace/request correlation headers, resource attributes, and log
+fields used by instrumentation and Forge Observe queries:
+
+* Human doc: [observability-correlation.md](observability-correlation.md)
+* Go constants: `services/forge-observe/internal/correlation`
+* OpenAPI (Observe skeleton): [`contracts/openapi/forge-observe.openapi.yaml`](../../contracts/openapi/forge-observe.openapi.yaml)

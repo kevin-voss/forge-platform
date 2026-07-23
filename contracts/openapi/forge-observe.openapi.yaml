@@ -1,0 +1,142 @@
+openapi: 3.0.3
+info:
+  title: Forge Observe API
+  version: 0.1.0
+  description: |
+    Platform observability service (epic 12). Step 12.01 scaffolds health,
+    identity, backend reachability, and the correlation contract. Log query,
+    dashboards, and alerts land in later steps.
+servers:
+  - url: http://127.0.0.1:4106
+    description: Local Compose (host port 4106)
+
+paths:
+  /health/live:
+    get:
+      operationId: getHealthLive
+      summary: Liveness probe
+      description: Returns 200 when the process is alive.
+      security: []
+      responses:
+        "200":
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: ok
+
+  /health/ready:
+    get:
+      operationId: getHealthReady
+      summary: Readiness probe
+      description: |
+        Returns 200 when every backend listed in
+        `FORGE_OBSERVE_READY_REQUIRE_BACKENDS` (default loki,tempo,prometheus)
+        is reachable; non-200 otherwise. Liveness stays 200 while backends are
+        down so orchestrators can distinguish process death from degraded
+        telemetry.
+      security: []
+      responses:
+        "200":
+          description: Ready to receive traffic
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: ok
+        "503":
+          description: Not ready (required backend unreachable)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+              example:
+                status: not_ready
+
+  /:
+    get:
+      operationId: getIdentity
+      summary: Service identity
+      description: |
+        Returns JSON identity for the running service. Required fields match the
+        epic-01 runtime contract: service, language, status.
+      security: []
+      responses:
+        "200":
+          description: Identity payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Identity"
+              example:
+                service: forge-observe
+                language: go
+                status: running
+                version: 0.1.0
+
+  /v1/health/backends:
+    get:
+      operationId: getBackendHealth
+      summary: Telemetry backend reachability
+      description: |
+        Reports read-only health of Loki, Tempo, and Prometheus. Values are
+        `ok` or `down`. This endpoint remains 200 even when backends are down
+        so operators can inspect which dependency failed; readiness reflects
+        the required-backend gate separately.
+      security: []
+      responses:
+        "200":
+          description: Per-backend status map
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackendHealth"
+              example:
+                loki: ok
+                tempo: ok
+                prometheus: ok
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, not_ready]
+
+    Identity:
+      type: object
+      required: [service, language, status]
+      properties:
+        service:
+          type: string
+          example: forge-observe
+        language:
+          type: string
+          example: go
+        status:
+          type: string
+          example: running
+        version:
+          type: string
+        uptime_seconds:
+          type: number
+
+    BackendHealth:
+      type: object
+      required: [loki, tempo, prometheus]
+      properties:
+        loki:
+          type: string
+          enum: [ok, down]
+        tempo:
+          type: string
+          enum: [ok, down]
+        prometheus:
+          type: string
+          enum: [ok, down]
