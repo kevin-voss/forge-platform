@@ -81,6 +81,8 @@ data class Deployment(
     val updatedAt: Instant,
     val rolloutBatchSize: Int = 1,
     val rolloutTimeoutSeconds: Int = 120,
+    /** Stable resource name (backfilled from service name in 20.07). */
+    val name: String = "",
 ) {
     init {
         require(image.isNotBlank()) { "image must not be blank" }
@@ -88,6 +90,9 @@ data class Deployment(
         require(status in DEPLOYMENT_STATUSES) { "invalid deployment status" }
         require(rolloutBatchSize >= 1) { "rollout_batch_size must be >= 1" }
         require(rolloutTimeoutSeconds >= 1) { "rollout_timeout_s must be >= 1" }
+        if (name.isNotEmpty()) {
+            require(name.isNotBlank()) { "name must not be blank when set" }
+        }
     }
 
     private companion object {

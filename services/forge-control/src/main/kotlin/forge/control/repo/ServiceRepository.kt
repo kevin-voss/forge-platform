@@ -8,6 +8,7 @@ import javax.sql.DataSource
 interface ServiceRepository {
     fun create(applicationId: UUID, name: String, port: Int): Service
     fun findById(id: UUID): Service?
+    fun findByApplicationAndName(applicationId: UUID, name: String): Service?
     fun list(applicationId: UUID): List<Service>
     fun update(id: UUID, name: String?, port: Int?): Service
     fun recordImage(id: UUID, image: String, digest: String?, commit: String?, buildId: String?): Service
@@ -37,6 +38,25 @@ class JdbcServiceRepository(
             }
         }
         Service(id, applicationId, name, port, now, now)
+    }
+
+    override fun findByApplicationAndName(applicationId: UUID, name: String): Service? = runSql {
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                SELECT id, application_id, name, port, created_at, updated_at,
+                       image, image_digest, image_commit, image_build_id,
+                       last_healthy_deployment_id, last_healthy_image, last_healthy_replicas
+                FROM services WHERE application_id = ? AND name = ?
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, applicationId)
+                ps.setString(2, name)
+                ps.executeQuery().use { rs ->
+                    if (rs.next()) mapRow(rs) else null
+                }
+            }
+        }
     }
 
     override fun findById(id: UUID): Service? = runSql {

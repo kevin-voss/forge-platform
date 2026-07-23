@@ -80,6 +80,7 @@ class Telemetry private constructor(
     private val resourceListPageSize: DoubleHistogram,
     private val resourceEventsEmitted: LongCounter,
     private val resourceTerminating: LongCounter,
+    private val applyOperations: LongCounter,
     private val resourcesByKind: java.util.concurrent.ConcurrentHashMap<String, AtomicLong>,
     @Suppress("unused") private val resourcesGauge: ObservableLongGauge,
     private val watchConnectionsByKind: java.util.concurrent.ConcurrentHashMap<String, AtomicLong>,
@@ -162,6 +163,18 @@ class Telemetry private constructor(
         resourceTerminating.add(
             1,
             Attributes.of(AttributeKey.stringKey("kind"), kind),
+        )
+    }
+
+    fun recordApplyOperation(dryRun: Boolean, result: String) {
+        applyOperations.add(
+            1,
+            Attributes.of(
+                AttributeKey.stringKey("dry_run"),
+                dryRun.toString(),
+                AttributeKey.stringKey("result"),
+                result,
+            ),
         )
     }
 
@@ -564,6 +577,9 @@ class Telemetry private constructor(
                     .build(),
                 resourceTerminating = meter
                     .counterBuilder("forge_resource_terminating_total")
+                    .build(),
+                applyOperations = meter
+                    .counterBuilder("forge_apply_operations_total")
                     .build(),
                 resourcesByKind = resourceCounts,
                 resourcesGauge = meter.gaugeBuilder("forge_resources_total")

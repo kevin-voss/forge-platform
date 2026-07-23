@@ -358,6 +358,13 @@ func projectHeaders(projectID string) http.Header {
 	return headers
 }
 
+// Apply submits a multi-resource apply (or dry-run) to Control.
+func (c *Client) Apply(ctx context.Context, request ApplyRequest) (ApplyResponse, error) {
+	var response ApplyResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/apply", request, &response)
+	return response, err
+}
+
 func (c *Client) doJSON(ctx context.Context, method, path string, input, output any) error {
 	return c.doJSONWithHeaders(ctx, method, path, input, output, nil)
 }

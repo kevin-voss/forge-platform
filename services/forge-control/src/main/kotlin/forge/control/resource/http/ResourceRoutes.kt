@@ -5,6 +5,7 @@ import forge.control.http.idempotentCreate
 import forge.control.logging.JsonLog
 import forge.control.repo.IdempotencyStore
 import forge.control.repo.RepositoryException
+import forge.control.resource.CompatibilityResourceRepository
 import forge.control.resource.CursorCodec
 import forge.control.resource.Finalizers
 import forge.control.resource.GenerationPolicy
@@ -110,6 +111,13 @@ fun Route.resourceRoutes(
             telemetry = telemetry,
             resolveScope = { call, kind ->
                 requireScope(kind, ResourceScope.Project)
+                if (kind.parentKind != null) {
+                    throw ApiException.NotFound(
+                        "kind '${kind.kind}' requires parent path under ${kind.parentKind}",
+                        details = mapOf("kind" to kind.kind, "parentKind" to kind.parentKind),
+                        code = "kind_not_registered",
+                    )
+                }
                 ScopeCoords(
                     organization = defaultOrganization,
                     project = call.parameters["project"],
@@ -125,6 +133,13 @@ fun Route.resourceRoutes(
             telemetry = telemetry,
             resolveScope = { call, kind ->
                 requireScope(kind, ResourceScope.Project)
+                if (kind.parentKind != null) {
+                    throw ApiException.NotFound(
+                        "kind '${kind.kind}' requires parent path under ${kind.parentKind}",
+                        details = mapOf("kind" to kind.kind, "parentKind" to kind.parentKind),
+                        code = "kind_not_registered",
+                    )
+                }
                 ScopeCoords(
                     organization = defaultOrganization,
                     project = call.parameters["project"],
@@ -166,6 +181,60 @@ fun Route.resourceRoutes(
                     organization = defaultOrganization,
                     project = call.parameters["project"],
                     environment = call.parameters["environment"],
+                )
+            },
+        )
+    }
+
+    // Nested kinds with parentKind (Service under Application):
+    // /v1/projects/{project}/applications/{application}/{plural}[/{name}]
+    route("/v1/projects/{project}/applications/{application}/{plural}") {
+        collectionRoutes(
+            resources = resources,
+            kinds = kinds,
+            idempotency = idempotency,
+            defaultOrganization = defaultOrganization,
+            listDefaultPageSize = listDefaultPageSize,
+            listMaxPageSize = listMaxPageSize,
+            log = log,
+            telemetry = telemetry,
+            resolveScope = { call, kind ->
+                if (kind.parentKind != "Application") {
+                    throw ApiException.NotFound(
+                        "kind '${kind.kind}' is not nested under Application",
+                        details = mapOf("kind" to kind.kind),
+                        code = "kind_not_registered",
+                    )
+                }
+                requireScope(kind, ResourceScope.Project)
+                ScopeCoords(
+                    organization = defaultOrganization,
+                    project = call.parameters["project"],
+                    environment = null,
+                    parentName = call.parameters["application"],
+                )
+            },
+        )
+        itemRoutes(
+            resources = resources,
+            kinds = kinds,
+            defaultOrganization = defaultOrganization,
+            log = log,
+            telemetry = telemetry,
+            resolveScope = { call, kind ->
+                if (kind.parentKind != "Application") {
+                    throw ApiException.NotFound(
+                        "kind '${kind.kind}' is not nested under Application",
+                        details = mapOf("kind" to kind.kind),
+                        code = "kind_not_registered",
+                    )
+                }
+                requireScope(kind, ResourceScope.Project)
+                ScopeCoords(
+                    organization = defaultOrganization,
+                    project = call.parameters["project"],
+                    environment = null,
+                    parentName = call.parameters["application"],
                 )
             },
         )
@@ -411,6 +480,7 @@ internal data class ScopeCoords(
     val organization: String,
     val project: String?,
     val environment: String?,
+    val parentName: String? = null,
 )
 
 private data class PatchResult(
@@ -528,6 +598,15 @@ private fun createResource(
         updatedAt = java.time.Instant.EPOCH,
     )
     validateOwnerRefs(resources, provisional, ownerRefs)
+    val effectiveAnnotations = if (!scope.parentName.isNullOrBlank()) {
+        JsonObject(
+            annotations + (
+                CompatibilityResourceRepository.PARENT_ANNOTATION to JsonPrimitive(scope.parentName)
+                ),
+        )
+    } else {
+        annotations
+    }
     return try {
         resources.insert(
             NewResourceRow(
@@ -539,7 +618,7 @@ private fun createResource(
                 environment = scope.environment,
                 name = name,
                 labels = labels,
-                annotations = annotations,
+                annotations = effectiveAnnotations,
                 spec = body.spec,
                 ownerRefs = ownerRefs,
                 finalizers = provisional.finalizers,

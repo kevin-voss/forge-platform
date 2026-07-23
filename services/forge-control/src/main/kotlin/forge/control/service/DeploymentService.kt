@@ -44,7 +44,14 @@ class DeploymentService(
         val image = validateImage(imageRaw)
         val desiredReplicas = validateDesiredReplicas(desiredReplicasRaw)
         val created = try {
-            deployments.create(serviceId, environmentId, image, desiredReplicas, PENDING)
+            deployments.create(
+                serviceId = serviceId,
+                environmentId = environmentId,
+                image = image,
+                desiredReplicas = desiredReplicas,
+                status = PENDING,
+                name = service.name,
+            )
         } catch (e: RepositoryException) {
             throw mapRepo(e)
         }

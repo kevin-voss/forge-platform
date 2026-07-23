@@ -140,7 +140,16 @@ class ResourceApiIntegrationTest {
                 deploymentRepo,
             ),
             idempotency = JdbcIdempotencyStore(db.dataSource),
-            resources = JdbcResourceRepository(db.dataSource),
+            resources = CompatibilityResourceRepository(
+                jdbc = JdbcResourceRepository(db.dataSource),
+                projects = projectRepo,
+                environments = envRepo,
+                applications = applicationRepo,
+                services = serviceRepo,
+                deployments = deploymentRepo,
+                audit = auditRepo,
+                actor = "dev",
+            ),
             resourceEvents = JdbcResourceEventRepository(db.dataSource),
             kindRegistry = buildKindRegistry(),
         )

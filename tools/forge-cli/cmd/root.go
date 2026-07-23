@@ -80,6 +80,7 @@ func NewRootCommand(version string) *cobra.Command {
 		newLoginCommand(state),
 		newLogoutCommand(state),
 		newWhoamiCommand(state),
+		newApplyCommand(state),
 		newProjectCommand(state),
 		newEnvironmentCommand(state),
 		newApplicationCommand(state),

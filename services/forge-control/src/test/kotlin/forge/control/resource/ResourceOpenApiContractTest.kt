@@ -52,6 +52,9 @@ class ResourceOpenApiContractTest {
         assertTrue(yaml.contains("X-Forge-Delete-Confirmation"))
         assertTrue(yaml.contains("delete_confirmation_required") || yaml.contains("owned_resources_exist"))
         assertTrue(yaml.contains("owner_reference_cycle") || yaml.contains("OwnerRef:"))
+        assertTrue(yaml.contains("/v1/apply"))
+        assertTrue(yaml.contains("ApplyRequest:") || yaml.contains("x-apply-resources"))
+        assertTrue(yaml.contains("portable_manifest_violation"))
     }
 
     @Test

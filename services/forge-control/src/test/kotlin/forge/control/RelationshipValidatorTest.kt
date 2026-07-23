@@ -49,6 +49,7 @@ class RelationshipValidatorTest {
         private val project = Project(existingId, "Acme", "acme", NOW, NOW)
         override fun create(name: String, slug: String): Project = error("not used")
         override fun findById(id: UUID): Project? = project.takeIf { it.id == id }
+        override fun findBySlug(slug: String): Project? = null
         override fun list(): List<Project> = listOf(project)
         override fun update(id: UUID, name: String?, slug: String?): Project = error("not used")
         override fun delete(id: UUID) = error("not used")
@@ -61,6 +62,7 @@ class RelationshipValidatorTest {
         private val application = Application(existingId, projectId, "web", NOW, NOW)
         override fun create(projectId: UUID, name: String): Application = error("not used")
         override fun findById(id: UUID): Application? = application.takeIf { it.id == id }
+        override fun findByProjectAndName(projectId: UUID, name: String): Application? = null
         override fun list(projectId: UUID): List<Application> = listOf(application)
         override fun update(id: UUID, name: String): Application = error("not used")
         override fun delete(id: UUID) = error("not used")

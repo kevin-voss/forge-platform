@@ -73,6 +73,7 @@ class ServiceImageTest {
             object : ProjectRepository {
                 override fun create(name: String, slug: String): Project = error("not used")
                 override fun findById(id: UUID): Project? = null
+        override fun findBySlug(slug: String): Project? = null
                 override fun list(): List<Project> = emptyList()
                 override fun update(id: UUID, name: String?, slug: String?): Project = error("not used")
                 override fun delete(id: UUID) = error("not used")
@@ -80,6 +81,7 @@ class ServiceImageTest {
             object : ApplicationRepository {
                 override fun create(projectId: UUID, name: String): Application = error("not used")
                 override fun findById(id: UUID): Application? = null
+        override fun findByProjectAndName(projectId: UUID, name: String): Application? = null
                 override fun list(projectId: UUID): List<Application> = emptyList()
                 override fun update(id: UUID, name: String): Application = error("not used")
                 override fun delete(id: UUID) = error("not used")
@@ -99,6 +101,7 @@ class ServiceImageTest {
 
         override fun create(applicationId: UUID, name: String, port: Int): Service = error("not used")
         override fun findById(id: UUID): Service? = if (present && current.id == id) current else null
+        override fun findByApplicationAndName(applicationId: UUID, name: String): Service? = null
         override fun list(applicationId: UUID): List<Service> = error("not used")
         override fun update(id: UUID, name: String?, port: Int?): Service = error("not used")
         override fun recordImage(

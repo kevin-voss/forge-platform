@@ -8,6 +8,7 @@ import javax.sql.DataSource
 interface ApplicationRepository {
     fun create(projectId: UUID, name: String): Application
     fun findById(id: UUID): Application?
+    fun findByProjectAndName(projectId: UUID, name: String): Application?
     fun list(projectId: UUID): List<Application>
     fun update(id: UUID, name: String): Application
     fun delete(id: UUID)
@@ -46,6 +47,23 @@ class JdbcApplicationRepository(
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, id)
+                ps.executeQuery().use { rs ->
+                    if (rs.next()) mapRow(rs) else null
+                }
+            }
+        }
+    }
+
+    override fun findByProjectAndName(projectId: UUID, name: String): Application? = runSql {
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                SELECT id, project_id, name, created_at, updated_at
+                FROM applications WHERE project_id = ? AND name = ?
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, projectId)
+                ps.setString(2, name)
                 ps.executeQuery().use { rs ->
                     if (rs.next()) mapRow(rs) else null
                 }

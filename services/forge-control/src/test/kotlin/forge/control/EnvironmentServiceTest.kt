@@ -75,6 +75,7 @@ class EnvironmentServiceTest {
 
         override fun create(name: String, slug: String): Project = error("not used")
         override fun findById(id: UUID): Project? = byId[id]
+        override fun findBySlug(slug: String): Project? = null
         override fun list(): List<Project> = byId.values.toList()
         override fun update(id: UUID, name: String?, slug: String?): Project = error("not used")
         override fun delete(id: UUID) = error("not used")
@@ -93,6 +94,7 @@ class EnvironmentServiceTest {
         }
 
         override fun findById(id: UUID): Environment? = byId[id]
+        override fun findByProjectAndName(projectId: UUID, name: String): Environment? = null
 
         override fun list(projectId: UUID): List<Environment> =
             byId.values.filter { it.projectId == projectId }

@@ -157,6 +157,7 @@ class DeploymentServiceTest {
     private class ProjectRepositoryFake(private val project: Project) : ProjectRepository {
         override fun create(name: String, slug: String): Project = error("not used")
         override fun findById(id: UUID): Project? = project.takeIf { it.id == id }
+        override fun findBySlug(slug: String): Project? = project.takeIf { it.slug == slug }
         override fun list(): List<Project> = listOf(project)
         override fun update(id: UUID, name: String?, slug: String?): Project = error("not used")
         override fun delete(id: UUID) = error("not used")
@@ -165,6 +166,8 @@ class DeploymentServiceTest {
     private class EnvironmentRepositoryFake(private val environment: Environment) : EnvironmentRepository {
         override fun create(projectId: UUID, name: String): Environment = error("not used")
         override fun findById(id: UUID): Environment? = environment.takeIf { it.id == id }
+        override fun findByProjectAndName(projectId: UUID, name: String): Environment? =
+            environment.takeIf { it.projectId == projectId && it.name == name }
         override fun list(projectId: UUID): List<Environment> = listOf(environment).filter { it.projectId == projectId }
         override fun update(id: UUID, name: String): Environment = error("not used")
         override fun delete(id: UUID) = error("not used")
@@ -173,6 +176,8 @@ class DeploymentServiceTest {
     private class ApplicationRepositoryFake(private val application: Application) : ApplicationRepository {
         override fun create(projectId: UUID, name: String): Application = error("not used")
         override fun findById(id: UUID): Application? = application.takeIf { it.id == id }
+        override fun findByProjectAndName(projectId: UUID, name: String): Application? =
+            application.takeIf { it.projectId == projectId && it.name == name }
         override fun list(projectId: UUID): List<Application> = listOf(application).filter { it.projectId == projectId }
         override fun update(id: UUID, name: String): Application = error("not used")
         override fun delete(id: UUID) = error("not used")
@@ -181,6 +186,8 @@ class DeploymentServiceTest {
     private class ServiceRepositoryFake(private val service: Service) : ServiceRepository {
         override fun create(applicationId: UUID, name: String, port: Int): Service = error("not used")
         override fun findById(id: UUID): Service? = service.takeIf { it.id == id }
+        override fun findByApplicationAndName(applicationId: UUID, name: String): Service? =
+            service.takeIf { it.applicationId == applicationId && it.name == name }
         override fun list(applicationId: UUID): List<Service> = listOf(service).filter { it.applicationId == applicationId }
         override fun update(id: UUID, name: String?, port: Int?): Service = error("not used")
         override fun recordImage(
@@ -206,12 +213,15 @@ class DeploymentServiceTest {
             status: String,
             rolloutBatchSize: Int,
             rolloutTimeoutSeconds: Int,
+            name: String,
         ): Deployment = Deployment(
             UUID.randomUUID(), serviceId, environmentId, image, desiredReplicas, status, NOW, NOW,
-            rolloutBatchSize, rolloutTimeoutSeconds,
+            rolloutBatchSize, rolloutTimeoutSeconds, name,
         ).also(rows::add)
 
         override fun findById(id: UUID): Deployment? = rows.find { it.id == id }
+        override fun findByEnvironmentAndName(environmentId: UUID, name: String): Deployment? =
+            rows.find { it.environmentId == environmentId && it.name == name }
         override fun listByService(serviceId: UUID): List<Deployment> = rows.filter { it.serviceId == serviceId }
         override fun listAll(): List<Deployment> = rows.toList()
         override fun update(id: UUID, image: String?, desiredReplicas: Int?, status: String?): Deployment {

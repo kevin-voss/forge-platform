@@ -88,6 +88,7 @@ class ProjectServiceTest {
         }
 
         override fun findById(id: UUID): Project? = byId[id]
+        override fun findBySlug(slug: String): Project? = null
 
         override fun list(): List<Project> = byId.values.toList()
 

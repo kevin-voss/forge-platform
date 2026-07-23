@@ -16,6 +16,8 @@ data class ResourceWriteRequest(
 data class ResourceMetadataWrite(
     val name: String? = null,
     val organization: String? = null,
+    val project: String? = null,
+    val environment: String? = null,
     val labels: JsonObject? = null,
     val annotations: JsonObject? = null,
     val resourceVersion: String? = null,

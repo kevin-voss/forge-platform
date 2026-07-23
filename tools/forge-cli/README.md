@@ -161,6 +161,47 @@ UUID v4 by default; scripts can reuse a value with `--idempotency-key`.
 Control errors are printed to stderr with their `requestId` and result in the
 documented non-zero exit status.
 
+## Declarative apply (`forge apply`)
+
+`forge apply -f forge.yaml` submits one or more `forge.dev/v1` resources to
+Control (`POST /v1/apply`). Multi-document YAML (separated by `---`) is supported.
+Parent-before-child ordering is applied server-side by kind.
+
+```bash
+forge apply -f forge.yaml --target local
+forge apply -f forge.yaml --dry-run
+```
+
+`--dry-run` returns the planned create/update/unchanged actions without mutating
+state. `--target` is an install-time deployment selector (informational); it is
+not sent as a resource field.
+
+### Manifest portability rules
+
+Product manifests describe the application, never the infrastructure. Rejected
+fields include provider names (`aws`, `hetzner`, …), machine types, regions,
+zones, IP/CIDR values, disk types, and managed-service brand names. Portable
+specs may include image references, CPU/memory requests, replica bounds, typed
+dependencies (`postgres`, `durable`, `object`), and logical names. Control
+returns `portable_manifest_violation` when a manifest breaks these rules; the
+whole multi-resource apply is rejected before any mutation.
+
+Example:
+
+```yaml
+apiVersion: forge.dev/v1
+kind: Application
+metadata:
+  name: invoice-api
+  project: invoice-platform
+  environment: production
+spec:
+  image: registry.forge.internal/invoice-api:1.0.0
+  resources:
+    cpu: 1000m
+    memory: 1024Mi
+```
+
 ## Secrets and project config
 
 Authenticated calls to Forge Secrets (login token). Secret values are never

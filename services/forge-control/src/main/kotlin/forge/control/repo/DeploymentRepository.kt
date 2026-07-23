@@ -14,9 +14,11 @@ interface DeploymentRepository {
         status: String = "pending",
         rolloutBatchSize: Int = 1,
         rolloutTimeoutSeconds: Int = 120,
+        name: String,
     ): Deployment
 
     fun findById(id: UUID): Deployment?
+    fun findByEnvironmentAndName(environmentId: UUID, name: String): Deployment?
     fun listByService(serviceId: UUID): List<Deployment>
     fun listAll(): List<Deployment>
     fun update(
@@ -40,6 +42,7 @@ class JdbcDeploymentRepository(
         status: String,
         rolloutBatchSize: Int,
         rolloutTimeoutSeconds: Int,
+        name: String,
     ): Deployment = runSql {
         val id = UUID.randomUUID()
         val now = Instant.now()
@@ -48,8 +51,8 @@ class JdbcDeploymentRepository(
                 """
                 INSERT INTO deployments (
                     id, service_id, environment_id, image, desired_replicas, status,
-                    rollout_batch_size, rollout_timeout_s, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    rollout_batch_size, rollout_timeout_s, name, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, id)
@@ -60,14 +63,15 @@ class JdbcDeploymentRepository(
                 ps.setString(6, status)
                 ps.setInt(7, rolloutBatchSize)
                 ps.setInt(8, rolloutTimeoutSeconds)
-                ps.setTimestamp(9, java.sql.Timestamp.from(now))
+                ps.setString(9, name)
                 ps.setTimestamp(10, java.sql.Timestamp.from(now))
+                ps.setTimestamp(11, java.sql.Timestamp.from(now))
                 ps.executeUpdate()
             }
         }
         Deployment(
             id, serviceId, environmentId, image, desiredReplicas, status, now, now,
-            rolloutBatchSize, rolloutTimeoutSeconds,
+            rolloutBatchSize, rolloutTimeoutSeconds, name,
         )
     }
 
@@ -76,11 +80,29 @@ class JdbcDeploymentRepository(
             conn.prepareStatement(
                 """
                 SELECT id, service_id, environment_id, image, desired_replicas, status,
-                       rollout_batch_size, rollout_timeout_s, created_at, updated_at
+                       rollout_batch_size, rollout_timeout_s, name, created_at, updated_at
                 FROM deployments WHERE id = ?
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, id)
+                ps.executeQuery().use { rs ->
+                    if (rs.next()) mapRow(rs) else null
+                }
+            }
+        }
+    }
+
+    override fun findByEnvironmentAndName(environmentId: UUID, name: String): Deployment? = runSql {
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                SELECT id, service_id, environment_id, image, desired_replicas, status,
+                       rollout_batch_size, rollout_timeout_s, name, created_at, updated_at
+                FROM deployments WHERE environment_id = ? AND name = ?
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, environmentId)
+                ps.setString(2, name)
                 ps.executeQuery().use { rs ->
                     if (rs.next()) mapRow(rs) else null
                 }
@@ -93,7 +115,7 @@ class JdbcDeploymentRepository(
             conn.prepareStatement(
                 """
                 SELECT id, service_id, environment_id, image, desired_replicas, status,
-                       rollout_batch_size, rollout_timeout_s, created_at, updated_at
+                       rollout_batch_size, rollout_timeout_s, name, created_at, updated_at
                 FROM deployments WHERE service_id = ? ORDER BY created_at
                 """.trimIndent(),
             ).use { ps ->
@@ -112,7 +134,7 @@ class JdbcDeploymentRepository(
             conn.prepareStatement(
                 """
                 SELECT id, service_id, environment_id, image, desired_replicas, status,
-                       rollout_batch_size, rollout_timeout_s, created_at, updated_at
+                       rollout_batch_size, rollout_timeout_s, name, created_at, updated_at
                 FROM deployments ORDER BY created_at
                 """.trimIndent(),
             ).use { ps ->
@@ -185,5 +207,6 @@ class JdbcDeploymentRepository(
             updatedAt = rs.instant("updated_at"),
             rolloutBatchSize = rs.getInt("rollout_batch_size"),
             rolloutTimeoutSeconds = rs.getInt("rollout_timeout_s"),
+            name = rs.getString("name") ?: "",
         )
 }

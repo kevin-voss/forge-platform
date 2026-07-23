@@ -150,7 +150,7 @@ class RepositoryIntegrationTest {
         val env = environments.create(project.id, "development")
         val app = applications.create(project.id, "backend")
         val svc = services.create(app.id, "api", 8080)
-        val dep = deployments.create(svc.id, env.id, "registry.local/api:1", desiredReplicas = 2)
+        val dep = deployments.create(svc.id, env.id, "registry.local/api:1", desiredReplicas = 2, name = svc.name)
 
         assertEquals(1, environments.list(project.id).size)
         assertEquals(env.id, environments.list(project.id).single().id)

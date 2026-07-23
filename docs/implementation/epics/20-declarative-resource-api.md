@@ -97,7 +97,7 @@ finalizer cleared                                  → resource actually deleted
 | [20.04](../steps/20-declarative-resource-api/20.04-labels-selectors-and-listing.md) | 135 | Labels, annotations, filtering, pagination | Complete | `labelSelector`, field filters, cursor pagination, list `resourceVersion` |
 | [20.05](../steps/20-declarative-resource-api/20.05-watch-api-and-resource-events.md) | 136 | Watch API + resource events | Complete | SSE watch, replay + live tail, `410 Gone`, durable `resource_events` |
 | [20.06](../steps/20-declarative-resource-api/20.06-ownership-finalizers-and-deletion.md) | 137 | Owner references, finalizers, terminating deletion | Complete | Cascade rules, finalizer-blocked delete, stateful-kind delete confirmation |
-| [20.07](../steps/20-declarative-resource-api/20.07-compat-facade-and-forge-apply.md) | 138 | Compatibility facade for shipped APIs + `forge apply` | Not started | Application/Service/Deployment as kinds; byte-compatible facade; new CLI verbs |
+| [20.07](../steps/20-declarative-resource-api/20.07-compat-facade-and-forge-apply.md) | 138 | Compatibility facade for shipped APIs + `forge apply` | Complete | Application/Service/Deployment as kinds; byte-compatible facade; new CLI verbs |
 | [20.08](../steps/20-declarative-resource-api/20.08-demo-20-declarative-resources.md) | 139 | Demo `20-declarative-resources` + epic gate | Not started | End-to-end apply/watch/generation/conflict/finalizer proof; epic gate |
 
 ## Assumptions
@@ -119,4 +119,4 @@ finalizer cleared                                  → resource actually deleted
 
 ## Next step to implement
 
-**[20.07](../steps/20-declarative-resource-api/20.07-compat-facade-and-forge-apply.md) — Compatibility facade for shipped APIs + `forge apply`** (`N = 138`; depends on `20.06`).
+**[20.08](../steps/20-declarative-resource-api/20.08-demo-20-declarative-resources.md) — Demo `20-declarative-resources` + epic gate** (`N = 139`; depends on `20.07`).

@@ -8,6 +8,7 @@ import javax.sql.DataSource
 interface EnvironmentRepository {
     fun create(projectId: UUID, name: String): Environment
     fun findById(id: UUID): Environment?
+    fun findByProjectAndName(projectId: UUID, name: String): Environment?
     fun list(projectId: UUID): List<Environment>
     fun update(id: UUID, name: String): Environment
     fun delete(id: UUID)
@@ -46,6 +47,23 @@ class JdbcEnvironmentRepository(
                 """.trimIndent(),
             ).use { ps ->
                 ps.setObject(1, id)
+                ps.executeQuery().use { rs ->
+                    if (rs.next()) mapRow(rs) else null
+                }
+            }
+        }
+    }
+
+    override fun findByProjectAndName(projectId: UUID, name: String): Environment? = runSql {
+        dataSource.withConnection { conn ->
+            conn.prepareStatement(
+                """
+                SELECT id, project_id, name, created_at, updated_at
+                FROM environments WHERE project_id = ? AND name = ?
+                """.trimIndent(),
+            ).use { ps ->
+                ps.setObject(1, projectId)
+                ps.setString(2, name)
                 ps.executeQuery().use { rs ->
                     if (rs.next()) mapRow(rs) else null
                 }

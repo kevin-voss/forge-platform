@@ -191,6 +191,31 @@ type restoreBackupRequest struct {
 	TargetDatabaseID string `json:"targetDatabaseId"`
 }
 
+// ApplyRequest is the body for POST /v1/apply.
+type ApplyRequest struct {
+	DryRun    bool             `json:"dryRun"`
+	Resources []map[string]any `json:"resources"`
+}
+
+// ApplyResponse is returned by POST /v1/apply.
+type ApplyResponse struct {
+	OperationID  string               `json:"operationId"`
+	DryRun       bool                 `json:"dryRun"`
+	ChangedCount int                  `json:"changedCount"`
+	Results      []ApplyResourceResult `json:"results"`
+}
+
+// ApplyResourceResult describes one resource in an apply response.
+type ApplyResourceResult struct {
+	Kind        string         `json:"kind"`
+	Name        string         `json:"name"`
+	Action      string         `json:"action"`
+	Project     string         `json:"project,omitempty"`
+	Environment string         `json:"environment,omitempty"`
+	Resource    map[string]any `json:"resource,omitempty"`
+	Message     string         `json:"message,omitempty"`
+}
+
 type errorEnvelope struct {
 	Error struct {
 		Code      string            `json:"code"`

@@ -173,6 +173,7 @@ class RotationDeletionProtectionTest {
                 } else {
                     null
                 }
+            override fun findBySlug(slug: String) = null
             override fun list() = emptyList<forge.control.domain.Project>()
             override fun update(id: UUID, name: String?, slug: String?) = error("unused")
             override fun delete(id: UUID) = Unit
@@ -185,6 +186,7 @@ class RotationDeletionProtectionTest {
                 } else {
                     null
                 }
+            override fun findByProjectAndName(projectId: UUID, name: String) = null
             override fun list(projectId: UUID) = emptyList<forge.control.domain.Application>()
             override fun update(id: UUID, name: String) = error("unused")
             override fun delete(id: UUID) = Unit

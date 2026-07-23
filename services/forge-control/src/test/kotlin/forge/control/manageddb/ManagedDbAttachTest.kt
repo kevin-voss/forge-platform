@@ -180,6 +180,7 @@ class ManagedDbAttachTest {
                     override fun create(name: String, slug: String) = error("unused")
                     override fun findById(id: UUID) =
                         forge.control.domain.Project(id, "p", "p", Instant.now(), Instant.now())
+                    override fun findBySlug(slug: String) = null
                     override fun list() = emptyList<forge.control.domain.Project>()
                     override fun update(id: UUID, name: String?, slug: String?) = error("unused")
                     override fun delete(id: UUID) = error("unused")
@@ -227,6 +228,8 @@ class ManagedDbAttachTest {
         private val byId = apps.associateBy { it.id }
         override fun create(projectId: UUID, name: String) = error("unused")
         override fun findById(id: UUID) = byId[id]
+        override fun findByProjectAndName(projectId: UUID, name: String) =
+            byId.values.find { it.projectId == projectId && it.name == name }
         override fun list(projectId: UUID) = byId.values.filter { it.projectId == projectId }
         override fun update(id: UUID, name: String) = error("unused")
         override fun delete(id: UUID) = error("unused")

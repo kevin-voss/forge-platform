@@ -362,6 +362,7 @@ private class MapProjectRepository(private val ids: Set<UUID>) : ProjectReposito
             null
         }
 
+    override fun findBySlug(slug: String) = null
     override fun list() = emptyList<forge.control.domain.Project>()
     override fun update(id: UUID, name: String?, slug: String?) = error("unused")
     override fun delete(id: UUID) = Unit
@@ -370,6 +371,7 @@ private class MapProjectRepository(private val ids: Set<UUID>) : ProjectReposito
 private object EmptyApplicationRepository : ApplicationRepository {
     override fun create(projectId: UUID, name: String) = error("unused")
     override fun findById(id: UUID) = null
+    override fun findByProjectAndName(projectId: UUID, name: String) = null
     override fun list(projectId: UUID) = emptyList<forge.control.domain.Application>()
     override fun update(id: UUID, name: String) = error("unused")
     override fun delete(id: UUID) = Unit

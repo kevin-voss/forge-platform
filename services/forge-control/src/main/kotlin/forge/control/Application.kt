@@ -75,11 +75,14 @@ import forge.control.repo.JdbcEnvironmentRepository
 import forge.control.repo.JdbcProjectRepository
 import forge.control.repo.JdbcServiceRepository
 import forge.control.repo.JdbcIdempotencyStore
+import forge.control.resource.ApplyService
+import forge.control.resource.CompatibilityResourceRepository
 import forge.control.resource.JdbcResourceEventRepository
 import forge.control.resource.JdbcResourceRepository
 import forge.control.resource.KindDescriptor
 import forge.control.resource.KindRegistry
 import forge.control.resource.ResourceScope
+import forge.control.resource.http.applyRoutes
 import forge.control.resource.http.finalizerRoutes
 import forge.control.resource.http.resourceRoutes
 import forge.control.resource.http.statusRoutes
@@ -414,7 +417,16 @@ fun main() {
         nodeStrictRegister = cfg.nodeStrictRegister,
         onNodeRegistered = { placementService.drainQueue() },
         managedDb = managedDbService,
-        resources = JdbcResourceRepository(db.dataSource),
+        resources = CompatibilityResourceRepository(
+            jdbc = JdbcResourceRepository(db.dataSource),
+            projects = projectRepo,
+            environments = environmentRepo,
+            applications = applicationRepo,
+            services = serviceRepo,
+            deployments = deploymentRepo,
+            audit = auditRepo,
+            actor = actor,
+        ),
         resourceEvents = JdbcResourceEventRepository(db.dataSource),
         kindRegistry = buildKindRegistry(),
     )
@@ -720,6 +732,17 @@ fun Application.forgeControlModule(
                         log = log,
                         telemetry = telemetry,
                     )
+                    applyRoutes(
+                        ApplyService(
+                            resources = resources,
+                            kinds = kinds,
+                            audit = null,
+                            actor = "dev",
+                            defaultOrganization = cfg.resourceDefaultOrganization,
+                            log = log,
+                            telemetry = telemetry,
+                        ),
+                    )
                     val resourceEvents = services.resourceEvents
                     if (resourceEvents != null) {
                         watchRoutes(
@@ -741,33 +764,62 @@ fun Application.forgeControlModule(
 }
 
 /**
- * In-process kind catalog. Product kinds (Application/Service/Deployment) arrive in 20.07;
- * Widget is a temporary fixture so the generic CRUD surface is exercisable before then.
+ * In-process kind catalog. Shipped product kinds (20.07) plus Widget/Vault fixtures
+ * for generic CRUD / finalizer coverage.
  */
 fun buildKindRegistry(): KindRegistry =
     KindRegistry().also { registry ->
-        registry.register(
-            KindDescriptor(
-                kind = "Widget",
-                plural = "widgets",
-                scope = ResourceScope.Environment,
-                schemaVersion = 1,
-                owningController = "widget-controller",
-                idPrefix = "wgt",
-                allowsCascade = true,
-            ),
+        fun reg(
+            kind: String,
+            plural: String,
+            scope: ResourceScope,
+            idPrefix: String,
+            controller: String,
+            parentKind: String? = null,
+            requiresDeleteConfirmation: Boolean = false,
+            allowsCascade: Boolean = false,
+        ) {
+            registry.register(
+                KindDescriptor(
+                    kind = kind,
+                    plural = plural,
+                    scope = scope,
+                    parentKind = parentKind,
+                    schemaVersion = 1,
+                    owningController = controller,
+                    idPrefix = idPrefix,
+                    requiresDeleteConfirmation = requiresDeleteConfirmation,
+                    allowsCascade = allowsCascade,
+                    enforceScopeUniqueness = true,
+                ),
+            )
+        }
+        reg("Organization", "organizations", ResourceScope.Cluster, "org", "organization-controller")
+        reg("Project", "forgeprojects", ResourceScope.Cluster, "prj", "project-controller")
+        reg("Environment", "forgeenvironments", ResourceScope.Project, "env", "environment-controller")
+        reg("Application", "applications", ResourceScope.Environment, "app", "application-controller", allowsCascade = true)
+        reg(
+            "Service",
+            "services",
+            ResourceScope.Project,
+            "svc",
+            "service-controller",
+            parentKind = "Application",
+            allowsCascade = true,
         )
-        // Stateful fixture for delete-confirmation / non-cascade coverage (20.06).
-        registry.register(
-            KindDescriptor(
-                kind = "Vault",
-                plural = "vaults",
-                scope = ResourceScope.Environment,
-                schemaVersion = 1,
-                owningController = "vault-controller",
-                idPrefix = "vlt",
-                requiresDeleteConfirmation = true,
-                allowsCascade = false,
-            ),
+        reg("Deployment", "deployments", ResourceScope.Environment, "dpl", "deployment-controller")
+        reg("Revision", "revisions", ResourceScope.Environment, "rev", "revision-controller")
+        reg("Route", "routes", ResourceScope.Environment, "rte", "route-controller")
+        reg("Secret", "secrets", ResourceScope.Environment, "sec", "secret-controller", requiresDeleteConfirmation = true)
+        reg("Config", "configs", ResourceScope.Environment, "cfg", "config-controller")
+        // Fixtures for generic CRUD / finalizer tests (kept registered).
+        reg("Widget", "widgets", ResourceScope.Environment, "wgt", "widget-controller", allowsCascade = true)
+        reg(
+            "Vault",
+            "vaults",
+            ResourceScope.Environment,
+            "vlt",
+            "vault-controller",
+            requiresDeleteConfirmation = true,
         )
     }
