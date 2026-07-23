@@ -73,3 +73,10 @@ fields used by instrumentation and Forge Observe queries:
 * Go constants: `services/forge-observe/internal/correlation`
 * OpenAPI (Observe skeleton): [`contracts/openapi/forge-observe.openapi.yaml`](../../contracts/openapi/forge-observe.openapi.yaml)
 * Verification notes: [`docs/testing/instrumentation.md`](../testing/instrumentation.md)
+
+## Object storage (epic 13)
+
+Platform blob storage skeleton (health/identity; object APIs in later steps):
+
+* OpenAPI: [`contracts/openapi/forge-storage.openapi.yaml`](../../contracts/openapi/forge-storage.openapi.yaml)
+* Service: `services/forge-storage` (host port `4107`)

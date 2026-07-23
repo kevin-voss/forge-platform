@@ -38,6 +38,7 @@ Compose named volumes:
 * `forge-tempo-data`
 * `forge-loki-data`
 * `forge-grafana-data`
+* `forge-storage-data` (epic 13 — durable `FORGE_STORAGE_ROOT`)
 
 ## Config sources
 

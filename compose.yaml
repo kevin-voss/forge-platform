@@ -551,6 +551,33 @@ services:
       retries: 10
       start_period: 20s
 
+  forge-storage:
+    build:
+      context: ./services/forge-storage
+    image: forge/forge-storage:local
+    container_name: forge-storage
+    restart: unless-stopped
+    ports:
+      - "4107:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: forge-storage
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-info}
+      FORGE_ENV: ${FORGE_ENV:-development}
+      FORGE_SHUTDOWN_GRACE_SECONDS: ${FORGE_SHUTDOWN_GRACE_SECONDS:-10}
+      FORGE_STORAGE_ROOT: ${FORGE_STORAGE_ROOT:-/data/storage}
+      FORGE_STORAGE_ALLOWED_BASE: ${FORGE_STORAGE_ALLOWED_BASE:-/data}
+    volumes:
+      - forge-storage-data:/data/storage
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health/live | grep -q live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
   forge-build:
     build:
       context: ./services/forge-build
@@ -626,3 +653,4 @@ volumes:
   forge-runtime-data:
   forge-build-workspace:
   forge-build-store:
+  forge-storage-data:

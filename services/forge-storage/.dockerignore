@@ -1,0 +1,7 @@
+target
+.tmp
+.git
+*.md
+.env
+.env.*
+!.env.example

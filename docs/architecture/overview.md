@@ -22,6 +22,12 @@ See [local-infrastructure.md](local-infrastructure.md) for the Compose substrate
 
 Platform control-plane services are added as later **epics**, each planned into multiple atomic **steps**.
 
+## Platform services (selected)
+
+| Service | Language | Host port | Notes |
+|---|---|---:|---|
+| Forge Storage | Rust (Axum) | 4107 | Local FS backend at `FORGE_STORAGE_ROOT`; object APIs in later epic-13 steps |
+
 ## Where this is heading
 
 After epic `19`, Forge becomes a standalone cloud that runs identically on local Docker,

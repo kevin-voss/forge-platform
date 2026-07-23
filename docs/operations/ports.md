@@ -43,6 +43,7 @@
 | Forge Secrets | 4104 |
 | Forge Events | 4105 |
 | Forge Observe | 4106 |
+| Forge Storage | 4107 |
 
 ## Reserved for the standalone-cloud phase (epics 20–43)
 

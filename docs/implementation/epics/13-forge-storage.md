@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning
+In progress
 
 ## Goal
 
@@ -66,7 +66,7 @@ make demo DEMO=13
 
 | Step | Title | Status | Notes |
 |---|---|---|---|
-| [13.01](../steps/13-forge-storage/13.01-skeleton-local-fs-backend.md) | Skeleton + local FS backend | Not started | Rust service, health, Compose, port 4107, FS layout |
+| [13.01](../steps/13-forge-storage/13.01-skeleton-local-fs-backend.md) | Skeleton + local FS backend | Complete | Rust service, health, Compose, port 4107, FS layout |
 | [13.02](../steps/13-forge-storage/13.02-buckets-metadata-project-isolation.md) | Buckets + metadata + project isolation | Not started | Depends on 13.01; bucket/object metadata store, project scope |
 | [13.03](../steps/13-forge-storage/13.03-streamed-upload-download.md) | Streamed upload/download | Not started | Depends on 13.02; no full in-memory large files |
 | [13.04](../steps/13-forge-storage/13.04-sha256-range-requests.md) | SHA-256 + range requests | Not started | Depends on 13.03; integrity + `Range` support |
@@ -92,4 +92,4 @@ make demo DEMO=13
 
 ## Next step to implement
 
-**[13.01](../steps/13-forge-storage/13.01-skeleton-local-fs-backend.md) — Skeleton + local FS backend** (stands up the Rust service, health endpoints, Compose wiring, and durable FS root before any object semantics).
+**[13.02](../steps/13-forge-storage/13.02-buckets-metadata-project-isolation.md) — Buckets + metadata + project isolation** (depends on 13.01).
