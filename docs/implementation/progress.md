@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 131`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **future queue `N = 132`** (epic 20; current roadmap 1–131 complete).
 
 ## Epics
 
@@ -27,7 +27,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [16](epics/16-forge-workflows.md) | Forge Workflows | Complete | 7/7 steps; demo 16 agent-workflow acceptance gate passed |
 | [17](epics/17-forge-memory.md) | Forge Memory | Complete | 6/6 steps; demo 17 agent-memory acceptance gate passed |
 | [18](epics/18-managed-postgresql.md) | Managed PostgreSQL | Complete | 6/6 steps; demo 18 managed-database acceptance gate passed |
-| [19](epics/19-full-platform-demo.md) | Full platform demo | In progress | 5/6 steps; failure injection + workflow approval/rollback |
+| [19](epics/19-full-platform-demo.md) | Full platform demo | Complete | 6/6 steps; north-star gate `demos/09-full-platform` |
 
 ## Steps
 
@@ -164,9 +164,9 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **128** | [Identity, Secrets, Observe, Storage, managed DB](steps/19-full-platform-demo/19.03-identity-secrets-observe-storage-db.md) | Complete |  | setup-foundations.sh; Identity roles; Secrets+DB inject; Storage artifact; Tempo product trace |
 | **129** | [Models + Agents + Memory for diagnosis](steps/19-full-platform-demo/19.04-models-agents-memory.md) | Complete |  | Capstone AI loop: Memory seed, investigator+memory.search, diagnosis cites telemetry+incident |
 | **130** | [Failure injection + Workflows approval/rollback](steps/19-full-platform-demo/19.05-failure-injection-workflow.md) | Complete |  | CAPSTONE_BREAK readiness fail; incident-response workflow; approve→rollback+report; deny; mid-run resume |
-| **131** | [`demos/09-full-platform` acceptance suite + docs](steps/19-full-platform-demo/19.06-acceptance-suite-and-gate.md) | Not started |  |  |
+| **131** | [`demos/09-full-platform` acceptance suite + docs](steps/19-full-platform-demo/19.06-acceptance-suite-and-gate.md) | Complete |  | `start.sh`/`accept.sh`/`tests/`; CI subset + `make demo-accept DEMO=09-full-platform` north-star gate |
 
-> Implementable steps: **131** (`N = 1` … `N = 131`). Foundation complete separately.
+> Current-roadmap steps: **131** (`N = 1` … `N = 131`) — **complete**. Foundation complete separately.
 
 ---
 

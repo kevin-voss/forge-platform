@@ -15,6 +15,8 @@ providers, autoscaling, and everything after) is catalogued separately in
 
 ## North-star checklist (“100% working”)
 
+**Status: Complete** after `N = 131` / `19.06` (`make demo-accept DEMO=09-full-platform`).
+
 When every step below is **Complete** and green:
 
 | # | Outcome | Owned by (demo / step) |
@@ -687,7 +689,7 @@ Internal `01.01`-style ids remain in filenames/commits only — do not use them 
 | **130** | Failure injection + Workflows approval/rollback |
 | **131** | `demos/09-full-platform` acceptance suite + docs |
 
-**Totals:** `N = 1` … `N = 131` implementable. Foundation complete separately. **Next: `N = 1`.**
+**Totals:** `N = 1` … `N = 131` implementable. Foundation complete separately. **Current roadmap complete. Next: future `N = 132`.**
 
 ## Open questions / assumptions
 
@@ -722,4 +724,4 @@ Internal `01.01`-style ids remain in filenames/commits only — do not use them 
 | `roadmap.md` detail status | Done |
 | `README.md` current state | Done |
 
-**Next:** `N = 1` — see [`STEPS.md`](STEPS.md) / [`IMPLEMENT_STEP.md`](IMPLEMENT_STEP.md).
+**Next:** future queue `N = 132` — see [`STEPS.md`](STEPS.md) / [`FUTURE_PLAN.md`](FUTURE_PLAN.md).

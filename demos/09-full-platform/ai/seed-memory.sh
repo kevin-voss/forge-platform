@@ -59,10 +59,14 @@ status="$(http_body "${TMP_DIR}/create.json" POST "${MEMORY_URL}/v1/collections"
   -H "X-Forge-Project: ${PROJECT}" \
   -H 'content-type: application/json' \
   -d "${create_payload}")"
-[[ "${status}" == "201" || "${status}" == "200" ]] || {
+# 409 = collection already exists (idempotent re-seed / durable volume).
+[[ "${status}" == "201" || "${status}" == "200" || "${status}" == "409" ]] || {
   echo "seed-memory: create collection HTTP ${status}: $(cat "${TMP_DIR}/create.json")" >&2
   exit 1
 }
+if [[ "${status}" == "409" ]]; then
+  echo "  collection already exists; continuing with upsert"
+fi
 
 upsert_payload="$(python3 - "${FIXTURES}" <<'PY'
 import json, sys

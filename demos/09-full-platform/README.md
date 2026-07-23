@@ -1,17 +1,11 @@
 # Demo 09 — Full platform (capstone)
 
-Polyglot incident-management product deployed through the real Forge path, with
-platform foundations, AI diagnosis, and the approval-gated recovery loop:
+North-star gate for the Forge Platform. One command starts the demo; one command
+runs the Step 19 acceptance suite proving:
 
 ```text
-Identity (enforce) → Control authz (viewer denied / developer deploy)
-Secrets            → APP_SHARED_SECRET + PRODUCT_MODE + DATABASE_URL injection
-Observe/OTEL       → distributed trace across api + admin + classify
-Storage            → project bucket artifact via incident-api
-Managed Postgres   → forge database create/attach → incidents table
-Models + Memory    → historical incidents embedded; NN retrieval
-Agents             → deployment-investigator (telemetry + memory.search)
-Workflows          → incident-response (failure → diagnose → approve → rollback)
+deploy → run → broken release → detect → workflow → agent diagnosis
+  (telemetry + memory) → human approval → rollback → report → healthy again
 ```
 
 This folder is the **thematic** north-star demo (`demos/09-full-platform`). It is
@@ -21,12 +15,66 @@ This folder is the **thematic** north-star demo (`demos/09-full-platform`). It i
 
 | Step | Scope |
 |---|---|
-| **19.01** | Product services under `product/` (complete) |
-| **19.02** | Deploy path Build→Runtime→Gateway→Events (complete) |
-| **19.03** | Identity / Secrets / Observe / Storage / managed DB (complete) |
-| **19.04** | Models / Agents / Memory diagnosis (complete) |
-| **19.05** | Failure injection + Workflows approval/rollback (**this README**) |
-| 19.06 | Acceptance suite packaging |
+| 19.01–19.05 | Product, deploy path, foundations, AI, failure/rollback |
+| **19.06** | Acceptance suite + docs (**complete** — this gate) |
+
+## Quick start
+
+```bash
+# From repo root
+make demo DEMO=09-full-platform
+make demo-accept DEMO=09-full-platform
+
+# Alias
+make demo-full
+make demo-accept DEMO=09-full-platform
+
+# From this directory
+./start.sh
+./accept.sh
+echo "exit=$?"   # 0 on success
+```
+
+| Script | Purpose |
+|---|---|
+| [`start.sh`](start.sh) | Bring the demo to healthy |
+| [`accept.sh`](accept.sh) | Run the full Step 19 test list |
+| [`runbook.md`](runbook.md) | Operations + failure dumps |
+| [`scenario/walkthrough.md`](scenario/walkthrough.md) | Narrative recovery walkthrough |
+
+## CI subset vs full stack
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `CI_SUBSET` | `true` | Documented CI gate (Models/Agents/Memory/Workflows + fake backends) |
+| `CI_SUBSET=false` | — | Full platform + product via `deploy.sh` (kept running) |
+| `FORGE_MODELS_BACKEND` | `fake` | Deterministic embeddings |
+| `FORGE_AGENTS_TOOLS_MODE` | `fake` | Deterministic tool fixtures |
+| `FORGE_ACCEPT_KEEP` | `0` | Keep stack after accept when `1` |
+
+Full local proof:
+
+```bash
+CI_SUBSET=false ./start.sh
+CI_SUBSET=false ./accept.sh
+```
+
+## Acceptance tests (`tests/`)
+
+| Script | Specs.md Step 19 item |
+|---|---|
+| `01-smoke.sh` | complete platform smoke test |
+| `02-deploy.sh` | full deployment test |
+| `03-identity.sh` | identity and permission test |
+| `04-secrets.sh` | secret-injection test |
+| `05-events.sh` | event-processing test |
+| `06-telemetry.sh` | telemetry test |
+| `07-models.sh` | model-serving test |
+| `08-agents.sh` | agent-tool test |
+| `09-workflow-recovery.sh` | workflow recovery test |
+| `10-rollback.sh` | rollback test |
+| `11-interop.sh` | multi-language interoperability test |
+| `12-contracts.sh` | contract-only communication verification |
 
 ## Auth
 
@@ -44,8 +92,6 @@ See [`routes.md`](routes.md). Quick check (health stays open):
 curl -fsS -H 'Host: api.demo.localhost' http://127.0.0.1:4000/health/ready
 ```
 
-Authenticated product calls need `Authorization: Bearer <developer PAT>`.
-
 | Host | Service |
 |---|---|
 | `api.demo.localhost` | incident-api |
@@ -54,119 +100,25 @@ Authenticated product calls need `Authorization: Bearer <developer PAT>`.
 | `classify.demo.localhost` | incident-classify |
 | `notify.demo.localhost` | incident-notify |
 
-## Deploy + foundations + AI diagnosis
+## Building blocks
 
-```bash
-cd demos/09-full-platform
-./deploy.sh
-```
+| Path | Purpose |
+|---|---|
+| [`deploy.sh`](deploy.sh) | Full platform + product deploy (19.02–19.04) |
+| [`setup-foundations.sh`](setup-foundations.sh) | Identity / Secrets / DB / Storage |
+| [`ai/`](ai/) | Memory seed + investigator diagnosis |
+| [`scenario/`](scenario/) | `CAPSTONE_BREAK` + incident-response workflow |
+| [`product/`](product/) | Go / Kotlin / Rust / Python / Elixir services |
 
-What `deploy.sh` does:
-
-1. Starts platform services (Identity, Secrets, Control LocalProvisioner, Runtime,
-   Gateway, Build, Events, Observe, Storage, Models, Memory, Agents, OTEL/Tempo)
-2. Registers owner/org; creates Control project; issues developer + viewer PATs
-3. Asserts viewer cannot deploy; developer can
-4. Runs [`setup-foundations.sh`](setup-foundations.sh): Secrets bindings,
-   `forge database create/attach`, Storage bucket
-5. Builds + deploys all five product services via **`forge deployment create`**
-6. Asserts: DB status, secret status (no plaintext), Storage artifact round-trip,
-   Tempo distributed trace across ≥3 product services, log masking
-7. Seeds Memory + runs the investigator diagnosis loop (19.04)
-
-## Failure injection + recovery (19.05)
-
-Broken release flag (any product service):
+Broken release flag:
 
 ```text
 CAPSTONE_BREAK=true   # /health/ready → 503 {status:not_ready, error:capstone_break}
 ```
 
-North-star recovery loop (CI subset with fake Control/Agents):
-
-```bash
-./scenario/break-release.sh
-```
-
-What it proves:
-
-1. `CAPSTONE_BREAK` fails readiness deterministically (unit-tested)
-2. Readiness failure → `deployment.failed` → `incident-response` workflow starts
-3. Parallel diagnostics + Memory-assisted investigator diagnosis
-4. Human approval required; mid-run workflows restart resumes without repeating steps
-5. On **approve** → Control rollback → report stored → `deployment.completed` completion event
-6. On **deny** → no rollback (hold/escalate via `on_deny: close`)
-
-Manual (stack already up with workflows defs mounted):
-
-```bash
-./scenario/break-release.sh accept
-# observe awaiting_approval, then:
-# curl -X POST "$FORGE_WORKFLOWS_URL/v1/approvals/<id>/approve" \
-#   -H "X-Forge-Project: capstone" -H 'content-type: application/json' \
-#   -d '{"decided_by":"operator","reason":"rollback"}'
-```
-
-AI-only acceptance (Models/Memory/Agents, fake tools — CI path):
-
-```bash
-./ai/verify-diagnosis.sh
-```
-
-Unit tests:
-
-```bash
-python3 -m unittest discover -s lib -p 'test_*.py' -v
-cd product/api-go && go test ./...
-./scenario/break-release.sh unit
-```
-
-## AI layer (19.04)
-
-| Path | Purpose |
-|---|---|
-| [`ai/fixtures/historical-incidents.json`](ai/fixtures/historical-incidents.json) | Seed corpus for Memory (Models embeddings) |
-| [`ai/deployment-investigator.yaml`](ai/deployment-investigator.yaml) | Capstone agent: telemetry tools + `memory.search` + approval-gated `runtime.restart` |
-| [`ai/seed-memory.sh`](ai/seed-memory.sh) | Create collection + upsert incidents |
-| [`ai/verify-diagnosis.sh`](ai/verify-diagnosis.sh) | NN + investigator citation acceptance |
-
-## Scenario layer (19.05)
-
-| Path | Purpose |
-|---|---|
-| [`scenario/incident-response.yaml`](scenario/incident-response.yaml) | Capstone workflow: event → diagnose → approve → rollback → report |
-| [`scenario/expected-report.md`](scenario/expected-report.md) | Final report shape |
-| [`scenario/break-release.sh`](scenario/break-release.sh) | Failure injection + approval/rollback acceptance |
-
-Configuration:
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `CAPSTONE_BREAK` | unset/`false` | Product readiness failure (broken v2) |
-| `FORGE_MODELS_BACKEND` | `fake` | Deterministic embeddings in CI |
-| `FORGE_AGENTS_TOOLS_MODE` | `fake` | Deterministic tool fixtures in CI |
-| `FORGE_WORKFLOWS_AGENTS_MODE` | `fake` | Workflow agent client (fake in CI) |
-| `FORGE_WORKFLOWS_CONTROL_MODE` | `fake` | Workflow Control rollback (fake in CI) |
-| `FORGE_WORKFLOWS_URL` | `http://127.0.0.1:4302` | Workflows API |
-| `FORGE_AGENTS_URL` | `http://127.0.0.1:4301` | Agents API |
-| `FORGE_CONTROL_URL` | `http://127.0.0.1:4001` | Control (live rollback) |
-| `FORGE_EVENTS_URL` | `http://127.0.0.1:4105` | Events (completion publish when up) |
-
-## Product endpoints (api-go)
-
-| Path | Notes |
-|---|---|
-| `/db-status` | `DATABASE_URL_present` + backend; never echoes URL |
-| `/secret-status` | `APP_SHARED_SECRET_present` + length; never echoes secret |
-| `/incidents` | Persisted in managed Postgres when `DATABASE_URL` injected |
-| `/artifacts` | Upload/download via Forge Storage (project-scoped) |
-
 ## Contracts used
 
-Documented platform APIs only: Identity auth/tokens, Secrets set/bindings,
-Control hierarchy + deployments + managed DB + reconcile/rollback, Runtime
-injection, Gateway proxy, Events publish/consume (`deployment.failed` /
-`deployment.completed`), Observe/Tempo traces, Storage buckets/objects, Models
-embed, Memory upsert/query, Agents runs/tools/approvals, Workflows runs/approvals/
-triggers. CLI:
-`forge login|project|env|app|service|deployment|secret|config|database|agent`.
+Documented platform APIs only: Identity, Secrets, Control, Runtime, Gateway, Build,
+Events, Observe, Storage, Models, Agents, Memory, Workflows, managed Postgres.
+`tests/12-contracts.sh` lints OpenAPI + event schemas and asserts product code
+does not hard-code peer Docker DNS.

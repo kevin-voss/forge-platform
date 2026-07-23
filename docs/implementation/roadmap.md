@@ -69,7 +69,7 @@ Full step catalog + global queue: [`MASTER_PLAN.md`](MASTER_PLAN.md).
 | [16](epics/16-forge-workflows.md) | Forge Workflows | `services/forge-workflows` | Elixir | Complete (7/7; demo 16 gate) |
 | [17](epics/17-forge-memory.md) | Forge Memory | `services/forge-memory` | Rust | Complete (6/6; demo 17 gate) |
 | [18](epics/18-managed-postgresql.md) | Managed PostgreSQL | control + infra | mixed | Complete (6/6; demo 18 gate) |
-| [19](epics/19-full-platform-demo.md) | Full platform demo | `demos/09-full-platform` | — | Planned (6 steps) |
+| [19](epics/19-full-platform-demo.md) | Full platform demo | `demos/09-full-platform` | — | Complete (6/6; north-star gate) |
 
 ## Implementation order
 

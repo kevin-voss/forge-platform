@@ -122,12 +122,16 @@ run_unit_checks() {
 bootstrap_stack() {
   step "0" "bring up models + agents + workflows (fake Control)"
   chmod +x "${SCENARIO_DIR}/break-release.sh"
-  free_host_ports
 
-  echo "Starting postgres + forge-models + forge-agents + forge-workflows..."
-  "${COMPOSE[@]}" up -d --build --force-recreate \
-    postgres forge-models forge-agents forge-workflows
-  STARTED=1
+  if [[ "${FORGE_SCENARIO_SKIP_COMPOSE:-0}" == "1" ]]; then
+    echo "  using existing workflows stack (FORGE_SCENARIO_SKIP_COMPOSE=1)"
+  else
+    free_host_ports
+    echo "Starting postgres + forge-models + forge-agents + forge-workflows..."
+    "${COMPOSE[@]}" up -d --build --force-recreate \
+      postgres forge-models forge-agents forge-workflows
+    STARTED=1
+  fi
 
   wait_http "${FORGE_MODELS_URL}/health/ready" "forge-models"
   wait_http "${FORGE_AGENTS_URL}/health/ready" "forge-agents"

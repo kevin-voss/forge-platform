@@ -49,6 +49,8 @@ coverage/
 data/
 *.log
 docker-data/
+demos/09-full-platform/.capstone-state
+demos/09-full-platform/.capstone-deploy-tmp
 
 # Generated
 **/generated/

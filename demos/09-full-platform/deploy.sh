@@ -98,13 +98,18 @@ source "${DEMO_DIR}/setup-foundations.sh"
 
 cleanup() {
   local dep
-  if ((${#TRACKED_DEPLOYMENTS[@]} > 0)); then
+  if [[ "${FORGE_CAPSTONE_KEEP:-0}" != "1" ]] && ((${#TRACKED_DEPLOYMENTS[@]} > 0)); then
     for dep in "${TRACKED_DEPLOYMENTS[@]}"; do
       [[ -n "${dep}" ]] || continue
       curl --silent --show-error -H "Authorization: Bearer ${DEV_TOKEN:-}" \
         -X DELETE "${CONTROL_URL}/v1/deployments/${dep}" >/dev/null 2>&1 || true
       docker rm -f "forge-${dep}" >/dev/null 2>&1 || true
     done
+  fi
+  if [[ "${FORGE_CAPSTONE_KEEP:-0}" == "1" ]]; then
+    # Persist deploy state for accept.sh / operators; keep TMP_DIR contents.
+    echo "${TMP_DIR}" >"${DEMO_DIR}/.capstone-deploy-tmp"
+    return 0
   fi
   rm -rf "${TMP_DIR}"
 }

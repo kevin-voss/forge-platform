@@ -17,7 +17,7 @@ SHUTDOWN_TIMEOUT ?= 10s
 .PHONY: help setup env-check infra-up infra-down dev stop restart status logs \
 	build build-cli test test-unit test-integration test-e2e test-infrastructure \
 	contract-validate lint-openapi \
-	lint format clean reset demo service-test service-run wait
+	lint format clean reset demo demo-accept demo-full service-test service-run wait
 
 help:
 	@echo "Forge Platform Make targets"
@@ -41,11 +41,17 @@ help:
 	@echo "  make clean                 Remove local build artifacts"
 	@echo "  make reset                 Destroy local volumes and restart clean"
 	@echo "  make demo DEMO=00          Run a numbered demo (e.g. DEMO=12 observability)"
+	@echo "  make demo DEMO=09-full-platform  Start capstone (start.sh)"
+	@echo "  make demo-accept DEMO=...  Run demo acceptance suite (capstone accept.sh)"
+	@echo "  make demo-full             Alias: demo DEMO=09-full-platform"
 	@echo "  make service-test SERVICE= Run tests for one service"
 	@echo "  make service-run SERVICE=  Run one service locally"
 
 setup: env-check
 	@chmod +x scripts/*.sh scripts/lib/*.sh demos/*/run.sh \
+		demos/09-full-platform/start.sh demos/09-full-platform/accept.sh \
+		demos/09-full-platform/tests/*.sh \
+		demos/09-full-platform/ai/*.sh demos/09-full-platform/scenario/*.sh \
 		tests/infrastructure/test_infrastructure.sh \
 		tests/contracts/test_runtime_contract_validator.sh \
 		tools/contract-validator/*.sh tools/contract-validator/*.py
@@ -157,6 +163,11 @@ reset:
 
 demo:
 	@if [[ -z "$(DEMO)" ]]; then echo "DEMO is required, e.g. DEMO=00" >&2; exit 1; fi
+	@if [[ "$(DEMO)" == "09-full-platform" || "$(DEMO)" == "full-platform" || "$(DEMO)" == "full" ]]; then \
+		echo "Starting demos/09-full-platform/start.sh"; \
+		chmod +x demos/09-full-platform/start.sh; \
+		exec -a "forge-demo-09-full-platform" bash demos/09-full-platform/start.sh; \
+	fi
 	@demo_num="$$(printf '%02d' $$((10#$(DEMO))))"; \
 	matches=(demos/$${demo_num}-*/run.sh); \
 	if [[ ! -f "$${matches[0]}" ]]; then \
@@ -165,6 +176,29 @@ demo:
 	fi; \
 	echo "Running $${matches[0]}"; \
 	exec -a "forge-demo-$${demo_num}" bash "$${matches[0]}"
+
+demo-accept:
+	@if [[ -z "$(DEMO)" ]]; then echo "DEMO is required, e.g. DEMO=09-full-platform" >&2; exit 1; fi
+	@if [[ "$(DEMO)" == "09-full-platform" || "$(DEMO)" == "full-platform" || "$(DEMO)" == "full" ]]; then \
+		echo "Running demos/09-full-platform/accept.sh"; \
+		chmod +x demos/09-full-platform/accept.sh demos/09-full-platform/tests/*.sh; \
+		exec -a "forge-demo-accept-09-full-platform" bash demos/09-full-platform/accept.sh; \
+	fi
+	@demo_num="$$(printf '%02d' $$((10#$(DEMO))))"; \
+	matches=(demos/$${demo_num}-*/accept.sh demos/$${demo_num}-*/acceptance.sh); \
+	script=""; \
+	for m in "$${matches[@]}"; do \
+		if [[ -f "$$m" ]]; then script="$$m"; break; fi; \
+	done; \
+	if [[ -z "$$script" ]]; then \
+		echo "Acceptance script not found for DEMO=$(DEMO) (tried accept.sh / acceptance.sh)" >&2; \
+		exit 1; \
+	fi; \
+	echo "Running $${script}"; \
+	exec bash "$${script}"
+
+demo-full:
+	@$(MAKE) demo DEMO=09-full-platform
 
 service-test:
 	@if [[ -z "$(SERVICE)" ]]; then echo "SERVICE is required" >&2; exit 1; fi

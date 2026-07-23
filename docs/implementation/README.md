@@ -82,9 +82,9 @@ Update [`progress.md`](progress.md) after planning and after each step completes
 | [16-forge-workflows](epics/16-forge-workflows.md) | Complete | `16.01`–`16.07`; demo 16 gate |
 | [17-forge-memory](epics/17-forge-memory.md) | Complete | `17.01`–`17.06`; demo 17 gate |
 | [18-managed-postgresql](epics/18-managed-postgresql.md) | Complete | `18.01`–`18.06`; demo 18 gate |
-| [19-full-platform-demo](epics/19-full-platform-demo.md) | In progress | `19.01`–`19.06` |
+| [19-full-platform-demo](epics/19-full-platform-demo.md) | Complete | `19.01`–`19.06`; north-star gate |
 
-**Next:** `N = 127` via [`IMPLEMENT_STEP.md`](IMPLEMENT_STEP.md) — lookup in [`STEPS.md`](STEPS.md).
+**Current roadmap complete** (`N = 1` … `N = 131`). Next implementable work is the future queue starting at **`N = 132`** (epic 20) — see [`FUTURE_PLAN.md`](FUTURE_PLAN.md).
 
 Queue: [`STEPS.md`](STEPS.md) (`N = 1` … `N = 131`). Catalog: [`MASTER_PLAN.md`](MASTER_PLAN.md).
 
@@ -101,8 +101,7 @@ Plan: [`FUTURE_PLAN.md`](FUTURE_PLAN.md).
 | [`26`–`37`](FUTURE_PLAN.md#3-epic-index) | M2 — production platform | Epic docs with step catalogs |
 | [`38`–`43`](FUTURE_PLAN.md#3-epic-index) | M3 — global platform | Epic docs with step catalogs |
 
-**These do not affect current work.** Steps `1`–`131` are frozen, the next implementable
-current-roadmap step is still `N = 51`, and every future epic extends shipped behaviour rather than
+**Current roadmap (`N = 1`–`131`) is complete.** Future epics extend shipped behaviour rather than
 replacing it — see [ADR 0007](../decisions/0007-additive-evolution-after-epic-19.md).
 
 ## Naming

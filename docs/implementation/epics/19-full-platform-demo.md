@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Goal
 
@@ -73,7 +73,7 @@ One command starts the entire demo; one command runs the acceptance suite provin
 | [19.03](../steps/19-full-platform-demo/19.03-identity-secrets-observe-storage-db.md) | Identity, Secrets, Observe, Storage, managed DB | Complete | Identity roles; Secrets+DB inject; Storage; Observe product trace |
 | [19.04](../steps/19-full-platform-demo/19.04-models-agents-memory.md) | Models + Agents + Memory for diagnosis | Complete | Memory seed + investigator diagnosis loop |
 | [19.05](../steps/19-full-platform-demo/19.05-failure-injection-workflow.md) | Failure injection + Workflows approval/rollback | Complete | CAPSTONE_BREAK + incident-response approve/deny/resume |
-| [19.06](../steps/19-full-platform-demo/19.06-acceptance-suite-and-gate.md) | `demos/09-full-platform` acceptance suite + docs | Not started | Depends on 19.05; north-star gate |
+| [19.06](../steps/19-full-platform-demo/19.06-acceptance-suite-and-gate.md) | `demos/09-full-platform` acceptance suite + docs | Complete | `start.sh`/`accept.sh`/`tests/`; CI subset north-star gate |
 
 ## Assumptions
 
@@ -92,4 +92,5 @@ One command starts the entire demo; one command runs the acceptance suite provin
 
 ## Next step to implement
 
-**[19.06](../steps/19-full-platform-demo/19.06-acceptance-suite-and-gate.md) — `demos/09-full-platform` acceptance suite + docs** (depends on 19.05).
+None — epic complete. Capstone gate:
+`make demo DEMO=09-full-platform && make demo-accept DEMO=09-full-platform`.
