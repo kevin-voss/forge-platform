@@ -17,6 +17,8 @@ pub struct NodeResponse {
     pub memory_bytes: u64,
     pub started_at: DateTime<Utc>,
     pub last_heartbeat: DateTime<Utc>,
+    /// Network-plane status: `Ready` or `Degraded` (DNS bootstrap failure keeps last resolver).
+    pub network_status: String,
 }
 
 pub fn router() -> Router<AppState> {
@@ -43,6 +45,7 @@ fn node_response(node: &Node, heartbeat: &Heartbeat) -> NodeResponse {
         memory_bytes: info.memory_bytes,
         started_at: info.started_at,
         last_heartbeat: heartbeat.last_heartbeat(),
+        network_status: node.network_status_label().to_string(),
     }
 }
 

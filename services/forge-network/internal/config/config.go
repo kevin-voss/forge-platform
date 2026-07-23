@@ -43,6 +43,11 @@ type Config struct {
 
 	// NetworkPolicy cluster fallback (22.05).
 	PolicyDefault string // allow-within-environment|deny-all
+
+	// Discovery/DNS drift reconciliation (22.06).
+	DiscoveryURL       string
+	DefaultNetworkName string
+	DriftInterval      time.Duration
 }
 
 // Load reads configuration from the process environment.
@@ -212,6 +217,16 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("FORGE_NETWORK_POLICY_DEFAULT must be allow-within-environment|deny-all, got %q", policyDefault)
 	}
 
+	discoveryURL := strings.TrimSpace(os.Getenv("FORGE_DISCOVERY_URL"))
+	defaultNetwork := strings.TrimSpace(os.Getenv("FORGE_NETWORK_NAME"))
+	if defaultNetwork == "" {
+		defaultNetwork = "cluster-overlay"
+	}
+	driftSecs, err := positiveIntEnv("FORGE_NETWORK_DRIFT_INTERVAL_S", 15)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		Port:                   port,
 		ServiceName:            name,
@@ -237,6 +252,9 @@ func Load() (Config, error) {
 		WgRotationWindow:       time.Duration(rotSecs) * time.Second,
 		ModeDefault:            modeDefault,
 		PolicyDefault:          policyDefault,
+		DiscoveryURL:           strings.TrimRight(discoveryURL, "/"),
+		DefaultNetworkName:     defaultNetwork,
+		DriftInterval:          time.Duration(driftSecs) * time.Second,
 	}, nil
 }
 

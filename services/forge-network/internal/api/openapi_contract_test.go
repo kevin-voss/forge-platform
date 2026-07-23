@@ -85,6 +85,10 @@ func TestOpenAPIDeclaresNetworkAndLeases(t *testing.T) {
 		"default-deny-environment",
 		"forge_network_policy_denied_total",
 		"network.policy.denied",
+		"listWorkloadLeases",
+		"reportRouteDrift",
+		"/v1/networks/{name}/route-drift",
+		"drift_count",
 	} {
 		if !strings.Contains(text, needle) {
 			t.Fatalf("openapi missing %q", needle)

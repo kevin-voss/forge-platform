@@ -116,6 +116,28 @@ func run() error {
 
 	var dnsServer *discoverydns.Server
 	if cfg.DNSEnabled {
+		var overlayFilter discoverydns.OverlayFilter = discoverydns.PublicIPRejectFilter{}
+		if cfg.NetworkURL != "" {
+			cidr, err := discoverydns.ParseOverlayCIDR(cfg.OverlayCIDR)
+			if err != nil {
+				return fmt.Errorf("overlay cidr: %w", err)
+			}
+			leaseIdx := &discoverydns.NetworkLeaseIndex{
+				BaseURL:      cfg.NetworkURL,
+				NetworkName:  cfg.NetworkName,
+				RefreshEvery: cfg.OverlayLeaseRefresh,
+			}
+			go leaseIdx.Run(bgCtx)
+			overlayFilter = &discoverydns.CIDROverlayFilter{
+				OverlayCIDR:  cidr,
+				LeaseChecker: leaseIdx,
+			}
+			log.Info("dns overlay lease filter enabled",
+				"overlay_cidr", cfg.OverlayCIDR,
+				"network_url", cfg.NetworkURL,
+				"network_name", cfg.NetworkName,
+			)
+		}
 		dnsServer = &discoverydns.Server{
 			Addr: fmt.Sprintf(":%d", cfg.DNSPort),
 			Zone: cfg.DNSZone,
@@ -126,6 +148,7 @@ func run() error {
 					MaxTTL:      time.Duration(cfg.DNSTTLSeconds) * time.Second,
 					NegativeTTL: time.Duration(cfg.DNSNegativeTTLSeconds) * time.Second,
 				},
+				Overlay: overlayFilter,
 			},
 			Forwarder: &discoverydns.Forwarder{
 				Upstream: cfg.DNSForwardUpstream,

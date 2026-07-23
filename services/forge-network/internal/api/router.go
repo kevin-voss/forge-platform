@@ -18,6 +18,7 @@ type Deps struct {
 	Policy        *policy.Store
 	Compiler      *policy.PolicyCompiler
 	PolicyMetrics *PolicyMetrics
+	DriftMetrics  *network.DriftMetrics
 	DB            health.ReadyChecker
 	Log           *slog.Logger
 }
@@ -30,6 +31,7 @@ func NewRouter(d Deps) *http.ServeMux {
 	n.Register(mux)
 	(&NodeLeasesHandler{Alloc: d.Alloc, Computer: d.Computer, Membership: d.Membership, Log: d.Log}).Register(mux)
 	(&WorkloadLeasesHandler{Alloc: d.Alloc, Log: d.Log}).Register(mux)
+	(&DriftHandler{Metrics: d.DriftMetrics, Log: d.Log}).Register(mux)
 	(&PeersHandler{Registry: d.Registry, Computer: d.Computer, Log: d.Log}).Register(mux)
 	(&RotateKeyHandler{Registry: d.Registry, Computer: d.Computer, Log: d.Log}).Register(mux)
 	(&NodeMembershipHandler{Store: d.Membership, Log: d.Log}).Register(mux)
@@ -44,6 +46,9 @@ func NewRouter(d Deps) *http.ServeMux {
 		metrics := d.PolicyMetrics
 		if metrics == nil {
 			metrics = &PolicyMetrics{}
+		}
+		if metrics.Drift == nil {
+			metrics.Drift = d.DriftMetrics
 		}
 		(&PolicyRulesHandler{Store: d.Policy, Compiler: compiler, Metrics: metrics, Log: d.Log}).Register(mux)
 	}

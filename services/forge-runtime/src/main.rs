@@ -137,6 +137,22 @@ async fn run() -> Result<(), String> {
         live_path: cfg.probe_live_path.clone(),
         probe_host: cfg.probe_host.clone(),
     };
+    // Bootstrap Forge DNS for `.svc.forge` before workloads publish endpoints (22.06).
+    if let Some(nameserver) = cfg.network_dns_nameserver.as_deref() {
+        let resolv_path = cfg.network_dns_resolv_path.clone().unwrap_or_else(|| {
+            cfg.data_dir.join("resolv.forge.conf")
+        });
+        let backend = network::select_dns_backend(&cfg.network_dns_backend, &resolv_path);
+        let desired = network::DnsConfig {
+            nameserver: nameserver.to_string(),
+            zone: cfg.network_dns_zone.clone(),
+            search: cfg.network_dns_search.clone(),
+        };
+        let _ = network::bootstrap_dns(backend.as_ref(), &desired, &node.network_status);
+    } else {
+        info!("forge dns bootstrap skipped (FORGE_NETWORK_DNS_NAMESERVER unset)");
+    }
+
     let mut prober_builder = Prober::new(
         Arc::clone(&docker) as Arc<dyn docker::DockerEngine>,
         Arc::new(StatusCache::new()),
@@ -170,6 +186,31 @@ async fn run() -> Result<(), String> {
         }
     } else {
         info!("discovery registration disabled (FORGE_DISCOVERY_URL unset)");
+    }
+    if let Some(network_url) = cfg.network_url.as_deref() {
+        if cfg.network_overlay_register {
+            match network::NetworkClient::new(network_url) {
+                Ok(client) => {
+                    info!(
+                        network_url = %network_url,
+                        overlay_cidr = %cfg.network_overlay_cidr,
+                        "wiring overlay lease registration for discovery"
+                    );
+                    prober_builder = prober_builder.with_overlay(
+                        Arc::new(client),
+                        prober::OverlayRegisterConfig {
+                            network_name: cfg.network_name.clone(),
+                            node_id: node.info.id.clone(),
+                            overlay_cidr: cfg.network_overlay_cidr.clone(),
+                            enabled: true,
+                        },
+                    );
+                }
+                Err(err) => {
+                    error!(error = %err, "invalid network client for overlay register");
+                }
+            }
+        }
     }
     let prober = Arc::new(prober_builder);
     let _prober_task = prober.spawn();
@@ -313,6 +354,27 @@ async fn run() -> Result<(), String> {
             obs: std::sync::Arc::new(network::PolicyObs::new()),
             deny_sample_rate: cfg.network_deny_log_sample_rate,
             events_url: cfg.events_url.clone(),
+        }))
+    } else {
+        None
+    };
+
+    let _drift_poll_task = if let Some(network_url) = cfg.network_url.as_deref() {
+        info!(
+            network_url = %network_url,
+            poll_interval_s = cfg.network_drift_poll_interval.as_secs(),
+            "starting network/discovery drift poll loop"
+        );
+        Some(network::spawn_drift_poll_loop(network::DriftPollConfig {
+            network_url: network_url.to_string(),
+            network_name: cfg.network_name.clone(),
+            node_id: node.info.id.clone(),
+            discovery_url: cfg.discovery_url.clone(),
+            overlay_cidr: cfg.network_overlay_cidr.clone(),
+            poll_interval: cfg.network_drift_poll_interval,
+            dns_obs: std::sync::Arc::new(network::DnsObs::new()),
+            drift_obs: std::sync::Arc::new(network::DriftObs::new()),
+            observed_routes: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         }))
     } else {
         None

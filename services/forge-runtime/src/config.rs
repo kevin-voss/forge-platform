@@ -97,6 +97,22 @@ pub struct Config {
     pub network_deny_log_sample_rate: f64,
     /// Optional forge-events base URL for `network.policy.denied` (22.05).
     pub events_url: Option<String>,
+    /// Overlay DNS nameserver IP (Discovery on the overlay / Compose fixed IP) (22.06).
+    pub network_dns_nameserver: Option<String>,
+    /// Authoritative zone (default `svc.forge`) (22.06).
+    pub network_dns_zone: String,
+    /// Resolver search domain, e.g. `production.shop.svc.forge` (22.06).
+    pub network_dns_search: String,
+    /// DNS config backend: host|fake (22.06).
+    pub network_dns_backend: String,
+    /// Path for forge-managed resolv snippet (22.06).
+    pub network_dns_resolv_path: Option<PathBuf>,
+    /// Cluster overlay CIDR used to reject public IPs in registration (22.06).
+    pub network_overlay_cidr: String,
+    /// Drift reconcile interval (22.06).
+    pub network_drift_poll_interval: Duration,
+    /// When true and network_url is set, register Discovery endpoints with overlay leases (22.06).
+    pub network_overlay_register: bool,
 }
 
 impl Config {
@@ -433,6 +449,51 @@ impl Config {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
 
+        let network_dns_nameserver = env::var("FORGE_NETWORK_DNS_NAMESERVER")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let network_dns_zone = non_empty_env("FORGE_NETWORK_DNS_ZONE", "svc.forge");
+        let network_dns_search = env::var("FORGE_NETWORK_DNS_SEARCH")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| {
+                format!(
+                    "{}.{}.{}",
+                    discovery_default_environment, discovery_default_project, network_dns_zone
+                )
+            });
+        let network_dns_backend = non_empty_env("FORGE_NETWORK_DNS_BACKEND", "host");
+        let network_dns_resolv_path = env::var("FORGE_NETWORK_DNS_RESOLV_PATH")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from);
+        let network_overlay_cidr =
+            non_empty_env("FORGE_NETWORK_OVERLAY_CIDR", "10.100.0.0/16");
+        let drift_poll_raw =
+            env::var("FORGE_NETWORK_DRIFT_POLL_INTERVAL_S").unwrap_or_else(|_| "15".into());
+        let drift_poll_secs: u64 = drift_poll_raw.trim().parse().map_err(|_| {
+            format!(
+                "FORGE_NETWORK_DRIFT_POLL_INTERVAL_S must be a positive integer, got {drift_poll_raw:?}"
+            )
+        })?;
+        if drift_poll_secs == 0 {
+            return Err(format!(
+                "FORGE_NETWORK_DRIFT_POLL_INTERVAL_S must be a positive integer, got {drift_poll_raw:?}"
+            ));
+        }
+        let network_overlay_register = match env::var("FORGE_NETWORK_OVERLAY_REGISTER")
+            .unwrap_or_else(|_| "true".into())
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "false" | "0" | "no" => false,
+            _ => true,
+        };
+
         Ok(Self {
             port,
             service_name,
@@ -487,6 +548,14 @@ impl Config {
             network_policy_backend,
             network_deny_log_sample_rate,
             events_url,
+            network_dns_nameserver,
+            network_dns_zone,
+            network_dns_search,
+            network_dns_backend,
+            network_dns_resolv_path,
+            network_overlay_cidr,
+            network_drift_poll_interval: Duration::from_secs(drift_poll_secs),
+            network_overlay_register,
         })
     }
 }
@@ -567,6 +636,14 @@ mod tests {
             "FORGE_NETWORK_POLICY_BACKEND",
             "FORGE_NETWORK_DENY_LOG_SAMPLE_RATE",
             "FORGE_EVENTS_URL",
+            "FORGE_NETWORK_DNS_NAMESERVER",
+            "FORGE_NETWORK_DNS_ZONE",
+            "FORGE_NETWORK_DNS_SEARCH",
+            "FORGE_NETWORK_DNS_BACKEND",
+            "FORGE_NETWORK_DNS_RESOLV_PATH",
+            "FORGE_NETWORK_OVERLAY_CIDR",
+            "FORGE_NETWORK_DRIFT_POLL_INTERVAL_S",
+            "FORGE_NETWORK_OVERLAY_REGISTER",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()

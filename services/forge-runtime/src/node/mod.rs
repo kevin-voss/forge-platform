@@ -36,6 +36,8 @@ pub struct Node {
     pub info: NodeInfo,
     /// Public key only — private key never leaves the key module / disk.
     pub wireguard_public_key: Option<NodePublicKey>,
+    /// Network-plane health (`Ready` / `Degraded` for DNS bootstrap failures) (22.06).
+    pub network_status: std::sync::Arc<crate::network::NodeNetworkHealth>,
 }
 
 impl Node {
@@ -115,6 +117,7 @@ impl Node {
         Ok(Self {
             info,
             wireguard_public_key: Some(public_key),
+            network_status: std::sync::Arc::new(crate::network::NodeNetworkHealth::new()),
         })
     }
 
@@ -123,6 +126,11 @@ impl Node {
         let mut labels = HashMap::new();
         labels.insert(NODE_ID_LABEL.to_string(), self.info.id.clone());
         labels
+    }
+
+    /// Network-plane status for `/v1/node` (`Ready` or `Degraded`).
+    pub fn network_status_label(&self) -> &'static str {
+        self.network_status.status()
     }
 }
 

@@ -94,6 +94,8 @@ type ZoneResolver struct {
 	Zone   string
 	TTL    TTLPolicy
 	Now    func() time.Time
+	// Overlay filters DNS answers to Ready endpoints with current overlay leases (22.06).
+	Overlay OverlayFilter
 }
 
 // Resolve builds a DNS reply for an in-zone question. ok=false means the name is not in-zone.
@@ -169,6 +171,9 @@ func (z *ZoneResolver) answerService(ctx context.Context, out *mdns.Msg, q mdns.
 	}
 	ownerFQDN := mdns.Fqdn(q.Name)
 	for _, ep := range eps {
+		if !z.allowOverlay(ctx, ep.ID, ep.AddressIP) {
+			continue
+		}
 		ttl := z.TTL.AnswerTTL(ep.ExpiresAt, now)
 		ip := net.ParseIP(ep.AddressIP)
 		if ip == nil {
@@ -200,6 +205,10 @@ func (z *ZoneResolver) answerEndpoint(ctx context.Context, out *mdns.Msg, q mdns
 	}
 	ep, err := z.Store.GetEndpoint(ctx, owner.Project, owner.Environment, owner.EndpointID)
 	if err != nil || ep.Service != canonService || ep.Phase != "Ready" {
+		z.writeNXDOMAIN(out, q)
+		return
+	}
+	if !z.allowOverlay(ctx, ep.ID, ep.AddressIP) {
 		z.writeNXDOMAIN(out, q)
 		return
 	}
@@ -249,6 +258,9 @@ func (z *ZoneResolver) answerSRV(ctx context.Context, out *mdns.Msg, q mdns.Ques
 	zone := z.zone()
 	matched := 0
 	for _, ep := range eps {
+		if !z.allowOverlay(ctx, ep.ID, ep.AddressIP) {
+			continue
+		}
 		port, ok := matchSRVPort(owner, ep)
 		if !ok {
 			continue
@@ -303,6 +315,13 @@ func matchSRVPort(owner OwnerName, ep store.EndpointRow) (int, bool) {
 		return ep.AddressPort, true
 	}
 	return 0, false
+}
+
+func (z *ZoneResolver) allowOverlay(ctx context.Context, endpointID, addressIP string) bool {
+	if z.Overlay == nil {
+		return true
+	}
+	return z.Overlay.Allow(ctx, endpointID, addressIP)
 }
 
 func (z *ZoneResolver) writeNXDOMAIN(out *mdns.Msg, q mdns.Question) {

@@ -66,10 +66,32 @@ so Compose service names and public names keep resolving. `forge-discovery` itse
 Docker's default resolver (it must not point at itself).
 
 Product/workload containers started by Runtime should use the same `dns:` (or Runtime
-bootstrap wiring in later epics) so app code can `getaddrinfo("users.local.demo.svc.forge")`.
+bootstrap via `FORGE_NETWORK_DNS_*`, step `22.06`) so app code can
+`getaddrinfo("users.local.demo.svc.forge")`.
 
 Host-side `dig` uses the published mapping `5053:5053/udp` (optional; not required for
 in-network resolution).
+
+### Overlay addresses (22.06)
+
+Internal DNS must never answer with provider public IPs. Discovery always rejects
+public addresses in `.svc.forge` answers. When `FORGE_NETWORK_URL` is set, answers are
+further restricted to Ready endpoints whose address is inside
+`FORGE_DISCOVERY_OVERLAY_CIDR` (default `10.100.0.0/16`) **and** has a current
+`forge-network` workload lease.
+
+Runtime prefers overlay leases when registering endpoints (`FORGE_NETWORK_OVERLAY_REGISTER`);
+if a node has not joined the overlay yet it falls back to a private container IP so
+local demos keep working.
+
+### Troubleshooting (DNS, routes, policy)
+
+| Symptom | Likely cause | Check |
+|---|---|---|
+| NXDOMAIN for a Ready service | Endpoint address is public, outside overlay CIDR, or missing a Network lease | `dig …`; `GET …/endpoints`; `GET /v1/networks/{name}/workload-leases` |
+| Name resolves but connect fails | Route/peer drift or NetworkPolicy deny | `forge_network_route_drift_total`; Runtime logs `network.route.drift`; deny metric/events from `22.05` |
+| Node `networkStatus=Degraded` | DNS bootstrap apply failed; last resolver config kept | Runtime logs `network.dns.bootstrap_failed` |
+| Public IP in an answer | Bug — should never happen after `22.06` | File issue; verify Discovery build includes overlay filter |
 
 ### Bare metal / Hetzner / AWS / Azure
 
@@ -117,6 +139,10 @@ contract.
 | `FORGE_DISCOVERY_DNS_NEGATIVE_TTL_SECONDS` | `2` | NXDOMAIN / empty TTL |
 | `FORGE_DISCOVERY_DNS_FORWARD_UPSTREAM` | `127.0.0.11` | Non-zone upstream (Docker DNS locally) |
 | `FORGE_DISCOVERY_DNS_FORWARD_TIMEOUT_MS` | `2000` | Upstream exchange timeout |
+| `FORGE_DISCOVERY_OVERLAY_CIDR` | `10.100.0.0/16` | Overlay filter when Network URL set (22.06) |
+| `FORGE_NETWORK_URL` | _(empty)_ | When set, DNS requires current overlay leases (22.06) |
+| `FORGE_NETWORK_NAME` | `cluster-overlay` | Network name for lease index |
+| `FORGE_DISCOVERY_OVERLAY_LEASE_REFRESH_S` | `10` | Lease index refresh interval |
 | `FORGE_OTEL_ENABLED` | `true` | OTLP export |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel-collector:4317` | OTLP gRPC |
 

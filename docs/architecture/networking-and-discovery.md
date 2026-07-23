@@ -48,12 +48,16 @@ Discovery keeps a registry of `Service` and `Endpoint` resources.
 
 ```text
 Runtime starts a users-api replica
-→ Runtime reports the replica's private endpoint
+→ Runtime allocates an overlay address from Forge Network (workload lease)
+→ Runtime reports that overlay endpoint to Discovery
 → Discovery registers the endpoint (lease with TTL)
 → health probe succeeds
 → endpoint becomes Ready
-→ Gateway and internal DNS include it
+→ Gateway and internal DNS include it (Ready + current overlay lease only)
 ```
+
+Internal `.svc.forge` answers never include provider public IPs. Split-horizon keeps
+`.svc.forge` on Discovery; public customer domains remain epic `34`.
 
 Failure is the interesting half:
 
@@ -172,7 +176,26 @@ records all come from the same DNS controller.
 
 ---
 
-## 9. Local fidelity
+## 9. Overlay DNS contract (22.06)
+
+```text
+nameserver <forge-dns-overlay-ip>
+search production.shop.svc.forge
+```
+
+```text
+users.production.shop.svc.forge -> A/AAAA for Ready overlay endpoints only
+```
+
+Runtime bootstraps this resolver config on the node. If DNS apply fails, the previous
+config is kept and the node is marked `Degraded`. Network and Discovery reconcile
+endpoint addresses against active workload leases and observed routes; drift increments
+`forge_network_route_drift_total` and is logged with
+`{endpoint_id, expected_overlay_ip, observed_route}`. DNS resolution is observed as
+`forge_network_dns_resolution_total{result}` and span `network.dns.resolve`.
+NetworkPolicy denies from step `22.05` still apply after a name resolves.
+
+## 10. Local fidelity
 
 Everything above must be demonstrable on one developer machine with Docker:
 

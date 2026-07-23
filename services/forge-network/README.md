@@ -116,6 +116,24 @@ curl -s 'localhost:4110/v1/networks/cluster-overlay/transport?from=node-a&to=nod
 Compose demo nodes set `FORGE_NODE_DOCKER_COLOCATED=true` so same-daemon pairs
 resolve to `docker` (no WireGuard interface).
 
+## Overlay DNS + drift (22.06)
+
+```bash
+# List active workload leases (Discovery/Runtime reconcile against these)
+curl -s localhost:4110/v1/networks/cluster-overlay/workload-leases | jq
+
+# Runtime can report observed route drift
+curl -s -X POST localhost:4110/v1/networks/cluster-overlay/route-drift \
+  -H 'content-type: application/json' \
+  -d '{"drift_count":1}' | jq
+
+curl -s localhost:4110/metrics | grep -E 'forge_network_(route_drift|dns_resolution)'
+```
+
+When `FORGE_DISCOVERY_URL` is set, forge-network periodically compares Discovery Ready
+endpoints to active leases and increments `forge_network_route_drift_total` on mismatch
+(public IPs and missing leases count as drift).
+
 ## WireGuard peers
 
 ```bash

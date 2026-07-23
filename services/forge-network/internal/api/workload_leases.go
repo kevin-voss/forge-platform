@@ -18,6 +18,7 @@ type WorkloadLeasesHandler struct {
 // Register mounts workload-lease routes.
 func (h *WorkloadLeasesHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/networks/{name}/workload-leases", h.allocate)
+	mux.HandleFunc("GET /v1/networks/{name}/workload-leases", h.list)
 	mux.HandleFunc("DELETE /v1/networks/{name}/workload-leases/{id}", h.release)
 }
 
@@ -42,6 +43,19 @@ func (h *WorkloadLeasesHandler) allocate(w http.ResponseWriter, r *http.Request)
 		"workload_id": lease.WorkloadID,
 		"address":     lease.Address,
 	})
+}
+
+func (h *WorkloadLeasesHandler) list(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	leases, err := h.Alloc.ListActiveWorkloadLeases(r.Context(), name)
+	if err != nil {
+		writeAllocErr(w, err)
+		return
+	}
+	if leases == nil {
+		leases = []network.ActiveWorkloadLease{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"leases": leases})
 }
 
 func (h *WorkloadLeasesHandler) release(w http.ResponseWriter, r *http.Request) {

@@ -7,12 +7,15 @@ import (
 	"sync/atomic"
 
 	"forge.local/services/forge-network/internal/httperr"
+	"forge.local/services/forge-network/internal/network"
 	"forge.local/services/forge-network/internal/policy"
 )
 
 // PolicyMetrics holds Prometheus-style counters for /metrics.
 type PolicyMetrics struct {
 	DeniedTotal atomic.Int64
+	// Optional shared drift / DNS metrics (22.06); when nil, those series stay at 0.
+	Drift *network.DriftMetrics
 }
 
 // PolicyRulesHandler serves compiled per-node rules and deny reporting.
@@ -92,10 +95,15 @@ func (h *PolicyRulesHandler) upsertPlacement(w http.ResponseWriter, r *http.Requ
 
 func (h *PolicyRulesHandler) metrics(w http.ResponseWriter, r *http.Request) {
 	denied := int64(0)
+	var drift *network.DriftMetrics
 	if h.Metrics != nil {
 		denied = h.Metrics.DeniedTotal.Load()
+		drift = h.Metrics.Drift
 	}
-	gen, _ := h.Store.Generation(r.Context())
+	gen := int64(0)
+	if h.Store != nil {
+		gen, _ = h.Store.Generation(r.Context())
+	}
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 	var b strings.Builder
 	b.WriteString("# HELP forge_network_policy_denied_total Connections denied by NetworkPolicy enforcement\n")
@@ -107,6 +115,29 @@ func (h *PolicyRulesHandler) metrics(w http.ResponseWriter, r *http.Request) {
 	b.WriteString("# TYPE forge_network_policy_rules_generation gauge\n")
 	b.WriteString("forge_network_policy_rules_generation ")
 	b.WriteString(formatInt(gen))
+	b.WriteByte('\n')
+	routeDrift, dnsOK, dnsErr, dnsNX := int64(0), int64(0), int64(0), int64(0)
+	if drift != nil {
+		routeDrift = drift.RouteDriftTotal.Load()
+		dnsOK = drift.DNSResolutionOK.Load()
+		dnsErr = drift.DNSResolutionError.Load()
+		dnsNX = drift.DNSResolutionNXDom.Load()
+	}
+	b.WriteString("# HELP forge_network_route_drift_total Discovery/Network/route drift events\n")
+	b.WriteString("# TYPE forge_network_route_drift_total counter\n")
+	b.WriteString("forge_network_route_drift_total ")
+	b.WriteString(formatInt(routeDrift))
+	b.WriteByte('\n')
+	b.WriteString("# HELP forge_network_dns_resolution_total Overlay DNS resolution observations\n")
+	b.WriteString("# TYPE forge_network_dns_resolution_total counter\n")
+	b.WriteString(`forge_network_dns_resolution_total{result="ok"} `)
+	b.WriteString(formatInt(dnsOK))
+	b.WriteByte('\n')
+	b.WriteString(`forge_network_dns_resolution_total{result="error"} `)
+	b.WriteString(formatInt(dnsErr))
+	b.WriteByte('\n')
+	b.WriteString(`forge_network_dns_resolution_total{result="nxdomain"} `)
+	b.WriteString(formatInt(dnsNX))
 	b.WriteByte('\n')
 	_, _ = w.Write([]byte(b.String()))
 }

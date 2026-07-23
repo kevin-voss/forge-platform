@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -41,6 +42,12 @@ type Config struct {
 	DNSNegativeTTLSeconds int
 	DNSForwardUpstream    string
 	DNSForwardTimeout     time.Duration
+
+	// Overlay DNS filter (22.06): only Ready endpoints with overlay leases.
+	OverlayCIDR            string
+	NetworkURL             string
+	NetworkName            string
+	OverlayLeaseRefresh    time.Duration
 }
 
 // Load reads configuration from the process environment.
@@ -180,6 +187,23 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	overlayCIDR := strings.TrimSpace(os.Getenv("FORGE_DISCOVERY_OVERLAY_CIDR"))
+	if overlayCIDR == "" {
+		overlayCIDR = "10.100.0.0/16"
+	}
+	if _, _, err := net.ParseCIDR(overlayCIDR); err != nil {
+		return Config{}, fmt.Errorf("FORGE_DISCOVERY_OVERLAY_CIDR must be a valid CIDR, got %q", overlayCIDR)
+	}
+	networkURL := strings.TrimSpace(os.Getenv("FORGE_NETWORK_URL"))
+	networkName := strings.TrimSpace(os.Getenv("FORGE_NETWORK_NAME"))
+	if networkName == "" {
+		networkName = "cluster-overlay"
+	}
+	leaseRefreshSecs, err := positiveIntEnv("FORGE_DISCOVERY_OVERLAY_LEASE_REFRESH_S", 10)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		Port:                   port,
 		ServiceName:            name,
@@ -207,6 +231,10 @@ func Load() (Config, error) {
 		DNSNegativeTTLSeconds:  dnsNegTTL,
 		DNSForwardUpstream:     dnsUpstream,
 		DNSForwardTimeout:      time.Duration(dnsFwdTimeoutMs) * time.Millisecond,
+		OverlayCIDR:            overlayCIDR,
+		NetworkURL:             strings.TrimRight(networkURL, "/"),
+		NetworkName:            networkName,
+		OverlayLeaseRefresh:    time.Duration(leaseRefreshSecs) * time.Second,
 	}, nil
 }
 

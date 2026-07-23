@@ -1,13 +1,24 @@
 //! Runtime network module: WireGuard peer poll / apply / report (22.03),
-//! per-pair transport routes (22.04), and NetworkPolicy enforcement (22.05).
+//! per-pair transport routes (22.04), NetworkPolicy enforcement (22.05),
+//! and overlay DNS / Discovery drift (22.06).
 
+mod dns;
 mod policy;
+mod reconcile;
 mod route;
 mod wireguard;
 
+#[cfg(test)]
+mod cross_node_test;
+
+pub use dns::{
+    bootstrap_dns, is_overlay_ip, is_provider_public_ip, select_dns_backend, DnsConfig, DnsObs,
+    NodeNetworkHealth,
+};
 pub use policy::{
     select_policy_backend, spawn_policy_poll_loop, PolicyObs, PolicyPollConfig,
 };
+pub use reconcile::{spawn_drift_poll_loop, DriftObs, DriftPollConfig};
 pub use route::{
     apply_routes, select_route_backend, should_start_wireguard, FakeRouteBackend, PeerRoute,
     RouteBackend, Transport, TransportPair,
@@ -41,8 +52,8 @@ pub struct PeerPollConfig {
 /// HTTP client against forge-network peer APIs.
 #[derive(Clone)]
 pub struct NetworkClient {
-    base_url: String,
-    http: reqwest::Client,
+    pub(crate) base_url: String,
+    pub(crate) http: reqwest::Client,
 }
 
 impl NetworkClient {
@@ -224,7 +235,7 @@ fn enc(s: &str) -> String {
     urlencoding_lite(s)
 }
 
-fn urlencoding_lite(s: &str) -> String {
+pub(crate) fn urlencoding_lite(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         match b {

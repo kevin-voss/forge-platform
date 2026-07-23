@@ -1,5 +1,6 @@
 use crate::discovery::{DiscoveryClient, RegisterRequest, RenewRequest};
 use crate::docker::{ContainerInspectInfo, DockerEngine};
+use crate::network::{is_overlay_ip, is_provider_public_ip, NetworkClient};
 use crate::status::{
     derive_status, DeriveInputs, DockerState, LastProbe, StatusView, WorkloadStatus,
 };
@@ -328,6 +329,15 @@ fn probe_base(
     Some(format!("http://{host}:{hp}"))
 }
 
+/// Overlay address publication settings (22.06).
+#[derive(Debug, Clone)]
+pub struct OverlayRegisterConfig {
+    pub network_name: String,
+    pub node_id: String,
+    pub overlay_cidr: String,
+    pub enabled: bool,
+}
+
 /// Periodic prober over all managed workloads.
 pub struct Prober {
     docker: Arc<dyn DockerEngine>,
@@ -337,6 +347,11 @@ pub struct Prober {
     discovery: Option<Arc<DiscoveryClient>>,
     /// Defaults used when workload labels omit project/environment/service.
     discovery_defaults: DiscoveryDefaults,
+    /// Optional forge-network client for overlay workload leases (22.06).
+    network: Option<Arc<NetworkClient>>,
+    overlay: Option<OverlayRegisterConfig>,
+    /// workload_id → overlay IP cache
+    overlay_ips: Mutex<HashMap<String, String>>,
 }
 
 /// Fallback scope for Discovery registration when labels are absent.
@@ -369,6 +384,9 @@ impl Prober {
             cfg,
             discovery: None,
             discovery_defaults: DiscoveryDefaults::default(),
+            network: None,
+            overlay: None,
+            overlay_ips: Mutex::new(HashMap::new()),
         })
     }
 
@@ -379,6 +397,16 @@ impl Prober {
     ) -> Self {
         self.discovery = Some(discovery);
         self.discovery_defaults = defaults;
+        self
+    }
+
+    pub fn with_overlay(
+        mut self,
+        network: Arc<NetworkClient>,
+        overlay: OverlayRegisterConfig,
+    ) -> Self {
+        self.network = Some(network);
+        self.overlay = Some(overlay);
         self
     }
 
@@ -574,15 +602,15 @@ impl Prober {
             &self.discovery_defaults.environment,
         );
         let service = label_or(labels, "forge.service", deployment_id);
-        let address_ip = info
-            .ip_address
-            .clone()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "127.0.0.1".into());
         let address_port = ports_from(info)
             .1
             .or(ports_from(info).0)
             .unwrap_or(8080);
+
+        let Some(address_ip) = self.resolve_register_address(deployment_id, info).await else {
+            // No current overlay lease → exclude from Discovery answers.
+            return;
+        };
 
         if !discovery.is_registered(deployment_id) {
             if !ready_ok {
@@ -625,6 +653,84 @@ impl Prober {
                 "discovery renew failed"
             );
         }
+    }
+
+    /// Prefer a Network overlay lease; fall back to Docker IP only when overlay
+    /// registration is disabled. Never publish provider public IPs.
+    async fn resolve_register_address(
+        &self,
+        deployment_id: &str,
+        info: &ContainerInspectInfo,
+    ) -> Option<String> {
+        if let (Some(network), Some(overlay)) = (&self.network, &self.overlay) {
+            if overlay.enabled {
+                if let Some(cached) = self
+                    .overlay_ips
+                    .lock()
+                    .expect("overlay ips")
+                    .get(deployment_id)
+                    .cloned()
+                {
+                    return Some(cached);
+                }
+                match network
+                    .allocate_workload_lease(
+                        &overlay.network_name,
+                        &overlay.node_id,
+                        deployment_id,
+                    )
+                    .await
+                {
+                    Ok(lease) => {
+                        if is_provider_public_ip(&lease.address)
+                            || !is_overlay_ip(&lease.address, &overlay.overlay_cidr)
+                        {
+                            warn!(
+                                deployment_id = %deployment_id,
+                                address = %lease.address,
+                                "overlay lease outside cluster CIDR; excluding from discovery"
+                            );
+                            return None;
+                        }
+                        info!(
+                            event = "runtime.discovery.overlay_address",
+                            deployment_id = %deployment_id,
+                            overlay_ip = %lease.address,
+                            "publishing overlay address to discovery"
+                        );
+                        self.overlay_ips
+                            .lock()
+                            .expect("overlay ips")
+                            .insert(deployment_id.to_string(), lease.address.clone());
+                        return Some(lease.address);
+                    }
+                    Err(err) => {
+                        // Node may not have a network lease yet (join in progress) or
+                        // docker-only demos without forge-network — fall back to Docker IP.
+                        warn!(
+                            deployment_id = %deployment_id,
+                            error = %err,
+                            "overlay lease allocate failed; falling back to container IP"
+                        );
+                    }
+                }
+            }
+        }
+
+        let docker_ip = info
+            .ip_address
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "127.0.0.1".into());
+        if is_provider_public_ip(&docker_ip) {
+            warn!(
+                deployment_id = %deployment_id,
+                address = %docker_ip,
+                "refusing to register provider public IP with discovery"
+            );
+            return None;
+        }
+        Some(docker_ip)
     }
 
     /// Spawn a supervised probe loop. Per-workload errors never crash the process.

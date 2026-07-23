@@ -97,12 +97,30 @@ func run() error {
 		ClusterDefault: cfg.PolicyDefault,
 	}
 	policyCompiler := &policy.PolicyCompiler{ClusterDefault: cfg.PolicyDefault}
-	policyMetrics := &api.PolicyMetrics{}
+	driftMetrics := &network.DriftMetrics{}
+	policyMetrics := &api.PolicyMetrics{Drift: driftMetrics}
 
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	defer bgCancel()
 	go runReclaimer(bgCtx, alloc, cfg.LeaseReclaimInterval, log)
 	go runRotationRetirer(bgCtx, registry, cfg.LeaseReclaimInterval, log)
+	if cfg.DiscoveryURL != "" {
+		rec := &network.Reconciler{
+			Alloc:       alloc,
+			Discovery:   &network.DiscoveryClient{BaseURL: cfg.DiscoveryURL, Log: log},
+			NetworkName: cfg.DefaultNetworkName,
+			OverlayCIDR: cfg.ClusterCIDR,
+			Metrics:     driftMetrics,
+			Log:         log,
+			Interval:    cfg.DriftInterval,
+		}
+		go rec.Run(bgCtx)
+		log.Info("discovery drift reconciler started",
+			"discovery_url", cfg.DiscoveryURL,
+			"network", cfg.DefaultNetworkName,
+			"interval_s", int(cfg.DriftInterval.Seconds()),
+		)
+	}
 
 	mux := api.NewRouter(api.Deps{
 		Alloc:         alloc,
@@ -112,6 +130,7 @@ func run() error {
 		Policy:        policyStore,
 		Compiler:      policyCompiler,
 		PolicyMetrics: policyMetrics,
+		DriftMetrics:  driftMetrics,
 		DB:            database,
 		Log:           log,
 	})

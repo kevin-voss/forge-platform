@@ -418,6 +418,56 @@ WHERE network_id = $1 AND workload_id = $2 AND released_at IS NULL`,
 	return WorkloadLease{}, ErrNodeBlockExhausted
 }
 
+// ActiveWorkloadLease is a listed active address assignment.
+type ActiveWorkloadLease struct {
+	WorkloadID string `json:"workload_id"`
+	NodeID     string `json:"node_id"`
+	Address    string `json:"address"`
+}
+
+// ListActiveWorkloadLeases returns every unreleased workload lease for a network.
+func (a *Allocator) ListActiveWorkloadLeases(ctx context.Context, networkName string) ([]ActiveWorkloadLease, error) {
+	netRow, err := a.GetNetworkByName(ctx, networkName)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := a.Pool.Query(ctx, `
+SELECT workload_id, node_id, host(address)
+FROM network.workload_leases
+WHERE network_id = $1 AND released_at IS NULL
+ORDER BY node_id, workload_id`, netRow.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ActiveWorkloadLease
+	for rows.Next() {
+		var l ActiveWorkloadLease
+		if err := rows.Scan(&l.WorkloadID, &l.NodeID, &l.Address); err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	return out, rows.Err()
+}
+
+// HasActiveWorkloadAddress reports whether address is currently leased.
+func (a *Allocator) HasActiveWorkloadAddress(ctx context.Context, networkName, address string) (bool, error) {
+	netRow, err := a.GetNetworkByName(ctx, networkName)
+	if err != nil {
+		return false, err
+	}
+	var n int
+	err = a.Pool.QueryRow(ctx, `
+SELECT COUNT(*) FROM network.workload_leases
+WHERE network_id = $1 AND released_at IS NULL AND host(address) = $2`,
+		netRow.ID, strings.TrimSpace(address)).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // ReleaseWorkloadLease frees a workload address.
 func (a *Allocator) ReleaseWorkloadLease(ctx context.Context, networkName, workloadID string) error {
 	netRow, err := a.GetNetworkByName(ctx, networkName)

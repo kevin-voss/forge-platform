@@ -178,6 +178,35 @@ paths:
   /v1/networks/{name}/workload-leases:
     parameters:
       - $ref: "#/components/parameters/NetworkName"
+    get:
+      operationId: listWorkloadLeases
+      summary: List active workload overlay address leases
+      responses:
+        "200":
+          description: Active leases
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  leases:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        workload_id:
+                          type: string
+                        node_id:
+                          type: string
+                        address:
+                          type: string
+              example:
+                leases:
+                  - workload_id: wl_123
+                    node_id: node-a
+                    address: "10.100.1.5"
+        "404":
+          description: Network not found
     post:
       operationId: allocateWorkloadLease
       summary: Allocate a workload address inside a node block
@@ -213,6 +242,39 @@ paths:
                       code: NodeBlockExhausted
                       message: node block has no free addresses
                       requestId: req_example
+
+  /v1/networks/{name}/route-drift:
+    parameters:
+      - $ref: "#/components/parameters/NetworkName"
+    post:
+      operationId: reportRouteDrift
+      summary: Report Discovery/Network/route drift observations (22.06)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [drift_count]
+              properties:
+                drift_count:
+                  type: integer
+                  format: int64
+            example:
+              drift_count: 1
+      responses:
+        "202":
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  drift_count:
+                    type: integer
+                    format: int64
 
   /v1/networks/{name}/workload-leases/{id}:
     parameters:
