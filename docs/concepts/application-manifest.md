@@ -2,9 +2,12 @@
 
 **Status:** Target UX, introduced by epic `20` (`forge apply`) and completed by epics
 `23`–`25`. Today's `forge.yaml` build manifest (epic `06`) keeps working unchanged.
+Proven end-to-end by [`demos/20-declarative-resources`](../../demos/20-declarative-resources)
+(`make demo DEMO=20`).
 
 This is the customer-facing contract: **what a product team writes**, and **what they
-never have to write**.
+never have to write**. The portable `Application` envelope below is the **recommended
+future entry point** for deploying product workloads (`forge apply -f`).
 
 ---
 
@@ -50,6 +53,9 @@ One file may hold several documents — an `Application`, its `Worker`, a `Queue
 
 ```bash
 forge apply -f forge.yaml
+# Generic resource API (also exercised by demos/20-declarative-resources):
+#   GET /v1/projects/{project}/environments/{env}/applications/{name}
+#   GET /v1/watch/applications?since={resourceVersion}
 forge get applications
 forge describe application invoice-api
 forge wait application/invoice-api --for=condition=Ready --timeout=5m

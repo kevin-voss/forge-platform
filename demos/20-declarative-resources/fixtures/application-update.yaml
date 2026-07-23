@@ -1,0 +1,35 @@
+# Image update for invoice-api (generation bump + reconciler roll).
+apiVersion: forge.dev/v1
+kind: Application
+metadata:
+  name: invoice-api
+  project: ${PROJECT_SLUG}
+  environment: production
+  labels:
+    app: invoice-api
+    tier: api
+    demo: "20"
+spec:
+  image: ${IMAGE_V2}
+  resources:
+    cpu: 100m
+    memory: 128Mi
+  scaling:
+    minReplicas: 1
+    maxReplicas: 1
+---
+apiVersion: forge.dev/v1
+kind: Deployment
+metadata:
+  name: invoice-api
+  project: ${PROJECT_SLUG}
+  environment: production
+  annotations:
+    forge.dev/parent: invoice-api
+  labels:
+    app: invoice-api
+    demo: "20"
+spec:
+  service: invoice-api
+  image: ${IMAGE_V2}
+  replicas: 1

@@ -41,6 +41,7 @@ help:
 	@echo "  make clean                 Remove local build artifacts"
 	@echo "  make reset                 Destroy local volumes and restart clean"
 	@echo "  make demo DEMO=00          Run a numbered demo (e.g. DEMO=12 observability)"
+	@echo "  make demo DEMO=20          Declarative resource API gate (epic 20)"
 	@echo "  make demo DEMO=09-full-platform  Start capstone (start.sh)"
 	@echo "  make demo-accept DEMO=...  Run demo acceptance suite (capstone accept.sh)"
 	@echo "  make demo-full             Alias: demo DEMO=09-full-platform"
