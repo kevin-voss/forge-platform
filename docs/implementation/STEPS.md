@@ -194,5 +194,66 @@ so `N` stays a single global index. Rows `1`–`131` above are frozen. Plan:
 | **172** | GPU, reservations, and stateful placement | 25 | [25.05-gpu-and-stateful-placement.md](steps/25-scheduling-enhancements/25.05-gpu-and-stateful-placement.md) |
 | **173** | Demo `25-ha-placement` + epic gate (M1 exit) | 25 | [25.06-demo-25-ha-placement.md](steps/25-scheduling-enhancements/25.06-demo-25-ha-placement.md) |
 
-Total planned steps: **173** (`N = 1` … `N = 173`). Epics `26`–`43` are catalogued in
-[`FUTURE_PLAN.md`](FUTURE_PLAN.md) and receive `N` values when their steps are materialized.
+Platform-capability steps: **173** (`N = 1` … `N = 173`). Epics `26`–`43` are catalogued in
+[`FUTURE_PLAN.md`](FUTURE_PLAN.md) and receive `N` values (continuing after `217`) when their steps
+are materialized.
+
+---
+
+## Verification & demo-projects queue (epics 50–56)
+
+**Continues the global index after the platform queue (`N ≤ 173`).** These steps deploy small
+real-world demo products onto the shipped platform and prove them end-to-end with visible browser
+automation; platform bugs are recorded in
+[`../demo-projects/PLATFORM_FINDINGS.md`](../demo-projects/PLATFORM_FINDINGS.md), not patched.
+Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Build `50` first, then
+`51`–`55` (any order), then `56`.
+
+| N | Title | Epic | Step doc |
+|---:|---|---|---|
+| **174** | Harness skeleton (Playwright + config + artifacts) | 50 | [50.01-harness-skeleton.md](steps/50-e2e-harness/50.01-harness-skeleton.md) |
+| **175** | `DemoProject` contract + lifecycle runner | 50 | [50.02-demoproject-contract-and-runner.md](steps/50-e2e-harness/50.02-demoproject-contract-and-runner.md) |
+| **176** | Platform preflight + gateway host routing | 50 | [50.03-platform-preflight-and-gateway-routing.md](steps/50-e2e-harness/50.03-platform-preflight-and-gateway-routing.md) |
+| **177** | Findings collector | 50 | [50.04-findings-collector.md](steps/50-e2e-harness/50.04-findings-collector.md) |
+| **178** | `make test-platform-e2e` orchestrator | 50 | [50.05-test-platform-e2e-orchestrator.md](steps/50-e2e-harness/50.05-test-platform-e2e-orchestrator.md) |
+| **179** | Run report + coverage rollup | 50 | [50.06-run-report-and-coverage.md](steps/50-e2e-harness/50.06-run-report-and-coverage.md) |
+| **180** | Harness self-test demo + gate | 50 | [50.07-harness-self-test-demo.md](steps/50-e2e-harness/50.07-harness-self-test-demo.md) |
+| **181** | Product scaffold + baseline deploy | 51 | [51.01-scaffold-and-deploy.md](steps/51-demo-taskflow/51.01-scaffold-and-deploy.md) |
+| **182** | Managed Postgres + schema | 51 | [51.02-managed-postgres-and-schema.md](steps/51-demo-taskflow/51.02-managed-postgres-and-schema.md) |
+| **183** | Identity auth + roles | 51 | [51.03-identity-auth-and-roles.md](steps/51-demo-taskflow/51.03-identity-auth-and-roles.md) |
+| **184** | Secrets injection | 51 | [51.04-secrets-injection.md](steps/51-demo-taskflow/51.04-secrets-injection.md) |
+| **185** | E2E browser spec | 51 | [51.05-e2e-browser-spec.md](steps/51-demo-taskflow/51.05-e2e-browser-spec.md) |
+| **186** | Demo + epic gate | 51 | [51.06-demo-and-gate.md](steps/51-demo-taskflow/51.06-demo-and-gate.md) |
+| **187** | Product scaffold + notes CRUD + Postgres | 52 | [52.01-scaffold-notes-and-postgres.md](steps/52-demo-snapnote/52.01-scaffold-notes-and-postgres.md) |
+| **188** | Object storage integration | 52 | [52.02-object-storage-integration.md](steps/52-demo-snapnote/52.02-object-storage-integration.md) |
+| **189** | Events queue + worker + idempotency | 52 | [52.03-events-queue-worker-idempotency.md](steps/52-demo-snapnote/52.03-events-queue-worker-idempotency.md) |
+| **190** | Worker autoscaling (+ optional node pressure) | 52 | [52.04-worker-autoscaling.md](steps/52-demo-snapnote/52.04-worker-autoscaling.md) |
+| **191** | E2E browser spec | 52 | [52.05-e2e-browser-spec.md](steps/52-demo-snapnote/52.05-e2e-browser-spec.md) |
+| **192** | Demo + epic gate | 52 | [52.06-demo-and-gate.md](steps/52-demo-snapnote/52.06-demo-and-gate.md) |
+| **193** | Product scaffold + Postgres | 53 | [53.01-scaffold-and-postgres.md](steps/53-demo-askdocs/53.01-scaffold-and-postgres.md) |
+| **194** | Storage upload + ingest pipeline | 53 | [53.02-storage-upload-and-ingest.md](steps/53-demo-askdocs/53.02-storage-upload-and-ingest.md) |
+| **195** | Embeddings (Models) + Memory upsert/query | 53 | [53.03-embeddings-and-memory.md](steps/53-demo-askdocs/53.03-embeddings-and-memory.md) |
+| **196** | Agent grounded answerer | 53 | [53.04-agent-grounded-answerer.md](steps/53-demo-askdocs/53.04-agent-grounded-answerer.md) |
+| **197** | E2E browser spec | 53 | [53.05-e2e-browser-spec.md](steps/53-demo-askdocs/53.05-e2e-browser-spec.md) |
+| **198** | Demo + epic gate | 53 | [53.06-demo-and-gate.md](steps/53-demo-askdocs/53.06-demo-and-gate.md) |
+| **199** | Multi-service scaffold + Postgres | 54 | [54.01-multi-service-scaffold.md](steps/54-demo-orderpipe/54.01-multi-service-scaffold.md) |
+| **200** | Service discovery wiring | 54 | [54.02-service-discovery-wiring.md](steps/54-demo-orderpipe/54.02-service-discovery-wiring.md) |
+| **201** | Network policy | 54 | [54.03-network-policy.md](steps/54-demo-orderpipe/54.03-network-policy.md) |
+| **202** | Event choreography | 54 | [54.04-event-choreography.md](steps/54-demo-orderpipe/54.04-event-choreography.md) |
+| **203** | Workflow saga + retry/compensation | 54 | [54.05-workflow-saga.md](steps/54-demo-orderpipe/54.05-workflow-saga.md) |
+| **204** | E2E browser spec | 54 | [54.06-e2e-browser-spec.md](steps/54-demo-orderpipe/54.06-e2e-browser-spec.md) |
+| **205** | Demo + epic gate | 54 | [54.07-demo-and-gate.md](steps/54-demo-orderpipe/54.07-demo-and-gate.md) |
+| **206** | Product scaffold + baseline deploy | 55 | [55.01-scaffold-and-deploy.md](steps/55-demo-pulseboard/55.01-scaffold-and-deploy.md) |
+| **207** | HTTP request-rate autoscaling + load gen | 55 | [55.02-http-request-rate-autoscaling.md](steps/55-demo-pulseboard/55.02-http-request-rate-autoscaling.md) |
+| **208** | Node autoscaling (Infrastructure) | 55 | [55.03-node-autoscaling.md](steps/55-demo-pulseboard/55.03-node-autoscaling.md) |
+| **209** | Observe surfacing | 55 | [55.04-observe-surfacing.md](steps/55-demo-pulseboard/55.04-observe-surfacing.md) |
+| **210** | E2E browser spec | 55 | [55.05-e2e-browser-spec.md](steps/55-demo-pulseboard/55.05-e2e-browser-spec.md) |
+| **211** | Demo + epic gate | 55 | [55.06-demo-and-gate.md](steps/55-demo-pulseboard/55.06-demo-and-gate.md) |
+| **212** | Full-suite orchestration | 56 | [56.01-full-suite-orchestration.md](steps/56-platform-e2e-gate/56.01-full-suite-orchestration.md) |
+| **213** | Coverage verification gate | 56 | [56.02-coverage-verification.md](steps/56-platform-e2e-gate/56.02-coverage-verification.md) |
+| **214** | Findings consolidation + triage | 56 | [56.03-findings-consolidation.md](steps/56-platform-e2e-gate/56.03-findings-consolidation.md) |
+| **215** | Headless/CI mode + artifacts | 56 | [56.04-headless-ci-and-artifacts.md](steps/56-platform-e2e-gate/56.04-headless-ci-and-artifacts.md) |
+| **216** | North-star gate + docs | 56 | [56.05-north-star-gate-and-docs.md](steps/56-platform-e2e-gate/56.05-north-star-gate-and-docs.md) |
+
+Verification steps: **43** (`N = 174` … `N = 216`). Grand total planned: **216**
+(`N = 1` … `N = 216`). After the platform queue completes at `173`, continue at **`N = 174`**.

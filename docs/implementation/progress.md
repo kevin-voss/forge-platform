@@ -254,3 +254,80 @@ Per-step rows live in each epic's steps README; the global lookup is
 
 > Planned steps including the future queue: **173** (`N = 1` … `N = 173`).
 
+---
+
+## Verification & demo-projects track (epics 50–56, `N = 174`–`216`)
+
+Planned (no code yet). Deploys small real-world demo products onto the shipped platform and proves
+them end-to-end with visible browser automation; platform bugs it surfaces are recorded in
+[`../demo-projects/PLATFORM_FINDINGS.md`](../demo-projects/PLATFORM_FINDINGS.md), not patched.
+Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global lookup:
+[`STEPS.md`](STEPS.md#verification--demo-projects-queue-epics-5056).
+
+> Continues the global `N` queue after the platform queue (`N ≤ 173`). Build epic 50 first, then
+> 51→55 (any order), then 56. Entry point when built: `make test-platform-e2e` (headed) /
+> `make test-platform-e2e HEADLESS=1` (CI).
+
+### Epics
+
+| Epic | Title | Status | Steps (N) |
+|---|---|---|---|
+| [50](epics/50-e2e-harness.md) | Platform E2E harness & orchestrator | Planning | `174`–`180` |
+| [51](epics/51-demo-taskflow.md) | Demo 1 — TaskFlow (auth + DB + secrets) | Planning | `181`–`186` |
+| [52](epics/52-demo-snapnote.md) | Demo 2 — SnapNote (storage + queue + worker autoscaling) | Planning | `187`–`192` |
+| [53](epics/53-demo-askdocs.md) | Demo 3 — AskDocs (models + memory + agents) | Planning | `193`–`198` |
+| [54](epics/54-demo-orderpipe.md) | Demo 4 — OrderPipe (workflows + events + discovery + network) | Planning | `199`–`205` |
+| [55](epics/55-demo-pulseboard.md) | Demo 5 — PulseBoard (autoscaler + infra + observe) | Planning | `206`–`211` |
+| [56](epics/56-platform-e2e-gate.md) | Platform E2E gate & findings consolidation | Planning | `212`–`216` |
+
+### Steps
+
+| N | Title | Epic | Status |
+|---:|---|---|---|
+| **174** | Harness skeleton (Playwright + config + artifacts) | 50 | Not started |
+| **175** | `DemoProject` contract + lifecycle runner | 50 | Not started |
+| **176** | Platform preflight + gateway host routing | 50 | Not started |
+| **177** | Findings collector | 50 | Not started |
+| **178** | `make test-platform-e2e` orchestrator | 50 | Not started |
+| **179** | Run report + coverage rollup | 50 | Not started |
+| **180** | Harness self-test demo + gate | 50 | Not started |
+| **181** | Product scaffold + baseline deploy | 51 | Not started |
+| **182** | Managed Postgres + schema | 51 | Not started |
+| **183** | Identity auth + roles | 51 | Not started |
+| **184** | Secrets injection | 51 | Not started |
+| **185** | E2E browser spec | 51 | Not started |
+| **186** | Demo + epic gate | 51 | Not started |
+| **187** | Product scaffold + notes CRUD + Postgres | 52 | Not started |
+| **188** | Object storage integration | 52 | Not started |
+| **189** | Events queue + worker + idempotency | 52 | Not started |
+| **190** | Worker autoscaling (+ optional node pressure) | 52 | Not started |
+| **191** | E2E browser spec | 52 | Not started |
+| **192** | Demo + epic gate | 52 | Not started |
+| **193** | Product scaffold + Postgres | 53 | Not started |
+| **194** | Storage upload + ingest pipeline | 53 | Not started |
+| **195** | Embeddings (Models) + Memory upsert/query | 53 | Not started |
+| **196** | Agent grounded answerer | 53 | Not started |
+| **197** | E2E browser spec | 53 | Not started |
+| **198** | Demo + epic gate | 53 | Not started |
+| **199** | Multi-service scaffold + Postgres | 54 | Not started |
+| **200** | Service discovery wiring | 54 | Not started |
+| **201** | Network policy | 54 | Not started |
+| **202** | Event choreography | 54 | Not started |
+| **203** | Workflow saga + retry/compensation | 54 | Not started |
+| **204** | E2E browser spec | 54 | Not started |
+| **205** | Demo + epic gate | 54 | Not started |
+| **206** | Product scaffold + baseline deploy | 55 | Not started |
+| **207** | HTTP request-rate autoscaling + load gen | 55 | Not started |
+| **208** | Node autoscaling (Infrastructure) | 55 | Not started |
+| **209** | Observe surfacing | 55 | Not started |
+| **210** | E2E browser spec | 55 | Not started |
+| **211** | Demo + epic gate | 55 | Not started |
+| **212** | Full-suite orchestration | 56 | Not started |
+| **213** | Coverage verification gate | 56 | Not started |
+| **214** | Findings consolidation + triage | 56 | Not started |
+| **215** | Headless/CI mode + artifacts | 56 | Not started |
+| **216** | North-star gate + docs | 56 | Not started |
+
+Track total: **43 steps** (`N = 174`–`216`) across 7 epics. Grand total planned across both tracks:
+**216** (`N = 1` … `N = 216`).
+
