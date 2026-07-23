@@ -1,12 +1,17 @@
 # forge-autoscaler
 
-Go service that owns the `ScalingPolicy` resource kind and runs a tick-based evaluation
-loop that recommends and actuates workload replica counts. Port **4112**. Epic 24 / step 24.05.
+Go service that owns the `ScalingPolicy` resource kind and runs tick-based evaluation
+loops for workload replicas and **node scale-up**. Port **4112**. Epic 24 / step 24.06.
 
 CPU/memory, traffic, and queue-depth worker policies compute desired replicas, then apply
 **schedules**, **manual overrides**, **deployment freezes**, and **metric-outage fallbacks**
 before patching `Application` or `Worker` `spec.scaling.desiredReplicas` through the Control
 resource API.
+
+The **node scale-up** loop reads pending placements and cluster reservation from Control,
+selects an eligible `NodePool`, writes `status.desiredNodes` (plus creating/ready/failed
+counts), and asks Forge Infrastructure to create nodes by raising `NodePool.spec.replicas`.
+It never starts containers or calls a cloud provider API.
 
 ## Quick start
 
@@ -23,13 +28,17 @@ curl -sf http://127.0.0.1:4112/metrics | head
 |---|---|---|
 | `PORT` / `FORGE_AUTOSCALER_PORT` | `4112` (local) / `8080` (container) | Listen port |
 | `FORGE_AUTOSCALER_DB_URL` | `postgres://forge:forge@127.0.0.1:5001/forge_autoscaler?sslmode=disable` | Own Postgres database |
-| `FORGE_AUTOSCALER_EVAL_INTERVAL_MS` | `15000` | Evaluation tick interval |
+| `FORGE_AUTOSCALER_EVAL_INTERVAL_MS` | `15000` | Evaluation tick interval (workload + node) |
 | `FORGE_AUTOSCALER_METRIC_SOURCE` | `auto` | `auto` (Observe/Gateway/Queue/Runtime) or `fake` |
 | `FORGE_OBSERVE_URL` | — | Prometheus-compatible query base for ObserveSource |
 | `FORGE_RUNTIME_URL` | — | RuntimeSource local fallback |
-| `FORGE_CONTROL_URL` | `http://127.0.0.1:4001` | Application/Worker resource API for actuation |
+| `FORGE_CONTROL_URL` | `http://127.0.0.1:4001` | Application/Worker/NodePool + placements/nodes APIs |
 | `FORGE_GATEWAY_ADMIN_URL` | — | GatewaySource base (`GET /admin/metrics?application=`) |
 | `FORGE_EVENTS_URL` | — | QueueSource + audit event publish base |
+| `FORGE_AUTOSCALER_NODE_SCALE_UP_ENABLED` | `true` | Enable node scale-up loop |
+| `FORGE_AUTOSCALER_NODE_SCALE_UP_COOLDOWN_SECONDS` | `60` | Min gap between distinct scale-up windows |
+| `FORGE_AUTOSCALER_RESERVATION_THRESHOLD` | `0.85` | Cluster reservation ratio that triggers proactive scale-up |
+| `FORGE_AUTOSCALER_NODE_DEFAULT_MAX_NODES` | `100` | Fallback max when NodePool omits `scaling.maxNodes` |
 | `FORGE_AUTH_MODE` | `dev` | Temporary until epic 09 hardening |
 
 ## API
@@ -39,7 +48,7 @@ curl -sf http://127.0.0.1:4112/metrics | head
 * `PUT/GET/DELETE .../scalingpolicies/{name}/override` — manual override subresource (TTL + reason)
 * `GET /v1/watch/scalingpolicies?since={resourceVersion}` — SSE `ADDED` / `MODIFIED` / `STATUS_MODIFIED` / `DELETED`
 * `GET /health/live`, `GET /health/ready`
-* `GET /metrics` — recommendation, scale actions, queue backlog, `forge_autoscaler_schedule_active`, `forge_autoscaler_manual_override_active`
+* `GET /metrics` — workload metrics plus `forge_node_autoscaler_pending_workloads_total` and `forge_node_autoscaler_scale_up_requests_total{nodepool,result}`
 
 OpenAPI: [`contracts/openapi/forge-autoscaler.openapi.yaml`](../../contracts/openapi/forge-autoscaler.openapi.yaml).
 
@@ -64,6 +73,21 @@ Ops runbook: [`docs/operations/autoscaler-overrides.md`](../../docs/operations/a
 * **Metric outage** — `metricOutageFallback.mode` = `hold` (default) / `floor` / `fixed`; surfaced as `status.metricOutageMode`
 * Stabilization windows + `maxReplicasPerMinute` rate limits
 * Actuation: merge-patch Application or Worker; 409 retries with read-refresh
+
+## Node scale-up (24.06)
+
+```text
+GET /v1/placements?status=pending  (cluster-wide)
+GET /v1/nodes                      (reservation ratios)
+→ select NodePool by priority + labels/region/arch/GPU + maxNodes
+→ patch NodePool.spec.replicas + status.desiredNodes (idempotent operation id)
+→ Infrastructure CreateNode (ledger) → Runtime registers → scheduler places pending
+```
+
+* No matching pool → condition / event `NoEligibleNodePool`
+* Inventory exhausted → `ProviderCapacityBlocked`
+* Duplicate ticks for the same pending demand window reuse `lastScaleUpOperationId`
+* Cooldown applies between distinct demand windows
 
 ## Tests
 

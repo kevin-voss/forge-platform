@@ -129,7 +129,8 @@ func (c *NodePoolController) advanceOwnedNodes(ctx context.Context, poolName str
 // Reconcile diffs desired replicas vs ready-ish nodes and drives Create/Delete through the ledger.
 func (c *NodePoolController) Reconcile(ctx context.Context, pool registryclient.Resource) error {
 	name := pool.Metadata.Name
-	replicas := intFromSpec(pool.Spec, "replicas")
+	// Node autoscaler (epic 24) writes status.desiredNodes; operator floor remains spec.replicas.
+	replicas := desiredReplicasFromPool(pool)
 	providerRef := stringFromSpec(pool.Spec, "providerRef")
 	region := stringFromSpec(pool.Spec, "region")
 	machineType := stringFromSpec(pool.Spec, "machineType")
@@ -162,6 +163,7 @@ func (c *NodePoolController) Reconcile(ctx context.Context, pool registryclient.
 				},
 			},
 		}
+		status = mergePreserveAutoscalerStatus(pool.Status, status, replicas, ready)
 		_, _ = c.Registry.PutStatus(ctx, "nodepools", name, pool.Metadata.ResourceVersion, status)
 		if c.Log != nil {
 			c.Log.Info("nodepool reconcile",
@@ -344,6 +346,7 @@ func (c *NodePoolController) Reconcile(ctx context.Context, pool registryclient.
 		}
 		status["phase"] = "Progressing"
 	}
+	status = mergePreserveAutoscalerStatus(pool.Status, status, replicas, ready)
 
 	if _, err := c.Registry.PutStatus(ctx, "nodepools", name, pool.Metadata.ResourceVersion, status); err != nil {
 		return err
@@ -361,6 +364,7 @@ func (c *NodePoolController) Reconcile(ctx context.Context, pool registryclient.
 }
 
 func (c *NodePoolController) writeProviderNotConfigured(ctx context.Context, pool registryclient.Resource, ready int, err error) error {
+	desired := desiredReplicasFromPool(pool)
 	status := map[string]any{
 		"phase":              "Progressing",
 		"readyNodes":         ready,
@@ -375,11 +379,12 @@ func (c *NodePoolController) writeProviderNotConfigured(ctx context.Context, poo
 			},
 		},
 	}
+	status = mergePreserveAutoscalerStatus(pool.Status, status, desired, ready)
 	_, putErr := c.Registry.PutStatus(ctx, "nodepools", pool.Metadata.Name, pool.Metadata.ResourceVersion, status)
 	if c.Log != nil {
 		c.Log.Info("nodepool reconcile",
 			"nodepool", pool.Metadata.Name,
-			"desired_replicas", intFromSpec(pool.Spec, "replicas"),
+			"desired_replicas", desired,
 			"ready_nodes", ready,
 			"action", "provider_not_configured",
 			"op_id", "",
@@ -389,6 +394,7 @@ func (c *NodePoolController) writeProviderNotConfigured(ctx context.Context, poo
 }
 
 func (c *NodePoolController) writeDegraded(ctx context.Context, pool registryclient.Resource, ready int, err error) error {
+	desired := desiredReplicasFromPool(pool)
 	status := map[string]any{
 		"phase":              "Degraded",
 		"readyNodes":         ready,
@@ -403,6 +409,7 @@ func (c *NodePoolController) writeDegraded(ctx context.Context, pool registrycli
 			},
 		},
 	}
+	status = mergePreserveAutoscalerStatus(pool.Status, status, desired, ready)
 	_, putErr := c.Registry.PutStatus(ctx, "nodepools", pool.Metadata.Name, pool.Metadata.ResourceVersion, status)
 	return putErr
 }
@@ -421,8 +428,16 @@ func (c *NodePoolController) writeInventoryExhausted(ctx context.Context, pool r
 				"message":            fmt.Sprintf("requested replicas=%d exceeds inventory size=%d", replicas, maxReplicas),
 				"lastTransitionTime": time.Now().UTC().Format(time.RFC3339),
 			},
+			{
+				"type":               "ProviderCapacityBlocked",
+				"status":             "True",
+				"reason":             "ProviderCapacityBlocked",
+				"message":            fmt.Sprintf("requested replicas=%d exceeds inventory size=%d", replicas, maxReplicas),
+				"lastTransitionTime": time.Now().UTC().Format(time.RFC3339),
+			},
 		},
 	}
+	status = mergePreserveAutoscalerStatus(pool.Status, status, replicas, ready)
 	_, putErr := c.Registry.PutStatus(ctx, "nodepools", pool.Metadata.Name, pool.Metadata.ResourceVersion, status)
 	if c.Log != nil {
 		c.Log.Info("nodepool reconcile",
@@ -745,4 +760,112 @@ func errString(err error) string {
 		return provider.ErrProviderNotConfigured.Error()
 	}
 	return err.Error()
+}
+
+// desiredReplicasFromPool prefers status.desiredNodes (node autoscaler) when higher
+// than the operator floor in spec.replicas.
+func desiredReplicasFromPool(pool registryclient.Resource) int {
+	spec := intFromSpec(pool.Spec, "replicas")
+	desired := intFromSpec(pool.Status, "desiredNodes")
+	if desired > spec {
+		return desired
+	}
+	return spec
+}
+
+var autoscalerStatusKeys = []string{
+	"desiredNodes",
+	"currentNodes",
+	"creatingNodes",
+	"failedNodes",
+	"lastScaleUpOperationId",
+	"lastScaleUpAt",
+	"pendingWorkloads",
+	"scaleUpRecommendation",
+}
+
+var autoscalerConditionTypes = map[string]bool{
+	"ScaleUpRecommended":      true,
+	"ProviderCapacityBlocked": true,
+	"ScaleUpCooldown":         true,
+	"NoEligibleNodePool":      true,
+}
+
+// mergePreserveAutoscalerStatus keeps epic-24 recommendation fields when Infrastructure
+// refreshes readyNodes/phase/provider conditions.
+func mergePreserveAutoscalerStatus(existing, next map[string]any, desired, ready int) map[string]any {
+	if next == nil {
+		next = map[string]any{}
+	}
+	for _, key := range autoscalerStatusKeys {
+		if _, set := next[key]; set {
+			continue
+		}
+		if existing != nil {
+			if v, ok := existing[key]; ok {
+				next[key] = v
+			}
+		}
+	}
+	if _, ok := next["desiredNodes"]; !ok && desired > 0 {
+		next["desiredNodes"] = desired
+	}
+	if _, ok := next["currentNodes"]; !ok {
+		next["currentNodes"] = ready
+	}
+	if _, set := next["creatingNodes"]; !set {
+		dn := intFromSpec(next, "desiredNodes")
+		c := dn - ready
+		if c < 0 {
+			c = 0
+		}
+		next["creatingNodes"] = c
+	}
+
+	// Merge conditions: keep autoscaler-owned types from existing unless next sets them.
+	existingConds := conditionsFromStatus(existing)
+	nextConds := conditionsFromStatus(next)
+	byType := map[string]map[string]any{}
+	for _, c := range existingConds {
+		t := stringFromSpec(c, "type")
+		if autoscalerConditionTypes[t] {
+			byType[t] = c
+		}
+	}
+	for _, c := range nextConds {
+		t := stringFromSpec(c, "type")
+		byType[t] = c
+	}
+	merged := make([]map[string]any, 0, len(byType))
+	for _, c := range byType {
+		merged = append(merged, c)
+	}
+	sort.Slice(merged, func(i, j int) bool {
+		return stringFromSpec(merged[i], "type") < stringFromSpec(merged[j], "type")
+	})
+	if len(merged) > 0 {
+		next["conditions"] = merged
+	}
+	return next
+}
+
+func conditionsFromStatus(status map[string]any) []map[string]any {
+	if status == nil {
+		return nil
+	}
+	raw, ok := status["conditions"].([]any)
+	if !ok {
+		// Also accept []map[string]any written by this controller.
+		if typed, ok := status["conditions"].([]map[string]any); ok {
+			return typed
+		}
+		return nil
+	}
+	out := make([]map[string]any, 0, len(raw))
+	for _, item := range raw {
+		if m, ok := item.(map[string]any); ok {
+			out = append(out, m)
+		}
+	}
+	return out
 }

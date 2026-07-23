@@ -11,26 +11,30 @@ import (
 
 // Registry holds process-local autoscaler metrics for /metrics exposition.
 type Registry struct {
-	mu              sync.Mutex
-	recommendations map[string]*atomic.Int64
-	scaleActions    map[string]*atomic.Int64
-	sourceLatency   map[string]*atomic.Uint64 // last latency in microseconds
-	queueBacklog    map[string]*atomic.Uint64 // store milli-units
-	workerDesired   map[string]*atomic.Int64
-	scheduleActive  map[string]*atomic.Int64
-	overrideActive  map[string]*atomic.Int64
+	mu               sync.Mutex
+	recommendations  map[string]*atomic.Int64
+	scaleActions     map[string]*atomic.Int64
+	sourceLatency    map[string]*atomic.Uint64 // last latency in microseconds
+	queueBacklog     map[string]*atomic.Uint64 // store milli-units
+	workerDesired    map[string]*atomic.Int64
+	scheduleActive   map[string]*atomic.Int64
+	overrideActive   map[string]*atomic.Int64
+	pendingWorkloads *atomic.Int64
+	nodeScaleUpReqs  map[string]*atomic.Int64
 }
 
 // NewRegistry creates an empty metrics registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		recommendations: map[string]*atomic.Int64{},
-		scaleActions:    map[string]*atomic.Int64{},
-		sourceLatency:   map[string]*atomic.Uint64{},
-		queueBacklog:    map[string]*atomic.Uint64{},
-		workerDesired:   map[string]*atomic.Int64{},
-		scheduleActive:  map[string]*atomic.Int64{},
-		overrideActive:  map[string]*atomic.Int64{},
+		recommendations:  map[string]*atomic.Int64{},
+		scaleActions:     map[string]*atomic.Int64{},
+		sourceLatency:    map[string]*atomic.Uint64{},
+		queueBacklog:     map[string]*atomic.Uint64{},
+		workerDesired:    map[string]*atomic.Int64{},
+		scheduleActive:   map[string]*atomic.Int64{},
+		overrideActive:   map[string]*atomic.Int64{},
+		pendingWorkloads: &atomic.Int64{},
+		nodeScaleUpReqs:  map[string]*atomic.Int64{},
 	}
 }
 
@@ -162,6 +166,33 @@ func (r *Registry) SetManualOverrideActive(policy string, active bool) {
 	}
 }
 
+// SetPendingWorkloads sets forge_node_autoscaler_pending_workloads_total.
+func (r *Registry) SetPendingWorkloads(count int) {
+	if r == nil || r.pendingWorkloads == nil {
+		return
+	}
+	if count < 0 {
+		count = 0
+	}
+	r.pendingWorkloads.Store(int64(count))
+}
+
+// IncNodeScaleUpRequest increments forge_node_autoscaler_scale_up_requests_total{nodepool,result}.
+func (r *Registry) IncNodeScaleUpRequest(nodepool, result string) {
+	if r == nil {
+		return
+	}
+	key := labelsKey("nodepool", nodepool, "result", result)
+	r.mu.Lock()
+	counter, ok := r.nodeScaleUpReqs[key]
+	if !ok {
+		counter = &atomic.Int64{}
+		r.nodeScaleUpReqs[key] = counter
+	}
+	r.mu.Unlock()
+	counter.Add(1)
+}
+
 // Handler serves Prometheus text exposition.
 func (r *Registry) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -211,6 +242,19 @@ func (r *Registry) Handler() http.Handler {
 		ovKeys := sortedKeys(r.overrideActive)
 		for _, key := range ovKeys {
 			fmt.Fprintf(&b, "forge_autoscaler_manual_override_active%s %d\n", key, r.overrideActive[key].Load())
+		}
+		b.WriteString("# HELP forge_node_autoscaler_pending_workloads_total Pending unschedulable workloads observed by the node autoscaler.\n")
+		b.WriteString("# TYPE forge_node_autoscaler_pending_workloads_total gauge\n")
+		pending := int64(0)
+		if r.pendingWorkloads != nil {
+			pending = r.pendingWorkloads.Load()
+		}
+		fmt.Fprintf(&b, "forge_node_autoscaler_pending_workloads_total %d\n", pending)
+		b.WriteString("# HELP forge_node_autoscaler_scale_up_requests_total Node scale-up actuation attempts.\n")
+		b.WriteString("# TYPE forge_node_autoscaler_scale_up_requests_total counter\n")
+		suKeys := sortedKeys(r.nodeScaleUpReqs)
+		for _, key := range suKeys {
+			fmt.Fprintf(&b, "forge_node_autoscaler_scale_up_requests_total%s %d\n", key, r.nodeScaleUpReqs[key].Load())
 		}
 		r.mu.Unlock()
 		_, _ = w.Write([]byte(b.String()))

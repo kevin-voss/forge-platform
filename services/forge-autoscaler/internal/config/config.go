@@ -30,6 +30,11 @@ type Config struct {
 	RuntimeURL       string
 	ControlURL       string
 	MetricSourceMode string // auto|fake — fake forces FakeSource for demos/tests
+
+	NodeScaleUpCooldown  time.Duration
+	ReservationThreshold float64
+	NodeScaleDefaultMax  int
+	NodeScaleEnabled     bool
 }
 
 // Load reads configuration from the process environment.
@@ -123,6 +128,39 @@ func Load() (Config, error) {
 		controlURL = "http://127.0.0.1:4001"
 	}
 
+	cooldownRaw := strings.TrimSpace(os.Getenv("FORGE_AUTOSCALER_NODE_SCALE_UP_COOLDOWN_SECONDS"))
+	if cooldownRaw == "" {
+		cooldownRaw = "60"
+	}
+	cooldownSecs, err := strconv.Atoi(cooldownRaw)
+	if err != nil || cooldownSecs < 0 {
+		return Config{}, fmt.Errorf("FORGE_AUTOSCALER_NODE_SCALE_UP_COOLDOWN_SECONDS must be a non-negative integer, got %q", cooldownRaw)
+	}
+
+	threshRaw := strings.TrimSpace(os.Getenv("FORGE_AUTOSCALER_RESERVATION_THRESHOLD"))
+	if threshRaw == "" {
+		threshRaw = "0.85"
+	}
+	thresh, err := strconv.ParseFloat(threshRaw, 64)
+	if err != nil || thresh <= 0 || thresh > 1 {
+		return Config{}, fmt.Errorf("FORGE_AUTOSCALER_RESERVATION_THRESHOLD must be in (0,1], got %q", threshRaw)
+	}
+
+	maxNodesRaw := strings.TrimSpace(os.Getenv("FORGE_AUTOSCALER_NODE_DEFAULT_MAX_NODES"))
+	if maxNodesRaw == "" {
+		maxNodesRaw = "100"
+	}
+	maxNodes, err := strconv.Atoi(maxNodesRaw)
+	if err != nil || maxNodes < 1 {
+		return Config{}, fmt.Errorf("FORGE_AUTOSCALER_NODE_DEFAULT_MAX_NODES must be a positive integer, got %q", maxNodesRaw)
+	}
+
+	nodeScaleEnabled := true
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("FORGE_AUTOSCALER_NODE_SCALE_UP_ENABLED"))) {
+	case "false", "0", "no":
+		nodeScaleEnabled = false
+	}
+
 	return Config{
 		Port:                   port,
 		ServiceName:            name,
@@ -141,6 +179,10 @@ func Load() (Config, error) {
 		RuntimeURL:             strings.TrimRight(strings.TrimSpace(os.Getenv("FORGE_RUNTIME_URL")), "/"),
 		ControlURL:             strings.TrimRight(strings.TrimSpace(controlURL), "/"),
 		MetricSourceMode:       mode,
+		NodeScaleUpCooldown:    time.Duration(cooldownSecs) * time.Second,
+		ReservationThreshold:   thresh,
+		NodeScaleDefaultMax:    maxNodes,
+		NodeScaleEnabled:       nodeScaleEnabled,
 	}, nil
 }
 

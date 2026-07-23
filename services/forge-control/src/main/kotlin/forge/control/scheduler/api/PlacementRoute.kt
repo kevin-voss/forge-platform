@@ -86,12 +86,7 @@ fun Route.placementRoutes(placements: PlacementService) {
             }
         }
         get {
-            val deploymentRaw = call.request.queryParameters["deployment"]
-                ?: throw ApiException.BadRequest(
-                    "deployment query parameter is required",
-                    mapOf("field" to "deployment"),
-                )
-            val deploymentId = parseDeploymentId(deploymentRaw)
+            val deploymentRaw = call.request.queryParameters["deployment"]?.trim()?.takeIf { it.isNotEmpty() }
             val status = call.request.queryParameters["status"]?.trim()?.lowercase()
             if (status != null && status !in setOf("placed", "pending", "lost")) {
                 throw ApiException.BadRequest(
@@ -99,6 +94,19 @@ fun Route.placementRoutes(placements: PlacementService) {
                     mapOf("field" to "status"),
                 )
             }
+            // Cluster-wide pending query (epic 24 node autoscaler): allow omitting
+            // deployment when status=pending. Otherwise deployment remains required.
+            if (deploymentRaw == null) {
+                if (status != "pending") {
+                    throw ApiException.BadRequest(
+                        "deployment query parameter is required unless status=pending",
+                        mapOf("field" to "deployment"),
+                    )
+                }
+                call.respond(placements.listPending().map { it.toResponse() })
+                return@get
+            }
+            val deploymentId = parseDeploymentId(deploymentRaw)
             call.respond(placements.list(deploymentId, status).map { it.toResponse() })
         }
     }

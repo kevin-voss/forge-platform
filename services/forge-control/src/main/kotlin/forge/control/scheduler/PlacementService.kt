@@ -149,6 +149,10 @@ class PlacementService(
     fun list(deploymentId: UUID, status: String? = null): List<Placement> =
         store.listByDeployment(deploymentId, status)
 
+    /** Cluster-wide pending placements (FIFO), for node autoscaler demand signals. */
+    fun listPending(limit: Int = 1000): List<Placement> =
+        store.listPendingFifo(limit)
+
     /**
      * Delete placement and release reserved capacity. Triggers queue drain when capacity frees.
      */

@@ -20,6 +20,7 @@ import (
 	"forge.local/services/forge-autoscaler/internal/health"
 	httpserver "forge.local/services/forge-autoscaler/internal/http"
 	"forge.local/services/forge-autoscaler/internal/metrics"
+	"forge.local/services/forge-autoscaler/internal/node"
 	"forge.local/services/forge-autoscaler/internal/policy"
 	"forge.local/services/forge-autoscaler/internal/telemetry"
 )
@@ -103,6 +104,25 @@ func run() error {
 		Log:        log,
 	}
 	go loop.Run(bgCtx)
+
+	if cfg.NodeScaleEnabled {
+		nodeLoop := &node.Loop{
+			Signals:              &node.SignalSource{BaseURL: cfg.ControlURL},
+			Pools:                &actuate.NodePoolClient{BaseURL: cfg.ControlURL},
+			Metrics:              tel,
+			Events:               events,
+			Interval:             cfg.EvalInterval,
+			Cooldown:             cfg.NodeScaleUpCooldown,
+			ReservationThreshold: cfg.ReservationThreshold,
+			DefaultMaxNodes:      cfg.NodeScaleDefaultMax,
+			Log:                  log,
+		}
+		go nodeLoop.Run(bgCtx)
+		log.Info("node scale-up loop enabled",
+			"cooldown_seconds", int(cfg.NodeScaleUpCooldown.Seconds()),
+			"reservation_threshold", cfg.ReservationThreshold,
+		)
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
