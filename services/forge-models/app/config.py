@@ -37,6 +37,24 @@ class Settings(BaseSettings):
         ge=1,
         le=1_000_000,
     )
+    forge_models_gen_max_tokens: int = Field(
+        default=512,
+        alias="FORGE_MODELS_GEN_MAX_TOKENS",
+        ge=1,
+        le=100_000,
+    )
+    forge_models_gen_default_temp: float = Field(
+        default=0.0,
+        alias="FORGE_MODELS_GEN_DEFAULT_TEMP",
+        ge=0.0,
+        le=2.0,
+    )
+    forge_models_classify_max_labels: int = Field(
+        default=32,
+        alias="FORGE_MODELS_CLASSIFY_MAX_LABELS",
+        ge=1,
+        le=1000,
+    )
     forge_models_local_model_path: str = Field(default="", alias="FORGE_MODELS_LOCAL_MODEL_PATH")
     forge_service_name: str = Field(default="forge-models", alias="FORGE_SERVICE_NAME")
     forge_service_version: str = Field(default="0.1.0", alias="FORGE_SERVICE_VERSION")

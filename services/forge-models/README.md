@@ -2,10 +2,11 @@
 
 Python/FastAPI model-serving service (epic 14). Host port **4300**.
 
-Skeleton (14.01) + model registry (14.02) + local embeddings (14.03): health,
-identity, structured JSON logs, `GET /v1/models`, and
-`POST /v1/models/{model}/embed`. Generate/classify/summarize arrive in later
-steps; epic gate is `make demo DEMO=14` (`demos/14-model-serving`).
+Skeleton (14.01) + model registry (14.02) + local embeddings (14.03) +
+generate/classify/summarize (14.04): health, identity, structured JSON logs,
+`GET /v1/models`, `POST .../embed`, and synchronous
+`POST .../generate|classify|summarize`. Streaming/async jobs arrive in 14.05;
+epic gate is `make demo DEMO=14` (`demos/14-model-serving`).
 
 ## Local
 
@@ -32,6 +33,13 @@ curl -fsS localhost:4300/v1/models/local-embed-small
 curl -fsS localhost:4300/v1/models/local-embed-small/health
 curl -fsS -XPOST localhost:4300/v1/models/local-embed-small/embed \
   -H 'content-type: application/json' -d '{"input":"hello forge"}'
+BASE=localhost:4300; M=local-general
+curl -fsS -XPOST $BASE/v1/models/$M/generate -H 'content-type: application/json' \
+  -d '{"prompt":"summarize: forge platform","max_tokens":32,"temperature":0}'
+curl -fsS -XPOST $BASE/v1/models/$M/classify -H 'content-type: application/json' \
+  -d '{"input":"database connection refused","labels":["network","auth","disk"]}'
+curl -fsS -XPOST $BASE/v1/models/$M/summarize -H 'content-type: application/json' \
+  -d '{"input":"long incident text about database connection refused ..."}'
 ```
 
 OpenAPI (canonical): [`contracts/openapi/forge-models.openapi.yaml`](../../contracts/openapi/forge-models.openapi.yaml).
@@ -44,7 +52,7 @@ Each model is backed by a `ModelAdapter`:
 | Capability | Adapter |
 |---|---|
 | `embed` | `LocalEmbeddingAdapter` (deterministic hash embedder; optional on-disk transformer) |
-| generate/classify/summarize | `FakeAdapter` placeholder until 14.04 |
+| `generate` / `classify` / `summarize` | `LocalGenerationAdapter` (deterministic fake for CI) |
 
 | Field | Notes |
 |---|---|
@@ -80,6 +88,21 @@ directory to enable a realistic local model for demos (requires
 Validation errors return `422` with codes `invalid_input`, `batch_too_large`, or
 `capability_unsupported`. Unknown models return `404` / `model_not_found`.
 
+## Generation, classification, summarization
+
+All three endpoints are served by `LocalGenerationAdapter` on `local-general`
+(deterministic at `temperature=0`; no external API).
+
+| Endpoint | Request | Response |
+|---|---|---|
+| `POST .../generate` | `{ "prompt", "max_tokens"?, "temperature"? }` | `{ "text", "finish_reason", "usage" }` |
+| `POST .../classify` | `{ "input", "labels": [...] }` | `{ "labels": [{ "label", "score" }] }` (score desc) |
+| `POST .../summarize` | `{ "input", "max_tokens"?, "temperature"? }` | `{ "summary", "usage" }` |
+
+`usage` is `{ prompt_tokens, completion_tokens, total_tokens }` (approximate word
+counts for the fake adapter). Capability mismatches and invalid params return
+`422` / `capability_unsupported` or `invalid_params`; unknown models → `404`.
+
 ## Configuration
 
 | Variable | Default | Notes |
@@ -89,6 +112,9 @@ Validation errors return `422` with codes `invalid_input`, `batch_too_large`, or
 | `FORGE_MODELS_CONFIG` | packaged `app/models.yaml` | Path to registry definitions |
 | `FORGE_MODELS_EMBED_MAX_BATCH` | `64` | Max texts per `/embed` request |
 | `FORGE_MODELS_EMBED_MAX_CHARS` | `8192` | Max characters per input text |
+| `FORGE_MODELS_GEN_MAX_TOKENS` | `512` | Cap for `max_tokens` on generate/summarize |
+| `FORGE_MODELS_GEN_DEFAULT_TEMP` | `0.0` | Default temperature (deterministic) |
+| `FORGE_MODELS_CLASSIFY_MAX_LABELS` | `32` | Max labels per `/classify` request |
 | `FORGE_MODELS_LOCAL_MODEL_PATH` | _(empty)_ | Optional on-disk sentence-transformer path |
 | `FORGE_LOG_LEVEL` | `info` | `debug\|info\|warn\|error` |
 | `FORGE_SERVICE_NAME` | `forge-models` | Identity + log field |
@@ -109,7 +135,10 @@ services/forge-models/
 │   ├── models.yaml             # default model definitions
 │   ├── api/models.py           # GET /v1/models*
 │   ├── api/embed.py            # POST /v1/models/{model}/embed
-│   └── adapters/               # ModelAdapter, FakeAdapter, LocalEmbeddingAdapter
+│   ├── api/generate.py         # POST /v1/models/{model}/generate
+│   ├── api/classify.py         # POST /v1/models/{model}/classify
+│   ├── api/summarize.py        # POST /v1/models/{model}/summarize
+│   └── adapters/               # ModelAdapter, FakeAdapter, LocalEmbedding*, LocalGeneration*
 ├── tests/
 ├── pyproject.toml
 ├── uv.lock

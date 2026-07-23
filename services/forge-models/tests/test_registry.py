@@ -10,6 +10,7 @@ import yaml
 from app.adapters.base import Capability, HealthStatus
 from app.adapters.fake import FakeAdapter
 from app.adapters.local_embed import LocalEmbeddingAdapter
+from app.adapters.local_gen import LocalGenerationAdapter
 from app.registry import RegistryLoadError, load_registry, serialize_model
 
 
@@ -49,7 +50,7 @@ def test_load_valid_registry(tmp_path: Path) -> None:
     assert embed.embed_mode == "deterministic"
     general = registry.get("local-general")
     assert general is not None
-    assert isinstance(general, FakeAdapter)
+    assert isinstance(general, LocalGenerationAdapter)
     assert general.embedding_dim is None
     assert Capability.GENERATE in general.capabilities
 

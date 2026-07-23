@@ -11,8 +11,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app import __version__
+from app.api.classify import router as classify_router
 from app.api.embed import router as embed_router
+from app.api.generate import router as generate_router
 from app.api.models import router as models_router
+from app.api.summarize import router as summarize_router
 from app.config import Settings, clear_settings_cache, get_settings
 from app.health import router as health_router
 from app.logging import RequestIdMiddleware, configure_logging
@@ -70,6 +73,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(health_router)
     application.include_router(models_router)
     application.include_router(embed_router)
+    application.include_router(generate_router)
+    application.include_router(classify_router)
+    application.include_router(summarize_router)
 
     @application.get("/")
     async def identity(request: Request) -> JSONResponse:

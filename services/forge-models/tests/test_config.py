@@ -25,6 +25,9 @@ def test_defaults_backend_to_fake(clean_env: pytest.MonkeyPatch) -> None:
     assert settings.forge_models_backend == "fake"
     assert settings.forge_models_embed_max_batch == 64
     assert settings.forge_models_embed_max_chars == 8192
+    assert settings.forge_models_gen_max_tokens == 512
+    assert settings.forge_models_gen_default_temp == 0.0
+    assert settings.forge_models_classify_max_labels == 32
     assert settings.forge_models_local_model_path == ""
 
 
@@ -37,6 +40,17 @@ def test_embed_limits_from_env(clean_env: pytest.MonkeyPatch) -> None:
     assert settings.forge_models_embed_max_batch == 8
     assert settings.forge_models_embed_max_chars == 128
     assert settings.forge_models_local_model_path == "/tmp/model"
+
+
+def test_gen_limits_from_env(clean_env: pytest.MonkeyPatch) -> None:
+    clean_env.setenv("PORT", "8080")
+    clean_env.setenv("FORGE_MODELS_GEN_MAX_TOKENS", "256")
+    clean_env.setenv("FORGE_MODELS_GEN_DEFAULT_TEMP", "0.5")
+    clean_env.setenv("FORGE_MODELS_CLASSIFY_MAX_LABELS", "8")
+    settings = get_settings()
+    assert settings.forge_models_gen_max_tokens == 256
+    assert settings.forge_models_gen_default_temp == 0.5
+    assert settings.forge_models_classify_max_labels == 8
 
 
 def test_accepts_local_backend(clean_env: pytest.MonkeyPatch) -> None:

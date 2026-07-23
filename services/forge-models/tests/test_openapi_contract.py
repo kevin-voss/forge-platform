@@ -43,10 +43,19 @@ def test_openapi_documents_model_list_get_health() -> None:
     assert "/v1/models/{model}" in paths
     assert "/v1/models/{model}/health" in paths
     assert "/v1/models/{model}/embed" in paths
-    embed = paths["/v1/models/{model}/embed"]["post"]
-    assert "200" in embed["responses"]
-    assert "404" in embed["responses"]
-    assert "422" in embed["responses"]
+    assert "/v1/models/{model}/generate" in paths
+    assert "/v1/models/{model}/classify" in paths
+    assert "/v1/models/{model}/summarize" in paths
+    for path_key in (
+        "/v1/models/{model}/embed",
+        "/v1/models/{model}/generate",
+        "/v1/models/{model}/classify",
+        "/v1/models/{model}/summarize",
+    ):
+        op = paths[path_key]["post"]
+        assert "200" in op["responses"]
+        assert "404" in op["responses"]
+        assert "422" in op["responses"]
     schemas = doc["components"]["schemas"]
     assert "Model" in schemas
     assert "ModelListResponse" in schemas
@@ -55,10 +64,25 @@ def test_openapi_documents_model_list_get_health() -> None:
     assert "EmbedRequest" in schemas
     assert "EmbedResponse" in schemas
     assert "EmbedUsage" in schemas
+    assert "TokenUsage" in schemas
+    assert "GenerateRequest" in schemas
+    assert "GenerateResponse" in schemas
+    assert "ClassifyRequest" in schemas
+    assert "ClassifyResponse" in schemas
+    assert "SummarizeRequest" in schemas
+    assert "SummarizeResponse" in schemas
     embed_resp = schemas["EmbedResponse"]
     assert set(embed_resp["required"]) >= {"model", "embeddings", "dim", "usage"}
     assert "dim" in embed_resp["properties"]
     assert "usage" in embed_resp["properties"]
+    usage = schemas["TokenUsage"]
+    assert set(usage["required"]) >= {"prompt_tokens", "completion_tokens", "total_tokens"}
+    gen_resp = schemas["GenerateResponse"]
+    assert set(gen_resp["required"]) >= {"text", "finish_reason", "usage"}
+    classify_resp = schemas["ClassifyResponse"]
+    assert set(classify_resp["required"]) >= {"labels"}
+    summarize_resp = schemas["SummarizeResponse"]
+    assert set(summarize_resp["required"]) >= {"summary", "usage"}
     caps = schemas["ModelCapability"]["enum"]
     assert set(caps) == ALLOWED_CAPS
     assert schemas["Model"]["properties"]["embedding_dim"].get("nullable") is True
@@ -75,6 +99,35 @@ def _assert_embed_shape(body: dict) -> None:
         assert isinstance(vec, list)
         assert len(vec) == body["dim"]
         assert all(isinstance(x, (int, float)) for x in vec)
+
+
+def _assert_token_usage(usage: dict) -> None:
+    assert set(usage) >= {"prompt_tokens", "completion_tokens", "total_tokens"}
+    assert isinstance(usage["prompt_tokens"], int) and usage["prompt_tokens"] >= 0
+    assert isinstance(usage["completion_tokens"], int) and usage["completion_tokens"] >= 0
+    assert usage["total_tokens"] == usage["prompt_tokens"] + usage["completion_tokens"]
+
+
+def _assert_generate_shape(body: dict) -> None:
+    assert set(body) >= {"text", "finish_reason", "usage"}
+    assert isinstance(body["text"], str) and body["text"]
+    assert body["finish_reason"] in {"stop", "length"}
+    _assert_token_usage(body["usage"])
+
+
+def _assert_classify_shape(body: dict) -> None:
+    assert isinstance(body.get("labels"), list) and body["labels"]
+    scores = []
+    for item in body["labels"]:
+        assert isinstance(item.get("label"), str) and item["label"]
+        assert isinstance(item.get("score"), (int, float))
+        scores.append(item["score"])
+    assert scores == sorted(scores, reverse=True)
+
+
+def _assert_summarize_shape(body: dict) -> None:
+    assert isinstance(body.get("summary"), str) and body["summary"]
+    _assert_token_usage(body["usage"])
 
 
 def _assert_model_shape(model: dict) -> None:
@@ -125,6 +178,48 @@ def test_list_get_health_responses_validate(client: TestClient) -> None:
         unsupported = client.post(f"/v1/models/{non_embed}/embed", json={"input": "x"})
         assert unsupported.status_code == 422
         assert unsupported.json()["code"] == "capability_unsupported"
+
+    gen_model = next(
+        (m["id"] for m in body["models"] if "generate" in m["capabilities"]),
+        None,
+    )
+    if gen_model is not None:
+        generated = client.post(
+            f"/v1/models/{gen_model}/generate",
+            json={"prompt": "contract", "max_tokens": 16, "temperature": 0},
+        )
+        assert generated.status_code == 200
+        _assert_generate_shape(generated.json())
+
+        classified = client.post(
+            f"/v1/models/{gen_model}/classify",
+            json={"input": "contract", "labels": ["a", "b"]},
+        )
+        assert classified.status_code == 200
+        _assert_classify_shape(classified.json())
+
+        summarized = client.post(
+            f"/v1/models/{gen_model}/summarize",
+            json={"input": "contract text for summary checks"},
+        )
+        assert summarized.status_code == 200
+        _assert_summarize_shape(summarized.json())
+
+    embed_only = next(
+        (
+            m["id"]
+            for m in body["models"]
+            if "embed" in m["capabilities"] and "generate" not in m["capabilities"]
+        ),
+        None,
+    )
+    if embed_only is not None:
+        mismatch = client.post(
+            f"/v1/models/{embed_only}/generate",
+            json={"prompt": "x", "temperature": 0},
+        )
+        assert mismatch.status_code == 422
+        assert mismatch.json()["code"] == "capability_unsupported"
 
 
 def test_live_ready_identity_match_contract(client: TestClient) -> None:

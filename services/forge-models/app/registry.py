@@ -12,6 +12,7 @@ import yaml
 from app.adapters.base import Capability, HealthStatus, ModelAdapter
 from app.adapters.fake import FakeAdapter
 from app.adapters.local_embed import LocalEmbeddingAdapter
+from app.adapters.local_gen import LocalGenerationAdapter
 
 logger = logging.getLogger("forge-models")
 
@@ -36,6 +37,12 @@ class RegistryMetrics:
     model_health: dict[str, float] = field(default_factory=dict)
     models_embed_requests_total: int = 0
     models_embed_latency_seconds: float = 0.0
+    models_generate_requests_total: int = 0
+    models_generate_latency_seconds: float = 0.0
+    models_classify_requests_total: int = 0
+    models_classify_latency_seconds: float = 0.0
+    models_summarize_requests_total: int = 0
+    models_summarize_latency_seconds: float = 0.0
 
     def refresh(self, adapters: Mapping[str, ModelAdapter]) -> None:
         self.models_registry_size = len(adapters)
@@ -46,6 +53,18 @@ class RegistryMetrics:
     def record_embed(self, latency_seconds: float) -> None:
         self.models_embed_requests_total += 1
         self.models_embed_latency_seconds += max(0.0, latency_seconds)
+
+    def record_generate(self, latency_seconds: float) -> None:
+        self.models_generate_requests_total += 1
+        self.models_generate_latency_seconds += max(0.0, latency_seconds)
+
+    def record_classify(self, latency_seconds: float) -> None:
+        self.models_classify_requests_total += 1
+        self.models_classify_latency_seconds += max(0.0, latency_seconds)
+
+    def record_summarize(self, latency_seconds: float) -> None:
+        self.models_summarize_requests_total += 1
+        self.models_summarize_latency_seconds += max(0.0, latency_seconds)
 
 
 @dataclass
@@ -213,8 +232,9 @@ def _adapter_from_entry(
             f"unknown value '{backend}' (allowed: fake, local)"
         )
 
+    gen_caps = {Capability.GENERATE, Capability.CLASSIFY, Capability.SUMMARIZE}
+
     # Embed models use LocalEmbeddingAdapter (deterministic CI + optional on-disk model).
-    # Non-embed capabilities still use FakeAdapter until 14.04 inference lands.
     if Capability.EMBED in capabilities:
         assert embedding_dim is not None  # validated above
         # Optional transformer only for backend=local when FORGE_MODELS_LOCAL_MODEL_PATH is set.
@@ -226,6 +246,17 @@ def _adapter_from_entry(
                 capabilities=capabilities,
                 embedding_dim=embedding_dim,
                 local_model_path=path_for_adapter,
+            )
+        except ValueError as exc:
+            raise RegistryLoadError(str(exc)) from exc
+
+    # Generate/classify/summarize models use LocalGenerationAdapter (deterministic fake).
+    if capabilities & gen_caps:
+        try:
+            return LocalGenerationAdapter(
+                model_id=model_id,
+                backend=backend,
+                capabilities=capabilities,
             )
         except ValueError as exc:
             raise RegistryLoadError(str(exc)) from exc
