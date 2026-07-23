@@ -1,0 +1,48 @@
+# Demo 14 — Forge Models acceptance gate (standalone).
+# forge-models with FORGE_MODELS_BACKEND=fake + one-shot Go client.
+#
+#   docker compose -f demos/14-model-serving/compose.yaml up -d --build forge-models
+
+name: forge-demo-14
+
+services:
+  forge-models:
+    build:
+      context: ../../services/forge-models
+    image: forge/forge-models:local
+    container_name: forge-demo-14-models
+    ports:
+      - "4300:8080"
+    environment:
+      PORT: "8080"
+      FORGE_SERVICE_NAME: forge-models
+      FORGE_SERVICE_VERSION: 0.1.0
+      FORGE_LOG_LEVEL: ${FORGE_LOG_LEVEL:-info}
+      FORGE_ENV: development
+      FORGE_MODELS_BACKEND: ${FORGE_MODELS_BACKEND:-fake}
+      FORGE_MODELS_METRICS_ENABLED: ${FORGE_MODELS_METRICS_ENABLED:-true}
+      FORGE_SHUTDOWN_GRACE_SECONDS: "10"
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health/ready | grep -q ready"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  # One-shot client: run.sh uses `compose run --rm go-client`.
+  go-client:
+    build:
+      context: ./client
+    image: forge/demo-14-client:local
+    container_name: forge-demo-14-client
+    depends_on:
+      forge-models:
+        condition: service_healthy
+    environment:
+      FORGE_MODELS_URL: http://forge-models:8080
+      FORGE_MODELS_EMBED_MODEL: ${FORGE_MODELS_EMBED_MODEL:-local-embed-small}
+      FORGE_MODELS_GEN_MODEL: ${FORGE_MODELS_GEN_MODEL:-local-general}
+    profiles:
+      - client
+    restart: "no"

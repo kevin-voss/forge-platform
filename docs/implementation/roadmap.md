@@ -64,7 +64,7 @@ Full step catalog + global queue: [`MASTER_PLAN.md`](MASTER_PLAN.md).
 | [11](epics/11-forge-events.md) | Forge Events | `services/forge-events` | Go | Planned (7 steps) |
 | [12](epics/12-forge-observe.md) | Forge Observe | `services/forge-observe` | Go | Planned (7 steps) |
 | [13](epics/13-forge-storage.md) | Forge Storage | `services/forge-storage` | Rust | Complete (7/7; demo 13 gate) |
-| [14](epics/14-forge-models.md) | Forge Models | `services/forge-models` | Python | Planned (7 steps) |
+| [14](epics/14-forge-models.md) | Forge Models | `services/forge-models` | Python | Complete (7/7; demo 14 gate) |
 | [15](epics/15-forge-agents.md) | Forge Agents | `services/forge-agents` | Python | Planned (8 steps) |
 | [16](epics/16-forge-workflows.md) | Forge Workflows | `services/forge-workflows` | Elixir | Planned (7 steps) |
 | [17](epics/17-forge-memory.md) | Forge Memory | `services/forge-memory` | Rust | Planned (6 steps) |

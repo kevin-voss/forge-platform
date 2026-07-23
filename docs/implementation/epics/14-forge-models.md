@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Goal
 
@@ -63,7 +63,7 @@ make demo DEMO=14
 | [14.04](../steps/14-forge-models/14.04-generate-classify-summarize.md) | Generate/classify/summarize endpoints | Complete | Deterministic local gen + `/generate|/classify|/summarize` |
 | [14.05](../steps/14-forge-models/14.05-streaming-async-jobs.md) | Streaming + async jobs | Complete | SSE stream + in-memory jobs; depends on 14.04 |
 | [14.06](../steps/14-forge-models/14.06-usage-metrics-openapi-cli.md) | Usage metrics + OpenAPI; optional CLI | Complete | Prometheus + `/v1/usage` + OpenAPI lint + `forge model` |
-| [14.07](../steps/14-forge-models/14.07-demo-and-gate.md) | Demo `14-model-serving` + gate | Not started | Depends on 14.06 |
+| [14.07](../steps/14-forge-models/14.07-demo-and-gate.md) | Demo `14-model-serving` + gate | Complete | Demo 14 gate: Go client embed/classify/summarize + usage |
 
 ## Assumptions
 
@@ -82,4 +82,4 @@ make demo DEMO=14
 
 ## Next step to implement
 
-**[14.07](../steps/14-forge-models/14.07-demo-and-gate.md) — Demo `14-model-serving` + gate**.
+Epic complete. Next roadmap epic: [`15-forge-agents`](15-forge-agents.md) (`N = 99`).
