@@ -18,7 +18,7 @@ pub struct Bucket {
     pub created_at: String,
 }
 
-/// Object metadata placeholder (payload bytes arrive in 13.03).
+/// Object metadata (payload bytes on disk via `storage_path`).
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct ObjectMeta {
     pub id: String,
@@ -28,6 +28,7 @@ pub struct ObjectMeta {
     pub size_bytes: i64,
     pub sha256: Option<String>,
     pub content_type: Option<String>,
+    pub storage_path: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -218,8 +219,8 @@ impl MetadataStore {
             .map_err(|_| MetaError::Internal("lock".into()))?;
         match conn.execute(
             "INSERT INTO objects \
-             (id, project_id, bucket_id, key, size_bytes, sha256, content_type, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, 0, NULL, NULL, ?5, ?5)",
+             (id, project_id, bucket_id, key, size_bytes, sha256, content_type, storage_path, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, 0, NULL, NULL, '', ?5, ?5)",
             params![id, project_id, bucket.id, key, now],
         ) {
             Ok(_) => Ok(ObjectMeta {
@@ -230,6 +231,7 @@ impl MetadataStore {
                 size_bytes: 0,
                 sha256: None,
                 content_type: None,
+                storage_path: String::new(),
                 created_at: now.clone(),
                 updated_at: now,
             }),
@@ -242,6 +244,84 @@ impl MetadataStore {
             }
             Err(e) => Err(MetaError::Internal(format!("insert object: {e}"))),
         }
+    }
+
+    /// Upsert object metadata after a successful streamed upload.
+    /// Returns `(meta, created)` where `created` is true when the key was new.
+    pub fn upsert_object(
+        &self,
+        project_id: &str,
+        bucket_name: &str,
+        key: &str,
+        size_bytes: i64,
+        content_type: Option<&str>,
+        storage_path: &str,
+    ) -> Result<(ObjectMeta, bool), MetaError> {
+        let project_id = require_project(project_id)?;
+        if storage_path.trim().is_empty() {
+            return Err(MetaError::Invalid("storage_path is required".into()));
+        }
+        let bucket = self.get_bucket(project_id, bucket_name)?;
+        let existing = self
+            .get_object(project_id, bucket_name, key)
+            .map(Some)
+            .or_else(|e| match e {
+                MetaError::NotFound => Ok(None),
+                other => Err(other),
+            })?;
+        let created = existing.is_none();
+        let id = existing
+            .as_ref()
+            .map(|o| o.id.clone())
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        let created_at = existing
+            .as_ref()
+            .map(|o| o.created_at.clone())
+            .unwrap_or_else(now_rfc3339);
+        let updated_at = now_rfc3339();
+        let sha256 = existing.as_ref().and_then(|o| o.sha256.clone());
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| MetaError::Internal("lock".into()))?;
+        conn.execute(
+            "INSERT INTO objects \
+             (id, project_id, bucket_id, key, size_bytes, sha256, content_type, storage_path, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+             ON CONFLICT(project_id, bucket_id, key) DO UPDATE SET
+               size_bytes = excluded.size_bytes,
+               content_type = excluded.content_type,
+               storage_path = excluded.storage_path,
+               updated_at = excluded.updated_at",
+            params![
+                id,
+                project_id,
+                bucket.id,
+                key,
+                size_bytes,
+                sha256,
+                content_type,
+                storage_path,
+                created_at,
+                updated_at
+            ],
+        )
+        .map_err(|e| MetaError::Internal(format!("upsert object: {e}")))?;
+        Ok((
+            ObjectMeta {
+                id,
+                project_id: project_id.to_string(),
+                bucket_id: bucket.id,
+                key: key.to_string(),
+                size_bytes,
+                sha256,
+                content_type: content_type.map(str::to_string),
+                storage_path: storage_path.to_string(),
+                created_at,
+                updated_at,
+            },
+            created,
+        ))
     }
 
     pub fn get_object(
@@ -257,7 +337,7 @@ impl MetadataStore {
             .lock()
             .map_err(|_| MetaError::Internal("lock".into()))?;
         conn.query_row(
-            "SELECT id, project_id, bucket_id, key, size_bytes, sha256, content_type, created_at, updated_at \
+            "SELECT id, project_id, bucket_id, key, size_bytes, sha256, content_type, storage_path, created_at, updated_at \
              FROM objects WHERE project_id = ?1 AND bucket_id = ?2 AND key = ?3",
             params![project_id, bucket.id, key],
             |row| {
@@ -269,8 +349,9 @@ impl MetadataStore {
                     size_bytes: row.get(4)?,
                     sha256: row.get(5)?,
                     content_type: row.get(6)?,
-                    created_at: row.get(7)?,
-                    updated_at: row.get(8)?,
+                    storage_path: row.get(7)?,
+                    created_at: row.get(8)?,
+                    updated_at: row.get(9)?,
                 })
             },
         )
@@ -393,6 +474,46 @@ mod tests {
                 s.get_object("proj-b", "artifacts", "file.txt"),
                 Err(MetaError::NotFound)
             ));
+        });
+    }
+
+    #[test]
+    fn upsert_object_creates_and_overwrites() {
+        with_store(|s| {
+            s.create_bucket("proj-a", "artifacts").unwrap();
+            let (first, created) = s
+                .upsert_object(
+                    "proj-a",
+                    "artifacts",
+                    "file.txt",
+                    11,
+                    Some("text/plain"),
+                    "proj-a/bucket/abc",
+                )
+                .unwrap();
+            assert!(created);
+            assert_eq!(first.size_bytes, 11);
+            assert_eq!(first.content_type.as_deref(), Some("text/plain"));
+            assert_eq!(first.storage_path, "proj-a/bucket/abc");
+
+            let (second, created) = s
+                .upsert_object(
+                    "proj-a",
+                    "artifacts",
+                    "file.txt",
+                    22,
+                    Some("application/octet-stream"),
+                    "proj-a/bucket/abc",
+                )
+                .unwrap();
+            assert!(!created);
+            assert_eq!(second.id, first.id);
+            assert_eq!(second.created_at, first.created_at);
+            assert_eq!(second.size_bytes, 22);
+            assert_eq!(
+                second.content_type.as_deref(),
+                Some("application/octet-stream")
+            );
         });
     }
 }

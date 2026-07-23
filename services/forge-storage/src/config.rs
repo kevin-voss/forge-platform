@@ -1,3 +1,4 @@
+use crate::backend::DEFAULT_STREAM_BUFFER_BYTES;
 use std::env;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -48,6 +49,10 @@ pub struct Config {
     pub identity_cache_ttl_secs: u64,
     pub ready_retry_initial: Duration,
     pub ready_retry_max: Duration,
+    /// Fixed-size stream buffer for upload/download (default 64 KiB).
+    pub stream_buffer_bytes: usize,
+    /// Optional hard cap on object size; `None` means unlimited (quotas in 13.06).
+    pub max_object_bytes: Option<u64>,
 }
 
 impl Config {
@@ -130,6 +135,33 @@ impl Config {
         let ready_retry_max =
             Duration::from_millis(parse_u64_env("FORGE_STORAGE_READY_RETRY_MAX_MS", 10_000)?);
 
+        let stream_buffer_bytes =
+            parse_u64_env(
+                "FORGE_STORAGE_STREAM_BUFFER_BYTES",
+                DEFAULT_STREAM_BUFFER_BYTES as u64,
+            )? as usize;
+        if stream_buffer_bytes == 0 {
+            return Err(
+                "FORGE_STORAGE_STREAM_BUFFER_BYTES must be a positive integer".into(),
+            );
+        }
+
+        let max_object_bytes = match env::var("FORGE_STORAGE_MAX_OBJECT_BYTES") {
+            Ok(raw) => {
+                let trimmed = raw.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.parse::<u64>().map_err(|_| {
+                        format!(
+                            "FORGE_STORAGE_MAX_OBJECT_BYTES must be a non-negative integer, got {raw:?}"
+                        )
+                    })?)
+                }
+            }
+            Err(_) => None,
+        };
+
         Ok(Self {
             port,
             service_name,
@@ -145,6 +177,8 @@ impl Config {
             identity_cache_ttl_secs,
             ready_retry_initial,
             ready_retry_max,
+            stream_buffer_bytes,
+            max_object_bytes,
         })
     }
 }
@@ -201,6 +235,8 @@ mod tests {
             "FORGE_IDENTITY_CACHE_TTL_SECONDS",
             "FORGE_STORAGE_READY_RETRY_INITIAL_MS",
             "FORGE_STORAGE_READY_RETRY_MAX_MS",
+            "FORGE_STORAGE_STREAM_BUFFER_BYTES",
+            "FORGE_STORAGE_MAX_OBJECT_BYTES",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()
@@ -238,6 +274,8 @@ mod tests {
             assert_eq!(cfg.meta_path, PathBuf::from("/data/storage/meta/index.db"));
             assert_eq!(cfg.auth_mode, AuthMode::Dev);
             assert_eq!(cfg.log_level, "info");
+            assert_eq!(cfg.stream_buffer_bytes, DEFAULT_STREAM_BUFFER_BYTES);
+            assert_eq!(cfg.max_object_bytes, None);
         });
     }
 

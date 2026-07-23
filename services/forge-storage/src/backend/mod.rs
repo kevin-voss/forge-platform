@@ -1,6 +1,6 @@
 mod local_fs;
 
-pub use local_fs::LocalFsBackend;
+pub use local_fs::{LocalFsBackend, DEFAULT_STREAM_BUFFER_BYTES};
 
 use async_trait::async_trait;
 use std::path::Path;
@@ -24,12 +24,23 @@ pub enum BackendError {
     Fatal(String),
     /// Transient or environmental failure — serve liveness, keep readiness 503.
     Unavailable(String),
+    /// Object / path not found.
+    NotFound(String),
+    /// I/O or streaming failure during object transfer.
+    Io(String),
+    /// Upload exceeded configured max object size.
+    TooLarge { max_bytes: u64 },
 }
 
 impl std::fmt::Display for BackendError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Fatal(msg) | Self::Unavailable(msg) => write!(f, "{msg}"),
+            Self::Fatal(msg) | Self::Unavailable(msg) | Self::NotFound(msg) | Self::Io(msg) => {
+                write!(f, "{msg}")
+            }
+            Self::TooLarge { max_bytes } => {
+                write!(f, "object exceeds max size of {max_bytes} bytes")
+            }
         }
     }
 }

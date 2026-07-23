@@ -1,11 +1,12 @@
 openapi: 3.0.3
 info:
   title: Forge Storage API
-  version: 0.2.0
+  version: 0.3.0
   description: |
     Platform object storage service (epic 13). Health/identity from 13.01;
-    project-scoped bucket APIs and metadata index from 13.02. Streamed
-    upload/download, integrity, signed tokens, and quotas arrive in later steps.
+    project-scoped bucket APIs and metadata index from 13.02; streamed object
+    upload/download from 13.03. Integrity (SHA-256), range requests, signed
+    tokens, and quotas arrive in later steps.
 servers:
   - url: http://127.0.0.1:4107
     description: Local Compose (host port 4107)
@@ -204,6 +205,142 @@ paths:
                 code: conflict
                 object_count: 1
 
+  /v1/buckets/{bucket}/objects/{key}:
+    put:
+      operationId: putObject
+      summary: Stream-upload an object
+      description: |
+        Streams the request body to a temporary file, fsyncs, then atomically
+        renames into the objects layout. Last write wins for a given key.
+        Memory use is bounded by `FORGE_STORAGE_STREAM_BUFFER_BYTES` (default 64 KiB).
+      parameters:
+        - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/BucketName"
+        - $ref: "#/components/parameters/ObjectKey"
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+          "*/*":
+            schema:
+              type: string
+              format: binary
+      responses:
+        "201":
+          description: Object created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Object"
+        "200":
+          description: Object overwritten
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Object"
+        "400":
+          description: Invalid object key or missing project context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing/invalid bearer token (enforce mode)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Bucket not found in caller's project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: Object exceeds `FORGE_STORAGE_MAX_OBJECT_BYTES` when set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    get:
+      operationId: getObject
+      summary: Stream-download an object
+      description: |
+        Streams object bytes from the local filesystem with `Content-Type` and
+        `Content-Length`. Cross-project addresses return 404 (no existence leak).
+      parameters:
+        - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/BucketName"
+        - $ref: "#/components/parameters/ObjectKey"
+      responses:
+        "200":
+          description: Object bytes
+          headers:
+            Content-Type:
+              schema:
+                type: string
+              description: Stored content type (default application/octet-stream)
+            Content-Length:
+              schema:
+                type: integer
+                format: int64
+              description: Object size in bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Missing/invalid bearer token (enforce mode)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Object or bucket not found in caller's project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    head:
+      operationId: headObject
+      summary: Object metadata headers
+      description: Returns `Content-Type` and `Content-Length` without a body.
+      parameters:
+        - $ref: "#/components/parameters/ForgeProjectHeader"
+        - $ref: "#/components/parameters/BucketName"
+        - $ref: "#/components/parameters/ObjectKey"
+      responses:
+        "200":
+          description: Object exists
+          headers:
+            Content-Type:
+              schema:
+                type: string
+            Content-Length:
+              schema:
+                type: integer
+                format: int64
+        "401":
+          description: Missing/invalid bearer token (enforce mode)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Object or bucket not found in caller's project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   parameters:
     ForgeProjectHeader:
@@ -228,6 +365,18 @@ components:
         maxLength: 63
         pattern: '^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$'
         example: artifacts
+    ObjectKey:
+      name: key
+      in: path
+      required: true
+      description: |
+        Object key (1–1024 characters). Must not start with `/`, contain NUL, or
+        include `..` path segments. Nested keys such as `dir/file.bin` are allowed.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 1024
+        example: path/to/object.bin
 
   schemas:
     HealthStatus:
@@ -298,6 +447,53 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Bucket"
+
+    Object:
+      type: object
+      required:
+        - id
+        - project_id
+        - bucket_id
+        - key
+        - size_bytes
+        - storage_path
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          example: proj-a
+        bucket_id:
+          type: string
+          format: uuid
+        key:
+          type: string
+          example: path/to/object.bin
+        size_bytes:
+          type: integer
+          format: int64
+          example: 1024
+        sha256:
+          type: string
+          nullable: true
+          description: Populated in 13.04
+        content_type:
+          type: string
+          nullable: true
+          example: application/octet-stream
+        storage_path:
+          type: string
+          description: Relative path under objects/ (interim layout until 13.04)
+          example: proj-a/550e8400-e29b-41d4-a716-446655440000/ab12...
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
 
     Error:
       type: object

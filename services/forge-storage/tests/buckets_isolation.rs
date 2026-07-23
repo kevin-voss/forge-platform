@@ -31,6 +31,8 @@ async fn test_app(auth_mode: AuthMode) -> (tempfile::TempDir, axum::Router) {
         identity: None,
         metrics: StorageMetrics::new(),
         meta_path,
+        stream_buffer_bytes: forge_storage::backend::DEFAULT_STREAM_BUFFER_BYTES,
+        max_object_bytes: None,
     };
     (dir, app(state))
 }
@@ -164,6 +166,8 @@ async fn delete_non_empty_returns_409() {
         identity: None,
         metrics: StorageMetrics::new(),
         meta_path,
+        stream_buffer_bytes: forge_storage::backend::DEFAULT_STREAM_BUFFER_BYTES,
+        max_object_bytes: None,
     };
     let app = app(state);
     let (status, body) = request(

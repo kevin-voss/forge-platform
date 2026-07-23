@@ -68,7 +68,7 @@ make demo DEMO=13
 |---|---|---|---|
 | [13.01](../steps/13-forge-storage/13.01-skeleton-local-fs-backend.md) | Skeleton + local FS backend | Complete | Rust service, health, Compose, port 4107, FS layout |
 | [13.02](../steps/13-forge-storage/13.02-buckets-metadata-project-isolation.md) | Buckets + metadata + project isolation | Complete | SQLite metadata index; bucket APIs; project isolation (dev header / enforce Identity) |
-| [13.03](../steps/13-forge-storage/13.03-streamed-upload-download.md) | Streamed upload/download | Not started | Depends on 13.02; no full in-memory large files |
+| [13.03](../steps/13-forge-storage/13.03-streamed-upload-download.md) | Streamed upload/download | Complete | Streamed PUT/GET/HEAD; temp→atomic rename; bounded buffer |
 | [13.04](../steps/13-forge-storage/13.04-sha256-range-requests.md) | SHA-256 + range requests | Not started | Depends on 13.03; integrity + `Range` support |
 | [13.05](../steps/13-forge-storage/13.05-signed-tokens-expiry.md) | Signed tokens + expiry | Not started | Depends on 13.04; HMAC signed access + expiry enforcement |
 | [13.06](../steps/13-forge-storage/13.06-quotas-delete-durability.md) | Quotas + delete + restart durability | Not started | Depends on 13.05; per-project quota, hard delete, restart safety |
@@ -91,4 +91,4 @@ make demo DEMO=13
 
 ## Next step to implement
 
-**[13.03](../steps/13-forge-storage/13.03-streamed-upload-download.md) — Streamed upload/download** (depends on 13.02).
+**[13.04](../steps/13-forge-storage/13.04-sha256-range-requests.md) — SHA-256 + range requests** (depends on 13.03).

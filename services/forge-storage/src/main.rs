@@ -29,6 +29,8 @@ async fn run() -> Result<(), String> {
         allowed_base = %cfg.allowed_base.display(),
         meta_path = %cfg.meta_path.display(),
         auth_mode = %cfg.auth_mode,
+        stream_buffer_bytes = cfg.stream_buffer_bytes,
+        max_object_bytes = ?cfg.max_object_bytes,
         shutdown_grace_seconds = cfg.shutdown_grace.as_secs(),
         "starting forge-storage"
     );

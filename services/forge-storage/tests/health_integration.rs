@@ -47,6 +47,8 @@ async fn ready_200_with_temp_writable_root() {
         identity: None,
         metrics: StorageMetrics::new(),
         meta_path,
+        stream_buffer_bytes: forge_storage::backend::DEFAULT_STREAM_BUFFER_BYTES,
+        max_object_bytes: None,
     };
     let app = app(state);
     let (status, body) = get(app, "/health/ready").await;
@@ -75,6 +77,8 @@ async fn ready_503_with_read_only_root() {
         identity: None,
         metrics: StorageMetrics::new(),
         meta_path: root.join("meta").join("index.db"),
+        stream_buffer_bytes: forge_storage::backend::DEFAULT_STREAM_BUFFER_BYTES,
+        max_object_bytes: None,
     };
     let app = app(state);
     let (status, body) = get(app, "/health/ready").await;

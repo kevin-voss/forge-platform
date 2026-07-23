@@ -8,12 +8,16 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
-/// Counters for storage observability (13.02).
+/// Counters for storage observability (13.02 / 13.03).
 #[derive(Debug, Default)]
 pub struct StorageMetrics {
     pub buckets_created: AtomicU64,
     pub storage_buckets_total: AtomicU64,
     pub storage_objects_total: AtomicU64,
+    pub storage_upload_bytes_total: AtomicU64,
+    pub storage_download_bytes_total: AtomicU64,
+    pub storage_uploads_total: AtomicU64,
+    pub storage_downloads_total: AtomicU64,
 }
 
 impl StorageMetrics {
@@ -35,6 +39,8 @@ pub struct AppState {
     pub identity: Option<Arc<dyn IdentityClient>>,
     pub metrics: Arc<StorageMetrics>,
     pub meta_path: PathBuf,
+    pub stream_buffer_bytes: usize,
+    pub max_object_bytes: Option<u64>,
 }
 
 impl AppState {
@@ -110,6 +116,8 @@ pub async fn bootstrap(cfg: &Config) -> Result<AppState, String> {
                 identity,
                 metrics,
                 meta_path: cfg.meta_path.clone(),
+                stream_buffer_bytes: cfg.stream_buffer_bytes,
+                max_object_bytes: cfg.max_object_bytes,
             };
             info!(
                 storage_root = %state.backend.root().display(),
@@ -138,7 +146,14 @@ pub async fn bootstrap(cfg: &Config) -> Result<AppState, String> {
                 identity,
                 metrics,
                 meta_path: cfg.meta_path.clone(),
+                stream_buffer_bytes: cfg.stream_buffer_bytes,
+                max_object_bytes: cfg.max_object_bytes,
             })
+        }
+        Err(err) => {
+            // init() only returns Fatal/Unavailable; other variants are object-transfer errors.
+            error!(error = %err, "unexpected storage backend init error");
+            Err(err.to_string())
         }
     }
 }

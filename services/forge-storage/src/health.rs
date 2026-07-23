@@ -98,6 +98,8 @@ mod tests {
             identity: None,
             metrics: StorageMetrics::new(),
             meta_path: PathBuf::from("/tmp/unused-meta.db"),
+            stream_buffer_bytes: crate::backend::DEFAULT_STREAM_BUFFER_BYTES,
+            max_object_bytes: None,
         }
     }
 
