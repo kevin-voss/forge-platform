@@ -270,6 +270,31 @@ func TestApplyScaleDownLowersReplicasIdempotentOp(t *testing.T) {
 	}
 }
 
+func TestEvaluateScaleDownAllowsStaleCreatingNodes(t *testing.T) {
+	// After scale-up Ready catches up, creatingNodes may linger at 1.
+	// Scale-down must still proceed when ready >= desired.
+	pool := testPool(3)
+	pool.Status["creatingNodes"] = 1
+	fleet := []FleetNode{
+		{ID: "node-a", Status: "online", CapacitySlots: 2, AllocatedSlots: 2, RunningReplicas: []string{"r1", "r2"}},
+		{ID: "node-b", Status: "online", CapacitySlots: 2, AllocatedSlots: 0},
+		{ID: "node-c", Status: "online", CapacitySlots: 2, AllocatedSlots: 1, RunningReplicas: []string{"r3"}},
+	}
+	d := EvaluateScaleDown(ScaleDownInput{
+		Fleet:              fleet,
+		Pools:              []actuate.NodePoolView{pool},
+		UnderutilThreshold: 0.25,
+		UnderutilWindow:    time.Minute,
+		Now:                time.Now().UTC(),
+	})
+	if d.Action != "scale_down" {
+		t.Fatalf("action=%s reason=%s (stale creatingNodes must not block)", d.Action, d.Reason)
+	}
+	if d.NodeID != "node-b" {
+		t.Fatalf("node=%s want node-b", d.NodeID)
+	}
+}
+
 func TestLooksLikeStatefulPrimary(t *testing.T) {
 	if !looksLikeStatefulPrimary(FleetNode{
 		ID: "n1", Labels: map[string]string{"forge.dev/stateful-role": "primary"},

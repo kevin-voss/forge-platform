@@ -280,7 +280,10 @@ func poolsWithExcess(pools []actuate.NodePoolView) []poolCandidate {
 		if floor < 1 {
 			floor = 1
 		}
-		if actuate.StatusInt(pool, "creatingNodes") > 0 {
+		// Block only while create is still outstanding (ready behind desired).
+		// After Ready catches up, a leftover creatingNodes counter must not
+		// permanently suppress scale-down (common after reservation scale-up).
+		if creating := actuate.StatusInt(pool, "creatingNodes"); creating > 0 && ready < desired {
 			continue
 		}
 		// In-flight drains stay eligible even when desired already at floor.
