@@ -31,6 +31,12 @@ type Config struct {
 	DLQRetentionDays     int
 	EventSchemaDir       string
 	SchemaValidation     string // strict|warn
+	DedupWindowS         int
+	SeenStoreTTLS        int
+	EventsDBURL          string
+	AuthMode             string // enforce|dev
+	IdentityURL          string
+	IntrospectCacheTTLS  int
 }
 
 // Load reads configuration from the process environment.
@@ -144,6 +150,33 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("FORGE_SCHEMA_VALIDATION must be strict|warn, got %q", schemaValidation)
 	}
 
+	dedupWindowS, err := parsePositiveInt("FORGE_DEDUP_WINDOW_S", os.Getenv("FORGE_DEDUP_WINDOW_S"), 120)
+	if err != nil {
+		return Config{}, err
+	}
+	seenTTL, err := parsePositiveInt("FORGE_SEEN_STORE_TTL_S", os.Getenv("FORGE_SEEN_STORE_TTL_S"), 86400)
+	if err != nil {
+		return Config{}, err
+	}
+	dbURL := strings.TrimSpace(os.Getenv("FORGE_EVENTS_DB_URL"))
+	authMode := strings.ToLower(strings.TrimSpace(os.Getenv("FORGE_AUTH_MODE")))
+	if authMode == "" {
+		authMode = "dev"
+	}
+	switch authMode {
+	case "dev", "enforce":
+	default:
+		return Config{}, fmt.Errorf("FORGE_AUTH_MODE must be enforce|dev, got %q", authMode)
+	}
+	identityURL := strings.TrimSpace(os.Getenv("FORGE_IDENTITY_URL"))
+	if identityURL == "" {
+		identityURL = "http://forge-identity:8080"
+	}
+	introspectTTL, err := parsePositiveInt("FORGE_INTROSPECT_CACHE_TTL_S", os.Getenv("FORGE_INTROSPECT_CACHE_TTL_S"), 10)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		Port:                 port,
 		ServiceName:          name,
@@ -163,6 +196,12 @@ func Load() (Config, error) {
 		DLQRetentionDays:     dlqRetentionDays,
 		EventSchemaDir:       schemaDir,
 		SchemaValidation:     schemaValidation,
+		DedupWindowS:         dedupWindowS,
+		SeenStoreTTLS:        seenTTL,
+		EventsDBURL:          dbURL,
+		AuthMode:             authMode,
+		IdentityURL:          identityURL,
+		IntrospectCacheTTLS:  introspectTTL,
 	}, nil
 }
 

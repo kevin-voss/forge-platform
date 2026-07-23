@@ -26,14 +26,29 @@ dev:
 	FORGE_DLQ_RETENTION_DAYS=$${FORGE_DLQ_RETENTION_DAYS:-7} \
 	FORGE_EVENT_SCHEMA_DIR=$${FORGE_EVENT_SCHEMA_DIR:-$(ROOT_DIR)/contracts/events} \
 	FORGE_SCHEMA_VALIDATION=$${FORGE_SCHEMA_VALIDATION:-strict} \
+	FORGE_DEDUP_WINDOW_S=$${FORGE_DEDUP_WINDOW_S:-120} \
+	FORGE_SEEN_STORE_TTL_S=$${FORGE_SEEN_STORE_TTL_S:-86400} \
+	FORGE_EVENTS_DB_URL=$${FORGE_EVENTS_DB_URL:-postgres://forge:forge@127.0.0.1:5001/forge_events} \
+	FORGE_AUTH_MODE=$${FORGE_AUTH_MODE:-dev} \
+	FORGE_IDENTITY_URL=$${FORGE_IDENTITY_URL:-http://127.0.0.1:4002} \
 	FORGE_SHUTDOWN_GRACE_SECONDS=$${FORGE_SHUTDOWN_GRACE_SECONDS:-10} \
 	go run ./cmd/forge-events
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/forge-events ./cmd/forge-events
 
-run: docker-build
-	@$(COMPOSE) up -d nats
+ensure-db:
+	@$(COMPOSE) up -d postgres
+	@for i in $$(seq 1 30); do \
+		if docker exec forge-postgres pg_isready -U forge >/dev/null 2>&1; then break; fi; \
+		sleep 1; \
+	done
+	@docker exec forge-postgres psql -U forge -tc "SELECT 1 FROM pg_database WHERE datname='forge_events'" \
+		| grep -q 1 \
+		|| docker exec forge-postgres psql -U forge -c "CREATE DATABASE forge_events"
+
+run: docker-build ensure-db
+	@$(COMPOSE) up -d nats postgres
 	@$(COMPOSE) up -d --build $(SERVICE)
 	@$(MAKE) wait
 	@echo "$(SERVICE) is up on http://127.0.0.1:$(HOST_PORT)"
@@ -91,6 +106,38 @@ test-integration: run
 		test "$$code" = "422"; \
 		python3 -c 'import json; b=json.load(open("/tmp/forge-events-schema-422.json")); assert b.get("error") and b.get("subject")=="application.crashed" and isinstance(b.get("violations"), list)'; \
 		curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/schemas" | python3 -c 'import sys,json; b=json.load(sys.stdin); assert "application.crashed" in b and "build.completed" in b and b["application.crashed"]["latest_version"]==1'
+	@# Idempotency-Key duplicate publish → same event_id/seq; processed mark skips redelivery.
+	@subj="application.crashed"; cons="idem_$$$$"; key="k_$$$$"; \
+		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/consumers" \
+			-H 'content-type: application/json' \
+			-d "{\"name\":\"$$cons\",\"subject\":\"$$subj\",\"ack_wait_s\":2,\"max_deliveries\":5,\"identity\":\"worker-$$cons\"}" \
+			| python3 -c 'import sys,json; b=json.load(sys.stdin); assert b.get("identity")'; \
+		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/events" \
+			-H 'content-type: application/json' -H "Idempotency-Key: $$key" \
+			-d "{\"subject\":\"$$subj\",\"data\":{\"service\":\"demo\",\"reason\":\"oom\",\"occurred_at\":\"2026-07-22T14:00:00Z\"},\"source\":\"t\"}" \
+			>/tmp/forge-events-idem1.json; \
+		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/events" \
+			-H 'content-type: application/json' -H "Idempotency-Key: $$key" \
+			-d "{\"subject\":\"$$subj\",\"data\":{\"service\":\"demo\",\"reason\":\"oom\",\"occurred_at\":\"2026-07-22T14:00:00Z\"},\"source\":\"t\"}" \
+			>/tmp/forge-events-idem2.json; \
+		python3 -c 'import json,sys; a=json.load(open("/tmp/forge-events-idem1.json")); b=json.load(open("/tmp/forge-events-idem2.json")); key=sys.argv[1]; assert a["event_id"]==b["event_id"]==key and a["seq"]==b["seq"]' "$$key"; \
+		tok="$$(curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/consume" \
+			-H 'content-type: application/json' \
+			-d "{\"consumer\":\"$$cons\",\"batch\":10}" \
+			| python3 -c 'import sys,json; b=json.load(sys.stdin); assert len(b["messages"])>=1; print(b["messages"][0]["ack_token"])')"; \
+		code="$$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$(HOST_PORT)/v1/processed" \
+			-H 'content-type: application/json' -d "{\"consumer\":\"$$cons\",\"event_id\":\"$$key\"}")"; \
+		test "$$code" = "204"; \
+		curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/processed?consumer=$$cons&event_id=$$key" \
+			| python3 -c 'import sys,json; assert json.load(sys.stdin)["processed"] is True'; \
+		code="$$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$(HOST_PORT)/v1/nak" \
+			-H 'content-type: application/json' -d "{\"ack_token\":\"$$tok\"}")"; \
+		test "$$code" = "204"; \
+		sleep 3; \
+		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/consume" \
+			-H 'content-type: application/json' \
+			-d "{\"consumer\":\"$$cons\",\"batch\":10}" \
+			| python3 -c 'import sys,json; b=json.load(sys.stdin); assert all(m.get("event_id")!=sys.argv[1] for m in b.get("messages",[]))' "$$key"
 	@# Poison message → max_deliveries → DLQ list/detail/redeliver/delete.
 	@subj="application.crashed"; cons="poison_$$$$"; \
 		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/consumers" \
@@ -197,7 +244,7 @@ test-integration: run
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
 	@grep -q '4105' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@echo "Integration checks passed (health + identity + JetStream streams + durable consume/ack/redelivery + schema 422 + GET /v1/schemas + DLQ inspect/redeliver/delete + unknown subject 400 + ready/503 + restart idempotency + invalid PORT + graceful SIGTERM)."
+	@echo "Integration checks passed (health + identity + JetStream streams + durable consume/ack/redelivery + Idempotency-Key dedup + processed skip + schema 422 + GET /v1/schemas + DLQ inspect/redeliver/delete + unknown subject 400 + ready/503 + restart idempotency + invalid PORT + graceful SIGTERM)."
 
 lint:
 	@go vet ./...

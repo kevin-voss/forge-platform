@@ -19,6 +19,8 @@ import (
 	"forge.local/services/forge-events/internal/dlq"
 	"forge.local/services/forge-events/internal/events"
 	"forge.local/services/forge-events/internal/health"
+	"forge.local/services/forge-events/internal/identity"
+	"forge.local/services/forge-events/internal/idempotency"
 	natsx "forge.local/services/forge-events/internal/nats"
 	"forge.local/services/forge-events/internal/schema"
 )
@@ -54,6 +56,11 @@ func run() error {
 		"dlq_retention_days", cfg.DLQRetentionDays,
 		"event_schema_dir", cfg.EventSchemaDir,
 		"schema_validation", cfg.SchemaValidation,
+		"dedup_window_s", cfg.DedupWindowS,
+		"seen_store_ttl_s", cfg.SeenStoreTTLS,
+		"auth_mode", cfg.AuthMode,
+		"identity_url", cfg.IdentityURL,
+		"events_db_configured", cfg.EventsDBURL != "",
 		"shutdown_grace_seconds", int(cfg.ShutdownGrace.Seconds()),
 	)
 
@@ -65,7 +72,8 @@ func run() error {
 	}
 
 	metrics := &natsx.Metrics{}
-	conn := natsx.NewConnWithDLQ(cfg.NATSURL, cfg.Streams, cfg.DLQEnabled, log, metrics)
+	dedupWindow := time.Duration(cfg.DedupWindowS) * time.Second
+	conn := natsx.NewConnWithDLQ(cfg.NATSURL, cfg.Streams, cfg.DLQEnabled, dedupWindow, log, metrics)
 	if err := conn.Connect(context.Background()); err != nil {
 		return err
 	}
@@ -76,9 +84,44 @@ func run() error {
 		}
 	}()
 
+	dedupMetrics := &idempotency.Metrics{}
+	var seen idempotency.SeenStore
+	var seenCloser interface{ Close() error }
+	if cfg.EventsDBURL != "" {
+		pg, err := idempotency.OpenPostgres(context.Background(), cfg.EventsDBURL)
+		if err != nil {
+			return fmt.Errorf("seen store: %w", err)
+		}
+		seen = pg
+		seenCloser = pg
+		log.Info("seen store using postgres")
+	} else {
+		seen = idempotency.NewMemoryStore()
+		log.Warn("FORGE_EVENTS_DB_URL unset — using in-memory seen store (not durable across restarts)")
+	}
+	if seenCloser != nil {
+		defer func() { _ = seenCloser.Close() }()
+	}
+
+	authMode, err := identity.ParseAuthMode(cfg.AuthMode)
+	if err != nil {
+		return err
+	}
+	if authMode == identity.AuthModeEnforce {
+		log.Info("FORGE_AUTH_MODE=enforce — publish/consume/ack require Identity tokens")
+	} else {
+		log.Warn("FORGE_AUTH_MODE=dev — events auth bypassed (insecure)")
+	}
+	var intro identity.Introspector
+	if authMode == identity.AuthModeEnforce || cfg.IdentityURL != "" {
+		intro = identity.NewHTTPIntrospector(cfg.IdentityURL, cfg.IntrospectCacheTTLS, log)
+	}
+	authGate := &identity.Gate{Mode: authMode, Introspector: intro, Log: log}
+
 	eventMetrics := &events.Metrics{}
 	publisher := events.NewPublisher(conn.JetStream(), cfg.Streams, cfg.EventMaxBytes, log, eventMetrics)
 	publisher.SetSchemaValidator(schemaReg)
+	publisher.SetDedupMetrics(dedupMetrics)
 	ackMetrics := &consumers.AckMetrics{}
 	ackMgr := consumers.NewAckManager(time.Duration(cfg.AckTokenTTLS)*time.Second, log, ackMetrics)
 	store := consumers.NewStore(
@@ -92,6 +135,8 @@ func run() error {
 		log,
 		&consumers.Metrics{},
 	)
+	store.SetSeenStore(seen, dedupMetrics)
+	store.SetAuthEnforce(authMode == identity.AuthModeEnforce)
 
 	dlqMetrics := &dlq.Metrics{}
 	dlqStore := dlq.NewStore(conn.JetStream())
@@ -99,13 +144,28 @@ func run() error {
 	store.SetDLQRouter(dlqRouter)
 	redeliverer := dlq.NewRedeliverer(conn.JetStream(), dlqStore, log, dlqMetrics)
 	retention := dlq.NewRetentionRunner(dlqStore, dlqRouter, cfg.DLQRetentionDays, log, dlqMetrics)
+	seenRetention := idempotency.NewRetentionRunner(seen, cfg.SeenStoreTTLS, log)
 
 	mux := http.NewServeMux()
 	ready := health.MultiReady{conn, schemaReg}
 	health.NewHandler(ready, cfg.ServiceName, cfg.ServiceVersion).Register(mux)
-	(&api.PublishHandler{Publisher: publisher, MaxBytes: cfg.EventMaxBytes}).Register(mux)
-	(&api.ConsumeHandler{Consumer: store, MaxBytes: cfg.EventMaxBytes, Wait: cfg.ConsumeWait}).Register(mux)
-	(&api.ConsumersHandler{Store: store, Acker: ackMgr, MaxBytes: cfg.EventMaxBytes}).Register(mux)
+	(&api.PublishHandler{Publisher: publisher, Auth: authGate, MaxBytes: cfg.EventMaxBytes}).Register(mux)
+	(&api.ConsumeHandler{Consumer: store, Auth: authGate, Authorizer: store, MaxBytes: cfg.EventMaxBytes, Wait: cfg.ConsumeWait}).Register(mux)
+	(&api.ConsumersHandler{
+		Store:      store,
+		Acker:      ackMgr,
+		AckLookup:  ackMgr,
+		Auth:       authGate,
+		Authorizer: store,
+		MaxBytes:   cfg.EventMaxBytes,
+	}).Register(mux)
+	(&api.ProcessedHandler{
+		Store:      seen,
+		Auth:       authGate,
+		Authorizer: store,
+		Metrics:    dedupMetrics,
+		MaxBytes:   cfg.EventMaxBytes,
+	}).Register(mux)
 	(&api.DLQHandler{Store: dlqStore, Redeliverer: redeliverer, Enabled: cfg.DLQEnabled}).Register(mux)
 	(&api.SchemasHandler{Registry: schemaReg}).Register(mux)
 
@@ -123,6 +183,7 @@ func run() error {
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	defer bgCancel()
 	go retention.Run(bgCtx)
+	go seenRetention.Run(bgCtx)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -156,6 +217,9 @@ func run() error {
 		"forge_events_ready", metrics.Ready.Load(),
 		"forge_nats_reconnects_total", metrics.Reconnects.Load(),
 		"forge_streams_total", metrics.Streams.Load(),
+		"forge_publish_dedup_hits_total", dedupMetrics.PublishDedupHits.Load(),
+		"forge_consumer_dedup_skips_total", dedupMetrics.ConsumerDedupSkips.Load(),
+		"forge_processed_events_total", dedupMetrics.ProcessedEvents.Load(),
 	)
 	return nil
 }

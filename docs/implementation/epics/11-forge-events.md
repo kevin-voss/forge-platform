@@ -66,7 +66,7 @@ Restart consumer mid-stream → no lost/duplicate processing (idempotency)
 | [11.03](../steps/11-forge-events/11.03-durable-consumers-ack-retry.md) | Durable consumers, ack, retry | Complete | Named durables; ack/nak; ack_wait redelivery; max_deliveries park |
 | [11.04](../steps/11-forge-events/11.04-dlq-and-inspect-apis.md) | DLQ + inspect APIs | Complete | Dead-letter + inspection + redeliver |
 | [11.05](../steps/11-forge-events/11.05-event-json-schemas.md) | Event JSON Schemas | Complete | build.*, deployment.*, runtime.node.offline, application.crashed, agent.run.*; publish 422 |
-| [11.06](../steps/11-forge-events/11.06-idempotency-keys-and-consumer-identity.md) | Idempotency keys + consumer identity | Not started | Dedup + named consumers |
+| [11.06](../steps/11-forge-events/11.06-idempotency-keys-and-consumer-identity.md) | Idempotency keys + consumer identity | Complete | Idempotency-Key dedup; processed_events; identity + optional enforce |
 | [11.07](../steps/11-forge-events/11.07-demo-11-event-driven.md) | Demo `11-event-driven` + gate | Not started | Go→Elixir; retry+DLQ; epic gate |
 
 ## Assumptions
@@ -87,4 +87,4 @@ Restart consumer mid-stream → no lost/duplicate processing (idempotency)
 
 ## Next step to implement
 
-**[11.06](../steps/11-forge-events/11.06-idempotency-keys-and-consumer-identity.md) — Idempotency keys + consumer identity**.
+**[11.07](../steps/11-forge-events/11.07-demo-11-event-driven.md) — Demo `11-event-driven` + epic gate**.

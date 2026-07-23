@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Build context must be the repository root (see compose.yaml / Makefile).
 
-FROM golang:1.24-bookworm AS build
+FROM golang:1.26-bookworm AS build
 WORKDIR /src
 
 COPY services/forge-events/go.mod services/forge-events/go.sum ./
@@ -43,6 +43,9 @@ ENV PORT=8080 \
 	FORGE_EVENTS_STREAMS=build,deployment,runtime,application,agent \
 	FORGE_EVENT_SCHEMA_DIR=/contracts/events \
 	FORGE_SCHEMA_VALIDATION=strict \
+	FORGE_DEDUP_WINDOW_S=120 \
+	FORGE_SEEN_STORE_TTL_S=86400 \
+	FORGE_AUTH_MODE=dev \
 	FORGE_SHUTDOWN_GRACE_SECONDS=10
 
 ENTRYPOINT ["/app/forge-events"]

@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 76`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 77`**.
 
 ## Epics
 
@@ -109,7 +109,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **73** | [Durable consumers, ack, retry](steps/11-forge-events/11.03-durable-consumers-ack-retry.md) | Complete |  | Named durables; explicit ack/nak; ack_wait redelivery; max_deliveries park |
 | **74** | [DLQ + inspect APIs](steps/11-forge-events/11.04-dlq-and-inspect-apis.md) | Complete |  | `dlq_*` streams; terminal→DLQ; list/detail/redeliver/delete APIs |
 | **75** | [Event JSON Schemas](steps/11-forge-events/11.05-event-json-schemas.md) | Complete |  | `contracts/events/*`; publish validates → 422; `GET /v1/schemas` |
-| **76** | [Idempotency keys + consumer identity](steps/11-forge-events/11.06-idempotency-keys-and-consumer-identity.md) | Not started |  |  |
+| **76** | [Idempotency keys + consumer identity](steps/11-forge-events/11.06-idempotency-keys-and-consumer-identity.md) | Complete |  | Idempotency-Key→msg-id; processed_events seen store; consumer identity + optional auth |
 | **77** | [Demo `11-event-driven` (Go producer → Elixir consumer) + gate](steps/11-forge-events/11.07-demo-11-event-driven.md) | Not started |  |  |
 | **78** | [Skeleton + correlation API design](steps/12-forge-observe/12.01-skeleton-and-correlation-api-design.md) | Not started |  |  |
 | **79** | [Instrumentation checklist on Control/Runtime/Gateway/Build](steps/12-forge-observe/12.02-instrumentation-checklist.md) | Not started |  |  |

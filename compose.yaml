@@ -402,11 +402,20 @@ services:
       FORGE_DLQ_RETENTION_DAYS: ${FORGE_DLQ_RETENTION_DAYS:-7}
       FORGE_EVENT_SCHEMA_DIR: ${FORGE_EVENT_SCHEMA_DIR:-/contracts/events}
       FORGE_SCHEMA_VALIDATION: ${FORGE_SCHEMA_VALIDATION:-strict}
+      FORGE_DEDUP_WINDOW_S: ${FORGE_DEDUP_WINDOW_S:-120}
+      FORGE_SEEN_STORE_TTL_S: ${FORGE_SEEN_STORE_TTL_S:-86400}
+      FORGE_EVENTS_DB_URL: ${FORGE_EVENTS_DB_URL:-postgres://forge:forge@postgres:5432/forge_events}
+      # Default dev so demos stay unauthenticated; set enforce for Identity-bound consumers.
+      FORGE_AUTH_MODE: ${FORGE_EVENTS_AUTH_MODE:-dev}
+      FORGE_IDENTITY_URL: ${FORGE_IDENTITY_URL:-http://forge-identity:8080}
+      FORGE_INTROSPECT_CACHE_TTL_S: ${FORGE_INTROSPECT_CACHE_TTL_S:-10}
       FORGE_SHUTDOWN_GRACE_SECONDS: ${FORGE_SHUTDOWN_GRACE_SECONDS:-10}
     volumes:
       - ./contracts/events:/contracts/events:ro
     depends_on:
       nats:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     stop_grace_period: 15s
     healthcheck:

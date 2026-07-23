@@ -20,11 +20,12 @@ type Metrics struct {
 
 // Conn wraps a NATS connection with JetStream and reconnect-aware bootstrap.
 type Conn struct {
-	url        string
-	streams    []string
-	dlqEnabled bool
-	log        *slog.Logger
-	metrics    *Metrics
+	url         string
+	streams     []string
+	dlqEnabled  bool
+	dedupWindow time.Duration
+	log         *slog.Logger
+	metrics     *Metrics
 
 	mu        sync.Mutex
 	nc        *nats.Conn
@@ -36,11 +37,12 @@ type Conn struct {
 
 // NewConn prepares a connection manager; call Connect to dial.
 func NewConn(url string, streams []string, log *slog.Logger, metrics *Metrics) *Conn {
-	return NewConnWithDLQ(url, streams, true, log, metrics)
+	return NewConnWithDLQ(url, streams, true, 0, log, metrics)
 }
 
-// NewConnWithDLQ prepares a connection manager with optional DLQ stream bootstrap.
-func NewConnWithDLQ(url string, streams []string, dlqEnabled bool, log *slog.Logger, metrics *Metrics) *Conn {
+// NewConnWithDLQ prepares a connection manager with optional DLQ stream bootstrap
+// and JetStream publish dedup window (Duplicates) on family streams.
+func NewConnWithDLQ(url string, streams []string, dlqEnabled bool, dedupWindow time.Duration, log *slog.Logger, metrics *Metrics) *Conn {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -48,11 +50,12 @@ func NewConnWithDLQ(url string, streams []string, dlqEnabled bool, log *slog.Log
 		metrics = &Metrics{}
 	}
 	c := &Conn{
-		url:        url,
-		streams:    append([]string(nil), streams...),
-		dlqEnabled: dlqEnabled,
-		log:        log,
-		metrics:    metrics,
+		url:         url,
+		streams:     append([]string(nil), streams...),
+		dlqEnabled:  dlqEnabled,
+		dedupWindow: dedupWindow,
+		log:         log,
+		metrics:     metrics,
 	}
 	c.bootErr.Store("")
 	c.metrics.Streams.Store(int64(len(StreamNames(streams, dlqEnabled))))
@@ -130,11 +133,12 @@ func (c *Conn) runBootstrap(reason string) {
 
 	c.mu.Lock()
 	dlqEnabled := c.dlqEnabled
+	dedupWindow := c.dedupWindow
 	c.mu.Unlock()
 
 	c.log.Info("events.bootstrap starting", "span", "events.bootstrap", "reason", reason)
 	start := time.Now()
-	specs := BootstrapSpecs(streams, dlqEnabled)
+	specs := BootstrapSpecsWithDedup(streams, dlqEnabled, dedupWindow)
 	err := BootstrapStreams(js, specs, c.log)
 	if err != nil {
 		c.bootOk.Store(false)

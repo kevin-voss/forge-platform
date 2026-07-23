@@ -166,6 +166,37 @@ func TestPublishHappyPath(t *testing.T) {
 	}
 }
 
+func TestPublishIdempotencyKeyUsesMsgIDAndSameResultOnDuplicate(t *testing.T) {
+	js := &stubJS{ack: &nats.PubAck{Stream: "application", Sequence: 3}}
+	p := NewPublisher(js, []string{"application"}, 1024, nil, nil)
+	res1, err := p.Publish(context.Background(), PublishRequest{
+		Subject:        "application.crashed",
+		Data:           json.RawMessage(`{"service":"demo","reason":"oom"}`),
+		IdempotencyKey: "k-123",
+	})
+	if err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	if res1.EventID != "k-123" || res1.Seq != 3 || res1.Duplicate {
+		t.Fatalf("first = %#v", res1)
+	}
+	if js.last.Header.Get(nats.MsgIdHdr) != "k-123" {
+		t.Fatalf("msg-id = %q", js.last.Header.Get(nats.MsgIdHdr))
+	}
+	js.ack = &nats.PubAck{Stream: "application", Sequence: 3, Duplicate: true}
+	res2, err := p.Publish(context.Background(), PublishRequest{
+		Subject:        "application.crashed",
+		Data:           json.RawMessage(`{"service":"demo","reason":"oom"}`),
+		IdempotencyKey: "k-123",
+	})
+	if err != nil {
+		t.Fatalf("Publish duplicate: %v", err)
+	}
+	if res2.EventID != res1.EventID || res2.Seq != res1.Seq || !res2.Duplicate {
+		t.Fatalf("duplicate result = %#v want same as %#v", res2, res1)
+	}
+}
+
 type stubJS struct {
 	ack  *nats.PubAck
 	err  error

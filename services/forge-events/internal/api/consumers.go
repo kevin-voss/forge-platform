@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"forge.local/services/forge-events/internal/consumers"
+	"forge.local/services/forge-events/internal/identity"
 )
 
 // ConsumerStore creates durable consumers.
@@ -21,11 +22,17 @@ type Acker interface {
 	Nak(token string, delay time.Duration) error
 }
 
+// AckLookup resolves the durable consumer name for an ack token (identity checks).
+type AckLookup interface {
+	ConsumerForToken(token string) (string, error)
+}
+
 type createConsumerBody struct {
 	Name          string `json:"name"`
 	Subject       string `json:"subject"`
 	AckWaitS      int    `json:"ack_wait_s"`
 	MaxDeliveries int    `json:"max_deliveries"`
+	Identity      string `json:"identity"`
 }
 
 type ackBody struct {
@@ -39,9 +46,12 @@ type nakBody struct {
 
 // ConsumersHandler serves POST /v1/consumers, /v1/ack, /v1/nak.
 type ConsumersHandler struct {
-	Store    ConsumerStore
-	Acker    Acker
-	MaxBytes int
+	Store      ConsumerStore
+	Acker      Acker
+	AckLookup  AckLookup
+	Auth       *identity.Gate
+	Authorizer ConsumerAuthorizer
+	MaxBytes   int
 }
 
 // Register mounts consumer and ack routes.
@@ -52,6 +62,15 @@ func (h *ConsumersHandler) Register(mux *http.ServeMux) {
 }
 
 func (h *ConsumersHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
+	var principal identity.Principal
+	if h.Auth != nil {
+		p, err := h.Auth.Authenticate(r)
+		if err != nil {
+			writeAuthErr(w, err)
+			return
+		}
+		principal = p
+	}
 	body, ok := readLimitedJSON(w, r, h.MaxBytes)
 	if !ok {
 		return
@@ -70,11 +89,18 @@ func (h *ConsumersHandler) handleCreate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	bound, err := identity.BindPrincipal(h.Auth != nil && h.Auth.Enforce(), principal.ID, req.Identity)
+	if err != nil {
+		writeAuthErr(w, err)
+		return
+	}
+
 	info, err := h.Store.Create(consumers.CreateRequest{
 		Name:          req.Name,
 		Subject:       req.Subject,
 		AckWaitS:      req.AckWaitS,
 		MaxDeliveries: req.MaxDeliveries,
+		Identity:      bound,
 	})
 	if err != nil {
 		switch {
@@ -108,6 +134,9 @@ func (h *ConsumersHandler) handleAck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", "ack_token is required", nil)
 		return
 	}
+	if !h.authorizeForAckToken(w, r, req.AckToken) {
+		return
+	}
 	if err := h.Acker.Ack(req.AckToken); err != nil {
 		writeAckErr(w, err)
 		return
@@ -129,6 +158,9 @@ func (h *ConsumersHandler) handleNak(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", "ack_token is required", nil)
 		return
 	}
+	if !h.authorizeForAckToken(w, r, req.AckToken) {
+		return
+	}
 	var delay time.Duration
 	if req.DelayS != nil {
 		if *req.DelayS < 0 {
@@ -142,6 +174,30 @@ func (h *ConsumersHandler) handleNak(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *ConsumersHandler) authorizeForAckToken(w http.ResponseWriter, r *http.Request, token string) bool {
+	if h.Auth == nil || !h.Auth.Enforce() {
+		return true
+	}
+	principal, err := h.Auth.Authenticate(r)
+	if err != nil {
+		writeAuthErr(w, err)
+		return false
+	}
+	if h.Authorizer == nil || h.AckLookup == nil {
+		return true
+	}
+	consumer, err := h.AckLookup.ConsumerForToken(token)
+	if err != nil {
+		writeAckErr(w, err)
+		return false
+	}
+	if err := h.Authorizer.Authorize(r.Context(), consumer, principal); err != nil {
+		writeAuthErr(w, err)
+		return false
+	}
+	return true
 }
 
 func writeAckErr(w http.ResponseWriter, err error) {

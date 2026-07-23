@@ -7,9 +7,11 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"forge.local/services/forge-events/internal/events"
+	"forge.local/services/forge-events/internal/identity"
 	"forge.local/services/forge-events/internal/schema"
 )
 
@@ -23,6 +25,7 @@ type publishRequestBody struct {
 	Data    json.RawMessage   `json:"data"`
 	Source  string            `json:"source"`
 	Headers map[string]string `json:"headers"`
+	EventID string            `json:"event_id"`
 }
 
 type publishResponseBody struct {
@@ -40,6 +43,7 @@ type schemaErrorBody struct {
 // PublishHandler serves POST /v1/events.
 type PublishHandler struct {
 	Publisher Publisher
+	Auth      *identity.Gate
 	MaxBytes  int
 }
 
@@ -49,6 +53,12 @@ func (h *PublishHandler) Register(mux *http.ServeMux) {
 }
 
 func (h *PublishHandler) handlePublish(w http.ResponseWriter, r *http.Request) {
+	if h.Auth != nil {
+		if _, err := h.Auth.Authenticate(r); err != nil {
+			writeAuthErr(w, err)
+			return
+		}
+	}
 	max := h.MaxBytes
 	if max <= 0 {
 		max = 256 * 1024
@@ -89,15 +99,21 @@ func (h *PublishHandler) handlePublish(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	idemKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if idemKey == "" {
+		idemKey = strings.TrimSpace(req.EventID)
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
 	result, err := h.Publisher.Publish(ctx, events.PublishRequest{
-		Subject:       req.Subject,
-		Data:          req.Data,
-		Source:        req.Source,
-		Headers:       req.Headers,
-		SchemaVersion: schemaVersion,
+		Subject:        req.Subject,
+		Data:           req.Data,
+		Source:         req.Source,
+		Headers:        req.Headers,
+		SchemaVersion:  schemaVersion,
+		IdempotencyKey: idemKey,
 	})
 	if err != nil {
 		var schemaErr *schema.Error
@@ -110,7 +126,7 @@ func (h *PublishHandler) handlePublish(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		switch {
-		case errors.Is(err, events.ErrInvalidSubject):
+		case errors.Is(err, events.ErrInvalidSubject), errors.Is(err, events.ErrInvalidIdemKey):
 			writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)
 		case errors.Is(err, events.ErrPayloadTooLarge):
 			writeError(w, http.StatusRequestEntityTooLarge, "payload_too_large", err.Error(), nil)

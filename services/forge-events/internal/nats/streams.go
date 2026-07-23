@@ -4,29 +4,42 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/nats-io/nats.go"
 )
 
 // StreamSpec describes a platform JetStream stream.
 type StreamSpec struct {
-	Name     string
-	Subjects []string
+	Name       string
+	Subjects   []string
+	Duplicates time.Duration // JetStream publish dedup window (msg-id)
 }
 
 // SpecForName returns the default subject pattern for a family stream name.
 func SpecForName(name string) StreamSpec {
+	return SpecForNameWithDedup(name, 0)
+}
+
+// SpecForNameWithDedup returns a family stream spec with an optional dedup window.
+func SpecForNameWithDedup(name string, duplicates time.Duration) StreamSpec {
 	return StreamSpec{
-		Name:     name,
-		Subjects: []string{name + ".>"},
+		Name:       name,
+		Subjects:   []string{name + ".>"},
+		Duplicates: duplicates,
 	}
 }
 
 // SpecsForNames builds stream specs for the configured stream list.
 func SpecsForNames(names []string) []StreamSpec {
+	return SpecsForNamesWithDedup(names, 0)
+}
+
+// SpecsForNamesWithDedup builds family stream specs with a shared dedup window.
+func SpecsForNamesWithDedup(names []string, duplicates time.Duration) []StreamSpec {
 	out := make([]StreamSpec, 0, len(names))
 	for _, name := range names {
-		out = append(out, SpecForName(name))
+		out = append(out, SpecForNameWithDedup(name, duplicates))
 	}
 	return out
 }
@@ -56,7 +69,13 @@ func DLQSpecsForFamilies(families []string) []StreamSpec {
 
 // BootstrapSpecs returns platform streams plus optional DLQ streams.
 func BootstrapSpecs(families []string, dlqEnabled bool) []StreamSpec {
-	out := SpecsForNames(families)
+	return BootstrapSpecsWithDedup(families, dlqEnabled, 0)
+}
+
+// BootstrapSpecsWithDedup returns platform (+ optional DLQ) streams with a dedup window
+// applied to source family streams (not DLQ streams).
+func BootstrapSpecsWithDedup(families []string, dlqEnabled bool, duplicates time.Duration) []StreamSpec {
+	out := SpecsForNamesWithDedup(families, duplicates)
 	if dlqEnabled {
 		out = append(out, DLQSpecsForFamilies(families)...)
 	}
@@ -94,26 +113,34 @@ func BootstrapStreams(js nats.JetStreamContext, specs []StreamSpec, log *slog.Lo
 func ensureStream(js nats.JetStreamContext, spec StreamSpec, log *slog.Logger) error {
 	info, err := js.StreamInfo(spec.Name)
 	if err == nil {
-		if subjectsCompatible(info.Config.Subjects, spec.Subjects) {
-			log.Info("stream already present",
-				"stream", spec.Name,
-				"subjects", strings.Join(info.Config.Subjects, ","),
-			)
-			return nil
+		if !subjectsCompatible(info.Config.Subjects, spec.Subjects) {
+			return fmt.Errorf("stream %q exists with incompatible subjects %v (want %v)",
+				spec.Name, info.Config.Subjects, spec.Subjects)
 		}
-		return fmt.Errorf("stream %q exists with incompatible subjects %v (want %v)",
-			spec.Name, info.Config.Subjects, spec.Subjects)
+		if err := ensureDuplicates(js, info, spec.Duplicates, log); err != nil {
+			return err
+		}
+		log.Info("stream already present",
+			"stream", spec.Name,
+			"subjects", strings.Join(info.Config.Subjects, ","),
+			"duplicates_s", int(spec.Duplicates.Seconds()),
+		)
+		return nil
 	}
 	if err != nats.ErrStreamNotFound {
 		return fmt.Errorf("stream info %q: %w", spec.Name, err)
 	}
 
-	_, err = js.AddStream(&nats.StreamConfig{
+	cfg := &nats.StreamConfig{
 		Name:      spec.Name,
 		Subjects:  spec.Subjects,
 		Retention: nats.LimitsPolicy,
 		Storage:   nats.FileStorage,
-	})
+	}
+	if spec.Duplicates > 0 {
+		cfg.Duplicates = spec.Duplicates
+	}
+	_, err = js.AddStream(cfg)
 	if err != nil {
 		// Race: another process created the stream between info and add.
 		if err == nats.ErrStreamNameAlreadyInUse {
@@ -124,6 +151,9 @@ func ensureStream(js nats.JetStreamContext, spec StreamSpec, log *slog.Logger) e
 			if !subjectsCompatible(info.Config.Subjects, spec.Subjects) {
 				return fmt.Errorf("stream %q exists with incompatible subjects %v (want %v)",
 					spec.Name, info.Config.Subjects, spec.Subjects)
+			}
+			if err := ensureDuplicates(js, info, spec.Duplicates, log); err != nil {
+				return err
 			}
 			log.Info("stream already present",
 				"stream", spec.Name,
@@ -136,6 +166,26 @@ func ensureStream(js nats.JetStreamContext, spec StreamSpec, log *slog.Logger) e
 	log.Info("stream created",
 		"stream", spec.Name,
 		"subjects", strings.Join(spec.Subjects, ","),
+		"duplicates_s", int(spec.Duplicates.Seconds()),
+	)
+	return nil
+}
+
+func ensureDuplicates(js nats.JetStreamContext, info *nats.StreamInfo, want time.Duration, log *slog.Logger) error {
+	if info == nil || want <= 0 {
+		return nil
+	}
+	if info.Config.Duplicates == want {
+		return nil
+	}
+	cfg := info.Config
+	cfg.Duplicates = want
+	if _, err := js.UpdateStream(&cfg); err != nil {
+		return fmt.Errorf("update stream %q duplicates: %w", info.Config.Name, err)
+	}
+	log.Info("stream duplicates window updated",
+		"stream", info.Config.Name,
+		"duplicates_s", int(want.Seconds()),
 	)
 	return nil
 }

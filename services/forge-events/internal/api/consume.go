@@ -9,6 +9,7 @@ import (
 
 	"forge.local/services/forge-events/internal/consumers"
 	"forge.local/services/forge-events/internal/events"
+	"forge.local/services/forge-events/internal/identity"
 )
 
 // PullConsumer fetches event batches from a named durable consumer.
@@ -23,9 +24,11 @@ type consumeRequestBody struct {
 
 // ConsumeHandler serves POST /v1/consume.
 type ConsumeHandler struct {
-	Consumer PullConsumer
-	MaxBytes int
-	Wait     time.Duration
+	Consumer   PullConsumer
+	Auth       *identity.Gate
+	Authorizer ConsumerAuthorizer
+	MaxBytes   int
+	Wait       time.Duration
 }
 
 // Register mounts consume routes.
@@ -34,6 +37,15 @@ func (h *ConsumeHandler) Register(mux *http.ServeMux) {
 }
 
 func (h *ConsumeHandler) handleConsume(w http.ResponseWriter, r *http.Request) {
+	var principal identity.Principal
+	if h.Auth != nil {
+		p, err := h.Auth.Authenticate(r)
+		if err != nil {
+			writeAuthErr(w, err)
+			return
+		}
+		principal = p
+	}
 	body, ok := readLimitedJSON(w, r, h.MaxBytes)
 	if !ok {
 		return
@@ -46,6 +58,12 @@ func (h *ConsumeHandler) handleConsume(w http.ResponseWriter, r *http.Request) {
 	if req.Consumer == "" {
 		writeError(w, http.StatusBadRequest, "validation_error", "consumer is required", nil)
 		return
+	}
+	if h.Authorizer != nil {
+		if err := h.Authorizer.Authorize(r.Context(), req.Consumer, principal); err != nil {
+			writeAuthErr(w, err)
+			return
+		}
 	}
 
 	wait := h.Wait

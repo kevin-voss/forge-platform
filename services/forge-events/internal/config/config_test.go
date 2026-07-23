@@ -24,6 +24,12 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FORGE_DLQ_RETENTION_DAYS", "")
 	t.Setenv("FORGE_EVENT_SCHEMA_DIR", "")
 	t.Setenv("FORGE_SCHEMA_VALIDATION", "")
+	t.Setenv("FORGE_DEDUP_WINDOW_S", "")
+	t.Setenv("FORGE_SEEN_STORE_TTL_S", "")
+	t.Setenv("FORGE_EVENTS_DB_URL", "")
+	t.Setenv("FORGE_AUTH_MODE", "")
+	t.Setenv("FORGE_IDENTITY_URL", "")
+	t.Setenv("FORGE_INTROSPECT_CACHE_TTL_S", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -61,6 +67,15 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.SchemaValidation != "strict" {
 		t.Fatalf("SchemaValidation = %q, want strict", cfg.SchemaValidation)
+	}
+	if cfg.DedupWindowS != 120 {
+		t.Fatalf("DedupWindowS = %d, want 120", cfg.DedupWindowS)
+	}
+	if cfg.SeenStoreTTLS != 86400 {
+		t.Fatalf("SeenStoreTTLS = %d, want 86400", cfg.SeenStoreTTLS)
+	}
+	if cfg.AuthMode != "dev" {
+		t.Fatalf("AuthMode = %q, want dev", cfg.AuthMode)
 	}
 	if cfg.ServiceName != "forge-events" {
 		t.Fatalf("ServiceName = %q, want forge-events", cfg.ServiceName)

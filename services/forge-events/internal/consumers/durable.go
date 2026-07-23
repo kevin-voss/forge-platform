@@ -14,6 +14,8 @@ import (
 
 	"forge.local/services/forge-events/internal/dlq"
 	"forge.local/services/forge-events/internal/events"
+	"forge.local/services/forge-events/internal/identity"
+	"forge.local/services/forge-events/internal/idempotency"
 
 	"github.com/nats-io/nats.go"
 )
@@ -40,6 +42,7 @@ type CreateRequest struct {
 	Subject       string
 	AckWaitS      int
 	MaxDeliveries int
+	Identity      string // optional principal; required/derived when auth enforced
 }
 
 // ConsumerInfo is the API-facing durable consumer record.
@@ -50,6 +53,7 @@ type ConsumerInfo struct {
 	MaxDeliveries int       `json:"max_deliveries"`
 	CreatedAt     time.Time `json:"created_at"`
 	Stream        string    `json:"stream"`
+	Identity      string    `json:"identity,omitempty"`
 }
 
 // ConsumeRequest pulls a batch from a named durable consumer.
@@ -80,6 +84,9 @@ type Store struct {
 	wait                 time.Duration
 	ack                  *AckManager
 	dlq                  DLQRouter
+	seen                 idempotency.SeenStore
+	dedupMetrics         *idempotency.Metrics
+	authEnforce          bool
 	log                  *slog.Logger
 	metrics              *Metrics
 
@@ -146,6 +153,27 @@ func (s *Store) SetDLQRouter(r DLQRouter) {
 	s.dlq = r
 }
 
+// SetSeenStore attaches the per-consumer processed-event store for redelivery dedup.
+func (s *Store) SetSeenStore(store idempotency.SeenStore, metrics *idempotency.Metrics) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seen = store
+	s.dedupMetrics = metrics
+}
+
+// SetAuthEnforce toggles whether consumer identity must match the caller principal.
+func (s *Store) SetAuthEnforce(enforce bool) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.authEnforce = enforce
+}
+
 // AckManager returns the shared ack token manager.
 func (s *Store) AckManager() *AckManager {
 	return s.ack
@@ -177,6 +205,16 @@ func (s *Store) Create(req CreateRequest) (ConsumerInfo, error) {
 	if maxDeliveries < 1 {
 		return ConsumerInfo{}, fmt.Errorf("%w: max_deliveries must be >= 1", ErrInvalidConfig)
 	}
+	principal, err := identity.NormalizePrincipal(req.Identity)
+	if err != nil {
+		return ConsumerInfo{}, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
+	}
+	s.mu.Lock()
+	enforce := s.authEnforce
+	s.mu.Unlock()
+	if enforce && principal == "" {
+		return ConsumerInfo{}, fmt.Errorf("%w: identity is required when auth is enforced", ErrInvalidConfig)
+	}
 
 	if s.js == nil {
 		return ConsumerInfo{}, ErrNotReady
@@ -189,6 +227,7 @@ func (s *Store) Create(req CreateRequest) (ConsumerInfo, error) {
 		MaxDeliveries: maxDeliveries,
 		Stream:        family,
 		CreatedAt:     time.Now().UTC().Truncate(time.Millisecond),
+		Identity:      principal,
 	}
 
 	s.mu.Lock()
@@ -203,7 +242,7 @@ func (s *Store) Create(req CreateRequest) (ConsumerInfo, error) {
 
 	if info, err := s.js.ConsumerInfo(family, name); err == nil && info != nil {
 		existing := consumerInfoFromNATS(info, subject)
-		if !compatibleNATSConsumer(info, subject, ackWaitS, maxDeliveries) {
+		if !compatibleNATSConsumer(info, subject, ackWaitS, maxDeliveries, principal) {
 			return ConsumerInfo{}, fmt.Errorf("%w: consumer %q exists with different config", ErrConflict, name)
 		}
 		s.mu.Lock()
@@ -226,13 +265,14 @@ func (s *Store) Create(req CreateRequest) (ConsumerInfo, error) {
 		MaxDeliver:    maxDeliveries,
 		DeliverPolicy: nats.DeliverAllPolicy,
 		ReplayPolicy:  nats.ReplayInstantPolicy,
+		Metadata:      identity.MetadataFromPrincipal(principal),
 		// Constant ack_wait delay between redeliveries (bounded by max_deliveries).
 		// Progressive BackOff is avoided so AckWait round-trips cleanly for idempotent create.
 	}
 	if _, err := s.js.AddConsumer(family, cfg); err != nil {
 		// Race: another process created it.
 		if info, infoErr := s.js.ConsumerInfo(family, name); infoErr == nil && info != nil {
-			if !compatibleNATSConsumer(info, subject, ackWaitS, maxDeliveries) {
+			if !compatibleNATSConsumer(info, subject, ackWaitS, maxDeliveries, principal) {
 				return ConsumerInfo{}, fmt.Errorf("%w: consumer %q exists with different config", ErrConflict, name)
 			}
 			existing := consumerInfoFromNATS(info, subject)
@@ -255,8 +295,26 @@ func (s *Store) Create(req CreateRequest) (ConsumerInfo, error) {
 		"stream", family,
 		"ack_wait_s", ackWaitS,
 		"max_deliveries", maxDeliveries,
+		"identity", principal,
 	)
 	return want, nil
+}
+
+// Authorize checks that principal may consume/ack for the named durable.
+func (s *Store) Authorize(_ context.Context, consumerName string, principal identity.Principal) error {
+	name := strings.TrimSpace(consumerName)
+	info, ok := s.Get(name)
+	if !ok {
+		recovered, err := s.recoverConsumer(name)
+		if err != nil {
+			return err
+		}
+		info = recovered
+	}
+	s.mu.Lock()
+	enforce := s.authEnforce
+	s.mu.Unlock()
+	return identity.AuthorizeConsumer(enforce, info.Identity, principal.ID)
 }
 
 // Get returns a registered consumer by name.
@@ -369,6 +427,26 @@ func (s *Store) Consume(ctx context.Context, req ConsumeRequest) (events.Consume
 				"delivery_count", deliveryCount,
 				"max_deliveries", info.MaxDeliveries,
 			)
+		}
+
+		// Consumer-side dedup: already-processed redeliveries are acked and skipped.
+		if eventID != "" && s.seen != nil {
+			processed, seenErr := s.seen.IsProcessed(ctx, name, eventID)
+			if seenErr != nil {
+				s.log.Warn("seen-store check failed", "error", seenErr.Error(), "consumer", name, "event_id", eventID)
+			} else if processed {
+				_ = msg.Ack()
+				if s.dedupMetrics != nil {
+					s.dedupMetrics.ConsumerDedupSkips.Add(1)
+				}
+				s.log.Info("consumer dedup skip",
+					"span", "events.dedup",
+					"consumer", name,
+					"event_id", eventID,
+					"delivery_count", deliveryCount,
+				)
+				continue
+			}
 		}
 
 		token := s.ack.RegisterDelivery(msg, name, eventID, deliveryCount, info.MaxDeliveries)
@@ -503,10 +581,11 @@ func consumerConfigEqual(a, b ConsumerInfo) bool {
 		a.Subject == b.Subject &&
 		a.AckWaitS == b.AckWaitS &&
 		a.MaxDeliveries == b.MaxDeliveries &&
-		a.Stream == b.Stream
+		a.Stream == b.Stream &&
+		a.Identity == b.Identity
 }
 
-func compatibleNATSConsumer(info *nats.ConsumerInfo, subject string, ackWaitS, maxDeliveries int) bool {
+func compatibleNATSConsumer(info *nats.ConsumerInfo, subject string, ackWaitS, maxDeliveries int, principal string) bool {
 	if info == nil {
 		return false
 	}
@@ -518,6 +597,10 @@ func compatibleNATSConsumer(info *nats.ConsumerInfo, subject string, ackWaitS, m
 		return false
 	}
 	if cfg.MaxDeliver != maxDeliveries {
+		return false
+	}
+	existing := identity.PrincipalFromMetadata(cfg.Metadata)
+	if principal != existing {
 		return false
 	}
 	return true
@@ -546,6 +629,7 @@ func consumerInfoFromNATS(info *nats.ConsumerInfo, subject string) ConsumerInfo 
 		MaxDeliveries: maxDeliveries,
 		Stream:        info.Stream,
 		CreatedAt:     created.UTC().Truncate(time.Millisecond),
+		Identity:      identity.PrincipalFromMetadata(info.Config.Metadata),
 	}
 }
 

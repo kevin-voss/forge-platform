@@ -1,10 +1,11 @@
 openapi: 3.0.3
 info:
   title: Forge Events API
-  version: 0.5.0
+  version: 0.6.0
   description: |
-    Platform events service (epic 11). Step 11.05 adds JSON Schema registry and
-    publish-time validation (422 on malformed data). Auth is not required yet (11.06).
+    Platform events service (epic 11). Step 11.06 adds publish Idempotency-Key
+    (JetStream msg-id dedup), per-consumer processed markers, and optional
+    consumer identity when `FORGE_AUTH_MODE=enforce`.
 servers:
   - url: http://127.0.0.1:4105
     description: Local Compose (host port 4105)
@@ -83,8 +84,21 @@ paths:
         against the registered JSON Schema for the subject (optional
         `headers.schema_version`), wraps the payload in a standard envelope, and
         publishes to JetStream. Returns 202 with event_id, stream, and sequence.
-        No auth yet (11.06).
-      security: []
+        `Idempotency-Key` (or body `event_id`) becomes the JetStream msg-id and
+        event id; duplicates within `FORGE_DEDUP_WINDOW_S` return the original
+        `{event_id, seq}` without storing a second message. When
+        `FORGE_AUTH_MODE=enforce`, a valid Identity bearer token is required.
+      security:
+        - bearerAuth: []
+        - {}
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+            maxLength: 64
+          description: Opaque publish dedup key (JetStream msg-id)
       requestBody:
         required: true
         content:
@@ -100,7 +114,7 @@ paths:
               source: runtime
       responses:
         "202":
-          description: Event accepted and stored
+          description: Event accepted and stored (or deduped to original)
           content:
             application/json:
               schema:
@@ -111,6 +125,12 @@ paths:
                 seq: 42
         "400":
           description: Unknown or invalid subject / request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid token when auth enforced
           content:
             application/json:
               schema:
@@ -196,9 +216,12 @@ paths:
       summary: Create a durable consumer
       description: |
         Registers a named JetStream durable consumer with ack_wait and
-        max_deliveries. Identical config is idempotent; conflicting config
-        returns 409.
-      security: []
+        max_deliveries. Optional `identity` binds the durable to a principal;
+        when `FORGE_AUTH_MODE=enforce`, identity is derived from the bearer
+        token. Identical config is idempotent; conflicting config returns 409.
+      security:
+        - bearerAuth: []
+        - {}
       requestBody:
         required: true
         content:
@@ -210,6 +233,7 @@ paths:
               subject: deployment.completed
               ack_wait_s: 30
               max_deliveries: 5
+              identity: sa-deploy-worker
       responses:
         "201":
           description: Consumer created (or idempotent match)
@@ -219,6 +243,18 @@ paths:
                 $ref: "#/components/schemas/ConsumerInfo"
         "400":
           description: Invalid consumer config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid token when auth enforced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Claimed identity does not match token principal
           content:
             application/json:
               schema:
@@ -243,9 +279,12 @@ paths:
       description: |
         Long-polls a named durable consumer for a batch of messages. Messages
         include ack_token and delivery_count and are not auto-acked — callers
-        must POST /v1/ack or /v1/nak. Empty messages array when none arrive
-        within the wait window.
-      security: []
+        must POST /v1/ack or /v1/nak. Already-processed event ids (see
+        `/v1/processed`) are auto-acked and omitted from the batch. When auth
+        is enforced, the bearer token must match the durable's identity.
+      security:
+        - bearerAuth: []
+        - {}
       requestBody:
         required: true
         content:
@@ -268,6 +307,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid token when auth enforced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Token principal does not match consumer identity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Unknown durable consumer
           content:
@@ -281,14 +332,100 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /v1/processed:
+    post:
+      operationId: markProcessed
+      summary: Mark an event processed for a consumer
+      description: |
+        Records `(consumer, event_id)` in the seen store so redeliveries are
+        skipped. Duplicate marks are idempotent (204).
+      security:
+        - bearerAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarkProcessedRequest"
+            example:
+              consumer: deploy-worker
+              event_id: evt_1
+      responses:
+        "204":
+          description: Marked processed
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid token when auth enforced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Token principal does not match consumer identity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    get:
+      operationId: getProcessed
+      summary: Check whether an event was processed
+      security:
+        - bearerAuth: []
+        - {}
+      parameters:
+        - name: consumer
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: event_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Processed flag
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcessedStatus"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid token when auth enforced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Token principal does not match consumer identity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /v1/ack:
     post:
       operationId: ackEvent
       summary: Acknowledge a delivered message
       description: |
         Acknowledges a single delivery by opaque ack_token, advancing the durable
-        consumer position. Tokens are single-use.
-      security: []
+        consumer position. Tokens are single-use. When auth is enforced, the
+        bearer token must match the durable's identity.
+      security:
+        - bearerAuth: []
+        - {}
       requestBody:
         required: true
         content:
@@ -302,6 +439,18 @@ paths:
           description: Acknowledged
         "400":
           description: Missing or invalid ack_token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid token when auth enforced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Token principal does not match consumer identity
           content:
             application/json:
               schema:
@@ -332,8 +481,11 @@ paths:
       description: |
         Negatively acknowledges a delivery, scheduling redelivery (optionally
         delayed by delay_s). Tokens are single-use. On the final delivery
-        attempt the message is routed to the DLQ and terminated.
-      security: []
+        attempt the message is routed to the DLQ and terminated. When auth is
+        enforced, the bearer token must match the durable's identity.
+      security:
+        - bearerAuth: []
+        - {}
       requestBody:
         required: true
         content:
@@ -348,6 +500,18 @@ paths:
           description: Negatively acknowledged
         "400":
           description: Missing or invalid ack_token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid token when auth enforced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Token principal does not match consumer identity
           content:
             application/json:
               schema:
@@ -484,6 +648,14 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: |
+        Forge Identity session or API token. Required on publish/consume/ack
+        when `FORGE_AUTH_MODE=enforce`.
   parameters:
     DLQId:
       name: dlq_id
@@ -566,6 +738,10 @@ components:
           description: Event payload validated against the registered JSON Schema for the subject
         source:
           type: string
+        event_id:
+          type: string
+          maxLength: 64
+          description: Optional idempotency key (alternative to Idempotency-Key header)
         headers:
           type: object
           additionalProperties:
@@ -673,6 +849,11 @@ components:
           type: integer
           minimum: 1
           description: Max delivery attempts before parking (default 5)
+        identity:
+          type: string
+          description: |
+            Optional principal bound to this durable. When auth is enforced, this
+            must match (or is derived from) the bearer token principal_id.
 
     ConsumerInfo:
       type: object
@@ -697,6 +878,28 @@ components:
         created_at:
           type: string
           format: date-time
+        identity:
+          type: string
+          description: Bound principal (omitted when unbound)
+
+    MarkProcessedRequest:
+      type: object
+      required:
+        - consumer
+        - event_id
+      properties:
+        consumer:
+          type: string
+        event_id:
+          type: string
+
+    ProcessedStatus:
+      type: object
+      required:
+        - processed
+      properties:
+        processed:
+          type: boolean
 
     ConsumeRequest:
       type: object

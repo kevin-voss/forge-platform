@@ -31,6 +31,7 @@ func TestOpenAPISkeletonPaths(t *testing.T) {
 	for _, p := range []string{
 		"/health/live", "/health/ready", "/",
 		"/v1/events", "/v1/consume", "/v1/consumers", "/v1/ack", "/v1/nak",
+		"/v1/processed",
 		"/v1/dlq", "/v1/dlq/{dlq_id}", "/v1/dlq/{dlq_id}:redeliver",
 		"/v1/schemas", "/v1/schemas/{subject}",
 	} {
@@ -107,12 +108,45 @@ func TestOpenAPISkeletonPaths(t *testing.T) {
 		"Envelope", "PublishRequest", "PublishResponse",
 		"ConsumeRequest", "ConsumeResponse", "DeliveredMessage", "ErrorEnvelope",
 		"CreateConsumerRequest", "ConsumerInfo", "AckRequest", "NakRequest",
+		"MarkProcessedRequest", "ProcessedStatus",
 		"DLQEntry", "DLQDetail", "DLQRedeliverResponse",
 		"SchemaSubjectInfo", "SchemaSubjectDetail", "SchemaValidationError", "SchemaViolation",
 	} {
 		if schemas[name] == nil {
 			t.Fatalf("openapi missing schema %s", name)
 		}
+	}
+
+	componentsFull, ok := doc["components"].(map[string]any)
+	if !ok {
+		t.Fatal("missing components for securitySchemes")
+	}
+	sec, ok := componentsFull["securitySchemes"].(map[string]any)
+	if !ok || sec["bearerAuth"] == nil {
+		t.Fatal("openapi missing bearerAuth security scheme")
+	}
+
+	eventsPathParams, ok := paths["/v1/events"].(map[string]any)
+	if !ok {
+		t.Fatal("/v1/events missing")
+	}
+	postEv, ok := eventsPathParams["post"].(map[string]any)
+	if !ok {
+		t.Fatal("/v1/events post missing")
+	}
+	params, ok := postEv["parameters"].([]any)
+	if !ok || len(params) == 0 {
+		t.Fatal("/v1/events must document Idempotency-Key parameter")
+	}
+	foundIdem := false
+	for _, p := range params {
+		pm, _ := p.(map[string]any)
+		if pm["name"] == "Idempotency-Key" {
+			foundIdem = true
+		}
+	}
+	if !foundIdem {
+		t.Fatal("Idempotency-Key parameter missing on /v1/events")
 	}
 
 	eventsPath422, ok := paths["/v1/events"].(map[string]any)

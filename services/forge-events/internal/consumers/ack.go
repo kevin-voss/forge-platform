@@ -107,6 +107,28 @@ func (a *AckManager) RegisterDelivery(msg *nats.Msg, consumer, eventID string, d
 	return token
 }
 
+// ConsumerForToken returns the durable consumer name bound to an unused ack token.
+func (a *AckManager) ConsumerForToken(token string) (string, error) {
+	if a == nil {
+		return "", ErrAckNotFound
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	d, ok := a.pending[token]
+	if !ok || d == nil {
+		return "", ErrAckNotFound
+	}
+	if d.used {
+		return "", ErrAckUsed
+	}
+	if time.Now().After(d.expires) {
+		delete(a.pending, token)
+		a.metrics.Pending.Store(int64(len(a.pending)))
+		return "", ErrAckExpired
+	}
+	return d.consumer, nil
+}
+
 // Ack acknowledges a delivery and advances the durable consumer position.
 func (a *AckManager) Ack(token string) error {
 	d, err := a.take(token)
