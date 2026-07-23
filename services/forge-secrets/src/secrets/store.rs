@@ -246,6 +246,28 @@ impl SecretStore {
         }))
     }
 
+    /// Delete all versions of a secret name. Returns number of rows removed.
+    pub async fn delete_all_versions(
+        &self,
+        project_id: &str,
+        environment: &str,
+        name: &str,
+    ) -> Result<u64, String> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM secrets
+            WHERE project_id = $1 AND environment = $2 AND name = $3
+            "#,
+        )
+        .bind(project_id)
+        .bind(environment)
+        .bind(name)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("delete secret versions: {e}"))?;
+        Ok(result.rows_affected())
+    }
+
     /// Count rows that contain the exact plaintext bytes inside ciphertext (should be 0).
     pub async fn ciphertext_contains_plaintext(
         &self,

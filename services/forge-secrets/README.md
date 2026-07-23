@@ -14,7 +14,8 @@ Rust/Axum secrets service (epic 10). Host port **4104**.
 * `PUT /v1/projects/{pid}/envs/{env}/secrets/{name}` — encrypt value (AEAD), new version each set
 * `GET .../secrets` — list metadata only (no values)
 * `GET .../secrets/{name}` — metadata + version history (no values)
-* `POST .../secrets/{name}:access` — authorized reveal (decrypt); audit stub for 10.06
+* `POST .../secrets/{name}:access` — authorized reveal (decrypt); audited as `secret.access`
+* `DELETE .../secrets/{name}` — delete all versions; audited as `secret.delete`
 * Values stored as ciphertext + nonce; plaintext never persisted
 
 ## Step 10.03 — config vs secrets + project isolation
@@ -29,11 +30,19 @@ Rust/Axum secrets service (epic 10). Host port **4104**.
 ## Step 10.04 — runtime injection at deploy
 
 * `PUT/GET .../services/{svc}/bindings` — which secret/config names a service consumes
-* `POST .../services/{svc}/resolve` → `{ env, version_fingerprint }` (authorized reveal; audited stub)
+* `POST .../services/{svc}/resolve` → `{ env, version_fingerprint }` (authorized reveal; audited as `resolve`)
 * Control reconciler fetches the bundle (service-account token) and passes it to Runtime `POST /v1/workloads`
 * `version_fingerprint` drift triggers rolling redeploy so workloads pick up rotated values
 * Missing bound secrets → resolve `422`; reconciler **holds** StartReplica (no workload without required secrets)
 * Runtime logs/status expose env **keys** + fingerprint only — never values
+
+## Step 10.06 — access audit + log masking
+
+* `audit_events` table + `AuditRecorder` — set / rotate / access / delete / resolve / config (never values)
+* Denied attempts recorded with `result=denied`
+* `GET .../audit` and `GET .../envs/{env}/audit` — project-scoped, authorized (`secret.read`)
+* `MaskingMakeWriter` + `masking` module — known secret values redacted to `***` in stdout logs
+* Convention doc: [`docs/contracts/secret-log-masking.md`](../../docs/contracts/secret-log-masking.md)
 
 ### Local
 
@@ -56,6 +65,10 @@ make service-test SERVICE=forge-secrets
 | `FORGE_AUTH_MODE` | `enforce` | `dev` bypasses auth (loud warning) |
 | `FORGE_IDENTITY_URL` | `http://forge-identity:4002` | Introspect + authz/check |
 | `FORGE_INTROSPECT_CACHE_TTL_S` | `10` | Short TTL so revocation is honored |
+| `FORGE_AUDIT_ENABLED` | `true` | Persist access audit events |
+| `FORGE_AUDIT_STRICT` | `false` | Fail ops when audit insert fails |
+| `FORGE_LOG_MASKING_ENABLED` | `true` | Redact known secret values in logs |
+| `FORGE_MASK_PLACEHOLDER` | `***` | Masking replacement token |
 
 ### Nonce management
 

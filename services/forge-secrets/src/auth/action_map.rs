@@ -54,12 +54,21 @@ pub fn map_action(method: &str, path: &str) -> AuthTarget {
         return AuthTarget::Skip;
     }
 
-    // /v1/projects/{pid}/envs/{env}/secrets[/{raw}]
+    // /v1/projects/{pid}/...
     if let Some(rest) = p.strip_prefix("/v1/projects/") {
         let mut parts = rest.split('/');
         let Some(project_id) = parts.next().filter(|s| !s.is_empty()) else {
             return AuthTarget::Skip;
         };
+
+        // Project-scoped audit: GET /v1/projects/{pid}/audit
+        if parts.clone().next() == Some("audit") && m == "GET" {
+            return AuthTarget::Authorize {
+                action: AuthAction::SecretRead,
+                project_id: project_id.to_string(),
+            };
+        }
+
         if parts.next() != Some("envs") {
             return AuthTarget::Skip;
         }
@@ -70,6 +79,14 @@ pub fn map_action(method: &str, path: &str) -> AuthTarget {
             return AuthTarget::Skip;
         };
         let name = parts.next();
+
+        // Env-scoped audit: GET .../envs/{env}/audit
+        if kind == "audit" && m == "GET" {
+            return AuthTarget::Authorize {
+                action: AuthAction::SecretRead,
+                project_id: project_id.to_string(),
+            };
+        }
 
         // /v1/projects/{pid}/envs/{env}/services/{svc}/bindings|resolve
         if kind == "services" {
@@ -113,6 +130,10 @@ pub fn map_action(method: &str, path: &str) -> AuthTarget {
             },
             ("secrets", "POST", Some(_)) => AuthTarget::Authorize {
                 action: AuthAction::SecretRead,
+                project_id: project_id.to_string(),
+            },
+            ("secrets", "DELETE", Some(_)) => AuthTarget::Authorize {
+                action: AuthAction::SecretWrite,
                 project_id: project_id.to_string(),
             },
             ("config", "GET", None) => AuthTarget::Authorize {

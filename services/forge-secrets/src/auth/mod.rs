@@ -7,4 +7,4 @@ pub use identity_client::{
     AuthzDecision, FakeIdentityClient, HttpIdentityClient, IdentityClient, IdentityUnreachable,
     IntrospectMembershipProject, IntrospectMemberships, IntrospectResult,
 };
-pub use middleware::{enforce, parse_bearer, AuthError, AuthMetrics};
+pub use middleware::{enforce, parse_bearer, AuthError, AuthMetrics, AuthPrincipal};

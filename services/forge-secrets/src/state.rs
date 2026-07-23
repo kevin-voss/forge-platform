@@ -1,3 +1,4 @@
+use crate::audit::recorder::AuditMetrics;
 use crate::auth::identity_client::{HttpIdentityClient, IdentityClient};
 use crate::auth::middleware::AuthMetrics;
 use crate::crypto::aead_alg::AeadAlg;
@@ -6,6 +7,7 @@ use crate::crypto::{
     generate_data_key, unwrap_data_key, wrap_data_key, EnvMasterKeyProvider, KeyProvider,
 };
 use crate::db::{self, ProjectDataKeyRow};
+use crate::masking::{global_known_secrets, KnownSecrets};
 use sqlx::PgPool;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -41,6 +43,13 @@ pub struct AppState {
     pub auth_mode: String,
     pub identity: Option<Arc<dyn IdentityClient>>,
     pub auth_metrics: Arc<AuthMetrics>,
+    pub audit_enabled: bool,
+    pub audit_strict: bool,
+    pub audit_metrics: Arc<AuditMetrics>,
+    pub log_masking_enabled: bool,
+    pub mask_placeholder: String,
+    /// In-memory known secret values for log masking (never a durable plaintext store).
+    pub known_secrets: Arc<KnownSecrets>,
 }
 
 impl AppState {
@@ -253,6 +262,12 @@ pub async fn bootstrap(cfg: &crate::config::Config) -> AppState {
         auth_mode: cfg.auth_mode.clone(),
         identity,
         auth_metrics: AuthMetrics::new(),
+        audit_enabled: cfg.audit_enabled,
+        audit_strict: cfg.audit_strict,
+        audit_metrics: AuditMetrics::new(),
+        log_masking_enabled: cfg.log_masking_enabled,
+        mask_placeholder: cfg.mask_placeholder.clone(),
+        known_secrets: global_known_secrets(),
     };
     state.refresh_ready().await;
     info!(
@@ -262,6 +277,8 @@ pub async fn bootstrap(cfg: &crate::config::Config) -> AppState {
         forge_config_values_total = state.config_values_total.load(Ordering::Relaxed),
         aead_alg = state.aead_alg.as_str(),
         auth_mode = %state.auth_mode,
+        audit_enabled = state.audit_enabled,
+        log_masking_enabled = state.log_masking_enabled,
         "readiness state initialized"
     );
     state

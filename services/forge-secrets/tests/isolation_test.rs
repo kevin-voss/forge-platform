@@ -41,6 +41,12 @@ fn test_state(
         auth_mode: auth_mode.into(),
         identity,
         auth_metrics: AuthMetrics::new(),
+        audit_enabled: true,
+        audit_strict: false,
+        audit_metrics: forge_secrets::audit::recorder::AuditMetrics::new(),
+        log_masking_enabled: true,
+        mask_placeholder: "***".into(),
+        known_secrets: Arc::new(forge_secrets::masking::KnownSecrets::new()),
     }
 }
 

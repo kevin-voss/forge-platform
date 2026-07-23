@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 69`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 70`**.
 
 ## Epics
 
@@ -102,7 +102,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **66** | [Config vs secrets APIs; project isolation](steps/10-forge-secrets/10.03-config-vs-secrets-and-project-isolation.md) | Complete |  | Config CRUD (values returned); SecretsAuth + Identity; project isolation 401/403 |
 | **67** | [Runtime injection at deploy](steps/10-forge-secrets/10.04-runtime-injection-at-deploy.md) | Complete |  | Bindings + resolve env bundle; Control injects at StartReplica; fingerprint redeploy; Runtime masks env |
 | **68** | [CLI `forge secret` / `forge config`](steps/10-forge-secrets/10.05-cli-secret-and-config.md) | Complete |  | `forge secret set/list/rotate` + `forge config set/show`; SecretsClient; no-echo/stdin/file |
-| **69** | [Access audit + log masking](steps/10-forge-secrets/10.06-access-audit-and-log-masking.md) | Not started |  |  |
+| **69** | [Access audit + log masking](steps/10-forge-secrets/10.06-access-audit-and-log-masking.md) | Complete |  | `audit_events` + AuditRecorder; GET /audit; MaskingMakeWriter + masking lib; denied→result=denied |
 | **70** | [Demo `10-secrets` + epic gate](steps/10-forge-secrets/10.07-demo-10-secrets.md) | Not started |  |  |
 | **71** | [Skeleton + NATS wiring](steps/11-forge-events/11.01-skeleton-and-nats-wiring.md) | Not started |  |  |
 | **72** | [Publish/subscribe API](steps/11-forge-events/11.02-publish-subscribe-api.md) | Not started |  |  |

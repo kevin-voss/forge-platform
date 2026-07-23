@@ -1,11 +1,14 @@
+use crate::audit::hook::{principal_label, record, source_from_headers};
+use crate::audit::AuditResult;
+use crate::auth::middleware::AuthPrincipal;
 use crate::bindings::resolve::{resolve_for_service, ResolveError};
 use crate::bindings::store::BindingStore;
 use crate::state::{AppState, EnsureError};
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{post, put};
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use tracing::{error, info};
@@ -252,7 +255,11 @@ async fn get_bindings(
 async fn resolve_service(
     State(state): State<AppState>,
     Path((project_id, environment, service)): Path<(String, String, String)>,
+    headers: HeaderMap,
+    principal: Option<Extension<AuthPrincipal>>,
 ) -> impl IntoResponse {
+    let principal_str = principal_label(principal.as_ref().map(|e| &e.0), &state.auth_mode);
+    let source = source_from_headers(&headers);
     if let Err(msg) = validate_scope(&project_id, &environment) {
         return bad_request(msg);
     }
@@ -295,17 +302,30 @@ async fn resolve_service(
     .await
     {
         Ok(bundle) => {
-            // Audit stub (10.06) — names + fingerprint only, never values.
-            info!(
-                audit = true,
-                action = "secret.resolve",
-                project = %project_id,
-                env = %environment,
-                service = %service,
-                keys = ?bundle.keys,
-                version_fingerprint = %bundle.version_fingerprint,
-                "audit stub: secrets resolve"
-            );
+            // Register resolved secret values for log masking (in-memory only).
+            for (key, value) in &bundle.env {
+                if bundle.keys.iter().any(|k| k == key) {
+                    // Only mask bound secret names, not config (config is non-secret).
+                    // Heuristic: register all resolved env values that look like secrets
+                    // by matching secret_names from keys that were decrypted — register all
+                    // values from the bundle that came from secrets via key list intersection
+                    // with known secret bindings. Safer: register every value; config may be
+                    // short flags like "true" (len < 3 skipped by register).
+                    state.known_secrets.register(value);
+                }
+            }
+            record(
+                &state,
+                &project_id,
+                Some(&environment),
+                "resolve",
+                &principal_str,
+                Some(&service),
+                None,
+                AuditResult::Ok,
+                source.as_deref(),
+            )
+            .await;
             state
                 .secret_resolves_total
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);

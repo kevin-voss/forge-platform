@@ -1,5 +1,6 @@
 use forge_secrets::app;
 use forge_secrets::config::Config;
+use forge_secrets::masking::{global_known_secrets, MaskingMakeWriter};
 use forge_secrets::state::bootstrap;
 use std::net::SocketAddr;
 use tokio::signal;
@@ -71,6 +72,12 @@ fn init_tracing(cfg: &Config) {
     ))
     .unwrap_or_else(|_| EnvFilter::new("info"));
 
+    let writer = MaskingMakeWriter::stdout(
+        global_known_secrets(),
+        cfg.mask_placeholder.clone(),
+        cfg.log_masking_enabled,
+    );
+
     tracing_subscriber::fmt()
         .json()
         .with_target(false)
@@ -78,12 +85,13 @@ fn init_tracing(cfg: &Config) {
         .with_span_list(false)
         .flatten_event(true)
         .with_env_filter(filter)
-        .with_writer(std::io::stdout)
+        .with_writer(writer)
         .init();
 
     info!(
         service = %cfg.service_name,
         version = %cfg.service_version,
+        log_masking_enabled = cfg.log_masking_enabled,
         "tracing initialized"
     );
 }

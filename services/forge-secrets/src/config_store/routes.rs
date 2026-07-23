@@ -1,10 +1,13 @@
+use crate::audit::hook::{principal_label, record, source_from_headers};
+use crate::audit::AuditResult;
+use crate::auth::middleware::AuthPrincipal;
 use crate::config_store::store::ConfigStore;
 use crate::state::AppState;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, put};
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
@@ -95,8 +98,12 @@ fn not_ready() -> axum::response::Response {
 async fn set_config(
     State(state): State<AppState>,
     Path((project_id, environment, name)): Path<(String, String, String)>,
+    headers: HeaderMap,
+    principal: Option<Extension<AuthPrincipal>>,
     Json(body): Json<SetConfigBody>,
 ) -> impl IntoResponse {
+    let principal_str = principal_label(principal.as_ref().map(|e| &e.0), &state.auth_mode);
+    let source = source_from_headers(&headers);
     if let Err(msg) = validate_scope(&project_id, &environment) {
         return bad_request(msg);
     }
@@ -131,6 +138,18 @@ async fn set_config(
             state
                 .config_values_total
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            record(
+                &state,
+                &project_id,
+                Some(&environment),
+                "config.set",
+                &principal_str,
+                Some(&name),
+                None,
+                AuditResult::Ok,
+                source.as_deref(),
+            )
+            .await;
             info!(
                 project = %project_id,
                 env = %environment,
@@ -149,6 +168,18 @@ async fn set_config(
         }
         Err(err) => {
             error!(error = %err, "upsert config failed");
+            record(
+                &state,
+                &project_id,
+                Some(&environment),
+                "config.set",
+                &principal_str,
+                Some(&name),
+                None,
+                AuditResult::Error,
+                source.as_deref(),
+            )
+            .await;
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorBody {
@@ -210,7 +241,11 @@ async fn list_config(
 async fn delete_config(
     State(state): State<AppState>,
     Path((project_id, environment, name)): Path<(String, String, String)>,
+    headers: HeaderMap,
+    principal: Option<Extension<AuthPrincipal>>,
 ) -> impl IntoResponse {
+    let principal_str = principal_label(principal.as_ref().map(|e| &e.0), &state.auth_mode);
+    let source = source_from_headers(&headers);
     if let Err(msg) = validate_scope(&project_id, &environment) {
         return bad_request(msg);
     }
@@ -226,6 +261,18 @@ async fn delete_config(
     let store = ConfigStore::new(pool.clone());
     match store.delete(&project_id, &environment, &name).await {
         Ok(true) => {
+            record(
+                &state,
+                &project_id,
+                Some(&environment),
+                "config.set",
+                &principal_str,
+                Some(&name),
+                None,
+                AuditResult::Ok,
+                source.as_deref(),
+            )
+            .await;
             info!(
                 project = %project_id,
                 env = %environment,

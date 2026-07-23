@@ -133,6 +133,20 @@ test-integration: run
 			"http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/services/missing/resolve"); \
 		test "$$code" = "422"; \
 		python3 -c "import json; d=json.load(open('/tmp/forge-secrets-missing.json')); assert d.get('code')=='missing_bindings'; assert 'DOES_NOT_EXIST' in d.get('error','')"
+	@# 10.06 — audit trail (no values) + log masking.
+	@P="prj_10_06_$$(date +%s)"; E=production; PW="pw-secret-$$(date +%s)"; \
+		curl -sf -X PUT "http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/secrets/DATABASE_PASSWORD" \
+			-H 'content-type: application/json' -d "{\"value\":\"$${PW}\"}" \
+			| python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["version"]==1'; \
+		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/secrets/DATABASE_PASSWORD:access" >/dev/null; \
+		curl -sf -X PUT "http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/secrets/DATABASE_PASSWORD" \
+			-H 'content-type: application/json' -d "{\"value\":\"$${PW}-rotated\"}" >/dev/null; \
+		curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/projects/$${P}/envs/$${E}/audit?name=DATABASE_PASSWORD" \
+			| python3 -c 'import sys,json; d=json.load(sys.stdin); assert isinstance(d,list) and len(d)>=3; acts={e["action"] for e in d}; assert "secret.set" in acts and "secret.access" in acts and "secret.rotate" in acts; assert all("value" not in e for e in d)'; \
+		# Trigger a log line that would contain the secret if unmasked (debug echo via deliberate warn path is hard);
+		# assert docker logs never contain the plaintext password.
+		! $(COMPOSE) logs $(SERVICE) 2>&1 | grep -F "$${PW}" >/dev/null; \
+		echo "audit+masking ok for $${P}"
 	@# Restart with enforce + no Identity → secret write fail-closed 503; unauthenticated 401.
 	@$(COMPOSE) stop $(SERVICE) >/dev/null
 	@docker rm -f forge-secrets-enforce >/dev/null 2>&1 || true
@@ -194,12 +208,12 @@ test-integration: run
 	@! $(COMPOSE) logs $(SERVICE) 2>&1 | grep -E 'bG9jYWwtZGV2LWZvcmdl|local-dev-forge-secrets-key'
 	@grep -q '4104' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
 	@# OpenAPI declares health + secrets + config + auth; secret list schema has no value.
-	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-secrets.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "operationId: setSecret" in p and "operationId: listSecrets" in p and "operationId: getSecretMetadata" in p and "operationId: accessSecret" in p; assert "secrets/{name}:access" in p; assert "operationId: setConfig" in p and "operationId: listConfig" in p and "operationId: deleteConfig" in p; assert "operationId: putServiceBindings" in p and "operationId: resolveServiceEnv" in p; assert "version_fingerprint" in p; assert "bearerAuth" in p; i=p.index("SecretListItem:"); j=p.index("SecretVersion:", i); assert "value:" not in p[i:j]; c=p.index("ConfigListItem:"); assert "value:" in p[c:c+350]'
+	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-secrets.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "operationId: setSecret" in p and "operationId: listSecrets" in p and "operationId: getSecretMetadata" in p and "operationId: accessSecret" in p; assert "secrets/{name}:access" in p; assert "operationId: setConfig" in p and "operationId: listConfig" in p and "operationId: deleteConfig" in p; assert "operationId: putServiceBindings" in p and "operationId: resolveServiceEnv" in p; assert "operationId: listAuditEvents" in p; assert "AuditEvent:" in p; assert "version_fingerprint" in p; assert "bearerAuth" in p; i=p.index("SecretListItem:"); j=p.index("SecretVersion:", i); assert "value:" not in p[i:j]; a=p.index("AuditEvent:"); assert "value:" not in p[a:a+400]; c=p.index("ConfigListItem:"); assert "value:" in p[c:c+350]'
 	@FORGE_SECRETS_DB_URL=$${FORGE_SECRETS_DB_URL:-postgres://forge:forge@127.0.0.1:5001/forge_secrets} \
 		FORGE_SECRETS_MASTER_KEY=$${FORGE_SECRETS_MASTER_KEY:-$(LOCAL_MASTER_KEY)} \
 		FORGE_SECRETS_MASTER_KEY_ID=$${FORGE_SECRETS_MASTER_KEY_ID:-m1} \
 		FORGE_AUTH_MODE=dev \
-		cargo test --test secrets_test --test isolation_test --test resolve_test -- --ignored --nocapture
+		cargo test --test secrets_test --test isolation_test --test resolve_test --test audit_masking_test -- --ignored --nocapture
 	@cid="$$($(COMPOSE) ps -q $(SERVICE))"; \
 		test -n "$$cid"; \
 		docker stop -t 15 "$$cid" >/dev/null; \

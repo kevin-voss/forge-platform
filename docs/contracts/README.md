@@ -53,3 +53,12 @@ Role model and `(action → roles)` permission matrix used by
 
 * Human doc + parity JSON: [authz-permission-matrix.md](authz-permission-matrix.md)
 * OpenAPI: [`contracts/openapi/forge-identity.openapi.yaml`](../../contracts/openapi/forge-identity.openapi.yaml)
+
+## Secret log masking + access audit (epic 10)
+
+Convention for masking configured secret values in logs, plus the Secrets audit
+query contract:
+
+* Human doc: [secret-log-masking.md](secret-log-masking.md)
+* OpenAPI: [`contracts/openapi/forge-secrets.openapi.yaml`](../../contracts/openapi/forge-secrets.openapi.yaml)
+  (`GET /v1/projects/{project_id}/audit`, env-scoped variant, `AuditEvent` schema)

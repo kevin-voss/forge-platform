@@ -21,6 +21,14 @@ pub struct Config {
     pub auth_mode: String,
     pub identity_url: String,
     pub introspect_cache_ttl_s: u64,
+    /// Persist access audit events (default true).
+    pub audit_enabled: bool,
+    /// Fail closed when audit insert fails (default false = best-effort).
+    pub audit_strict: bool,
+    /// Redact known secret values in log output (default true).
+    pub log_masking_enabled: bool,
+    /// Placeholder used by the masking filter (default `***`).
+    pub mask_placeholder: String,
 }
 
 impl Config {
@@ -105,6 +113,15 @@ impl Config {
             format!("FORGE_INTROSPECT_CACHE_TTL_S must be a non-negative integer, got {ttl_raw:?}")
         })?;
 
+        let audit_enabled = parse_bool_env("FORGE_AUDIT_ENABLED", true)?;
+        let audit_strict = parse_bool_env("FORGE_AUDIT_STRICT", false)?;
+        let log_masking_enabled = parse_bool_env("FORGE_LOG_MASKING_ENABLED", true)?;
+        let mask_placeholder = env::var("FORGE_MASK_PLACEHOLDER")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "***".into());
+
         Ok(Self {
             port,
             service_name,
@@ -120,7 +137,23 @@ impl Config {
             auth_mode,
             identity_url,
             introspect_cache_ttl_s,
+            audit_enabled,
+            audit_strict,
+            log_masking_enabled,
+            mask_placeholder,
         })
+    }
+}
+
+fn parse_bool_env(key: &str, default: bool) -> Result<bool, String> {
+    match env::var(key) {
+        Err(_) => Ok(default),
+        Ok(raw) => match raw.trim().to_ascii_lowercase().as_str() {
+            "" => Ok(default),
+            "1" | "true" | "yes" | "on" => Ok(true),
+            "0" | "false" | "no" | "off" => Ok(false),
+            other => Err(format!("{key} must be true|false (or 1|0), got {other:?}")),
+        },
     }
 }
 
@@ -161,6 +194,10 @@ mod tests {
             "FORGE_AUTH_MODE",
             "FORGE_IDENTITY_URL",
             "FORGE_INTROSPECT_CACHE_TTL_S",
+            "FORGE_AUDIT_ENABLED",
+            "FORGE_AUDIT_STRICT",
+            "FORGE_LOG_MASKING_ENABLED",
+            "FORGE_MASK_PLACEHOLDER",
         ];
         let previous: Vec<(String, Option<String>)> = keys
             .iter()
@@ -204,6 +241,10 @@ mod tests {
                 assert_eq!(cfg.auth_mode, "enforce");
                 assert_eq!(cfg.identity_url, "http://forge-identity:4002");
                 assert_eq!(cfg.introspect_cache_ttl_s, 10);
+                assert!(cfg.audit_enabled);
+                assert!(!cfg.audit_strict);
+                assert!(cfg.log_masking_enabled);
+                assert_eq!(cfg.mask_placeholder, "***");
             },
         );
     }

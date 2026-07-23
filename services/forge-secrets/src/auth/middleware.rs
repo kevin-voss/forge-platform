@@ -1,5 +1,7 @@
 //! SecretsAuth: bearer introspect + project isolation + Identity authz/check.
 
+use crate::audit::hook::{denied_action_for_path, principal_label, record, source_from_headers};
+use crate::audit::AuditResult;
 use crate::auth::action_map::{map_action, AuthTarget};
 use crate::auth::identity_client::{AuthzDecision, IdentityUnreachable, IntrospectResult};
 use crate::state::AppState;
@@ -13,6 +15,13 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tracing::{info, warn};
+
+/// Authenticated principal attached to authorized requests.
+#[derive(Debug, Clone)]
+pub struct AuthPrincipal {
+    pub principal_type: String,
+    pub principal_id: String,
+}
 
 #[derive(Debug, Serialize)]
 pub struct ErrorBody {
@@ -145,7 +154,11 @@ fn try_config_read_from_cache(
     }
 }
 
-pub async fn enforce(State(state): State<AppState>, req: Request<Body>, next: Next) -> Response {
+pub async fn enforce(
+    State(state): State<AppState>,
+    mut req: Request<Body>,
+    next: Next,
+) -> Response {
     let method = req.method().as_str().to_string();
     let path = req.uri().path().to_string();
     let target = map_action(&method, &path);
@@ -160,6 +173,10 @@ pub async fn enforce(State(state): State<AppState>, req: Request<Body>, next: Ne
             method = %method,
             "FORGE_AUTH_MODE=dev — secrets/config auth bypassed (insecure)"
         );
+        req.extensions_mut().insert(AuthPrincipal {
+            principal_type: "dev".into(),
+            principal_id: "local".into(),
+        });
         return next.run(req).await;
     }
 
@@ -170,6 +187,9 @@ pub async fn enforce(State(state): State<AppState>, req: Request<Body>, next: Ne
     else {
         return next.run(req).await;
     };
+
+    let source = source_from_headers(req.headers());
+    let env_from_path = path_environment(&path);
 
     let auth_header = req
         .headers()
@@ -204,6 +224,16 @@ pub async fn enforce(State(state): State<AppState>, req: Request<Body>, next: Ne
                 && try_config_read_from_cache(&identity, &token, &path_project)
             {
                 state.auth_metrics.ok.fetch_add(1, Ordering::Relaxed);
+                if let Some(cached) = identity.cached_introspect_result(&token) {
+                    if let (Some(pt), Some(pid)) =
+                        (cached.principal_type.clone(), cached.principal_id.clone())
+                    {
+                        req.extensions_mut().insert(AuthPrincipal {
+                            principal_type: pt,
+                            principal_id: pid,
+                        });
+                    }
+                }
                 return next.run(req).await;
             }
             warn!(
@@ -246,6 +276,12 @@ pub async fn enforce(State(state): State<AppState>, req: Request<Body>, next: Ne
         return AuthError::Unauthorized("token missing principal").into_response();
     };
 
+    let auth_principal = AuthPrincipal {
+        principal_type: principal_type.to_string(),
+        principal_id: principal_id.to_string(),
+    };
+    let principal_str = principal_label(Some(&auth_principal), &state.auth_mode);
+
     if !isolation_allows(&introspect, &path_project) {
         state.auth_metrics.forbidden.fetch_add(1, Ordering::Relaxed);
         warn!(
@@ -262,6 +298,20 @@ pub async fn enforce(State(state): State<AppState>, req: Request<Body>, next: Ne
             allow = false,
             "authorization decision"
         );
+        if let Some(audit_action) = denied_action_for_path(&method, &path) {
+            record(
+                &state,
+                &path_project,
+                env_from_path.as_deref(),
+                audit_action,
+                &principal_str,
+                path_resource_name(&path),
+                None,
+                AuditResult::Denied,
+                source.as_deref(),
+            )
+            .await;
+        }
         return AuthError::Forbidden("project isolation denied").into_response();
     }
 
@@ -288,6 +338,7 @@ pub async fn enforce(State(state): State<AppState>, req: Request<Body>, next: Ne
                             "authorization decision (identity down; cache hit)"
                         );
                         state.auth_metrics.ok.fetch_add(1, Ordering::Relaxed);
+                        req.extensions_mut().insert(auth_principal);
                         return next.run(req).await;
                     }
                 }
@@ -311,11 +362,49 @@ pub async fn enforce(State(state): State<AppState>, req: Request<Body>, next: Ne
 
     if !decision.allow {
         state.auth_metrics.forbidden.fetch_add(1, Ordering::Relaxed);
+        if let Some(audit_action) = denied_action_for_path(&method, &path) {
+            record(
+                &state,
+                &path_project,
+                env_from_path.as_deref(),
+                audit_action,
+                &principal_str,
+                path_resource_name(&path),
+                None,
+                AuditResult::Denied,
+                source.as_deref(),
+            )
+            .await;
+        }
         return AuthError::Forbidden("forbidden").into_response();
     }
 
     state.auth_metrics.ok.fetch_add(1, Ordering::Relaxed);
+    req.extensions_mut().insert(auth_principal);
     next.run(req).await
+}
+
+fn path_environment(path: &str) -> Option<String> {
+    let rest = path.strip_prefix("/v1/projects/")?;
+    let mut parts = rest.split('/');
+    let _pid = parts.next()?;
+    if parts.next()? != "envs" {
+        return None;
+    }
+    parts.next().map(str::to_string).filter(|s| !s.is_empty())
+}
+
+fn path_resource_name(path: &str) -> Option<&str> {
+    let trimmed = path.trim_end_matches('/');
+    let name = trimmed.rsplit('/').next()?;
+    let name = name.strip_suffix(":access").unwrap_or(name);
+    if matches!(
+        name,
+        "secrets" | "config" | "bindings" | "resolve" | "audit" | "services" | "envs"
+    ) {
+        return None;
+    }
+    Some(name)
 }
 
 fn log_decision(principal: &str, project: &str, action: &str, decision: &AuthzDecision) {

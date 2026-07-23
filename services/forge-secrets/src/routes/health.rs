@@ -79,6 +79,12 @@ mod tests {
             auth_mode: "dev".into(),
             identity: None,
             auth_metrics: crate::auth::middleware::AuthMetrics::new(),
+            audit_enabled: true,
+            audit_strict: false,
+            audit_metrics: crate::audit::recorder::AuditMetrics::new(),
+            log_masking_enabled: true,
+            mask_placeholder: "***".into(),
+            known_secrets: std::sync::Arc::new(crate::masking::KnownSecrets::new()),
         }
     }
 

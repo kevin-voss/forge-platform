@@ -1,11 +1,14 @@
+use crate::audit::hook::{principal_label, record, source_from_headers};
+use crate::audit::AuditResult;
+use crate::auth::middleware::AuthPrincipal;
 use crate::secrets::cipher::{decrypt, encrypt};
 use crate::secrets::store::{NewSecretVersion, SecretStore};
 use crate::state::{AppState, EnsureError};
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, put};
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
@@ -76,7 +79,10 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/v1/projects/{project_id}/envs/{environment}/secrets/{raw}",
-            put(set_secret).get(get_secret_metadata).post(access_secret),
+            put(set_secret)
+                .get(get_secret_metadata)
+                .post(access_secret)
+                .delete(delete_secret),
         )
 }
 
@@ -126,8 +132,12 @@ fn bad_request(msg: impl Into<String>) -> axum::response::Response {
 async fn set_secret(
     State(state): State<AppState>,
     Path((project_id, environment, raw)): Path<(String, String, String)>,
+    headers: HeaderMap,
+    principal: Option<Extension<AuthPrincipal>>,
     Json(body): Json<SetSecretBody>,
 ) -> impl IntoResponse {
+    let principal_str = principal_label(principal.as_ref().map(|e| &e.0), &state.auth_mode);
+    let source = source_from_headers(&headers);
     if let Err(msg) = validate_scope(&project_id, &environment) {
         return bad_request(msg);
     }
@@ -184,10 +194,25 @@ async fn set_secret(
         }
     };
 
+    // Register for log masking before any log that might echo the request body.
+    state.known_secrets.register(&body.value);
+
     let encrypted = match encrypt(state.aead_alg, &data_key, body.value.as_bytes()) {
         Ok(v) => v,
         Err(err) => {
             error!(project = %project_id, env = %environment, name = %name, error = %err, "encrypt failed");
+            record(
+                &state,
+                &project_id,
+                Some(&environment),
+                "secret.set",
+                &principal_str,
+                Some(&name),
+                None,
+                AuditResult::Error,
+                source.as_deref(),
+            )
+            .await;
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorBody {
@@ -223,6 +248,11 @@ async fn set_secret(
                 .into_response();
         }
     };
+    let action = if version == 1 {
+        "secret.set"
+    } else {
+        "secret.rotate"
+    };
 
     match store
         .insert_version(&NewSecretVersion {
@@ -240,6 +270,18 @@ async fn set_secret(
             state
                 .secrets_total
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            record(
+                &state,
+                &project_id,
+                Some(&environment),
+                action,
+                &principal_str,
+                Some(&name),
+                Some(row.version),
+                AuditResult::Ok,
+                source.as_deref(),
+            )
+            .await;
             info!(
                 project = %project_id,
                 env = %environment,
@@ -259,6 +301,18 @@ async fn set_secret(
         }
         Err(err) => {
             error!(error = %err, "insert secret failed");
+            record(
+                &state,
+                &project_id,
+                Some(&environment),
+                action,
+                &principal_str,
+                Some(&name),
+                Some(version),
+                AuditResult::Error,
+                source.as_deref(),
+            )
+            .await;
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorBody {
@@ -419,9 +473,13 @@ async fn get_secret_metadata(
 async fn access_secret(
     State(state): State<AppState>,
     Path((project_id, environment, raw)): Path<(String, String, String)>,
+    headers: HeaderMap,
+    principal: Option<Extension<AuthPrincipal>>,
     Query(query): Query<AccessQuery>,
     body: Option<Json<AccessBody>>,
 ) -> impl IntoResponse {
+    let principal_str = principal_label(principal.as_ref().map(|e| &e.0), &state.auth_mode);
+    let source = source_from_headers(&headers);
     if let Err(msg) = validate_scope(&project_id, &environment) {
         return bad_request(msg);
     }
@@ -439,7 +497,6 @@ async fn access_secret(
         return bad_request(msg);
     }
 
-    // Basic authorized-path guard: service must be ready. Full Identity authz in 10.03.
     if !state.is_ready() {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -528,6 +585,18 @@ async fn access_secret(
                     version = row.version,
                     "decrypt produced non-utf8 (refusing to return garbage)"
                 );
+                record(
+                    &state,
+                    &project_id,
+                    Some(&environment),
+                    "secret.access",
+                    &principal_str,
+                    Some(&name),
+                    Some(row.version),
+                    AuditResult::Error,
+                    source.as_deref(),
+                )
+                .await;
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorBody {
@@ -547,6 +616,18 @@ async fn access_secret(
                 error = %err,
                 "decrypt failed"
             );
+            record(
+                &state,
+                &project_id,
+                Some(&environment),
+                "secret.access",
+                &principal_str,
+                Some(&name),
+                Some(row.version),
+                AuditResult::Error,
+                source.as_deref(),
+            )
+            .await;
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorBody {
@@ -558,8 +639,20 @@ async fn access_secret(
         }
     };
 
-    // Audit hook stub (full audit trail in 10.06) — never log the value.
-    audit_access_stub(&project_id, &environment, &name, row.version);
+    // In-memory only — enables log masking without a durable plaintext store.
+    state.known_secrets.register(&plaintext);
+    record(
+        &state,
+        &project_id,
+        Some(&environment),
+        "secret.access",
+        &principal_str,
+        Some(&name),
+        Some(row.version),
+        AuditResult::Ok,
+        source.as_deref(),
+    )
+    .await;
     state
         .secret_access_total
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -583,17 +676,99 @@ async fn access_secret(
         .into_response()
 }
 
-/// Placeholder access-audit hook; real persistence lands in 10.06.
-fn audit_access_stub(project_id: &str, environment: &str, name: &str, version: i32) {
-    info!(
-        audit = true,
-        action = "secret.access",
-        project = %project_id,
-        env = %environment,
-        name = %name,
-        version,
-        "audit stub: secret access"
-    );
+async fn delete_secret(
+    State(state): State<AppState>,
+    Path((project_id, environment, raw)): Path<(String, String, String)>,
+    headers: HeaderMap,
+    principal: Option<Extension<AuthPrincipal>>,
+) -> impl IntoResponse {
+    let principal_str = principal_label(principal.as_ref().map(|e| &e.0), &state.auth_mode);
+    let source = source_from_headers(&headers);
+    if let Err(msg) = validate_scope(&project_id, &environment) {
+        return bad_request(msg);
+    }
+    let name = raw;
+    if let Err(msg) = validate_secret_name(&name) {
+        return bad_request(msg);
+    }
+    if !state.is_ready() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorBody {
+                error: "service not ready".into(),
+                code: Some("not_ready"),
+            }),
+        )
+            .into_response();
+    }
+    let Some(pool) = state.pool.as_ref() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorBody {
+                error: "service not ready".into(),
+                code: Some("not_ready"),
+            }),
+        )
+            .into_response();
+    };
+    let store = SecretStore::new(pool.clone());
+    match store
+        .delete_all_versions(&project_id, &environment, &name)
+        .await
+    {
+        Ok(0) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorBody {
+                error: "secret not found".into(),
+                code: Some("not_found"),
+            }),
+        )
+            .into_response(),
+        Ok(_) => {
+            record(
+                &state,
+                &project_id,
+                Some(&environment),
+                "secret.delete",
+                &principal_str,
+                Some(&name),
+                None,
+                AuditResult::Ok,
+                source.as_deref(),
+            )
+            .await;
+            info!(
+                project = %project_id,
+                env = %environment,
+                name = %name,
+                "secret deleted"
+            );
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Err(err) => {
+            error!(error = %err, "delete secret failed");
+            record(
+                &state,
+                &project_id,
+                Some(&environment),
+                "secret.delete",
+                &principal_str,
+                Some(&name),
+                None,
+                AuditResult::Error,
+                source.as_deref(),
+            )
+            .await;
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorBody {
+                    error: "storage error".into(),
+                    code: Some("storage_error"),
+                }),
+            )
+                .into_response()
+        }
+    }
 }
 
 #[cfg(test)]
