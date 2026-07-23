@@ -1,0 +1,18 @@
+{
+  "id": "50-e2e-harness",
+  "title": "Harness Self-Test Fixture",
+  "epic": "50",
+  "deploy": "tests/e2e/fixtures/demos/50-e2e-harness/deploy.sh",
+  "seed": "tests/e2e/fixtures/demos/50-e2e-harness/seed.sh",
+  "hosts": [
+    {
+      "host": "hello.localhost",
+      "path": "/",
+      "expect": 200
+    }
+  ],
+  "baseURL": "http://hello.localhost:4000",
+  "spec": "tests/e2e/projects/smoke/spec.ts",
+  "services": ["control", "cli", "runtime", "gateway"],
+  "teardown": "tests/e2e/fixtures/demos/50-e2e-harness/teardown.sh"
+}

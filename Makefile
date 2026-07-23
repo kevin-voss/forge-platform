@@ -18,7 +18,12 @@ SHUTDOWN_TIMEOUT ?= 10s
 	build build-cli test test-unit test-integration test-e2e test-infrastructure \
 	contract-validate lint-openapi \
 	lint format clean reset demo demo-accept demo-full service-test service-run wait \
-	e2e-install
+	e2e-install test-platform-e2e
+
+HEADLESS ?=
+PROJECTS ?=
+KEEP ?=
+FINDINGS_ONLY ?=
 
 help:
 	@echo "Forge Platform Make targets"
@@ -54,6 +59,8 @@ help:
 	@echo "  make service-test SERVICE= Run tests for one service"
 	@echo "  make service-run SERVICE=  Run one service locally"
 	@echo "  make e2e-install           Install Playwright browsers for tests/e2e"
+	@echo "  make test-platform-e2e     Run platform E2E orchestrator (HEADLESS/PROJECTS/KEEP)"
+	@echo "  make demo DEMO=5X          Demo product (demo.json → orchestrator lifecycle)"
 
 setup: env-check
 	@chmod +x scripts/*.sh scripts/lib/*.sh demos/*/run.sh \
@@ -136,11 +143,17 @@ test-integration: test-infrastructure
 test-e2e:
 	@echo "No end-to-end product tests in Step 00."
 
-# Placeholder: install npm deps + Playwright browsers for the platform E2E harness.
-# Full orchestrator (make test-platform-e2e) lands in epic 50.05 / N=178.
+# Platform E2E harness (epic 50): install browsers + orchestrator entry point.
 e2e-install:
 	@cd tests/e2e && npm ci --no-audit --no-fund
 	@cd tests/e2e && npx playwright install --with-deps
+
+# Headed by default; HEADLESS=1 (or CI=1) for CI. PROJECTS=01,50 subsets; KEEP=1 skips teardown.
+test-platform-e2e:
+	@cd tests/e2e && npm ci --no-audit --no-fund
+	@cd tests/e2e && npm run build
+	@cd tests/e2e && HEADLESS="$(HEADLESS)" PROJECTS="$(PROJECTS)" KEEP="$(KEEP)" FINDINGS_ONLY="$(FINDINGS_ONLY)" \
+		node harness/orchestrator.js
 
 test-infrastructure: env-check
 	@./tests/infrastructure/test_infrastructure.sh
@@ -187,6 +200,12 @@ demo:
 		exec -a "forge-demo-09-full-platform" bash demos/09-full-platform/start.sh; \
 	fi
 	@demo_num="$$(printf '%02d' $$((10#$(DEMO))))"; \
+	demo_json=(demos/$${demo_num}-*/demo.json); \
+	if [[ -f "$${demo_json[0]}" ]]; then \
+		echo "Running platform E2E lifecycle for DEMO=$(DEMO) via $${demo_json[0]}"; \
+		$(MAKE) test-platform-e2e PROJECTS="$${demo_num}" HEADLESS="$(HEADLESS)" KEEP="$(KEEP)" FINDINGS_ONLY="$(FINDINGS_ONLY)"; \
+		exit $$?; \
+	fi; \
 	matches=(demos/$${demo_num}-*/run.sh); \
 	if [[ ! -f "$${matches[0]}" ]]; then \
 		echo "Demo not found for DEMO=$(DEMO)" >&2; \

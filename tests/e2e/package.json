@@ -7,7 +7,8 @@
     "build": "tsc",
     "test": "playwright test",
     "test:headless": "HEADLESS=1 playwright test",
-    "test:harness": "tsc && node --test harness/demo.test.js harness/forge.test.js harness/platform.test.js harness/gateway.test.js harness/findings.test.js"
+    "test:harness": "tsc && node --test harness/demo.test.js harness/forge.test.js harness/platform.test.js harness/gateway.test.js harness/findings.test.js harness/orchestrator.test.js",
+    "orchestrator": "tsc && node harness/orchestrator.js"
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",

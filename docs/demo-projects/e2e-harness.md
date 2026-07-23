@@ -189,16 +189,23 @@ write run report (report.ts) + coverage rollup (§ matrix)
 exit 0 iff: all selected products passed AND zero blocker findings
 ```
 
-Make target (planned, added in `50.05` — not created in this planning pass):
+### 50.05 outcome — orchestrator + Make targets
+
+**Landed:** `tests/e2e/harness/orchestrator.ts` discovers `demos/*/demo.json` (numeric order),
+honors `HEADLESS`/`CI`, `PROJECTS=01,50…`, `KEEP`, and `FINDINGS_ONLY`, runs platform preflight
+then each product lifecycle, writes `artifacts/orchestrator-result.json`, and exits 0 iff all
+selected products passed with zero blocker findings. Report markdown/HTML is still 50.06.
 
 ```make
 test-platform-e2e:
 	@cd tests/e2e && npm ci --no-audit --no-fund
-	@cd tests/e2e && HEADLESS=$(HEADLESS) PROJECTS=$(PROJECTS) KEEP=$(KEEP) node harness/orchestrator.js
+	@cd tests/e2e && npm run build
+	@cd tests/e2e && HEADLESS=$(HEADLESS) PROJECTS=$(PROJECTS) KEEP=$(KEEP) FINDINGS_ONLY=$(FINDINGS_ONLY) \
+		node harness/orchestrator.js
 ```
 
-Related targets: `make e2e-install` (Playwright browsers), `make e2e-report` (open last report),
-`make demo DEMO=5X` (single product, reuses the same lifecycle).
+Related targets: `make e2e-install` (Playwright browsers), `make e2e-report` (50.06),
+`make demo DEMO=5X` (when `demos/5X-*/demo.json` exists, reuses the orchestrator lifecycle).
 
 ## 9. Determinism
 

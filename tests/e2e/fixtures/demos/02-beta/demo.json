@@ -1,0 +1,17 @@
+{
+  "id": "02-beta",
+  "title": "Beta Fixture",
+  "epic": "52",
+  "deploy": "tests/e2e/fixtures/demos/02-beta/deploy.sh",
+  "hosts": [
+    {
+      "host": "app.beta.localhost",
+      "path": "/",
+      "expect": 200
+    }
+  ],
+  "baseURL": "http://app.beta.localhost:4000",
+  "spec": "tests/e2e/projects/smoke/spec.ts",
+  "services": ["control", "gateway"],
+  "teardown": "tests/e2e/fixtures/demos/02-beta/teardown.sh"
+}

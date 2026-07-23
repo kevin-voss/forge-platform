@@ -1,0 +1,17 @@
+{
+  "id": "01-alpha",
+  "title": "Alpha Fixture",
+  "epic": "51",
+  "deploy": "tests/e2e/fixtures/demos/01-alpha/deploy.sh",
+  "hosts": [
+    {
+      "host": "app.alpha.localhost",
+      "path": "/",
+      "expect": 200
+    }
+  ],
+  "baseURL": "http://app.alpha.localhost:4000",
+  "spec": "tests/e2e/projects/smoke/spec.ts",
+  "services": ["control", "gateway"],
+  "teardown": "tests/e2e/fixtures/demos/01-alpha/teardown.sh"
+}

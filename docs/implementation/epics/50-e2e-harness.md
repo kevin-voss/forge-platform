@@ -61,7 +61,7 @@ proving the whole lifecycle and the findings pipeline before any real product de
 | 50.02 | `DemoProject` contract + lifecycle runner | Complete | `demo.json` schema; `demo.ts` up→ready→seed→test→down; shared SPA style decision |
 | 50.03 | Platform preflight + gateway host routing | Complete | `make dev` bring-up, all-service health wait, `*.localhost:4000` Host matching |
 | 50.04 | Findings collector | Complete | `findings.ts` → `PLATFORM_FINDINGS.md` + `findings.json`; severity; product vs platform assert wrapper |
-| 50.05 | `make test-platform-e2e` orchestrator | Not started | run products in order, `HEADLESS`/`PROJECTS`/`KEEP`, aggregate exit code |
+| 50.05 | `make test-platform-e2e` orchestrator | Complete | run products in order, `HEADLESS`/`PROJECTS`/`KEEP`, aggregate exit code |
 | 50.06 | Run report + coverage rollup | Not started | markdown/HTML report, coverage from `demo.json.services`, artifact linking |
 | 50.07 | Harness self-test demo + gate | Not started | `demos/50-e2e-harness` hello-world proves lifecycle end-to-end; `make demo DEMO=50` |
 

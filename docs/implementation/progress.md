@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 178`** (verification track; epic 50 harness).
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 179`** (verification track; epic 50 harness).
 
 ## Epics
 
@@ -295,7 +295,7 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 | **175** | `DemoProject` contract + lifecycle runner | 50 | Complete |
 | **176** | Platform preflight + gateway host routing | 50 | Complete |
 | **177** | Findings collector | 50 | Complete |
-| **178** | `make test-platform-e2e` orchestrator | 50 | Not started |
+| **178** | `make test-platform-e2e` orchestrator | 50 | Complete |
 | **179** | Run report + coverage rollup | 50 | Not started |
 | **180** | Harness self-test demo + gate | 50 | Not started |
 | **181** | Product scaffold + baseline deploy | 51 | Not started |
