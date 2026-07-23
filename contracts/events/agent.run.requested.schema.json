@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/contracts/events/agent.run.requested/v1",
+  "title": "agent.run.requested",
+  "description": "Emitted when an agent run is requested.",
+  "x-forge-subject": "agent.run.requested",
+  "x-forge-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "agent_id", "requested_at"],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requested_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

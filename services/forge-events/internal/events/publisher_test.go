@@ -104,6 +104,36 @@ func TestPublishRejectsUnknownSubject(t *testing.T) {
 	}
 }
 
+type stubSchema struct {
+	err error
+	n   int
+}
+
+func (s *stubSchema) Validate(string, json.RawMessage, int) error {
+	s.n++
+	return s.err
+}
+
+func TestPublishRunsSchemaValidator(t *testing.T) {
+	js := &stubJS{ack: &nats.PubAck{Stream: "application", Sequence: 1}}
+	p := NewPublisher(js, []string{"application"}, 1024, nil, nil)
+	v := &stubSchema{err: errors.New("schema boom")}
+	p.SetSchemaValidator(v)
+	_, err := p.Publish(context.Background(), PublishRequest{
+		Subject: "application.crashed",
+		Data:    json.RawMessage(`{"service":"demo"}`),
+	})
+	if err == nil || err.Error() != "schema boom" {
+		t.Fatalf("err = %v", err)
+	}
+	if v.n != 1 {
+		t.Fatalf("Validate calls = %d", v.n)
+	}
+	if js.last != nil {
+		t.Fatal("expected no publish after schema failure")
+	}
+}
+
 func TestPublishHappyPath(t *testing.T) {
 	js := &stubJS{ack: &nats.PubAck{Stream: "application", Sequence: 7}}
 	p := NewPublisher(js, []string{"application"}, 1024, nil, nil)

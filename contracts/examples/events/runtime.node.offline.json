@@ -1,0 +1,6 @@
+{
+  "node_id": "node-1",
+  "occurred_at": "2026-07-22T14:15:00Z",
+  "reason": "heartbeat_timeout",
+  "last_heartbeat_at": "2026-07-22T14:14:00Z"
+}

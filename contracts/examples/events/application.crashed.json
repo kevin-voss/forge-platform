@@ -1,0 +1,7 @@
+{
+  "service": "demo",
+  "reason": "oom",
+  "occurred_at": "2026-07-22T14:00:00Z",
+  "exit_code": 137,
+  "node_id": "node-1"
+}

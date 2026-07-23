@@ -20,6 +20,7 @@ import (
 	"forge.local/services/forge-events/internal/events"
 	"forge.local/services/forge-events/internal/health"
 	natsx "forge.local/services/forge-events/internal/nats"
+	"forge.local/services/forge-events/internal/schema"
 )
 
 func main() {
@@ -51,8 +52,17 @@ func run() error {
 		"ack_token_ttl_s", cfg.AckTokenTTLS,
 		"dlq_enabled", cfg.DLQEnabled,
 		"dlq_retention_days", cfg.DLQRetentionDays,
+		"event_schema_dir", cfg.EventSchemaDir,
+		"schema_validation", cfg.SchemaValidation,
 		"shutdown_grace_seconds", int(cfg.ShutdownGrace.Seconds()),
 	)
+
+	schemaMetrics := &schema.Metrics{}
+	schemaReg := schema.NewRegistry(schema.Mode(cfg.SchemaValidation), log, schemaMetrics)
+	if err := schemaReg.Load(cfg.EventSchemaDir); err != nil {
+		// Keep serving so /health/live works; readiness stays 503 until schemas load.
+		log.Error("event schema load failed", "error", err.Error(), "dir", cfg.EventSchemaDir)
+	}
 
 	metrics := &natsx.Metrics{}
 	conn := natsx.NewConnWithDLQ(cfg.NATSURL, cfg.Streams, cfg.DLQEnabled, log, metrics)
@@ -68,6 +78,7 @@ func run() error {
 
 	eventMetrics := &events.Metrics{}
 	publisher := events.NewPublisher(conn.JetStream(), cfg.Streams, cfg.EventMaxBytes, log, eventMetrics)
+	publisher.SetSchemaValidator(schemaReg)
 	ackMetrics := &consumers.AckMetrics{}
 	ackMgr := consumers.NewAckManager(time.Duration(cfg.AckTokenTTLS)*time.Second, log, ackMetrics)
 	store := consumers.NewStore(
@@ -90,11 +101,13 @@ func run() error {
 	retention := dlq.NewRetentionRunner(dlqStore, dlqRouter, cfg.DLQRetentionDays, log, dlqMetrics)
 
 	mux := http.NewServeMux()
-	health.NewHandler(conn, cfg.ServiceName, cfg.ServiceVersion).Register(mux)
+	ready := health.MultiReady{conn, schemaReg}
+	health.NewHandler(ready, cfg.ServiceName, cfg.ServiceVersion).Register(mux)
 	(&api.PublishHandler{Publisher: publisher, MaxBytes: cfg.EventMaxBytes}).Register(mux)
 	(&api.ConsumeHandler{Consumer: store, MaxBytes: cfg.EventMaxBytes, Wait: cfg.ConsumeWait}).Register(mux)
 	(&api.ConsumersHandler{Store: store, Acker: ackMgr, MaxBytes: cfg.EventMaxBytes}).Register(mux)
 	(&api.DLQHandler{Store: dlqStore, Redeliverer: redeliverer, Enabled: cfg.DLQEnabled}).Register(mux)
+	(&api.SchemasHandler{Registry: schemaReg}).Register(mux)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

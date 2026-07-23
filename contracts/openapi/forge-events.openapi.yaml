@@ -1,11 +1,10 @@
 openapi: 3.0.3
 info:
   title: Forge Events API
-  version: 0.4.0
+  version: 0.5.0
   description: |
-    Platform events service (epic 11). Step 11.04 adds dead-letter queues with
-    inspect, redeliver, and delete APIs for messages that exhaust max_deliveries.
-    Schemas and auth arrive in later steps. Auth is not required yet (11.06).
+    Platform events service (epic 11). Step 11.05 adds JSON Schema registry and
+    publish-time validation (422 on malformed data). Auth is not required yet (11.06).
 servers:
   - url: http://127.0.0.1:4105
     description: Local Compose (host port 4105)
@@ -32,8 +31,9 @@ paths:
       operationId: getHealthReady
       summary: Readiness probe
       description: |
-        Returns 200 when NATS JetStream is connected and platform streams exist;
-        non-200 otherwise. Liveness stays 200 while reconnecting.
+        Returns 200 when NATS JetStream is connected, platform streams exist, and
+        event JSON Schemas loaded successfully; non-200 otherwise. Liveness stays
+        200 while reconnecting or if schemas failed to load.
       security: []
       responses:
         "200":
@@ -79,9 +79,11 @@ paths:
       operationId: publishEvent
       summary: Publish an event
       description: |
-        Validates the subject against known stream families, wraps the payload in
-        a standard envelope, and publishes to JetStream. Returns 202 with
-        event_id, stream, and sequence. No auth yet (11.06).
+        Validates the subject against known stream families, validates `data`
+        against the registered JSON Schema for the subject (optional
+        `headers.schema_version`), wraps the payload in a standard envelope, and
+        publishes to JetStream. Returns 202 with event_id, stream, and sequence.
+        No auth yet (11.06).
       security: []
       requestBody:
         required: true
@@ -94,6 +96,7 @@ paths:
               data:
                 service: demo
                 reason: oom
+                occurred_at: "2026-07-22T14:00:00Z"
               source: runtime
       responses:
         "202":
@@ -118,8 +121,70 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Event data failed JSON Schema validation (or unknown schema in strict mode)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchemaValidationError"
+              example:
+                error: validation_failed
+                subject: application.crashed
+                violations:
+                  - path: service
+                    message: missing property 'service'
+                    keyword: required
         "503":
           description: JetStream publish failed (retryable)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/schemas:
+    get:
+      operationId: listEventSchemas
+      summary: List registered event schemas
+      description: Returns a map of subject → version info for all loaded JSON Schemas.
+      security: []
+      responses:
+        "200":
+          description: Registered subjects and versions
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: "#/components/schemas/SchemaSubjectInfo"
+              example:
+                application.crashed:
+                  versions: [1]
+                  latest_version: 1
+                build.completed:
+                  versions: [1]
+                  latest_version: 1
+
+  /v1/schemas/{subject}:
+    get:
+      operationId: getEventSchema
+      summary: Get schema versions for a subject
+      security: []
+      parameters:
+        - name: subject
+          in: path
+          required: true
+          schema:
+            type: string
+          example: application.crashed
+      responses:
+        "200":
+          description: Schema detail including versioned JSON Schema documents
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchemaSubjectDetail"
+        "404":
+          description: Unknown subject
           content:
             application/json:
               schema:
@@ -498,13 +563,78 @@ components:
           type: string
           description: Concrete subject in a known family (e.g. application.crashed)
         data:
-          description: Opaque JSON event payload
+          description: Event payload validated against the registered JSON Schema for the subject
         source:
           type: string
         headers:
           type: object
           additionalProperties:
             type: string
+          description: |
+            Optional headers. `schema_version` selects a specific registered schema
+            version; when omitted, the latest version is used.
+
+    SchemaSubjectInfo:
+      type: object
+      required:
+        - versions
+        - latest_version
+      properties:
+        versions:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+        latest_version:
+          type: integer
+          minimum: 1
+
+    SchemaSubjectDetail:
+      type: object
+      required:
+        - subject
+        - latest_version
+        - versions
+      properties:
+        subject:
+          type: string
+        latest_version:
+          type: integer
+          minimum: 1
+        versions:
+          type: object
+          additionalProperties:
+            type: object
+            description: Full JSON Schema document for that version
+
+    SchemaValidationError:
+      type: object
+      required:
+        - error
+        - subject
+      properties:
+        error:
+          type: string
+          description: unknown_schema | unknown_version | validation_failed
+        subject:
+          type: string
+        violations:
+          type: array
+          items:
+            $ref: "#/components/schemas/SchemaViolation"
+
+    SchemaViolation:
+      type: object
+      required:
+        - message
+      properties:
+        path:
+          type: string
+          description: JSON instance path (no leading slash); empty for root
+        message:
+          type: string
+        keyword:
+          type: string
 
     PublishResponse:
       type: object

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/contracts/events/deployment.failed/v1",
+  "title": "deployment.failed",
+  "description": "Emitted when a deployment rollout fails or is rolled back.",
+  "x-forge-subject": "deployment.failed",
+  "x-forge-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["deployment_id", "service_id", "reason", "failed_at"],
+  "properties": {
+    "deployment_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "service_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "environment_id": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "failed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "image_ref": {
+      "type": "string"
+    }
+  }
+}

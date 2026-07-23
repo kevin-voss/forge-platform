@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/contracts/events/agent.run.completed/v1",
+  "title": "agent.run.completed",
+  "description": "Emitted when an agent run completes.",
+  "x-forge-subject": "agent.run.completed",
+  "x-forge-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "agent_id", "status", "completed_at"],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["succeeded", "failed", "cancelled"]
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "error": {
+      "type": "string"
+    }
+  }
+}

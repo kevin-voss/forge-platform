@@ -22,6 +22,8 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("FORGE_ACK_TOKEN_TTL_S", "")
 	t.Setenv("FORGE_DLQ_ENABLED", "")
 	t.Setenv("FORGE_DLQ_RETENTION_DAYS", "")
+	t.Setenv("FORGE_EVENT_SCHEMA_DIR", "")
+	t.Setenv("FORGE_SCHEMA_VALIDATION", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -53,6 +55,12 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.DLQRetentionDays != 7 {
 		t.Fatalf("DLQRetentionDays = %d, want 7", cfg.DLQRetentionDays)
+	}
+	if cfg.EventSchemaDir != "/contracts/events" {
+		t.Fatalf("EventSchemaDir = %q, want /contracts/events", cfg.EventSchemaDir)
+	}
+	if cfg.SchemaValidation != "strict" {
+		t.Fatalf("SchemaValidation = %q, want strict", cfg.SchemaValidation)
 	}
 	if cfg.ServiceName != "forge-events" {
 		t.Fatalf("ServiceName = %q, want forge-events", cfg.ServiceName)

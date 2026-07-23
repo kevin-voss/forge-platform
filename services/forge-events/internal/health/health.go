@@ -11,6 +11,22 @@ type ReadyChecker interface {
 	ReadyError() error
 }
 
+// MultiReady requires every checker to be ready.
+type MultiReady []ReadyChecker
+
+// ReadyError returns the first non-nil checker error.
+func (m MultiReady) ReadyError() error {
+	for _, c := range m {
+		if c == nil {
+			continue
+		}
+		if err := c.ReadyError(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type healthResponse struct {
 	Status string `json:"status"`
 }

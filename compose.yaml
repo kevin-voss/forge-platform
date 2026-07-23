@@ -380,7 +380,8 @@ services:
 
   forge-events:
     build:
-      context: ./services/forge-events
+      context: .
+      dockerfile: services/forge-events/Dockerfile
     image: forge/forge-events:local
     container_name: forge-events
     restart: unless-stopped
@@ -399,7 +400,11 @@ services:
       FORGE_ACK_TOKEN_TTL_S: ${FORGE_ACK_TOKEN_TTL_S:-60}
       FORGE_DLQ_ENABLED: ${FORGE_DLQ_ENABLED:-true}
       FORGE_DLQ_RETENTION_DAYS: ${FORGE_DLQ_RETENTION_DAYS:-7}
+      FORGE_EVENT_SCHEMA_DIR: ${FORGE_EVENT_SCHEMA_DIR:-/contracts/events}
+      FORGE_SCHEMA_VALIDATION: ${FORGE_SCHEMA_VALIDATION:-strict}
       FORGE_SHUTDOWN_GRACE_SECONDS: ${FORGE_SHUTDOWN_GRACE_SECONDS:-10}
+    volumes:
+      - ./contracts/events:/contracts/events:ro
     depends_on:
       nats:
         condition: service_healthy

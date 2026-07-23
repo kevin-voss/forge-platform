@@ -29,6 +29,8 @@ type Config struct {
 	AckTokenTTLS         int
 	DLQEnabled           bool
 	DLQRetentionDays     int
+	EventSchemaDir       string
+	SchemaValidation     string // strict|warn
 }
 
 // Load reads configuration from the process environment.
@@ -128,6 +130,20 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	schemaDir := strings.TrimSpace(os.Getenv("FORGE_EVENT_SCHEMA_DIR"))
+	if schemaDir == "" {
+		schemaDir = "/contracts/events"
+	}
+	schemaValidation := strings.ToLower(strings.TrimSpace(os.Getenv("FORGE_SCHEMA_VALIDATION")))
+	if schemaValidation == "" {
+		schemaValidation = "strict"
+	}
+	switch schemaValidation {
+	case "strict", "warn":
+	default:
+		return Config{}, fmt.Errorf("FORGE_SCHEMA_VALIDATION must be strict|warn, got %q", schemaValidation)
+	}
+
 	return Config{
 		Port:                 port,
 		ServiceName:          name,
@@ -145,6 +161,8 @@ func Load() (Config, error) {
 		AckTokenTTLS:         ackTokenTTL,
 		DLQEnabled:           dlqEnabled,
 		DLQRetentionDays:     dlqRetentionDays,
+		EventSchemaDir:       schemaDir,
+		SchemaValidation:     schemaValidation,
 	}, nil
 }
 

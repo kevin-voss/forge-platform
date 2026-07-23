@@ -1,0 +1,7 @@
+{
+  "deployment_id": "dep_1",
+  "service_id": "svc_1",
+  "environment_id": "env_1",
+  "image_ref": "localhost:5000/demo:abc123",
+  "completed_at": "2026-07-22T14:10:00Z"
+}

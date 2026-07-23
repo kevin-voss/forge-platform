@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/contracts/events/deployment.completed/v1",
+  "title": "deployment.completed",
+  "description": "Emitted when a deployment rollout completes successfully.",
+  "x-forge-subject": "deployment.completed",
+  "x-forge-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["deployment_id", "service_id", "completed_at"],
+  "properties": {
+    "deployment_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "service_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "environment_id": {
+      "type": "string"
+    },
+    "image_ref": {
+      "type": "string"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

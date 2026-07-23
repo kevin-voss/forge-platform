@@ -24,12 +24,18 @@ type JSPublisher interface {
 	PublishMsg(msg *nats.Msg, opts ...nats.PubOpt) (*nats.PubAck, error)
 }
 
+// SchemaValidator validates event data against a registered JSON Schema.
+type SchemaValidator interface {
+	Validate(subject string, data json.RawMessage, schemaVersion int) error
+}
+
 // PublishRequest is the validated input for a publish call.
 type PublishRequest struct {
-	Subject string
-	Data    json.RawMessage
-	Source  string
-	Headers map[string]string
+	Subject       string
+	Data          json.RawMessage
+	Source        string
+	Headers       map[string]string
+	SchemaVersion int // 0 = latest registered schema
 }
 
 // PublishResult is returned after a successful JetStream publish.
@@ -50,6 +56,7 @@ type Publisher struct {
 	js       JSPublisher
 	families []string
 	maxBytes int
+	schemas  SchemaValidator
 	log      *slog.Logger
 	metrics  *Metrics
 }
@@ -74,6 +81,11 @@ func NewPublisher(js JSPublisher, families []string, maxBytes int, log *slog.Log
 	}
 }
 
+// SetSchemaValidator attaches publish-time JSON Schema validation (optional).
+func (p *Publisher) SetSchemaValidator(v SchemaValidator) {
+	p.schemas = v
+}
+
 // Publish validates, wraps, and stores an event. The envelope id is set as NATS msg-id.
 func (p *Publisher) Publish(_ context.Context, req PublishRequest) (PublishResult, error) {
 	start := time.Now()
@@ -89,6 +101,11 @@ func (p *Publisher) Publish(_ context.Context, req PublishRequest) (PublishResul
 	}
 	if len(req.Data) > p.maxBytes {
 		return PublishResult{}, fmt.Errorf("%w: data is %d bytes (max %d)", ErrPayloadTooLarge, len(req.Data), p.maxBytes)
+	}
+	if p.schemas != nil {
+		if err := p.schemas.Validate(req.Subject, req.Data, req.SchemaVersion); err != nil {
+			return PublishResult{}, err
+		}
 	}
 
 	env := NewEnvelope(req.Subject, req.Source, req.Data)

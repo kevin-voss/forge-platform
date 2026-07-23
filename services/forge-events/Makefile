@@ -24,6 +24,8 @@ dev:
 	FORGE_ACK_TOKEN_TTL_S=$${FORGE_ACK_TOKEN_TTL_S:-60} \
 	FORGE_DLQ_ENABLED=$${FORGE_DLQ_ENABLED:-true} \
 	FORGE_DLQ_RETENTION_DAYS=$${FORGE_DLQ_RETENTION_DAYS:-7} \
+	FORGE_EVENT_SCHEMA_DIR=$${FORGE_EVENT_SCHEMA_DIR:-$(ROOT_DIR)/contracts/events} \
+	FORGE_SCHEMA_VALIDATION=$${FORGE_SCHEMA_VALIDATION:-strict} \
 	FORGE_SHUTDOWN_GRACE_SECONDS=$${FORGE_SHUTDOWN_GRACE_SECONDS:-10} \
 	go run ./cmd/forge-events
 
@@ -54,26 +56,26 @@ test-integration: run
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q 'events.bootstrap'
 	@# Platform streams present via JetStream API (Go one-shot against compose NATS).
 	@FORGE_EVENTS_EXPECT_STREAMS=1 FORGE_NATS_URL=nats://127.0.0.1:5002 go test ./internal/nats -run TestPlatformStreamsPresent -count=1
-	@# Durable create → publish → consume → ack; ack_wait redelivery; unknown subject 400.
-	@subj="application.crashed.make_$$$$"; cons="make_$$$$"; \
+	@# Durable create → publish → consume → ack; ack_wait redelivery; unknown subject 400; schema 422.
+	@subj="application.crashed"; cons="make_$$$$"; \
 		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/consumers" \
 			-H 'content-type: application/json' \
 			-d "{\"name\":\"$$cons\",\"subject\":\"$$subj\",\"ack_wait_s\":2,\"max_deliveries\":3}" \
 			| python3 -c 'import sys,json; b=json.load(sys.stdin); assert b["name"] and b["ack_wait_s"]==2'; \
 		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/events" \
 			-H 'content-type: application/json' \
-			-d "{\"subject\":\"$$subj\",\"data\":{\"service\":\"demo\",\"reason\":\"oom\"},\"source\":\"runtime\"}" \
+			-d "{\"subject\":\"$$subj\",\"data\":{\"service\":\"demo\",\"reason\":\"oom\",\"occurred_at\":\"2026-07-22T14:00:00Z\"},\"source\":\"runtime\"}" \
 			| python3 -c 'import sys,json; b=json.load(sys.stdin); assert b.get("event_id") and b.get("stream")=="application" and int(b.get("seq",0))>0'; \
 		tok="$$(curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/consume" \
 			-H 'content-type: application/json' \
 			-d "{\"consumer\":\"$$cons\",\"batch\":10}" \
-			| python3 -c 'import sys,json; b=json.load(sys.stdin); assert len(b["messages"])>=1; m=b["messages"][0]; assert m["subject"].startswith("application.crashed"); assert m["data"]["service"]=="demo"; assert m.get("ack_token"); assert int(m.get("delivery_count",0))==1; print(m["ack_token"])')"; \
+			| python3 -c 'import sys,json; b=json.load(sys.stdin); assert len(b["messages"])>=1; m=b["messages"][0]; assert m["subject"]=="application.crashed"; assert m["data"]["service"]=="demo"; assert m.get("ack_token"); assert int(m.get("delivery_count",0))==1; print(m["ack_token"])')"; \
 		code="$$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$(HOST_PORT)/v1/ack" \
 			-H 'content-type: application/json' -d "{\"ack_token\":\"$$tok\"}")"; \
 		test "$$code" = "204"; \
 		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/events" \
 			-H 'content-type: application/json' \
-			-d "{\"subject\":\"$$subj\",\"data\":{\"service\":\"demo\",\"reason\":\"retry\"},\"source\":\"runtime\"}" >/dev/null; \
+			-d "{\"subject\":\"$$subj\",\"data\":{\"service\":\"demo\",\"reason\":\"retry\",\"occurred_at\":\"2026-07-22T14:01:00Z\"},\"source\":\"runtime\"}" >/dev/null; \
 		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/consume" \
 			-H 'content-type: application/json' \
 			-d "{\"consumer\":\"$$cons\",\"batch\":1}" >/tmp/forge-events-noack.json; \
@@ -84,15 +86,19 @@ test-integration: run
 			-d "{\"consumer\":\"$$cons\",\"batch\":1}" \
 			| python3 -c 'import sys,json; b=json.load(sys.stdin); assert len(b["messages"])>=1; assert int(b["messages"][0]["delivery_count"])>=2'; \
 		code="$$(curl -s -o /tmp/forge-events-bad-subject.json -w '%{http_code}' -X POST "http://127.0.0.1:$(HOST_PORT)/v1/events" -H 'content-type: application/json' -d '{"subject":"nope.bad","data":{}}')"; \
-		test "$$code" = "400"
+		test "$$code" = "400"; \
+		code="$$(curl -s -o /tmp/forge-events-schema-422.json -w '%{http_code}' -X POST "http://127.0.0.1:$(HOST_PORT)/v1/events" -H 'content-type: application/json' -d '{"subject":"application.crashed","data":{"reason":"oom"},"source":"runtime"}')"; \
+		test "$$code" = "422"; \
+		python3 -c 'import json; b=json.load(open("/tmp/forge-events-schema-422.json")); assert b.get("error") and b.get("subject")=="application.crashed" and isinstance(b.get("violations"), list)'; \
+		curl -sf "http://127.0.0.1:$(HOST_PORT)/v1/schemas" | python3 -c 'import sys,json; b=json.load(sys.stdin); assert "application.crashed" in b and "build.completed" in b and b["application.crashed"]["latest_version"]==1'
 	@# Poison message → max_deliveries → DLQ list/detail/redeliver/delete.
-	@subj="application.poison.make_$$$$"; cons="poison_$$$$"; \
+	@subj="application.crashed"; cons="poison_$$$$"; \
 		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/consumers" \
 			-H 'content-type: application/json' \
 			-d "{\"name\":\"$$cons\",\"subject\":\"$$subj\",\"ack_wait_s\":30,\"max_deliveries\":3}" >/dev/null; \
 		curl -sf -X POST "http://127.0.0.1:$(HOST_PORT)/v1/events" \
 			-H 'content-type: application/json' \
-			-d "{\"subject\":\"$$subj\",\"data\":{\"service\":\"poison\"},\"source\":\"test\"}" >/dev/null; \
+			-d "{\"subject\":\"$$subj\",\"data\":{\"service\":\"poison\",\"reason\":\"test\",\"occurred_at\":\"2026-07-22T14:02:00Z\"},\"source\":\"test\"}" >/dev/null; \
 		for i in 1 2 3; do \
 			tok=""; \
 			for j in $$(seq 1 40); do \
@@ -122,6 +128,25 @@ test-integration: run
 			| python3 -c 'import sys,json; b=json.load(sys.stdin); assert b["republished_to"] and b["event_id"]'; \
 		code="$$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "http://127.0.0.1:$(HOST_PORT)/v1/dlq/$$did")"; \
 		test "$$code" = "204"
+	@# Broken schema dir → readiness 503 while live stays 200.
+	@docker run --rm -d --name forge-events-bad-schemas-$$$$ \
+		-e PORT=8080 \
+		-e FORGE_SERVICE_NAME=forge-events \
+		-e FORGE_NATS_URL=nats://host.docker.internal:5002 \
+		-e FORGE_EVENT_SCHEMA_DIR=/tmp/missing-schemas \
+		-p 14106:8080 \
+		$(IMAGE) >/tmp/forge-events-bad-schemas.cid
+	@cid="$$(cat /tmp/forge-events-bad-schemas.cid)"; \
+		trap 'docker rm -f "$$cid" >/dev/null 2>&1 || true' EXIT; \
+		for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
+			if curl -sf "http://127.0.0.1:14106/health/live" | grep -q '"status":"ok"'; then break; fi; \
+			sleep 1; \
+		done; \
+		curl -sf "http://127.0.0.1:14106/health/live" | grep -q '"status":"ok"'; \
+		code="$$(curl -s -o /tmp/forge-events-schema-ready-503.json -w '%{http_code}' "http://127.0.0.1:14106/health/ready")"; \
+		test "$$code" = "503"; \
+		grep -q '"status":"not_ready"' /tmp/forge-events-schema-ready-503.json; \
+		docker rm -f "$$cid" >/dev/null
 	@# Bad NATS URL → readiness 503 while live stays 200.
 	@docker run --rm -d --name forge-events-bad-nats-$$$$ \
 		-e PORT=8080 \
@@ -172,7 +197,7 @@ test-integration: run
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
 	@grep -q '4105' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@echo "Integration checks passed (health + identity + JetStream streams + durable consume/ack/redelivery + DLQ inspect/redeliver/delete + unknown subject 400 + ready/503 + restart idempotency + invalid PORT + graceful SIGTERM)."
+	@echo "Integration checks passed (health + identity + JetStream streams + durable consume/ack/redelivery + schema 422 + GET /v1/schemas + DLQ inspect/redeliver/delete + unknown subject 400 + ready/503 + restart idempotency + invalid PORT + graceful SIGTERM)."
 
 lint:
 	@go vet ./...
@@ -182,11 +207,13 @@ format:
 	gofmt -w .
 
 docker-build:
-	docker build -t $(IMAGE) .
+	docker build -t $(IMAGE) -f Dockerfile $(ROOT_DIR)
 
 docker-run: run
 
 clean:
 	rm -rf bin
 	@rm -f /tmp/forge-events-bad-port.out /tmp/forge-events-gofmt.out \
-		/tmp/forge-events-bad-nats.cid /tmp/forge-events-ready-503.json
+		/tmp/forge-events-bad-nats.cid /tmp/forge-events-ready-503.json \
+		/tmp/forge-events-bad-schemas.cid /tmp/forge-events-schema-ready-503.json \
+		/tmp/forge-events-schema-422.json

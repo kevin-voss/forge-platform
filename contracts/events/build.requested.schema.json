@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/contracts/events/build.requested/v1",
+  "title": "build.requested",
+  "description": "Emitted when a build is requested.",
+  "x-forge-subject": "build.requested",
+  "x-forge-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["build_id", "project_id", "requested_at"],
+  "properties": {
+    "build_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requested_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ref": {
+      "type": "string"
+    },
+    "source_url": {
+      "type": "string"
+    }
+  }
+}

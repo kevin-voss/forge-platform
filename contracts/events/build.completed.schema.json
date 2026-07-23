@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/contracts/events/build.completed/v1",
+  "title": "build.completed",
+  "description": "Emitted when a build finishes successfully or with failure.",
+  "x-forge-subject": "build.completed",
+  "x-forge-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["build_id", "project_id", "status", "completed_at"],
+  "properties": {
+    "build_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["succeeded", "failed"]
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "image_ref": {
+      "type": "string"
+    },
+    "error": {
+      "type": "string"
+    }
+  }
+}

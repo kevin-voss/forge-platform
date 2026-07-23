@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/contracts/events/runtime.node.offline/v1",
+  "title": "runtime.node.offline",
+  "description": "Emitted when a runtime node misses heartbeats or is marked offline.",
+  "x-forge-subject": "runtime.node.offline",
+  "x-forge-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["node_id", "occurred_at"],
+  "properties": {
+    "node_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "last_heartbeat_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

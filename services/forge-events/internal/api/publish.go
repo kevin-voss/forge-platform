@@ -6,9 +6,11 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"forge.local/services/forge-events/internal/events"
+	"forge.local/services/forge-events/internal/schema"
 )
 
 // Publisher publishes validated events to JetStream.
@@ -27,6 +29,12 @@ type publishResponseBody struct {
 	EventID string `json:"event_id"`
 	Stream  string `json:"stream"`
 	Seq     uint64 `json:"seq"`
+}
+
+type schemaErrorBody struct {
+	Error      string             `json:"error"`
+	Subject    string             `json:"subject"`
+	Violations []schema.Violation `json:"violations,omitempty"`
 }
 
 // PublishHandler serves POST /v1/events.
@@ -69,16 +77,38 @@ func (h *PublishHandler) handlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	schemaVersion := 0
+	if req.Headers != nil {
+		if raw, ok := req.Headers["schema_version"]; ok && raw != "" {
+			n, err := strconv.Atoi(raw)
+			if err != nil || n < 1 {
+				writeError(w, http.StatusBadRequest, "validation_error", "headers.schema_version must be a positive integer", nil)
+				return
+			}
+			schemaVersion = n
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
 	result, err := h.Publisher.Publish(ctx, events.PublishRequest{
-		Subject: req.Subject,
-		Data:    req.Data,
-		Source:  req.Source,
-		Headers: req.Headers,
+		Subject:       req.Subject,
+		Data:          req.Data,
+		Source:        req.Source,
+		Headers:       req.Headers,
+		SchemaVersion: schemaVersion,
 	})
 	if err != nil {
+		var schemaErr *schema.Error
+		if errors.As(err, &schemaErr) {
+			writeJSON(w, http.StatusUnprocessableEntity, schemaErrorBody{
+				Error:      schemaErr.Reason,
+				Subject:    schemaErr.Subject,
+				Violations: schemaErr.Violations,
+			})
+			return
+		}
 		switch {
 		case errors.Is(err, events.ErrInvalidSubject):
 			writeError(w, http.StatusBadRequest, "validation_error", err.Error(), nil)

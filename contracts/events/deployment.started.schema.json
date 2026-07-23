@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/contracts/events/deployment.started/v1",
+  "title": "deployment.started",
+  "description": "Emitted when a deployment rollout begins.",
+  "x-forge-subject": "deployment.started",
+  "x-forge-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["deployment_id", "service_id", "started_at"],
+  "properties": {
+    "deployment_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "service_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "environment_id": {
+      "type": "string"
+    },
+    "image_ref": {
+      "type": "string"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

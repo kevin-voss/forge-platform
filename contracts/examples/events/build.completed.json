@@ -1,0 +1,7 @@
+{
+  "build_id": "bld_1",
+  "project_id": "prj_1",
+  "status": "succeeded",
+  "completed_at": "2026-07-22T14:05:00Z",
+  "image_ref": "localhost:5000/demo:abc123"
+}

@@ -32,6 +32,7 @@ func TestOpenAPISkeletonPaths(t *testing.T) {
 		"/health/live", "/health/ready", "/",
 		"/v1/events", "/v1/consume", "/v1/consumers", "/v1/ack", "/v1/nak",
 		"/v1/dlq", "/v1/dlq/{dlq_id}", "/v1/dlq/{dlq_id}:redeliver",
+		"/v1/schemas", "/v1/schemas/{subject}",
 	} {
 		if paths[p] == nil {
 			t.Fatalf("openapi missing path %s", p)
@@ -107,10 +108,24 @@ func TestOpenAPISkeletonPaths(t *testing.T) {
 		"ConsumeRequest", "ConsumeResponse", "DeliveredMessage", "ErrorEnvelope",
 		"CreateConsumerRequest", "ConsumerInfo", "AckRequest", "NakRequest",
 		"DLQEntry", "DLQDetail", "DLQRedeliverResponse",
+		"SchemaSubjectInfo", "SchemaSubjectDetail", "SchemaValidationError", "SchemaViolation",
 	} {
 		if schemas[name] == nil {
 			t.Fatalf("openapi missing schema %s", name)
 		}
+	}
+
+	eventsPath422, ok := paths["/v1/events"].(map[string]any)
+	if !ok {
+		t.Fatal("openapi /v1/events missing for 422 check")
+	}
+	post422, ok := eventsPath422["post"].(map[string]any)
+	if !ok {
+		t.Fatal("openapi /v1/events missing post")
+	}
+	responses, ok := post422["responses"].(map[string]any)
+	if !ok || responses["422"] == nil {
+		t.Fatal("openapi /v1/events missing 422 response")
 	}
 
 	dlqEntry, ok := schemas["DLQEntry"].(map[string]any)
