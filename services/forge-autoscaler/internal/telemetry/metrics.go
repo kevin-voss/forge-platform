@@ -11,30 +11,34 @@ import (
 
 // Registry holds process-local autoscaler metrics for /metrics exposition.
 type Registry struct {
-	mu               sync.Mutex
-	recommendations  map[string]*atomic.Int64
-	scaleActions     map[string]*atomic.Int64
-	sourceLatency    map[string]*atomic.Uint64 // last latency in microseconds
-	queueBacklog     map[string]*atomic.Uint64 // store milli-units
-	workerDesired    map[string]*atomic.Int64
-	scheduleActive   map[string]*atomic.Int64
-	overrideActive   map[string]*atomic.Int64
-	pendingWorkloads *atomic.Int64
-	nodeScaleUpReqs  map[string]*atomic.Int64
+	mu                  sync.Mutex
+	recommendations     map[string]*atomic.Int64
+	scaleActions        map[string]*atomic.Int64
+	sourceLatency       map[string]*atomic.Uint64 // last latency in microseconds
+	queueBacklog        map[string]*atomic.Uint64 // store milli-units
+	workerDesired       map[string]*atomic.Int64
+	scheduleActive      map[string]*atomic.Int64
+	overrideActive      map[string]*atomic.Int64
+	pendingWorkloads    *atomic.Int64
+	nodeScaleUpReqs     map[string]*atomic.Int64
+	scaleDownCandidates *atomic.Int64
+	nodeDrains          map[string]*atomic.Int64
 }
 
 // NewRegistry creates an empty metrics registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		recommendations:  map[string]*atomic.Int64{},
-		scaleActions:     map[string]*atomic.Int64{},
-		sourceLatency:    map[string]*atomic.Uint64{},
-		queueBacklog:     map[string]*atomic.Uint64{},
-		workerDesired:    map[string]*atomic.Int64{},
-		scheduleActive:   map[string]*atomic.Int64{},
-		overrideActive:   map[string]*atomic.Int64{},
-		pendingWorkloads: &atomic.Int64{},
-		nodeScaleUpReqs:  map[string]*atomic.Int64{},
+		recommendations:     map[string]*atomic.Int64{},
+		scaleActions:        map[string]*atomic.Int64{},
+		sourceLatency:       map[string]*atomic.Uint64{},
+		queueBacklog:        map[string]*atomic.Uint64{},
+		workerDesired:       map[string]*atomic.Int64{},
+		scheduleActive:      map[string]*atomic.Int64{},
+		overrideActive:      map[string]*atomic.Int64{},
+		pendingWorkloads:    &atomic.Int64{},
+		nodeScaleUpReqs:     map[string]*atomic.Int64{},
+		scaleDownCandidates: &atomic.Int64{},
+		nodeDrains:          map[string]*atomic.Int64{},
 	}
 }
 
@@ -193,6 +197,33 @@ func (r *Registry) IncNodeScaleUpRequest(nodepool, result string) {
 	counter.Add(1)
 }
 
+// AddScaleDownCandidates adds to forge_node_autoscaler_scale_down_candidates_total.
+func (r *Registry) AddScaleDownCandidates(count int) {
+	if r == nil || r.scaleDownCandidates == nil || count <= 0 {
+		return
+	}
+	r.scaleDownCandidates.Add(int64(count))
+}
+
+// IncNodeDrains increments forge_node_autoscaler_drains_total{result}.
+func (r *Registry) IncNodeDrains(result string) {
+	if r == nil {
+		return
+	}
+	if result == "" {
+		result = "none"
+	}
+	key := labelsKey("result", result)
+	r.mu.Lock()
+	counter, ok := r.nodeDrains[key]
+	if !ok {
+		counter = &atomic.Int64{}
+		r.nodeDrains[key] = counter
+	}
+	r.mu.Unlock()
+	counter.Add(1)
+}
+
 // Handler serves Prometheus text exposition.
 func (r *Registry) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -255,6 +286,19 @@ func (r *Registry) Handler() http.Handler {
 		suKeys := sortedKeys(r.nodeScaleUpReqs)
 		for _, key := range suKeys {
 			fmt.Fprintf(&b, "forge_node_autoscaler_scale_up_requests_total%s %d\n", key, r.nodeScaleUpReqs[key].Load())
+		}
+		b.WriteString("# HELP forge_node_autoscaler_scale_down_candidates_total Underutilized node scale-down candidates observed.\n")
+		b.WriteString("# TYPE forge_node_autoscaler_scale_down_candidates_total counter\n")
+		sdc := int64(0)
+		if r.scaleDownCandidates != nil {
+			sdc = r.scaleDownCandidates.Load()
+		}
+		fmt.Fprintf(&b, "forge_node_autoscaler_scale_down_candidates_total %d\n", sdc)
+		b.WriteString("# HELP forge_node_autoscaler_drains_total Node drain orchestration outcomes.\n")
+		b.WriteString("# TYPE forge_node_autoscaler_drains_total counter\n")
+		drainKeys := sortedKeys(r.nodeDrains)
+		for _, key := range drainKeys {
+			fmt.Fprintf(&b, "forge_node_autoscaler_drains_total%s %d\n", key, r.nodeDrains[key].Load())
 		}
 		r.mu.Unlock()
 		_, _ = w.Write([]byte(b.String()))

@@ -109,17 +109,27 @@ func run() error {
 		nodeLoop := &node.Loop{
 			Signals:              &node.SignalSource{BaseURL: cfg.ControlURL},
 			Pools:                &actuate.NodePoolClient{BaseURL: cfg.ControlURL},
+			Guards:               &node.GuardSource{BaseURL: cfg.ControlURL},
 			Metrics:              tel,
 			Events:               events,
 			Interval:             cfg.EvalInterval,
 			Cooldown:             cfg.NodeScaleUpCooldown,
+			ScaleDownCooldown:    cfg.NodeScaleDownCooldown,
+			UnderutilThreshold:   cfg.UnderutilThreshold,
+			UnderutilWindow:      cfg.UnderutilWindow,
+			MaxDeletesPerWindow:  cfg.MaxDeletesPerWindow,
 			ReservationThreshold: cfg.ReservationThreshold,
 			DefaultMaxNodes:      cfg.NodeScaleDefaultMax,
+			ScaleDownEnabled:     cfg.NodeScaleDownEnabled,
+			RetryUncordonOnBlock: cfg.ScaleDownRetryUncordon,
 			Log:                  log,
 		}
 		go nodeLoop.Run(bgCtx)
-		log.Info("node scale-up loop enabled",
-			"cooldown_seconds", int(cfg.NodeScaleUpCooldown.Seconds()),
+		log.Info("node scale loop enabled",
+			"scale_up_cooldown_seconds", int(cfg.NodeScaleUpCooldown.Seconds()),
+			"scale_down_enabled", cfg.NodeScaleDownEnabled,
+			"scale_down_cooldown_seconds", int(cfg.NodeScaleDownCooldown.Seconds()),
+			"underutil_threshold", cfg.UnderutilThreshold,
 			"reservation_threshold", cfg.ReservationThreshold,
 		)
 	}

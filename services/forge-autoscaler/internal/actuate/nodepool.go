@@ -309,7 +309,9 @@ func MaxNodes(v NodePoolView, fallback int) int {
 	return 100
 }
 
-// MinNodes returns the pool floor from spec.scaling.minNodes or spec.replicas.
+// MinNodes returns the pool floor from spec.scaling.minNodes / spec.minNodes.
+// Defaults to 1 so the node autoscaler can scale below the last written
+// spec.replicas after a scale-up (operator floor is minNodes, not replicas).
 func MinNodes(v NodePoolView) int {
 	if scaling, ok := v.Spec["scaling"].(map[string]any); ok {
 		if n, ok := asInt(scaling["minNodes"]); ok && n >= 0 {
@@ -319,7 +321,7 @@ func MinNodes(v NodePoolView) int {
 	if n, ok := asInt(v.Spec["minNodes"]); ok && n >= 0 {
 		return n
 	}
-	return SpecReplicas(v)
+	return 1
 }
 
 // Priority returns operator-set priority (lower wins). Default 100.

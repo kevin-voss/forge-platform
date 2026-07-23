@@ -1,17 +1,18 @@
 # forge-autoscaler
 
 Go service that owns the `ScalingPolicy` resource kind and runs tick-based evaluation
-loops for workload replicas and **node scale-up**. Port **4112**. Epic 24 / step 24.06.
+loops for workload replicas and **node scale-up / scale-down**. Port **4112**. Epic 24 / steps 24.01–24.07.
 
 CPU/memory, traffic, and queue-depth worker policies compute desired replicas, then apply
 **schedules**, **manual overrides**, **deployment freezes**, and **metric-outage fallbacks**
 before patching `Application` or `Worker` `spec.scaling.desiredReplicas` through the Control
 resource API.
 
-The **node scale-up** loop reads pending placements and cluster reservation from Control,
-selects an eligible `NodePool`, writes `status.desiredNodes` (plus creating/ready/failed
-counts), and asks Forge Infrastructure to create nodes by raising `NodePool.spec.replicas`.
-It never starts containers or calls a cloud provider API.
+The **node autoscaler** loop reads pending placements, cluster reservation, and fleet
+utilization from Control; selects an eligible `NodePool`; writes `status.desiredNodes`
+(plus creating/ready/draining/failed counts); and asks Forge Infrastructure to create or
+drain/delete nodes by raising or lowering `NodePool.spec.replicas`. It never starts
+containers or calls a cloud provider API.
 
 ## Quick start
 
@@ -35,8 +36,14 @@ curl -sf http://127.0.0.1:4112/metrics | head
 | `FORGE_CONTROL_URL` | `http://127.0.0.1:4001` | Application/Worker/NodePool + placements/nodes APIs |
 | `FORGE_GATEWAY_ADMIN_URL` | — | GatewaySource base (`GET /admin/metrics?application=`) |
 | `FORGE_EVENTS_URL` | — | QueueSource + audit event publish base |
-| `FORGE_AUTOSCALER_NODE_SCALE_UP_ENABLED` | `true` | Enable node scale-up loop |
+| `FORGE_AUTOSCALER_NODE_SCALE_UP_ENABLED` | `true` | Enable node scale loop (up + optional down) |
 | `FORGE_AUTOSCALER_NODE_SCALE_UP_COOLDOWN_SECONDS` | `60` | Min gap between distinct scale-up windows |
+| `FORGE_AUTOSCALER_NODE_SCALE_DOWN_ENABLED` | `true` | Enable node scale-down / drain path |
+| `FORGE_AUTOSCALER_NODE_SCALE_DOWN_COOLDOWN_SECONDS` | `300` | Min gap / max-delete window for scale-down |
+| `FORGE_AUTOSCALER_NODE_UNDERUTILIZATION_THRESHOLD` | `0.25` | Max utilization to score a drain candidate |
+| `FORGE_AUTOSCALER_NODE_UNDERUTILIZATION_WINDOW_SECONDS` | `300` | How long a node must stay underutilized |
+| `FORGE_AUTOSCALER_NODE_MAX_DELETES_PER_WINDOW` | `1` | Cap deletes per cooldown window |
+| `FORGE_AUTOSCALER_NODE_SCALE_DOWN_UNCORDON_ON_BLOCK` | `true` | Restore desiredNodes when drain is blocked |
 | `FORGE_AUTOSCALER_RESERVATION_THRESHOLD` | `0.85` | Cluster reservation ratio that triggers proactive scale-up |
 | `FORGE_AUTOSCALER_NODE_DEFAULT_MAX_NODES` | `100` | Fallback max when NodePool omits `scaling.maxNodes` |
 | `FORGE_AUTH_MODE` | `dev` | Temporary until epic 09 hardening |
@@ -48,7 +55,11 @@ curl -sf http://127.0.0.1:4112/metrics | head
 * `PUT/GET/DELETE .../scalingpolicies/{name}/override` — manual override subresource (TTL + reason)
 * `GET /v1/watch/scalingpolicies?since={resourceVersion}` — SSE `ADDED` / `MODIFIED` / `STATUS_MODIFIED` / `DELETED`
 * `GET /health/live`, `GET /health/ready`
-* `GET /metrics` — workload metrics plus `forge_node_autoscaler_pending_workloads_total` and `forge_node_autoscaler_scale_up_requests_total{nodepool,result}`
+* `GET /metrics` — workload metrics plus:
+  * `forge_node_autoscaler_pending_workloads_total`
+  * `forge_node_autoscaler_scale_up_requests_total{nodepool,result}`
+  * `forge_node_autoscaler_scale_down_candidates_total`
+  * `forge_node_autoscaler_drains_total{result}`
 
 OpenAPI: [`contracts/openapi/forge-autoscaler.openapi.yaml`](../../contracts/openapi/forge-autoscaler.openapi.yaml).
 
@@ -88,6 +99,24 @@ GET /v1/nodes                      (reservation ratios)
 * Inventory exhausted → `ProviderCapacityBlocked`
 * Duplicate ticks for the same pending demand window reuse `lastScaleUpOperationId`
 * Cooldown applies between distinct demand windows
+
+## Node scale-down (24.07)
+
+```text
+GET /v1/nodes                      (per-node utilization)
+→ score underutilized Ready nodes over a configurable window
+→ safeguards: minNodes, max deletes/window, cooldown, active rollout,
+  disruption budget (25.04 soft), stateful primary (25.05 soft)
+→ nominate drainCandidates + lower spec.replicas / status.desiredNodes
+→ Infrastructure cordons (offline) + drains → deletes empty node (idempotent op id)
+```
+
+* Stateful primary workloads are never nominated (`StatefulPrimaryProtected`)
+* Replacement capacity missing → `canceled` and desiredNodes restored (uncordon)
+* Provider delete failure → `DeleteBlocked` with the same operation id retained
+* Restart recovery resumes in-progress drains from NodePool status
+* Events: `node.drain.started` / `node.drain.completed` plus `resource.nodepool.decided`
+* Span: `autoscaler.node.scale_down`
 
 ## Tests
 

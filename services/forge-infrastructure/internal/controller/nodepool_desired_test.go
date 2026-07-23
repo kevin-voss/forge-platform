@@ -20,6 +20,26 @@ func TestDesiredReplicasFromPool(t *testing.T) {
 	}
 }
 
+func TestSelectScaleDownVictimPrefersDrainCandidate(t *testing.T) {
+	nodes := []registryclient.Resource{
+		{Metadata: registryclient.Metadata{Name: "node-z"}, Status: map[string]any{"runtimeNodeId": "runtime-z", "phase": "Ready"}},
+		{Metadata: registryclient.Metadata{Name: "node-a"}, Status: map[string]any{"runtimeNodeId": "runtime-a", "phase": "Ready"}},
+	}
+	status := map[string]any{
+		"drainCandidateNodeId": "runtime-a",
+		"drainCandidates":      []any{"runtime-a"},
+	}
+	victim := selectScaleDownVictim(nodes, status)
+	if victim == nil || victim.Metadata.Name != "node-a" {
+		t.Fatalf("victim=%v", victim)
+	}
+	// Fallback when no candidate matches.
+	fallback := selectScaleDownVictim(nodes, map[string]any{})
+	if fallback == nil || fallback.Metadata.Name != "node-z" {
+		t.Fatalf("fallback=%v", fallback)
+	}
+}
+
 func TestMergePreserveAutoscalerStatus(t *testing.T) {
 	existing := map[string]any{
 		"desiredNodes":           3,

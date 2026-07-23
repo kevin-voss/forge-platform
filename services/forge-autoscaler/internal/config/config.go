@@ -31,10 +31,16 @@ type Config struct {
 	ControlURL       string
 	MetricSourceMode string // auto|fake — fake forces FakeSource for demos/tests
 
-	NodeScaleUpCooldown  time.Duration
-	ReservationThreshold float64
-	NodeScaleDefaultMax  int
-	NodeScaleEnabled     bool
+	NodeScaleUpCooldown    time.Duration
+	NodeScaleDownCooldown  time.Duration
+	ReservationThreshold   float64
+	NodeScaleDefaultMax    int
+	NodeScaleEnabled       bool
+	NodeScaleDownEnabled   bool
+	UnderutilThreshold     float64
+	UnderutilWindow        time.Duration
+	MaxDeletesPerWindow    int
+	ScaleDownRetryUncordon bool
 }
 
 // Load reads configuration from the process environment.
@@ -161,6 +167,54 @@ func Load() (Config, error) {
 		nodeScaleEnabled = false
 	}
 
+	nodeScaleDownEnabled := true
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("FORGE_AUTOSCALER_NODE_SCALE_DOWN_ENABLED"))) {
+	case "false", "0", "no":
+		nodeScaleDownEnabled = false
+	}
+
+	sdCooldownRaw := strings.TrimSpace(os.Getenv("FORGE_AUTOSCALER_NODE_SCALE_DOWN_COOLDOWN_SECONDS"))
+	if sdCooldownRaw == "" {
+		sdCooldownRaw = "300"
+	}
+	sdCooldownSecs, err := strconv.Atoi(sdCooldownRaw)
+	if err != nil || sdCooldownSecs < 0 {
+		return Config{}, fmt.Errorf("FORGE_AUTOSCALER_NODE_SCALE_DOWN_COOLDOWN_SECONDS must be a non-negative integer, got %q", sdCooldownRaw)
+	}
+
+	utilRaw := strings.TrimSpace(os.Getenv("FORGE_AUTOSCALER_NODE_UNDERUTILIZATION_THRESHOLD"))
+	if utilRaw == "" {
+		utilRaw = "0.25"
+	}
+	utilThresh, err := strconv.ParseFloat(utilRaw, 64)
+	if err != nil || utilThresh < 0 || utilThresh > 1 {
+		return Config{}, fmt.Errorf("FORGE_AUTOSCALER_NODE_UNDERUTILIZATION_THRESHOLD must be in [0,1], got %q", utilRaw)
+	}
+
+	windowRaw := strings.TrimSpace(os.Getenv("FORGE_AUTOSCALER_NODE_UNDERUTILIZATION_WINDOW_SECONDS"))
+	if windowRaw == "" {
+		windowRaw = "300"
+	}
+	windowSecs, err := strconv.Atoi(windowRaw)
+	if err != nil || windowSecs < 0 {
+		return Config{}, fmt.Errorf("FORGE_AUTOSCALER_NODE_UNDERUTILIZATION_WINDOW_SECONDS must be a non-negative integer, got %q", windowRaw)
+	}
+
+	maxDelRaw := strings.TrimSpace(os.Getenv("FORGE_AUTOSCALER_NODE_MAX_DELETES_PER_WINDOW"))
+	if maxDelRaw == "" {
+		maxDelRaw = "1"
+	}
+	maxDeletes, err := strconv.Atoi(maxDelRaw)
+	if err != nil || maxDeletes < 1 {
+		return Config{}, fmt.Errorf("FORGE_AUTOSCALER_NODE_MAX_DELETES_PER_WINDOW must be a positive integer, got %q", maxDelRaw)
+	}
+
+	retryUncordon := true
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("FORGE_AUTOSCALER_NODE_SCALE_DOWN_UNCORDON_ON_BLOCK"))) {
+	case "false", "0", "no":
+		retryUncordon = false
+	}
+
 	return Config{
 		Port:                   port,
 		ServiceName:            name,
@@ -180,9 +234,15 @@ func Load() (Config, error) {
 		ControlURL:             strings.TrimRight(strings.TrimSpace(controlURL), "/"),
 		MetricSourceMode:       mode,
 		NodeScaleUpCooldown:    time.Duration(cooldownSecs) * time.Second,
+		NodeScaleDownCooldown:  time.Duration(sdCooldownSecs) * time.Second,
 		ReservationThreshold:   thresh,
 		NodeScaleDefaultMax:    maxNodes,
 		NodeScaleEnabled:       nodeScaleEnabled,
+		NodeScaleDownEnabled:   nodeScaleDownEnabled,
+		UnderutilThreshold:     utilThresh,
+		UnderutilWindow:        time.Duration(windowSecs) * time.Second,
+		MaxDeletesPerWindow:    maxDeletes,
+		ScaleDownRetryUncordon: retryUncordon,
 	}, nil
 }
 

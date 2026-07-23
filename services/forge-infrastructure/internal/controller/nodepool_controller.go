@@ -256,7 +256,7 @@ func (c *NodePoolController) Reconcile(ctx context.Context, pool registryclient.
 			}
 		}
 	} else if ready > replicas {
-		victim := mostRecentNode(nodes)
+		victim := selectScaleDownVictim(nodes, pool.Status)
 		if victim != nil {
 			action = "drain_node"
 			if c.Nodes != nil {
@@ -694,6 +694,46 @@ func mostRecentNode(nodes []registryclient.Resource) *registryclient.Resource {
 	return &sorted[0]
 }
 
+// selectScaleDownVictim prefers NodePool.status.drainCandidateNodeId / drainCandidates
+// nominated by the node autoscaler (24.07); falls back to most-recent ready node.
+func selectScaleDownVictim(nodes []registryclient.Resource, status map[string]any) *registryclient.Resource {
+	if len(nodes) == 0 {
+		return nil
+	}
+	preferred := drainCandidateIDs(status)
+	for _, id := range preferred {
+		for i := range nodes {
+			n := &nodes[i]
+			runtimeID := stringFromStatus(n.Status, "runtimeNodeId")
+			if n.Metadata.Name == id || n.Metadata.ID == id || runtimeID == id {
+				return n
+			}
+		}
+	}
+	return mostRecentNode(nodes)
+}
+
+func drainCandidateIDs(status map[string]any) []string {
+	if status == nil {
+		return nil
+	}
+	var out []string
+	if id := stringFromSpec(status, "drainCandidateNodeId"); id != "" {
+		out = append(out, id)
+	}
+	switch raw := status["drainCandidates"].(type) {
+	case []any:
+		for _, item := range raw {
+			if s := fmt.Sprint(item); s != "" && s != "<nil>" {
+				out = append(out, s)
+			}
+		}
+	case []string:
+		out = append(out, raw...)
+	}
+	return out
+}
+
 func stringFromSpec(spec map[string]any, key string) string {
 	if spec == nil {
 		return ""
@@ -778,17 +818,34 @@ var autoscalerStatusKeys = []string{
 	"currentNodes",
 	"creatingNodes",
 	"failedNodes",
+	"drainingNodes",
 	"lastScaleUpOperationId",
 	"lastScaleUpAt",
+	"lastScaleDownOperationId",
+	"lastScaleDownAt",
 	"pendingWorkloads",
 	"scaleUpRecommendation",
+	"scaleDownRecommendation",
+	"drainCandidates",
+	"drainCandidateNodeId",
+	"scaleDownPhase",
+	"underutilizedNodeId",
+	"underutilizedSince",
+	"scaleDownDeletesInWindow",
 }
 
 var autoscalerConditionTypes = map[string]bool{
-	"ScaleUpRecommended":      true,
-	"ProviderCapacityBlocked": true,
-	"ScaleUpCooldown":         true,
-	"NoEligibleNodePool":      true,
+	"ScaleUpRecommended":       true,
+	"ProviderCapacityBlocked":  true,
+	"ScaleUpCooldown":          true,
+	"NoEligibleNodePool":       true,
+	"ScaleDownRecommended":     true,
+	"ScaleDownBlocked":         true,
+	"StatefulPrimaryProtected": true,
+	"DisruptionBudgetBlocked":  true,
+	"ScaleDownCanceled":        true,
+	"ScaleDownCooldown":        true,
+	"DeleteBlocked":            true,
 }
 
 // mergePreserveAutoscalerStatus keeps epic-24 recommendation fields when Infrastructure

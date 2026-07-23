@@ -14,7 +14,7 @@ Go service (host port **4111**) that turns declared `NodePool` resources into re
 * **`aws` provider** — EC2 / EBS / VPC / Elastic IP only (no EKS/ECS/RDS/…)
 * **`azure` provider** — VM / managed disk / VNet / public IP only (no AKS/App Service/…)
 * Finite capacity: `NodePool.status.maxReplicas` + `False/InventoryExhausted` when `replicas` exceeds inventory
-* Node autoscaler (epic 24): reconciles `max(spec.replicas, status.desiredNodes)` and preserves autoscaler status fields (`desiredNodes`, scale-up op id, recommendation conditions)
+* Node autoscaler (epic 24): reconciles `max(spec.replicas, status.desiredNodes)` and preserves autoscaler status fields (`desiredNodes`, scale-up/scale-down op ids, drain candidates, recommendation conditions). Scale-down prefers `status.drainCandidateNodeId` when draining excess nodes.
 * **`NodeController`** — `Provisioning → Bootstrapping → Joining → Ready → Draining → Deleting`
 * Bootstrap payload templating (cloud-init + SSH script) + epic-22 bootstrap token client
 * `node_bootstrap_timers` deadlines; automatic delete on bootstrap/join timeout
