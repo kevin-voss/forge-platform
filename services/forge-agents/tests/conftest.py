@@ -12,12 +12,14 @@ from app.main import create_app
 
 
 @pytest.fixture
-def env_valid(monkeypatch: pytest.MonkeyPatch) -> None:
+def env_valid(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.setenv("PORT", "4301")
     monkeypatch.setenv("FORGE_LOG_LEVEL", "error")
     monkeypatch.setenv("FORGE_MODELS_URL", "http://forge-models:4300")
     monkeypatch.setenv("FORGE_SERVICE_NAME", "forge-agents")
     monkeypatch.setenv("FORGE_SERVICE_VERSION", "0.1.0")
+    monkeypatch.setenv("FORGE_AGENTS_DB_PATH", str(tmp_path / "runs.db"))
+    monkeypatch.setenv("FORGE_AGENTS_MAX_CONCURRENT_RUNS", "4")
     clear_settings_cache()
 
 

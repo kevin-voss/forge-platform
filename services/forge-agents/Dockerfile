@@ -13,6 +13,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.6.14 /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock README.md ./
 COPY app ./app
 COPY agents ./agents
+COPY migrations ./migrations
 COPY tests ./tests
 
 # Fail the image build if unit/contract tests fail.
@@ -32,13 +33,16 @@ RUN apt-get update \
 	&& apt-get install -y --no-install-recommends curl \
 	&& rm -rf /var/lib/apt/lists/* \
 	&& groupadd --gid 10001 appgroup \
-	&& useradd --uid 10001 --gid appgroup --create-home --shell /usr/sbin/nologin appuser
+	&& useradd --uid 10001 --gid appgroup --create-home --shell /usr/sbin/nologin appuser \
+	&& mkdir -p /data/agents \
+	&& chown -R appuser:appgroup /data
 
 COPY --from=ghcr.io/astral-sh/uv:0.6.14 /uv /usr/local/bin/uv
 # Depend on the build stage so tests always run before shipping the image.
 COPY --from=build /src/pyproject.toml /src/uv.lock /src/README.md ./
 COPY --from=build /src/app ./app
 COPY --from=build /src/agents ./agents
+COPY --from=build /src/migrations ./migrations
 
 RUN uv sync --frozen --no-dev \
 	&& chown -R appuser:appgroup /app
@@ -54,6 +58,8 @@ ENV PORT=8080 \
 	FORGE_ENV=development \
 	FORGE_MODELS_URL=http://forge-models:4300 \
 	FORGE_AGENTS_DEFS_DIR=/app/agents \
+	FORGE_AGENTS_DB_PATH=/data/agents/runs.db \
+	FORGE_AGENTS_MAX_CONCURRENT_RUNS=4 \
 	FORGE_SHUTDOWN_GRACE_SECONDS=10 \
 	PYTHONUNBUFFERED=1 \
 	PATH="/app/.venv/bin:$PATH"

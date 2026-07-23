@@ -45,8 +45,10 @@ def test_openapi_documents_agent_and_tool_schemas() -> None:
     assert "/v1/agents" in paths
     assert "/v1/agents/{name}" in paths
     assert "/v1/tools" in paths
-    # Runs surface lands in 15.04+
-    assert "/v1/runs" not in paths
+    assert "/v1/agents/{name}/runs" in paths
+    assert "/v1/runs" in paths
+    assert "/v1/runs/{run_id}" in paths
+    assert "/v1/runs/{run_id}/cancel" in paths
 
     list_op = paths["/v1/agents"]["get"]
     assert "200" in list_op["responses"]
@@ -55,6 +57,14 @@ def test_openapi_documents_agent_and_tool_schemas() -> None:
     assert "404" in get_op["responses"]
     tools_op = paths["/v1/tools"]["get"]
     assert "200" in tools_op["responses"]
+    start_op = paths["/v1/agents/{name}/runs"]["post"]
+    assert "202" in start_op["responses"]
+    get_run = paths["/v1/runs/{run_id}"]["get"]
+    assert "200" in get_run["responses"]
+    assert "404" in get_run["responses"]
+    cancel_op = paths["/v1/runs/{run_id}/cancel"]["post"]
+    assert "200" in cancel_op["responses"]
+    assert "409" in cancel_op["responses"]
 
     schemas = doc["components"]["schemas"]
     assert "Agent" in schemas
@@ -64,6 +74,13 @@ def test_openapi_documents_agent_and_tool_schemas() -> None:
     assert "ToolListResponse" in schemas
     assert "ToolInvokeDenialReason" in schemas
     assert "ErrorBody" in schemas
+    assert "Run" in schemas
+    assert "RunStep" in schemas
+    assert "RunListResponse" in schemas
+    assert "StartRunRequest" in schemas
+    run_step = schemas["RunStep"]
+    assert set(run_step["required"]) >= {"type", "ts"}
+    assert set(run_step["properties"]["type"]["enum"]) == {"model", "tool", "final"}
     agent = schemas["Agent"]
     assert set(agent["required"]) >= {
         "name",

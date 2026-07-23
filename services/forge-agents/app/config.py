@@ -37,6 +37,18 @@ class Settings(BaseSettings):
         alias="FORGE_AGENTS_TOOLS_MODE",
         description="Tool backend mode: fake stubs (CI default) or live adapters (15.05)",
     )
+    forge_agents_db_path: str = Field(
+        default="/data/agents/runs.db",
+        alias="FORGE_AGENTS_DB_PATH",
+        description="SQLite path for run + step audit history",
+    )
+    forge_agents_max_concurrent_runs: int = Field(
+        default=4,
+        alias="FORGE_AGENTS_MAX_CONCURRENT_RUNS",
+        ge=1,
+        le=256,
+        description="Hard cap on concurrent in-flight agent runs",
+    )
     forge_service_name: str = Field(default="forge-agents", alias="FORGE_SERVICE_NAME")
     forge_service_version: str = Field(default="0.1.0", alias="FORGE_SERVICE_VERSION")
     forge_env: str = Field(default="development", alias="FORGE_ENV")
@@ -83,6 +95,14 @@ class Settings(BaseSettings):
     def normalize_tools_mode(cls, value: object) -> object:
         if isinstance(value, str):
             return value.strip().lower()
+        return value
+
+    @field_validator("forge_agents_db_path", mode="before")
+    @classmethod
+    def normalize_db_path(cls, value: object) -> object:
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped if stripped else "/data/agents/runs.db"
         return value
 
     @field_validator("forge_service_name", "forge_service_version", "forge_env", mode="before")

@@ -21,6 +21,8 @@ dev: sync
 	FORGE_MODELS_URL=$${FORGE_MODELS_URL:-http://127.0.0.1:4300} \
 	FORGE_AGENTS_DEFS_DIR=$${FORGE_AGENTS_DEFS_DIR:-} \
 	FORGE_AGENTS_TOOLS_MODE=$${FORGE_AGENTS_TOOLS_MODE:-fake} \
+	FORGE_AGENTS_DB_PATH=$${FORGE_AGENTS_DB_PATH:-/tmp/forge-agents-runs.db} \
+	FORGE_AGENTS_MAX_CONCURRENT_RUNS=$${FORGE_AGENTS_MAX_CONCURRENT_RUNS:-4} \
 	FORGE_SHUTDOWN_GRACE_SECONDS=$${FORGE_SHUTDOWN_GRACE_SECONDS:-10} \
 	uv run python -m app.main
 
@@ -51,6 +53,22 @@ test-integration: run
 	@# Tool registry (15.03)
 	@curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/tools" | grep -q '"required_permissions"'
 	@curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/tools" | grep -q 'echo.ping'
+	@# Run engine dry-run (15.04)
+	@rid="$$(curl -fsS -XPOST "http://127.0.0.1:$(HOST_PORT)/v1/agents/fixture-echo/runs" \
+		-H 'content-type: application/json' -H 'X-Forge-Project: integ' \
+		-d '{"input":"hello","context":{"dry_run":true}}' \
+		| python3 -c 'import sys,json; print(json.load(sys.stdin)["run_id"])')"; \
+		test -n "$$rid"; \
+		body=""; \
+		for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
+			body="$$(curl -fsS "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$rid" -H 'X-Forge-Project: integ')"; \
+			if echo "$$body" | grep -Eq '"status":"(succeeded|failed|stopped|cancelled)"'; then break; fi; \
+			sleep 0.2; \
+		done; \
+		echo "$$body" | grep -q '"steps"'; \
+		echo "$$body" | grep -q '"status":"succeeded"'; \
+		code="$$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$(HOST_PORT)/v1/runs/$$rid" -H 'X-Forge-Project: other')"; \
+		test "$$code" = "404"
 	@# Structured JSON logs + request IDs
 	@curl -sf -H 'X-Request-ID: integ-req-1' "http://127.0.0.1:$(HOST_PORT)/health/live" >/dev/null
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"service":"forge-agents"'
@@ -59,7 +77,7 @@ test-integration: run
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"agents_registry_size"'
 	@$(COMPOSE) logs $(SERVICE) 2>&1 | grep -q '"tools_registry_size"'
 	@grep -q '4301' $(ROOT_DIR)/docs/operations/ports.md && echo port-reserved
-	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-agents.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-agents" in p; assert "/v1/agents" in p; assert "Agent" in p; assert "agent_not_found" in p; assert "/v1/tools" in p; assert "ToolInvokeDenialReason" in p; assert "unknown_tool" in p'
+	@python3 -c 'p=open("$(ROOT_DIR)/contracts/openapi/forge-agents.openapi.yaml").read(); assert "/health/live" in p and "/health/ready" in p and "\n  /:" in p; assert "forge-agents" in p; assert "/v1/agents" in p; assert "Agent" in p; assert "agent_not_found" in p; assert "/v1/tools" in p; assert "ToolInvokeDenialReason" in p; assert "unknown_tool" in p; assert "/v1/runs" in p; assert "RunStep" in p; assert "max_steps_exceeded" in p'
 	@# Invalid MODELS_URL fails process startup (ephemeral container).
 	@docker rm -f forge-agents-bad-url >/dev/null 2>&1 || true
 	@if docker run --name forge-agents-bad-url \
@@ -108,7 +126,7 @@ test-integration: run
 		test "$$code" = "0"
 	@$(COMPOSE) up -d $(SERVICE) >/dev/null
 	@$(MAKE) wait
-	@echo "Integration checks passed (health, identity, agent/tool registry, JSON logs/request IDs, OpenAPI, bad URL/PORT/YAML, SIGTERM)."
+	@echo "Integration checks passed (health, identity, agent/tool registry, run dry-run, JSON logs/request IDs, OpenAPI, bad URL/PORT/YAML, SIGTERM)."
 
 lint: sync
 	uv run ruff check app tests

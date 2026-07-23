@@ -5,10 +5,14 @@ info:
   description: |
     Platform agent runtime service (epic 15). Health/identity from 15.01;
     agent registry + YAML definitions from 15.02; tool registry + per-call
-    permission checks from 15.03. Run engine, approval, and CLI land in later steps.
+    permission checks from 15.03; run engine with limits and audit history
+    from 15.04. Approval and CLI land in later steps.
 
     Internal tool invocation (used by the run engine) rejects with reasons:
     `unknown_tool`, `not_declared`, `permission_denied`, `invalid_arguments`.
+
+    Runs are project-scoped via `X-Forge-Project`. Pass `"context":{"dry_run":true}`
+    to use the deterministic fake model planner (CI / local without forge-models).
 servers:
   - url: http://127.0.0.1:4301
     description: Local Compose (host port 4301)
@@ -164,6 +168,133 @@ paths:
                     destructive: false
                     required_permissions: [project:read]
 
+  /v1/agents/{name}/runs:
+    post:
+      operationId: startAgentRun
+      summary: Start an agent run
+      description: |
+        Starts a bounded model+tool loop for the named agent. Returns 202 with
+        `run_id` while the engine executes asynchronously. Limits come from the
+        agent YAML (`max_steps`, `timeout_seconds`). Set `context.dry_run=true`
+        for the deterministic fake model.
+      parameters:
+        - $ref: "#/components/parameters/AgentName"
+        - $ref: "#/components/parameters/ForgeProject"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartRunRequest"
+            example:
+              input: hello
+              context:
+                dry_run: true
+      responses:
+        "202":
+          description: Run accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartRunResponse"
+              example:
+                run_id: 11111111-1111-1111-1111-111111111111
+                status: running
+        "400":
+          description: Missing project header
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: Unknown agent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "429":
+          description: Concurrent run cap exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+
+  /v1/runs:
+    get:
+      operationId: listRuns
+      summary: List runs for a project
+      parameters:
+        - $ref: "#/components/parameters/ForgeProject"
+      responses:
+        "200":
+          description: Project-scoped run list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunListResponse"
+        "400":
+          description: Missing project header
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+
+  /v1/runs/{run_id}:
+    get:
+      operationId: getRun
+      summary: Get run status and step history
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+        - $ref: "#/components/parameters/ForgeProject"
+      responses:
+        "200":
+          description: Run detail with ordered audit steps
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "400":
+          description: Missing project header
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "404":
+          description: Unknown run or wrong project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+
+  /v1/runs/{run_id}/cancel:
+    post:
+      operationId: cancelRun
+      summary: Cancel a running agent run
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+        - $ref: "#/components/parameters/ForgeProject"
+      responses:
+        "200":
+          description: Cancel accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancelRunResponse"
+              example:
+                status: cancelled
+        "404":
+          description: Unknown run or wrong project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "409":
+          description: Run already terminal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+
 components:
   parameters:
     AgentName:
@@ -176,6 +307,26 @@ components:
         minLength: 1
         pattern: "^[a-z][a-z0-9_-]*$"
       example: fixture-echo
+
+    RunId:
+      name: run_id
+      in: path
+      required: true
+      description: Opaque run identifier returned by start
+      schema:
+        type: string
+        minLength: 1
+      example: 11111111-1111-1111-1111-111111111111
+
+    ForgeProject:
+      name: X-Forge-Project
+      in: header
+      required: true
+      description: Project scope for the run (cross-project reads return 404)
+      schema:
+        type: string
+        minLength: 1
+      example: proj-a
 
   schemas:
     HealthStatus:
@@ -347,4 +498,137 @@ components:
           description: |
             Machine-readable error code. Agent lookup uses `agent_not_found`.
             Tool invocation denials use ToolInvokeDenialReason values.
+            Runs use `run_not_found`, `run_terminal`, `project_required`,
+            `max_concurrent_runs`.
           example: agent_not_found
+        status:
+          type: string
+          description: Present on some run cancel conflicts
+          example: succeeded
+
+    StartRunRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        input:
+          type: string
+          description: Task/user input for the agent
+          example: hello
+        context:
+          type: object
+          additionalProperties: true
+          description: |
+            Opaque run context. Recognized keys include `dry_run` (bool),
+            `force_loop` (bool; exhaust max_steps), `decide_delay_seconds` (number).
+          example:
+            dry_run: true
+
+    StartRunResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - run_id
+        - status
+      properties:
+        run_id:
+          type: string
+        status:
+          type: string
+          enum: [running]
+
+    CancelRunResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [cancelled]
+
+    RunStep:
+      type: object
+      additionalProperties: false
+      required:
+        - type
+        - ts
+      properties:
+        type:
+          type: string
+          enum: [model, tool, final]
+          description: Audit step kind
+        tool:
+          type: string
+          description: Tool name when type is tool
+        args:
+          type: object
+          additionalProperties: true
+        observation:
+          description: Tool output, denial payload, or final text
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: string
+        decision:
+          type: string
+          description: Model decision JSON or invoker allow/deny
+        ts:
+          type: string
+          format: date-time
+          example: "2026-07-23T09:00:00Z"
+
+    RunStatus:
+      type: string
+      enum: [running, succeeded, failed, cancelled, stopped]
+
+    Run:
+      type: object
+      additionalProperties: false
+      required:
+        - run_id
+        - project_id
+        - agent
+        - status
+        - step_count
+        - started_at
+      properties:
+        run_id:
+          type: string
+        project_id:
+          type: string
+        agent:
+          type: string
+        status:
+          $ref: "#/components/schemas/RunStatus"
+        step_count:
+          type: integer
+          minimum: 0
+        started_at:
+          type: string
+          format: date-time
+        ended_at:
+          type: string
+          format: date-time
+        result:
+          type: string
+          description: Final answer when status is succeeded
+        error:
+          type: string
+          description: |
+            Failure/stop reason. Common values: `max_steps_exceeded`, `timeout`,
+            `cancelled`, tool deny reasons.
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/RunStep"
+
+    RunListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - runs
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Run"

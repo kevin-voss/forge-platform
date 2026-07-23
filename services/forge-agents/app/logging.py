@@ -64,6 +64,17 @@ class JsonLogFormatter(logging.Formatter):
             "agent",
             "project_id",
             "missing_permissions",
+            "db_path",
+            "max_concurrent_runs",
+            "run_id",
+            "dry_run",
+            "max_steps",
+            "timeout_seconds",
+            "step_kind",
+            "step_idx",
+            "status",
+            "error",
+            "steps",
         ):
             if hasattr(record, key):
                 value = getattr(record, key)

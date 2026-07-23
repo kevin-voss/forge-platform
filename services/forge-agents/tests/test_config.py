@@ -18,6 +18,17 @@ def test_parses_valid_env(clean_env: pytest.MonkeyPatch) -> None:
     assert settings.forge_models_url == "http://forge-models:4300"
     assert settings.forge_service_name == "forge-agents"
     assert settings.forge_agents_tools_mode == "fake"
+    assert settings.forge_agents_db_path == "/data/agents/runs.db"
+    assert settings.forge_agents_max_concurrent_runs == 4
+
+
+def test_accepts_db_path_and_concurrency(clean_env: pytest.MonkeyPatch) -> None:
+    clean_env.setenv("PORT", "4301")
+    clean_env.setenv("FORGE_AGENTS_DB_PATH", "/tmp/agents.db")
+    clean_env.setenv("FORGE_AGENTS_MAX_CONCURRENT_RUNS", "8")
+    settings = get_settings()
+    assert settings.forge_agents_db_path == "/tmp/agents.db"
+    assert settings.forge_agents_max_concurrent_runs == 8
 
 
 def test_accepts_tools_mode_live(clean_env: pytest.MonkeyPatch) -> None:

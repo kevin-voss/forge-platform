@@ -594,7 +594,11 @@ services:
       FORGE_MODELS_URL: ${FORGE_MODELS_URL:-http://forge-models:4300}
       FORGE_AGENTS_DEFS_DIR: ${FORGE_AGENTS_DEFS_DIR:-/app/agents}
       FORGE_AGENTS_TOOLS_MODE: ${FORGE_AGENTS_TOOLS_MODE:-fake}
+      FORGE_AGENTS_DB_PATH: ${FORGE_AGENTS_DB_PATH:-/data/agents/runs.db}
+      FORGE_AGENTS_MAX_CONCURRENT_RUNS: ${FORGE_AGENTS_MAX_CONCURRENT_RUNS:-4}
       FORGE_SHUTDOWN_GRACE_SECONDS: ${FORGE_SHUTDOWN_GRACE_SECONDS:-10}
+    volumes:
+      - forge-agents-data:/data/agents
     stop_grace_period: 15s
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health/live | grep -q live"]
@@ -715,3 +719,4 @@ volumes:
   forge-build-workspace:
   forge-build-store:
   forge-storage-data:
+  forge-agents-data:

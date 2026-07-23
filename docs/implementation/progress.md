@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 102`**.
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 103`**.
 
 ## Epics
 
@@ -23,7 +23,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | [12](epics/12-forge-observe.md) | Forge Observe | Complete | 7/7 steps; demo 12 observability acceptance gate passed |
 | [13](epics/13-forge-storage.md) | Forge Storage | Complete | 7/7 steps; demo 13 object-storage acceptance gate passed |
 | [14](epics/14-forge-models.md) | Forge Models | Complete | 7/7 steps; demo 14 model-serving acceptance gate passed |
-| [15](epics/15-forge-agents.md) | Forge Agents | In progress | 3/8 steps; tool registry + per-call permission checks |
+| [15](epics/15-forge-agents.md) | Forge Agents | In progress | 4/8 steps; run engine with limits + audit history |
 | [16](epics/16-forge-workflows.md) | Forge Workflows | Planning | 7 steps |
 | [17](epics/17-forge-memory.md) | Forge Memory | Planning | 6 steps |
 | [18](epics/18-managed-postgresql.md) | Managed PostgreSQL | Planning | 6 steps |
@@ -135,7 +135,7 @@ Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete
 | **99** | [Skeleton](steps/15-forge-agents/15.01-skeleton.md) | Complete |  | Python/FastAPI on `4301`, health/identity, JSON logs, Compose |
 | **100** | [Agent registry + YAML definitions](steps/15-forge-agents/15.02-agent-registry-yaml.md) | Complete |  | YAML loader + `GET /v1/agents`; fixture-echo; limits bounds |
 | **101** | [Tool registry + per-call permission checks](steps/15-forge-agents/15.03-tool-registry-permissions.md) | Complete |  | Tool registry + invoker; `GET /v1/tools`; deny reasons |
-| **102** | [Run engine: max steps, timeouts, history](steps/15-forge-agents/15.04-run-engine.md) | Not started |  |  |
+| **102** | [Run engine: max steps, timeouts, history](steps/15-forge-agents/15.04-run-engine.md) | Complete |  | Bounded model+tool loop; SQLite audit; dry-run; cancel |
 | **103** | [Platform tools](steps/15-forge-agents/15.05-platform-tools.md) | Not started |  |  |
 | **104** | [Human approval for destructive tools](steps/15-forge-agents/15.06-human-approval.md) | Not started |  |  |
 | **105** | [Seed agents + CLI `forge agent`](steps/15-forge-agents/15.07-seed-agents-cli.md) | Not started |  |  |

@@ -34,6 +34,7 @@ def registry_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClie
     monkeypatch.setenv("FORGE_LOG_LEVEL", "error")
     monkeypatch.setenv("FORGE_MODELS_URL", "http://forge-models:4300")
     monkeypatch.setenv("FORGE_AGENTS_DEFS_DIR", str(tmp_path))
+    monkeypatch.setenv("FORGE_AGENTS_DB_PATH", str(tmp_path / "runs.db"))
     clear_settings_cache()
     application = create_app()
     with TestClient(application) as test_client:

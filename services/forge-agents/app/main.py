@@ -13,11 +13,16 @@ from fastapi.responses import JSONResponse
 from app import __version__
 from app.agents.loader import AgentLoadError, load_registry
 from app.api.agents import router as agents_router
+from app.api.runs import router as runs_router
 from app.api.tools import router as tools_router
 from app.config import Settings, clear_settings_cache, get_settings
 from app.health import router as health_router
 from app.logging import RequestIdMiddleware, configure_logging
 from app.permissions import PermissionChecker
+from app.run.engine import RunEngine
+from app.run.metrics import RunMetrics
+from app.run.model_client import FakeModelClient, HttpModelClient
+from app.run.store import RunStore
 from app.tools.invoker import ToolInvoker
 from app.tools.metrics import ToolMetrics
 from app.tools.registry import ToolsMode, build_tool_registry
@@ -30,6 +35,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
     registry = app.state.registry
     tool_registry = app.state.tool_registry
+    engine: RunEngine = app.state.run_engine
     app.state.started_at = time.time()
     app.state.ready = True
     logger.info(
@@ -41,12 +47,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "tools_registry_size": tool_registry.tools_registry_size,
             "tool_names": [t.name for t in tool_registry.list()],
             "tools_mode": settings.forge_agents_tools_mode,
+            "db_path": settings.forge_agents_db_path,
+            "max_concurrent_runs": settings.forge_agents_max_concurrent_runs,
         },
     )
     try:
         yield
     finally:
         app.state.ready = False
+        await engine.aclose()
+        store: RunStore = app.state.run_store
+        store.close()
         logger.info("shutdown complete")
 
 
@@ -70,6 +81,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         checker=PermissionChecker(),
         metrics=tool_metrics,
     )
+    run_store = RunStore(resolved.forge_agents_db_path)
+    run_metrics = RunMetrics()
+    http_model = HttpModelClient(resolved.forge_models_url)
+    fake_model = FakeModelClient()
+    run_engine = RunEngine(
+        store=run_store,
+        registry=registry,
+        invoker=tool_invoker,
+        model_client=http_model,
+        fake_model_client=fake_model,
+        max_concurrent_runs=resolved.forge_agents_max_concurrent_runs,
+        metrics=run_metrics,
+    )
 
     application = FastAPI(
         title="Forge Agents",
@@ -81,6 +105,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.tool_registry = tool_registry
     application.state.tool_invoker = tool_invoker
     application.state.tool_metrics = tool_metrics
+    application.state.run_store = run_store
+    application.state.run_engine = run_engine
+    application.state.run_metrics = run_metrics
     application.state.ready = False
     application.state.started_at = time.time()
 
@@ -88,6 +115,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(health_router)
     application.include_router(agents_router)
     application.include_router(tools_router)
+    application.include_router(runs_router)
 
     @application.get("/")
     async def identity(request: Request) -> JSONResponse:
