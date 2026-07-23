@@ -64,6 +64,9 @@ data class PermissionMatrix(
                 "secret.write" to OWNER_ADMIN_DEV,
                 "config.read" to ALL_PROJECT,
                 "config.write" to OWNER_ADMIN_DEV,
+                // Managed PostgreSQL (epic 18)
+                "database.read" to ALL_PROJECT,
+                "database.write" to OWNER_ADMIN_DEV,
                 // Membership / tokens (least privilege for service-account)
                 "member.manage" to OWNER_ADMIN,
                 "token.manage" to OWNER_ADMIN,

@@ -27,6 +27,11 @@ import forge.control.http.serviceRoutes
 import forge.control.http.toEnvelope
 import forge.control.http.installRequestId
 import forge.control.logging.JsonLog
+import forge.control.manageddb.FakeProvisioner
+import forge.control.manageddb.IsolationGuard
+import forge.control.manageddb.JdbcManagedDbRepository
+import forge.control.manageddb.ManagedDbService
+import forge.control.manageddb.managedDbRoutes
 import forge.control.reconcile.HttpGatewayClient
 import forge.control.reconcile.HttpRuntimeClient
 import forge.control.reconcile.JdbcDeploymentHistory
@@ -146,7 +151,22 @@ fun main() {
     val serviceRepo = JdbcServiceRepository(db.dataSource)
     val deploymentRepo = JdbcDeploymentRepository(db.dataSource)
     val auditRepo = JdbcAuditRepository(db.dataSource)
+    val managedDbRepo = JdbcManagedDbRepository(db.dataSource)
     val relationships = RelationshipValidator(projectRepo, applicationRepo)
+    val isolationGuard = IsolationGuard(
+        controlJdbcUrl = cfg.database.url,
+        controlUser = cfg.database.user,
+    )
+    // 18.01: only FakeProvisioner; `local` reserved for 18.02 real provisioner.
+    val dbProvisioner = FakeProvisioner(isolationGuard)
+    val managedDbService = ManagedDbService(
+        store = managedDbRepo,
+        provisioner = dbProvisioner,
+        isolation = isolationGuard,
+        relationships = relationships,
+        log = log,
+        telemetry = telemetry,
+    )
     val deploymentStore = RepositoryDeploymentStore(
         deploymentRepo,
         serviceRepo,
@@ -317,6 +337,7 @@ fun main() {
         nodeStore = nodeStore,
         nodeStrictRegister = cfg.nodeStrictRegister,
         onNodeRegistered = { placementService.drainQueue() },
+        managedDb = managedDbService,
     )
 
     val readiness = Readiness()
@@ -334,6 +355,7 @@ fun main() {
             services = serviceRepo,
             environments = environmentRepo,
             deployments = deploymentRepo,
+            dbInstances = managedDbRepo,
         ),
     )
     val authMiddleware = AuthMiddleware(
@@ -389,6 +411,8 @@ fun main() {
                 "queue_max_len" to cfg.queueMaxLen,
                 "reschedule_enabled" to cfg.rescheduleEnabled,
                 "reschedule_grace_s" to cfg.rescheduleGraceSeconds,
+                "db_provisioner" to cfg.dbProvisioner,
+                "db_managed_network" to cfg.dbManagedNetwork,
             )
         }
     }
@@ -582,6 +606,10 @@ fun Application.forgeControlModule(
                     telemetry = telemetry,
                     onRegistered = services.onNodeRegistered,
                 )
+            }
+            val managedDb = services.managedDb
+            if (managedDb != null) {
+                managedDbRoutes(managedDb, services.idempotency)
             }
         }
     }

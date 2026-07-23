@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning
+In progress
 
 ## Goal
 
@@ -56,7 +56,7 @@ make demo DEMO=18
 
 | Step | Title | Status | Notes |
 |---|---|---|---|
-| [18.01](../steps/18-managed-postgresql/18.01-control-apis-provisioner-skeleton.md) | Control APIs + provisioner skeleton | Not started | Resource model + provisioner seam |
+| [18.01](../steps/18-managed-postgresql/18.01-control-apis-provisioner-skeleton.md) | Control APIs + provisioner skeleton | Complete | Resource model + FakeProvisioner seam |
 | [18.02](../steps/18-managed-postgresql/18.02-create-instance-db-credentials.md) | Create instance/database/credentials | Not started | Depends on 18.01; isolated from Control DB |
 | [18.03](../steps/18-managed-postgresql/18.03-attach-secrets-runtime-injection.md) | Attach + Secrets/Runtime URL injection | Not started | Depends on 18.02; 10, 04 |
 | [18.04](../steps/18-managed-postgresql/18.04-backup-restore.md) | Backup + restore | Not started | Depends on 18.03 |
@@ -80,4 +80,4 @@ make demo DEMO=18
 
 ## Next step to implement
 
-**[18.01](../steps/18-managed-postgresql/18.01-control-apis-provisioner-skeleton.md) — Control APIs + provisioner skeleton** (resource model + provisioner interface; no real provisioning yet).
+**[18.02](../steps/18-managed-postgresql/18.02-create-instance-db-credentials.md) — Create instance/database/credentials** (real isolated Postgres via local provisioner).

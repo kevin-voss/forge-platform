@@ -61,6 +61,8 @@ class AppConfigTest {
         assertEquals(true, cfg.schedulerEnabled)
         assertEquals("least-allocated", cfg.schedulerStrategy)
         assertEquals("node-local", cfg.schedulerLocalNodeId)
+        assertEquals("fake", cfg.dbProvisioner)
+        assertEquals("forge-net", cfg.dbManagedNetwork)
     }
 
     @Test

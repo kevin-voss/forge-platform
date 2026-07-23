@@ -1,5 +1,6 @@
 package forge.control.auth
 
+import forge.control.manageddb.ManagedDbRepository
 import forge.control.repo.ApplicationRepository
 import forge.control.repo.DeploymentRepository
 import forge.control.repo.EnvironmentRepository
@@ -34,6 +35,7 @@ enum class ScopeKind {
     Application,
     Service,
     Deployment,
+    DbInstance,
 }
 
 class RepositoryProjectScopeResolver(
@@ -41,6 +43,7 @@ class RepositoryProjectScopeResolver(
     private val services: ServiceRepository,
     private val environments: EnvironmentRepository,
     private val deployments: DeploymentRepository,
+    private val dbInstances: ManagedDbRepository? = null,
 ) : ProjectScopeResolver {
     override fun resolve(kind: ScopeKind, id: String): String? {
         val uuid = id.toUuidOrNull() ?: return if (kind == ScopeKind.Project) id else null
@@ -57,6 +60,7 @@ class RepositoryProjectScopeResolver(
                 val service = services.findById(deployment.serviceId) ?: return null
                 applications.findById(service.applicationId)?.projectId?.toString()
             }
+            ScopeKind.DbInstance -> dbInstances?.findInstanceById(uuid)?.projectId?.toString()
         }
     }
 }
@@ -178,6 +182,27 @@ class RouteActionMap(
             }
         }
 
+        // Managed DB collection: project comes from body/query/header — authenticate only here.
+        match(m, p, DB_INSTANCES)?.let {
+            return when (m) {
+                "GET" -> AuthTarget.AuthenticateOnly
+                "POST" -> AuthTarget.AuthenticateOnly
+                else -> AuthTarget.AuthenticateOnly
+            }
+        }
+
+        match(m, p, DB_INSTANCE_DATABASES)?.let { id ->
+            return authorize("database.read", ScopeKind.DbInstance, id)
+        }
+
+        match(m, p, DB_INSTANCE_ITEM)?.let { id ->
+            return when (m) {
+                "GET" -> authorize("database.read", ScopeKind.DbInstance, id)
+                "POST", "PATCH", "DELETE" -> authorize("database.write", ScopeKind.DbInstance, id)
+                else -> authorize("database.read", ScopeKind.DbInstance, id)
+            }
+        }
+
         // Unknown /v1 routes: require authentication (fail closed on anonymity).
         if (p.startsWith("/v1/")) return AuthTarget.AuthenticateOnly
         return AuthTarget.Skip
@@ -222,6 +247,10 @@ class RouteActionMap(
         private val DEPLOYMENT_STATUS = Regex("^/v1/deployments/$UUID_OR_ID/status$")
         private val DEPLOYMENT_HISTORY = Pattern(Regex("^/v1/deployments/($UUID_OR_ID)/history$"))
         private val DEPLOYMENT_RECONCILE = Pattern(Regex("^/v1/deployments/($UUID_OR_ID)/reconcile$"))
+        private val DB_INSTANCES = Pattern(Regex("^/v1/databases/instances$"))
+        private val DB_INSTANCE_ITEM = Pattern(Regex("^/v1/databases/instances/($UUID_OR_ID)$"))
+        private val DB_INSTANCE_DATABASES =
+            Pattern(Regex("^/v1/databases/instances/($UUID_OR_ID)/databases$"))
     }
 }
 

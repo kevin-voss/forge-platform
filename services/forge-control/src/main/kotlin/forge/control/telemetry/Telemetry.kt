@@ -64,6 +64,7 @@ class Telemetry private constructor(
     private val rescheduleTotal: LongCounter,
     private val nodeOfflineTotal: LongCounter,
     private val staleReplicasFenced: LongCounter,
+    private val managedDbInstances: LongCounter,
     private val sdk: OpenTelemetrySdk?,
 ) : AutoCloseable {
     val enabled: Boolean = sdk != null
@@ -165,6 +166,13 @@ class Telemetry private constructor(
 
     fun recordStaleReplicaFenced() {
         staleReplicasFenced.add(1)
+    }
+
+    fun recordManagedDbInstance(status: String) {
+        managedDbInstances.add(
+            1,
+            Attributes.of(AttributeKey.stringKey("status"), status),
+        )
     }
 
     fun recordReconcileTick(planActions: Int, healthy: Boolean) {
@@ -360,6 +368,7 @@ class Telemetry private constructor(
                 staleReplicasFenced = meter
                     .counterBuilder("forge_stale_replicas_fenced_total")
                     .build(),
+                managedDbInstances = meter.counterBuilder("managed_db_instances_total").build(),
                 sdk = sdk,
             )
         }

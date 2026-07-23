@@ -1,5 +1,6 @@
 package forge.control
 
+import forge.control.manageddb.ManagedDbService
 import forge.control.reconcile.DeploymentHistory
 import forge.control.reconcile.DeploymentStore
 import forge.control.reconcile.ReconcileStatusStore
@@ -32,4 +33,5 @@ data class ControlServices(
     val nodeStrictRegister: Boolean = false,
     /** Invoked after a successful node registration (capacity may have increased). */
     val onNodeRegistered: (() -> Unit)? = null,
+    val managedDb: ManagedDbService? = null,
 )

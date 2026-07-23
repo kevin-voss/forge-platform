@@ -52,6 +52,10 @@ data class AppConfig(
     val queueMaxLen: Int = 1000,
     val rescheduleEnabled: Boolean = true,
     val rescheduleGraceSeconds: Long = 5,
+    /** Managed DB provisioner: `fake` (CI default) or `local` (real provisioner from 18.02). */
+    val dbProvisioner: String = "fake",
+    /** Docker network for product Postgres containers (used from 18.02). */
+    val dbManagedNetwork: String = "forge-net",
 )
 
 fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
@@ -385,6 +389,19 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         )
     }
 
+    val dbProvisioner = env["FORGE_DB_PROVISIONER"]?.trim()?.lowercase().orEmpty()
+        .ifEmpty { "fake" }
+    if (dbProvisioner !in setOf("fake", "local")) {
+        throw IllegalArgumentException(
+            "FORGE_DB_PROVISIONER must be fake|local, got '$dbProvisioner'",
+        )
+    }
+    val dbManagedNetwork = env["FORGE_DB_MANAGED_NETWORK"]?.trim().orEmpty()
+        .ifEmpty { "forge-net" }
+    if (dbManagedNetwork.isBlank()) {
+        throw IllegalArgumentException("FORGE_DB_MANAGED_NETWORK must not be blank")
+    }
+
     return AppConfig(
         port = port,
         serviceName = env["FORGE_SERVICE_NAME"]?.trim().orEmpty().ifEmpty { "forge-control" },
@@ -448,5 +465,7 @@ fun loadAppConfig(env: Map<String, String> = System.getenv()): AppConfig {
         queueMaxLen = queueMaxLen,
         rescheduleEnabled = rescheduleEnabled,
         rescheduleGraceSeconds = rescheduleGraceSeconds,
+        dbProvisioner = dbProvisioner,
+        dbManagedNetwork = dbManagedNetwork,
     )
 }

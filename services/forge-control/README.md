@@ -10,6 +10,13 @@ HTTP APIs for projects, environments, applications, services, and desired-state
 deployments (`02.05`) are available under `/v1`. Control records deployment
 intent only; it does not pull images or start containers.
 
+Managed PostgreSQL (`18.01`) adds project-scoped management-plane resources
+(`db_instance`, `db_database`, `db_credential`, `db_attachment`, `db_backup`)
+and a `Provisioner` seam (`FakeProvisioner` by default). Create/list/get
+instance APIs live under `/v1/databases/instances`. Product DBs are isolated
+from Control's own JDBC connection — the isolation invariant refuses Control's
+URL as a managed endpoint.
+
 A reconciliation controller (`07.01`–`07.05`) periodically diffs desired vs
 actual replica state, converges via Runtime, performs rolling updates, and on
 rollout timeout/failure automatically rolls back to the last healthy version.
@@ -126,6 +133,8 @@ make dev
 | `FORGE_SCHEDULER_LOCAL_NODE_ID` | `node-local` | Fallback sole node for `single-node` when the fleet is empty |
 | `FORGE_RESCHEDULE_ENABLED` | `true` | On node offline, mark placements lost and request replacements (`08.05`) |
 | `FORGE_RESCHEDULE_GRACE_S` | `5` | Wait after offline before rescheduling (suppresses fast flaps) |
+| `FORGE_DB_PROVISIONER` | `fake` | `fake` (CI no-op) \| `local` (real provisioner from 18.02) |
+| `FORGE_DB_MANAGED_NETWORK` | `forge-net` | Docker network for product Postgres containers (used from 18.02) |
 
 See `.env.example`.
 
@@ -152,8 +161,9 @@ With OTEL export enabled, HTTP/JDBC spans and standard metrics
 `forge_placement_rejected_no_capacity_total`,
 `forge_reschedule_total{result=placed|pending}`,
 `forge_node_offline_total`,
-`forge_stale_replicas_fenced_total`, and spans `scheduler.place` /
-`scheduler.reschedule` (attributes `strategy`, `candidates`, `node`).
+`forge_stale_replicas_fenced_total`, `managed_db_instances_total{status}`,
+and spans `scheduler.place` / `scheduler.reschedule` (attributes `strategy`,
+`candidates`, `node`).
 From 07.02 the controller executes start/stop/recreate against Runtime using
 deterministic per-replica workload ids
 (`forge-<service_slug>-<deployment_short>-<index>`). From 07.03 image changes
@@ -195,6 +205,10 @@ request handling.
 | `POST` | `/v1/placements` | Compute+persist placement; body `{"deployment_id","replica_index","requirements?","anti_affinity?","service_id?"}`; soft/hard anti-affinity; `201` placed, `202` pending when no capacity (`08.04`); `409 queue_full` at cap |
 | `GET` | `/v1/placements?deployment=&status=` | List placements for a deployment; optional `status=placed|pending|lost` (`08.04`/`08.05`) |
 | `GET` | `/v1/projects/{projectId}?expand=tree` | Project, environments, applications, services, and deployments |
+| `POST` | `/v1/databases/instances` | Create managed DB instance (record + FakeProvisioner); body `{"name","projectId?"}`; project via body or `X-Forge-Project`; status `provisioning`→`available`; duplicate name → `409` (`18.01`) |
+| `GET` | `/v1/databases/instances?projectId=` | List instances for a project (`projectId` query or `X-Forge-Project`) |
+| `GET` | `/v1/databases/instances/{instanceId}` | Get instance; missing → `404` |
+| `GET` | `/v1/databases/instances/{instanceId}/databases` | List databases on an instance |
 
 The machine-readable API contract is
 [`contracts/openapi/forge-control.openapi.yaml`](../../contracts/openapi/forge-control.openapi.yaml).
@@ -214,6 +228,7 @@ Tables in schema `control`:
 * `placements` (replica → node assignments, `pending` queue, or `lost` audit rows; active unique on `(deployment_id, replica_index)` where `status in (placed,pending)`; `rescheduled_from_node` on replacements)
 * `audit_log` (append-only; create actions for projects/environments/applications/services/deployments)
 * `idempotency_keys` (key, request hash, resource ID, stored response; 24-hour retention target)
+* `db_instance`, `db_database`, `db_credential`, `db_attachment`, `db_backup` (managed PostgreSQL management-plane; `18.01`)
 * `flyway_schema_history`
 
 `deployments` also stores rollout policy defaults (`rollout_batch_size=1`,

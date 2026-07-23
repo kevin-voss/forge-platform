@@ -56,6 +56,18 @@ Deny-by-default: unknown actions and principals with no membership are denied.
       "organization-owner",
       "project-admin"
     ],
+    "database.read": [
+      "developer",
+      "organization-owner",
+      "project-admin",
+      "service-account",
+      "viewer"
+    ],
+    "database.write": [
+      "developer",
+      "organization-owner",
+      "project-admin"
+    ],
     "deployment.create": [
       "developer",
       "organization-owner",
