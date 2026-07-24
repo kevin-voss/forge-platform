@@ -1,0 +1,58 @@
+# Demo 53 overlay — AskDocs + managed Postgres (epic 53.01).
+# Used with the root compose file:
+#   docker compose -f compose.yaml -f demos/53-askdocs/docker-compose.yml up -d ...
+#
+# Host pattern yields api.askdocs.localhost / app.askdocs.localhost for services
+# named `api` and `app`. LocalProvisioner starts isolated product Postgres
+# containers; DATABASE_URL is injected via Control's in-memory secrets client
+# while FORGE_SECRETS_URL=disabled.
+
+services:
+  forge-control:
+    environment:
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+      FORGE_LIFECYCLE_OWNER: ${FORGE_LIFECYCLE_OWNER:-control}
+      FORGE_RECONCILE_INTERVAL_MS: ${FORGE_RECONCILE_INTERVAL_MS:-1000}
+      FORGE_READINESS_POLL_MS: ${FORGE_READINESS_POLL_MS:-500}
+      FORGE_READINESS_MAX_WAIT_S: ${FORGE_READINESS_MAX_WAIT_S:-90}
+      FORGE_RESOURCE_API_ENABLED: ${FORGE_RESOURCE_API_ENABLED:-true}
+      FORGE_SECRETS_URL: ${FORGE_SECRETS_URL:-disabled}
+      FORGE_OTEL_ENABLED: ${FORGE_OTEL_ENABLED:-false}
+      # Pin to local runtime so leftover offline HA nodes (demo 25) cannot steal placement.
+      FORGE_SCHEDULER_STRATEGY: ${FORGE_SCHEDULER_STRATEGY:-single-node}
+      FORGE_SCHEDULER_LOCAL_NODE_ID: ${FORGE_SCHEDULER_LOCAL_NODE_ID:-node-local}
+      # Managed Postgres (LocalProvisioner).
+      FORGE_DB_PROVISIONER: ${FORGE_DB_PROVISIONER:-local}
+      FORGE_DB_MANAGED_NETWORK: ${FORGE_DB_MANAGED_NETWORK:-forge-net}
+      FORGE_DB_POSTGRES_IMAGE: ${FORGE_DB_POSTGRES_IMAGE:-postgres:16}
+      FORGE_DB_ENDPOINT_HOST: ${FORGE_DB_ENDPOINT_HOST:-host.docker.internal}
+      FORGE_DB_DEFAULT_ENV_VAR: DATABASE_URL
+      FORGE_DB_BACKUP_TARGET: volume
+      FORGE_DB_BACKUP_DIR: /var/forge/db-backups
+      FORGE_INJECT_MASK_IN_LOGS: ${FORGE_INJECT_MASK_IN_LOGS:-true}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - forge-demo53-db-backups:/var/forge/db-backups
+    # LocalProvisioner shells out to docker CLI against the mounted socket.
+    user: "0:0"
+    group_add:
+      - "${DOCKER_GID:-0}"
+
+  forge-runtime:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  forge-gateway:
+    environment:
+      # Quoted so Compose does not treat {service} as interpolation.
+      FORGE_HOST_PATTERN: "{service}.askdocs.localhost"
+      FORGE_ROUTE_SYNC_INTERVAL_SECONDS: ${FORGE_ROUTE_SYNC_INTERVAL_SECONDS:-2}
+      FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS: ${FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS:-2}
+      FORGE_UPSTREAM_FAILURE_THRESHOLD: ${FORGE_UPSTREAM_FAILURE_THRESHOLD:-1}
+      FORGE_UPSTREAM_SUCCESS_THRESHOLD: ${FORGE_UPSTREAM_SUCCESS_THRESHOLD:-1}
+      FORGE_UPSTREAM_TRUST_RUNTIME_STATUS: "true"
+
+volumes:
+  forge-demo53-db-backups:

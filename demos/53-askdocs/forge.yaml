@@ -1,0 +1,118 @@
+# AskDocs build manifests + portable resource docs (epic 53.01).
+#
+# Build (read by `forge build` when available; run.sh also docker-builds locally):
+#   api/forge.yaml  → askdocs-api
+#   web build uses Dockerfile.web at repo root of this demo
+#
+# Applied by run.sh via `forge apply -f` (placeholders filled at deploy time).
+
+apiVersion: forge.dev/v1
+kind: Project
+metadata:
+  name: ${PROJECT_NAME}
+spec:
+  slug: ${PROJECT_SLUG}
+---
+apiVersion: forge.dev/v1
+kind: Environment
+metadata:
+  name: local
+  project: ${PROJECT_SLUG}
+spec: {}
+---
+apiVersion: forge.dev/v1
+kind: Application
+metadata:
+  name: askdocs-api
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    app: askdocs-api
+    demo: "53"
+spec:
+  image: ${API_IMAGE}
+  resources:
+    cpu: 50m
+    memory: 128Mi
+  scaling:
+    minReplicas: 1
+    maxReplicas: 1
+  # Typed managed Postgres dependency (materialized by run.sh via forge database).
+  # DATABASE_URL is injected as plaintext env from the in-memory secrets client
+  # when FORGE_SECRETS_URL=disabled (Secrets product path is TaskFlow's job).
+  # Storage / Models / Memory / Agents land in 53.02–53.04.
+  dependencies:
+    database:
+      type: postgres
+      plan: standard
+      name: askdocs-db
+---
+apiVersion: forge.dev/v1
+kind: Service
+metadata:
+  name: api
+  project: ${PROJECT_SLUG}
+  annotations:
+    forge.dev/parent: askdocs-api
+spec:
+  port: 8080
+---
+apiVersion: forge.dev/v1
+kind: Deployment
+metadata:
+  name: askdocs-api
+  project: ${PROJECT_SLUG}
+  environment: local
+  annotations:
+    forge.dev/parent: askdocs-api
+  labels:
+    app: askdocs-api
+    demo: "53"
+spec:
+  service: api
+  image: ${API_IMAGE}
+  replicas: 1
+---
+apiVersion: forge.dev/v1
+kind: Application
+metadata:
+  name: askdocs-web
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    app: askdocs-web
+    demo: "53"
+spec:
+  image: ${WEB_IMAGE}
+  resources:
+    cpu: 50m
+    memory: 64Mi
+  scaling:
+    minReplicas: 1
+    maxReplicas: 1
+---
+apiVersion: forge.dev/v1
+kind: Service
+metadata:
+  name: app
+  project: ${PROJECT_SLUG}
+  annotations:
+    forge.dev/parent: askdocs-web
+spec:
+  port: 8080
+---
+apiVersion: forge.dev/v1
+kind: Deployment
+metadata:
+  name: askdocs-web
+  project: ${PROJECT_SLUG}
+  environment: local
+  annotations:
+    forge.dev/parent: askdocs-web
+  labels:
+    app: askdocs-web
+    demo: "53"
+spec:
+  service: app
+  image: ${WEB_IMAGE}
+  replicas: 1

@@ -1,0 +1,31 @@
+{
+  "id": "03-askdocs",
+  "title": "AskDocs",
+  "epic": "53",
+  "compose": "demos/53-askdocs/docker-compose.yml",
+  "deploy": "demos/53-askdocs/run.sh",
+  "seed": "demos/53-askdocs/seed.sh",
+  "hosts": [
+    {
+      "host": "app.askdocs.localhost",
+      "path": "/",
+      "expect": 200
+    },
+    {
+      "host": "api.askdocs.localhost",
+      "path": "/health/ready",
+      "expect": 200
+    }
+  ],
+  "baseURL": "http://app.askdocs.localhost:4000",
+  "spec": "tests/e2e/projects/03-askdocs/spec.ts",
+  "services": [
+    "control",
+    "cli",
+    "runtime",
+    "gateway",
+    "build",
+    "managed-postgresql"
+  ],
+  "teardown": "demos/53-askdocs/run.sh --down"
+}

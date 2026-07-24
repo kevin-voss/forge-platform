@@ -1,0 +1,148 @@
+:root {
+  --bg: #e8eef4;
+  --surface: rgba(255, 255, 255, 0.82);
+  --text: #152033;
+  --muted: #5a6678;
+  --accent: #1f6f8b;
+  --accent-soft: rgba(31, 111, 139, 0.12);
+  --border: #c5ceda;
+  --user: #243447;
+  --assistant: #1f6f8b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 12% 12%, rgba(31, 111, 139, 0.16), transparent 42%),
+    linear-gradient(165deg, #f3f7fb 0%, #e4ebf3 52%, #d7e2ee 100%);
+}
+
+main {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 3.5rem 1.25rem 4rem;
+}
+
+.brand {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+h1 {
+  margin: 0 0 0.5rem;
+  font-size: clamp(2rem, 4vw, 2.6rem);
+  letter-spacing: -0.03em;
+}
+
+.lede,
+#chat-status {
+  margin: 0 0 1.5rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1.1rem 1.15rem;
+  backdrop-filter: blur(6px);
+}
+
+h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+}
+
+#message-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-height: 8rem;
+}
+
+.msg {
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  padding: 0.7rem 0.8rem;
+  background: #fff;
+}
+
+.msg-user {
+  border-left: 3px solid var(--user);
+}
+
+.msg-assistant {
+  border-left: 3px solid var(--assistant);
+  background: var(--accent-soft);
+}
+
+.role {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+
+.text {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.empty {
+  margin: 0;
+  color: var(--muted);
+}
+
+form label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+input[type="text"] {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  padding: 0.65rem 0.75rem;
+  font: inherit;
+  background: #fff;
+}
+
+button {
+  border: 0;
+  border-radius: 0.45rem;
+  padding: 0.65rem 1rem;
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(1.05);
+}

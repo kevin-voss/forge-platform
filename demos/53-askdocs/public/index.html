@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AskDocs</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="brand">AskDocs</p>
+        <h1>Document Q&amp;A</h1>
+        <p class="lede">
+          Ask questions about your uploaded documents. Chat history persists in managed Postgres.
+          Grounded answers arrive in a later step — for now the API echoes your message.
+        </p>
+      </header>
+
+      <section aria-labelledby="chat-heading">
+        <h2 id="chat-heading">Chat</h2>
+        <p id="chat-status" role="status"></p>
+        <ul id="message-list" aria-live="polite"></ul>
+        <form id="chat-form" aria-label="Chat">
+          <label for="chat-input">Question</label>
+          <div class="row">
+            <input
+              id="chat-input"
+              name="text"
+              type="text"
+              required
+              placeholder="When is the office closed?"
+              autocomplete="off"
+            />
+            <button type="submit">Ask</button>
+          </div>
+        </form>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>
