@@ -32,13 +32,14 @@ metadata:
     demo: "55"
 spec:
   image: ${API_IMAGE}
-  # Modest resources so later HTTP request-rate scaling is observable.
+  # Modest resources so HTTP request-rate scaling is observable (55.02).
   resources:
     cpu: 250m
     memory: 128Mi
   scaling:
     minReplicas: 1
-    maxReplicas: 1
+    maxReplicas: 10
+    desiredReplicas: 1
 ---
 apiVersion: forge.dev/v1
 kind: Service

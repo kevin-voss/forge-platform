@@ -1,11 +1,29 @@
-# Demo 55 overlay — PulseBoard scaffold (epic 55.01).
+# Demo 55 overlay — PulseBoard + HTTP request-rate autoscaling (epic 55.02).
 # Used with the root compose file:
 #   docker compose -f compose.yaml -f demos/55-pulseboard/docker-compose.yml up -d ...
 #
 # Host pattern yields api.pulseboard.localhost / board.pulseboard.localhost for
 # services named `api` and `board`. No managed database — product is stateless.
+#
+# httpRequests metrics for forge-autoscaler are served by demo55-metrics (same
+# shape as demo 24's sidecar) because forge-gateway does not yet expose
+# /admin/metrics?application=.
 
 services:
+  demo55-metrics:
+    build:
+      context: ./demos/24-autoscaling/metrics
+    image: forge/demo24-metrics:local
+    container_name: demo55-metrics
+    ports:
+      - "4197:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/live')\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
   forge-control:
     environment:
       FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
@@ -29,3 +47,24 @@ services:
       FORGE_UPSTREAM_FAILURE_THRESHOLD: ${FORGE_UPSTREAM_FAILURE_THRESHOLD:-1}
       FORGE_UPSTREAM_SUCCESS_THRESHOLD: ${FORGE_UPSTREAM_SUCCESS_THRESHOLD:-1}
       FORGE_UPSTREAM_TRUST_RUNTIME_STATUS: "true"
+
+  forge-autoscaler:
+    environment:
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+      FORGE_AUTOSCALER_EVAL_INTERVAL_MS: ${FORGE_AUTOSCALER_EVAL_INTERVAL_MS:-1000}
+      FORGE_AUTOSCALER_METRIC_SOURCE: ${FORGE_AUTOSCALER_METRIC_SOURCE:-auto}
+      FORGE_OBSERVE_URL: ""
+      # httpRequests via demo metrics sidecar (Gateway has no /admin/metrics yet).
+      FORGE_GATEWAY_ADMIN_URL: http://demo55-metrics:8080
+      FORGE_EVENTS_URL: http://demo55-metrics:8080
+      FORGE_RUNTIME_URL: http://forge-runtime:8080
+      FORGE_CONTROL_URL: http://forge-control:8080
+      # Node path lands in 55.03; keep workload-only for this step.
+      FORGE_AUTOSCALER_NODE_SCALE_UP_ENABLED: "false"
+      FORGE_AUTOSCALER_NODE_SCALE_DOWN_ENABLED: "false"
+      FORGE_OTEL_ENABLED: ${FORGE_OTEL_ENABLED:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      demo55-metrics:
+        condition: service_healthy

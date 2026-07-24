@@ -55,7 +55,7 @@ added node scale back down.
 | Step | Title | Status | Notes |
 |---|---|---|---|
 | 55.01 | Product scaffold + baseline deploy | Complete | dashboard SPA + api, routes board./api.pulseboard.localhost, health |
-| 55.02 | HTTP request-rate autoscaling + load gen | Not started | `ScalingPolicy httpRequests`; harness load generator; replicas rise/fall within bounds |
+| 55.02 | HTTP request-rate autoscaling + load gen | Complete | `ScalingPolicy httpRequests`; harness load generator; replicas rise/fall within bounds |
 | 55.03 | Node autoscaling (Infrastructure) | Not started | exceed capacity → Docker node provisioned → replicas Running; drain after |
 | 55.04 | Observe surfacing | Not started | dashboard reads replica count/RPS/p95 from Observe; matches Grafana |
 | 55.05 | E2E browser spec | Not started | watch replicas up under load (UI+Grafana), optional node leg, scale down after stop |

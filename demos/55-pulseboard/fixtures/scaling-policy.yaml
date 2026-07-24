@@ -1,0 +1,35 @@
+# ScalingPolicy for PulseBoard API (epic 55.02).
+# Applied via forge-autoscaler HTTP API by run.sh (kind is owned by Autoscaler).
+# Placeholders: ${PROJECT_SLUG}
+#
+# Product shape uses targetRequestsPerSecond; autoscaler MetricSpec field is
+# targetValue (same semantics: desired = ceil(totalRPS / targetPerReplica)).
+
+apiVersion: forge.dev/v1
+kind: ScalingPolicy
+metadata:
+  name: pulseboard-api-http
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    app: pulseboard-api
+    demo: "55"
+spec:
+  targetRef:
+    kind: Application
+    name: pulseboard-api
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+    - type: httpRequests
+      # targetRequestsPerSecond: 50
+      targetValue: 50
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      maxReplicasPerMinute: 10
+    scaleDown:
+      stabilizationWindowSeconds: 0
+      maxReplicasPerMinute: 10
+  metricOutageFallback:
+    mode: hold

@@ -8,7 +8,7 @@ Atomic steps for [Demo 5 — PulseBoard](../../epics/55-demo-pulseboard.md). Pro
 | N | Step | File | Status |
 |---:|---|---|---|
 | **206** | `55.01` | [55.01-scaffold-and-deploy.md](55.01-scaffold-and-deploy.md) | Complete |
-| **207** | `55.02` | [55.02-http-request-rate-autoscaling.md](55.02-http-request-rate-autoscaling.md) | Not started |
+| **207** | `55.02` | [55.02-http-request-rate-autoscaling.md](55.02-http-request-rate-autoscaling.md) | Complete |
 | **208** | `55.03` | [55.03-node-autoscaling.md](55.03-node-autoscaling.md) | Not started |
 | **209** | `55.04` | [55.04-observe-surfacing.md](55.04-observe-surfacing.md) | Not started |
 | **210** | `55.05` | [55.05-e2e-browser-spec.md](55.05-e2e-browser-spec.md) | Not started |
