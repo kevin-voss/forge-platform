@@ -1,0 +1,8 @@
+# Build manifest for snapnote-worker (`forge build --source` reads this).
+# Paths are relative to this file's directory (worker/).
+service:
+  name: worker
+  port: 8080
+build:
+  dockerfile: Dockerfile
+  context: .

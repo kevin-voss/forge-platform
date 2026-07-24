@@ -9,7 +9,7 @@ Atomic steps for [Demo 2 — SnapNote](../../epics/52-demo-snapnote.md). Product
 |---:|---|---|---|
 | **187** | `52.01` | [52.01-scaffold-notes-and-postgres.md](52.01-scaffold-notes-and-postgres.md) | Complete |
 | **188** | `52.02` | [52.02-object-storage-integration.md](52.02-object-storage-integration.md) | Complete |
-| **189** | `52.03` | [52.03-events-queue-worker-idempotency.md](52.03-events-queue-worker-idempotency.md) | Not started |
+| **189** | `52.03` | [52.03-events-queue-worker-idempotency.md](52.03-events-queue-worker-idempotency.md) | Complete |
 | **190** | `52.04` | [52.04-worker-autoscaling.md](52.04-worker-autoscaling.md) | Not started |
 | **191** | `52.05` | [52.05-e2e-browser-spec.md](52.05-e2e-browser-spec.md) | Not started |
 | **192** | `52.06` | [52.06-demo-and-gate.md](52.06-demo-and-gate.md) | Not started |

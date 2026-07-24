@@ -65,10 +65,11 @@ type downloadAttachmentResponse struct {
 type server struct {
 	store   NoteStore
 	storage *storageClient
+	events  *eventsClient
 }
 
-func newServer(store NoteStore, storage *storageClient) *server {
-	return &server{store: store, storage: storage}
+func newServer(store NoteStore, storage *storageClient, events *eventsClient) *server {
+	return &server{store: store, storage: storage, events: events}
 }
 
 func (s *server) routes() http.Handler {
@@ -83,6 +84,7 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /notes/{id}/attachments", s.handleListAttachments)
 	mux.HandleFunc("POST /notes/{id}/attachments", s.handleCreateAttachment)
 	mux.HandleFunc("GET /notes/{id}/attachments/{attachmentId}", s.handleGetAttachment)
+	mux.HandleFunc("POST /notes/{id}/attachments/{attachmentId}/complete", s.handleCompleteAttachment)
 	mux.HandleFunc("GET /notes/{id}/attachments/{attachmentId}/download", s.handleDownloadAttachment)
 	mux.HandleFunc("GET /notes/{id}/attachments/{attachmentId}/content", s.handleStreamAttachment)
 	return withCORS(mux)
@@ -107,6 +109,15 @@ func (s *server) handleReady(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 				"status": "not_ready",
 				"error":  "storage unavailable",
+			})
+			return
+		}
+	}
+	if s.events != nil && s.events.enabled() {
+		if err := s.events.Ping(ctx); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"status": "not_ready",
+				"error":  "events unavailable",
 			})
 			return
 		}
@@ -261,6 +272,39 @@ func (s *server) handleGetAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, att)
+}
+
+// handleCompleteAttachment is called after the browser PUTs the object; publishes
+// attachment.uploaded to the durable queue (Idempotency-Key = attachment_id).
+func (s *server) handleCompleteAttachment(w http.ResponseWriter, r *http.Request) {
+	if s.events == nil || !s.events.enabled() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "events unavailable"})
+		return
+	}
+	noteID := r.PathValue("id")
+	attID := r.PathValue("attachmentId")
+	att, err := s.store.GetAttachment(r.Context(), noteID, attID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "get failed"})
+		return
+	}
+	if att == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	// Already processed — return current row; publish is idempotent by attachment_id.
+	if att.Status == "ready" {
+		writeJSON(w, http.StatusOK, att)
+		return
+	}
+	if err := s.events.PublishAttachmentUploaded(r.Context(), att); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "events publish failed",
+			"detail": err.Error(),
+		})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, att)
 }
 
 func (s *server) handleDownloadAttachment(w http.ResponseWriter, r *http.Request) {

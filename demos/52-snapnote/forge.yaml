@@ -40,7 +40,7 @@ spec:
   # Typed managed Postgres dependency (materialized by run.sh via forge database).
   # DATABASE_URL is injected as plaintext env from the in-memory secrets client
   # when FORGE_SECRETS_URL=disabled (Secrets product path is TaskFlow's job).
-  # Object storage (52.02): bucket wired via FORGE_STORAGE_* image env + run.sh.
+  # Object storage (52.02) + durable queue (52.03): wired via image env + run.sh.
   dependencies:
     database:
       type: postgres
@@ -49,6 +49,9 @@ spec:
     storage:
       type: object
       bucket: snapnote-attachments
+    queue:
+      type: durable
+      name: snapnote-attachments
 ---
 apiVersion: forge.dev/v1
 kind: Service
@@ -74,6 +77,63 @@ metadata:
 spec:
   service: api
   image: ${API_IMAGE}
+  replicas: 1
+---
+# snapnote-worker — Application/Service/Deployment stand-in for kind: Worker
+# (see worker/worker.yaml). Single replica here; autoscaling lands in 52.04.
+apiVersion: forge.dev/v1
+kind: Application
+metadata:
+  name: snapnote-worker
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    app: snapnote-worker
+    demo: "52"
+spec:
+  image: ${WORKER_IMAGE}
+  resources:
+    cpu: 50m
+    memory: 64Mi
+  scaling:
+    minReplicas: 1
+    maxReplicas: 1
+  dependencies:
+    database:
+      type: postgres
+      plan: standard
+      name: snapnote-db
+    storage:
+      type: object
+      bucket: snapnote-attachments
+    queue:
+      type: durable
+      name: snapnote-attachments
+---
+apiVersion: forge.dev/v1
+kind: Service
+metadata:
+  name: worker
+  project: ${PROJECT_SLUG}
+  annotations:
+    forge.dev/parent: snapnote-worker
+spec:
+  port: 8080
+---
+apiVersion: forge.dev/v1
+kind: Deployment
+metadata:
+  name: snapnote-worker
+  project: ${PROJECT_SLUG}
+  environment: local
+  annotations:
+    forge.dev/parent: snapnote-worker
+  labels:
+    app: snapnote-worker
+    demo: "52"
+spec:
+  service: worker
+  image: ${WORKER_IMAGE}
   replicas: 1
 ---
 apiVersion: forge.dev/v1

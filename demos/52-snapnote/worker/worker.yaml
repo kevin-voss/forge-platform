@@ -1,0 +1,36 @@
+# Portable Worker resource doc for SnapNote (epic 52.03).
+# Illustrative — Control does not yet materialize kind: Worker as a first-class
+# runtime controller. run.sh deploys the equivalent Application/Service/Deployment
+# named snapnote-worker (see ../forge.yaml). Autoscaling (52.04) targets this Worker.
+#
+# Logical queue name snapnote-attachments maps to forge-events:
+#   subject:  attachment.uploaded
+#   consumer: snapnote-attachments
+
+apiVersion: forge.dev/v1
+kind: Worker
+metadata:
+  name: snapnote-worker
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    app: snapnote-worker
+    demo: "52"
+spec:
+  image: ${WORKER_IMAGE}
+  consumes:
+    queue: snapnote-attachments
+  scaling:
+    minReplicas: 1
+    maxReplicas: 1
+  dependencies:
+    database:
+      type: postgres
+      plan: standard
+      name: snapnote-db
+    storage:
+      type: object
+      bucket: snapnote-attachments
+    queue:
+      type: durable
+      name: snapnote-attachments

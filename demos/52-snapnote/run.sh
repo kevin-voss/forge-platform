@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Demo 52: SnapNote + managed Postgres + object storage (epic 52.02).
+# Demo 52: SnapNote + managed Postgres + object storage + events worker (epic 52.03).
 # Usage:
-#   demos/52-snapnote/run.sh          # build → apply → DB → storage → Ready → seed → proofs
+#   demos/52-snapnote/run.sh          # build → apply → DB → storage → events → Ready → seed → proofs
 #   demos/52-snapnote/run.sh --down   # tear down product resources only
 set -euo pipefail
 
@@ -27,6 +27,9 @@ export FORGE_DB_PROVISIONER="${FORGE_DB_PROVISIONER:-local}"
 export FORGE_DB_ENDPOINT_HOST="${FORGE_DB_ENDPOINT_HOST:-host.docker.internal}"
 export FORGE_DB_MANAGED_NETWORK="${FORGE_DB_MANAGED_NETWORK:-forge-net}"
 export FORGE_INJECT_MASK_IN_LOGS="${FORGE_INJECT_MASK_IN_LOGS:-true}"
+export FORGE_EVENTS_STREAMS="${FORGE_EVENTS_STREAMS:-build,deployment,runtime,application,agent,attachment}"
+export FORGE_EVENTS_AUTH_MODE="${FORGE_EVENTS_AUTH_MODE:-dev}"
+export FORGE_DEFAULT_ACK_WAIT_S="${FORGE_DEFAULT_ACK_WAIT_S:-10}"
 export DOCKER_GID="${DOCKER_GID:-$(stat -f '%g' /var/run/docker.sock 2>/dev/null || stat -c '%g' /var/run/docker.sock 2>/dev/null || echo 0)}"
 export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"
 
@@ -45,9 +48,12 @@ RUNTIME_SERVICE="forge-runtime"
 GATEWAY_SERVICE="forge-gateway"
 BUILD_SERVICE="forge-build"
 STORAGE_SERVICE="forge-storage"
+EVENTS_SERVICE="forge-events"
+NATS_SERVICE="nats"
 POSTGRES_SERVICE="postgres"
 REGISTRY_SERVICE="registry"
 STORAGE_URL="${FORGE_STORAGE_HOST_URL:-http://127.0.0.1:4107}"
+EVENTS_URL="${FORGE_EVENTS_HOST_URL:-http://127.0.0.1:4105}"
 STORAGE_BUCKET="${FORGE_STORAGE_BUCKET:-snapnote-attachments}"
 STORAGE_PROJECT="${FORGE_STORAGE_PROJECT:-snapnote}"
 CLI_DIR="${ROOT_DIR}/tools/forge-cli"
@@ -55,8 +61,10 @@ FORGE_BIN="${CLI_DIR}/forge"
 REGISTRY="${FORGE_REGISTRY:-localhost:5000}"
 API_IMAGE="${DEMO_API_IMAGE:-${REGISTRY}/snapnote/snapnote-api:v1}"
 WEB_IMAGE="${DEMO_WEB_IMAGE:-${REGISTRY}/snapnote/snapnote-web:v1}"
+WORKER_IMAGE="${DEMO_WORKER_IMAGE:-${REGISTRY}/snapnote/snapnote-worker:v1}"
 API_HOST="api.snapnote.localhost"
 APP_HOST="app.snapnote.localhost"
+WORKER_HOST="worker.snapnote.localhost"
 DB_NAME="snapnote-db"          # instance / dependency name (may contain '-')
 DB_LOGICAL_NAME="snapnote_db"  # Postgres DB name ([a-z_][a-z0-9_]*)
 
@@ -83,6 +91,8 @@ fail() {
   docker ps --filter "label=forge.managed_db=true" --format '{{.Names}} {{.Status}}' >&2 || true
   echo "--- ${STORAGE_SERVICE} logs (tail) ---" >&2
   "${COMPOSE[@]}" logs --tail=60 "${STORAGE_SERVICE}" >&2 || true
+  echo "--- ${EVENTS_SERVICE} logs (tail) ---" >&2
+  "${COMPOSE[@]}" logs --tail=60 "${EVENTS_SERVICE}" >&2 || true
   exit 1
 }
 
@@ -124,8 +134,10 @@ PROJECT_SLUG=${PROJECT_SLUG}
 PROJECT_ID=${PROJECT_ID}
 API_DEPLOYMENT_ID=${API_DEPLOYMENT_ID}
 WEB_DEPLOYMENT_ID=${WEB_DEPLOYMENT_ID}
+WORKER_DEPLOYMENT_ID=${WORKER_DEPLOYMENT_ID}
 API_IMAGE=${API_IMAGE}
 WEB_IMAGE=${WEB_IMAGE}
+WORKER_IMAGE=${WORKER_IMAGE}
 DB_NAME=${DB_NAME}
 EOF
 }
@@ -154,6 +166,7 @@ teardown() {
   if read_state; then
     delete_deployment "${API_DEPLOYMENT_ID:-}"
     delete_deployment "${WEB_DEPLOYMENT_ID:-}"
+    delete_deployment "${WORKER_DEPLOYMENT_ID:-}"
     rm -f "${STATE_FILE}"
   else
     echo "  no .demo-state; best-effort cleanup of demo=52 containers"
@@ -168,8 +181,8 @@ teardown() {
 }
 
 ensure_platform() {
-  echo "Ensuring Postgres, registry, Storage, Control (LocalProvisioner), Runtime, Gateway, Build..."
-  "${COMPOSE[@]}" up -d "${POSTGRES_SERVICE}" "${REGISTRY_SERVICE}"
+  echo "Ensuring Postgres, registry, NATS, Events, Storage, Control, Runtime, Gateway, Build..."
+  "${COMPOSE[@]}" up -d "${POSTGRES_SERVICE}" "${REGISTRY_SERVICE}" "${NATS_SERVICE}"
   for _ in $(seq 1 60); do
     if "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" pg_isready -U forge >/dev/null 2>&1; then
       break
@@ -180,12 +193,13 @@ ensure_platform() {
     fail "Postgres not ready"
 
   local need_recreate=0
-  local auth_mode pattern strategy provisioner secrets_url
+  local auth_mode pattern strategy provisioner secrets_url streams
   auth_mode="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_AUTH_MODE 2>/dev/null || true)"
   pattern="$(docker exec "${GATEWAY_SERVICE}" printenv FORGE_HOST_PATTERN 2>/dev/null || true)"
   strategy="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_SCHEDULER_STRATEGY 2>/dev/null || true)"
   provisioner="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_DB_PROVISIONER 2>/dev/null || true)"
   secrets_url="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_SECRETS_URL 2>/dev/null || true)"
+  streams="$(docker exec "${EVENTS_SERVICE}" printenv FORGE_EVENTS_STREAMS 2>/dev/null || true)"
   if [[ "${auth_mode}" != "dev" ]]; then
     need_recreate=1
   fi
@@ -201,17 +215,20 @@ ensure_platform() {
   if [[ "${secrets_url}" != "disabled" ]]; then
     need_recreate=1
   fi
+  if [[ "${streams}" != *attachment* ]]; then
+    need_recreate=1
+  fi
   if ! docker exec "${CONTROL_SERVICE}" test -S /var/run/docker.sock 2>/dev/null; then
     need_recreate=1
   fi
 
   if [[ "${need_recreate}" -eq 1 ]]; then
-    echo "Recreating Control/Runtime/Gateway with demo 52 managed-DB overlay..."
+    echo "Recreating Control/Runtime/Gateway/Events with demo 52 overlay..."
     "${COMPOSE[@]}" up -d --force-recreate \
-      "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}"
+      "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}" "${EVENTS_SERVICE}"
   else
-    echo "Control/Gateway already configured for demo 52; ensuring they are up..."
-    "${COMPOSE[@]}" up -d "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}"
+    echo "Control/Gateway/Events already configured for demo 52; ensuring they are up..."
+    "${COMPOSE[@]}" up -d "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}" "${EVENTS_SERVICE}"
   fi
   "${COMPOSE[@]}" up -d "${BUILD_SERVICE}" "${STORAGE_SERVICE}"
 
@@ -220,6 +237,7 @@ ensure_platform() {
   wait_http "${GATEWAY_URL}/health/ready" "Gateway"
   wait_http "${BUILD_URL}/health/ready" "Build" 60 || true
   wait_http "${STORAGE_URL}/health/ready" "Storage" 90
+  wait_http "${EVENTS_URL}/health/ready" "Events" 90
 
   pattern="$(docker exec "${GATEWAY_SERVICE}" printenv FORGE_HOST_PATTERN 2>/dev/null || true)"
   [[ "${pattern}" == *'{service}.snapnote.localhost'* ]] ||
@@ -227,6 +245,31 @@ ensure_platform() {
   provisioner="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_DB_PROVISIONER 2>/dev/null || true)"
   [[ "${provisioner}" == "local" ]] ||
     fail "control FORGE_DB_PROVISIONER must be local (got: ${provisioner})"
+  streams="$(docker exec "${EVENTS_SERVICE}" printenv FORGE_EVENTS_STREAMS 2>/dev/null || true)"
+  [[ "${streams}" == *attachment* ]] ||
+    fail "events FORGE_EVENTS_STREAMS must include attachment (got: ${streams})"
+
+  # Confirm attachment.uploaded schema is loaded.
+  curl --fail --silent --show-error "${EVENTS_URL}/v1/schemas" >"${TMP_DIR}/schemas.json" ||
+    fail "GET /v1/schemas failed"
+  python3 - <<'PY' "${TMP_DIR}/schemas.json" || fail "attachment.uploaded schema missing"
+import json, sys
+raw = json.load(open(sys.argv[1]))
+flat = []
+if isinstance(raw, list):
+    for item in raw:
+        if isinstance(item, str):
+            flat.append(item)
+        elif isinstance(item, dict):
+            flat.append(item.get("subject") or item.get("name") or "")
+elif isinstance(raw, dict):
+    for k, v in raw.items():
+        flat.append(k)
+        if isinstance(v, list):
+            flat.extend(str(x) for x in v)
+assert any("attachment.uploaded" in str(x) for x in flat), raw
+print("  schema attachment.uploaded registered")
+PY
 
   ensure_storage_bucket
 }
@@ -256,6 +299,10 @@ ensure_images() {
     ) || fail "forge build api failed"
     (
       cd "${DEMO_DIR}"
+      forge build --source . --forge-yaml worker/forge.yaml --tag "${WORKER_IMAGE}"
+    ) || fail "forge build worker failed"
+    (
+      cd "${DEMO_DIR}"
       forge build --source . --forge-yaml web.forge.yaml --tag "${WEB_IMAGE}"
     ) || fail "forge build web failed"
     return 0
@@ -265,6 +312,9 @@ ensure_images() {
   docker build -f "${DEMO_DIR}/api/Dockerfile" -t "${API_IMAGE}" "${DEMO_DIR}" ||
     fail "docker build api failed"
   docker push "${API_IMAGE}" || fail "docker push api failed"
+  docker build -f "${DEMO_DIR}/worker/Dockerfile" -t "${WORKER_IMAGE}" "${DEMO_DIR}/worker" ||
+    fail "docker build worker failed"
+  docker push "${WORKER_IMAGE}" || fail "docker push worker failed"
   docker build -f "${DEMO_DIR}/Dockerfile.web" -t "${WEB_IMAGE}" "${DEMO_DIR}" ||
     fail "docker build web failed"
   docker push "${WEB_IMAGE}" || fail "docker push web failed"
@@ -383,6 +433,7 @@ PY
 assert_applications_ready() {
   echo "Checking applications/deployments Ready..."
   wait_deployment_status "${API_DEPLOYMENT_ID}" "deployed" 180
+  wait_deployment_status "${WORKER_DEPLOYMENT_ID}" "deployed" 180
   wait_deployment_status "${WEB_DEPLOYMENT_ID}" "deployed" 120
   echo "  applications Ready (deployments active)"
 }
@@ -414,7 +465,18 @@ body = json.load(open(sys.argv[1]))
 ref = body.get("secretRef") or body.get("secret_ref") or ""
 assert ref, body
 assert "://" not in ref, body
-print(f"  attached DATABASE_URL secretRef={ref}")
+print(f"  attached DATABASE_URL secretRef={ref} (snapnote-api)")
+PY
+
+  forge_json "${TMP_DIR}/db-attach-worker.json" --project "${PROJECT_ID}" \
+    database attach "${DB_NAME}" --app snapnote-worker --env-var DATABASE_URL
+  python3 - <<'PY' "${TMP_DIR}/db-attach-worker.json" || fail "worker attach missing secretRef"
+import json, sys
+body = json.load(open(sys.argv[1]))
+ref = body.get("secretRef") or body.get("secret_ref") or ""
+assert ref, body
+assert "://" not in ref, body
+print(f"  attached DATABASE_URL secretRef={ref} (snapnote-worker)")
 PY
 }
 
@@ -432,6 +494,37 @@ api_container_id() {
   local short
   short="$(python3 -c 'import sys; print(sys.argv[1].replace("-", "")[:8])' "${API_DEPLOYMENT_ID}")"
   docker ps -q --filter "label=forge.managed=true" --filter "name=forge-api-${short}-" | head -n1
+}
+
+worker_container_id() {
+  local cid
+  cid="$(docker ps -q \
+    --filter "label=forge.deployment_id=${WORKER_DEPLOYMENT_ID}" \
+    --filter "label=forge.managed=true" | head -n1)"
+  if [[ -n "${cid}" ]]; then
+    echo "${cid}"
+    return 0
+  fi
+  local short
+  short="$(python3 -c 'import sys; print(sys.argv[1].replace("-", "")[:8])' "${WORKER_DEPLOYMENT_ID}")"
+  docker ps -q --filter "label=forge.managed=true" --filter "name=forge-worker-${short}-" | head -n1
+}
+
+wait_database_url_injected_worker() {
+  local cid="" url="" i
+  echo "Waiting for DATABASE_URL injection into worker container..."
+  for i in $(seq 1 120); do
+    cid="$(worker_container_id)"
+    if [[ -n "${cid}" ]]; then
+      url="$(container_env "${cid}" DATABASE_URL)"
+      if [[ -n "${url}" ]]; then
+        echo "  DATABASE_URL present on worker ${cid:0:12}"
+        return 0
+      fi
+    fi
+    sleep 1
+  done
+  fail "DATABASE_URL never appeared on worker container"
 }
 
 container_env() {
@@ -594,6 +687,177 @@ print(f"  storage round-trip ok id={want_id} key={want_key} status=pending")
 PY
 }
 
+rewrite_storage_url() {
+  local url="$1"
+  UPLOAD_URL="${url}" STORAGE_URL="${STORAGE_URL}" python3 - <<'PY'
+import os, urllib.parse
+u = os.environ["UPLOAD_URL"]
+storage = os.environ["STORAGE_URL"].rstrip("/")
+parsed = urllib.parse.urlparse(u)
+if parsed.path.startswith("/storage/"):
+    path = parsed.path[len("/storage"):]
+    print(storage + path + (("?" + parsed.query) if parsed.query else ""))
+else:
+    print(u)
+PY
+}
+
+prove_worker_thumbnail() {
+  local title="thumb-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:8])')"
+  local create_body note_id att_id upload_url object_key code payload thumb_key status=""
+  echo "Proving upload → events queue → worker thumbnail → status ready..."
+  create_body="$(python3 -c 'import json,sys; print(json.dumps({"title":sys.argv[1],"body":"async thumb"}))' "${title}")"
+  code="$(curl --silent --show-error -o "${TMP_DIR}/create-note-thumb.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" -H 'content-type: application/json' \
+    -d "${create_body}" "${GATEWAY_URL}/notes" || echo "000")"
+  [[ "${code}" == "201" ]] || fail "create note for thumb HTTP ${code}: $(cat "${TMP_DIR}/create-note-thumb.json")"
+  note_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "${TMP_DIR}/create-note-thumb.json")"
+
+  code="$(curl --silent --show-error -o "${TMP_DIR}/create-att-thumb.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" -H 'content-type: application/json' \
+    -d '{"filename":"sunset.jpg","contentType":"image/jpeg"}' \
+    "${GATEWAY_URL}/notes/${note_id}/attachments" || echo "000")"
+  [[ "${code}" == "201" ]] || fail "create attachment for thumb HTTP ${code}: $(cat "${TMP_DIR}/create-att-thumb.json")"
+  upload_url="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["uploadUrl"])' "${TMP_DIR}/create-att-thumb.json")"
+  att_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["attachment"]["id"])' "${TMP_DIR}/create-att-thumb.json")"
+  object_key="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["attachment"]["objectKey"])' "${TMP_DIR}/create-att-thumb.json")"
+
+  payload="${TMP_DIR}/sunset.jpg"
+  printf 'snapnote-thumb-bytes-%s' "${att_id}" >"${payload}"
+  local put_url
+  put_url="$(rewrite_storage_url "${upload_url}")"
+  code="$(curl --silent --show-error -o "${TMP_DIR}/put-thumb.json" -w '%{http_code}' \
+    -X PUT -H 'content-type: image/jpeg' --data-binary @"${payload}" \
+    "${put_url}" || echo "000")"
+  [[ "${code}" == "201" || "${code}" == "200" ]] ||
+    fail "storage PUT (thumb) HTTP ${code}: $(cat "${TMP_DIR}/put-thumb.json" 2>/dev/null || true)"
+
+  code="$(curl --silent --show-error -o "${TMP_DIR}/complete-att.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" -X POST \
+    "${GATEWAY_URL}/notes/${note_id}/attachments/${att_id}/complete" || echo "000")"
+  [[ "${code}" == "202" || "${code}" == "200" ]] ||
+    fail "complete attachment HTTP ${code}: $(cat "${TMP_DIR}/complete-att.json")"
+
+  echo "  waiting for worker to mark attachment ready..."
+  for _ in $(seq 1 90); do
+    code="$(curl --silent --show-error -o "${TMP_DIR}/get-att-thumb.json" -w '%{http_code}' \
+      -H "Host: ${API_HOST}" \
+      "${GATEWAY_URL}/notes/${note_id}/attachments/${att_id}" || echo "000")"
+    if [[ "${code}" == "200" ]]; then
+      status="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status",""))' "${TMP_DIR}/get-att-thumb.json")"
+      thumb_key="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("thumbnailKey") or "")' "${TMP_DIR}/get-att-thumb.json")"
+      if [[ "${status}" == "ready" && -n "${thumb_key}" ]]; then
+        echo "  attachment ready id=${att_id} thumbnailKey=${thumb_key}"
+        break
+      fi
+    fi
+    sleep 1
+  done
+  [[ "${status}" == "ready" && -n "${thumb_key}" ]] ||
+    fail "attachment never reached ready; last=$(cat "${TMP_DIR}/get-att-thumb.json" 2>/dev/null || true)"
+
+  # Thumbnail object exists in storage.
+  code="$(curl --silent --show-error -o "${TMP_DIR}/get-thumb-obj.bin" -w '%{http_code}' \
+    -H "X-Forge-Project: ${STORAGE_PROJECT}" \
+    "${STORAGE_URL}/v1/buckets/${STORAGE_BUCKET}/objects/$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe="/"))' "${thumb_key}")" || echo "000")"
+  [[ "${code}" == "200" ]] || fail "thumbnail GET HTTP ${code}"
+  python3 - <<'PY' "${TMP_DIR}/get-thumb-obj.bin" || fail "thumbnail missing THUMB marker"
+import sys
+data = open(sys.argv[1], "rb").read()
+assert data.startswith(b"THUMB\n"), data[:40]
+print(f"  thumbnail object ok bytes={len(data)}")
+PY
+
+  # Idempotent complete (same Idempotency-Key) + still one thumbnail.
+  code="$(curl --silent --show-error -o "${TMP_DIR}/complete-att-2.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" -X POST \
+    "${GATEWAY_URL}/notes/${note_id}/attachments/${att_id}/complete" || echo "000")"
+  [[ "${code}" == "202" || "${code}" == "200" ]] ||
+    fail "second complete HTTP ${code}: $(cat "${TMP_DIR}/complete-att-2.json")"
+  sleep 2
+  code="$(curl --silent --show-error -o "${TMP_DIR}/get-att-thumb-2.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" \
+    "${GATEWAY_URL}/notes/${note_id}/attachments/${att_id}" || echo "000")"
+  [[ "${code}" == "200" ]] || fail "re-get attachment HTTP ${code}"
+  ATT_ID="${att_id}" THUMB="${thumb_key}" python3 - <<'PY' "${TMP_DIR}/get-att-thumb-2.json" || fail "idempotency broke ready state"
+import json, os, sys
+body = json.load(open(sys.argv[1]))
+assert body.get("status") == "ready", body
+assert body.get("thumbnailKey") == os.environ["THUMB"], body
+print(f"  idempotent complete ok id={os.environ['ATT_ID']}")
+PY
+}
+
+prove_worker_restart_exactly_once() {
+  local title="restart-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:8])')"
+  local create_body note_id att_id upload_url object_key code payload thumb_key status="" cid
+  echo "Proving exactly-once across worker restart mid-processing..."
+  create_body="$(python3 -c 'import json,sys; print(json.dumps({"title":sys.argv[1],"body":"restart"}))' "${title}")"
+  code="$(curl --silent --show-error -o "${TMP_DIR}/create-note-rst.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" -H 'content-type: application/json' \
+    -d "${create_body}" "${GATEWAY_URL}/notes" || echo "000")"
+  [[ "${code}" == "201" ]] || fail "create note restart HTTP ${code}"
+  note_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "${TMP_DIR}/create-note-rst.json")"
+
+  code="$(curl --silent --show-error -o "${TMP_DIR}/create-att-rst.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" -H 'content-type: application/json' \
+    -d '{"filename":"burst.jpg","contentType":"image/jpeg"}' \
+    "${GATEWAY_URL}/notes/${note_id}/attachments" || echo "000")"
+  [[ "${code}" == "201" ]] || fail "create attachment restart HTTP ${code}"
+  upload_url="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["uploadUrl"])' "${TMP_DIR}/create-att-rst.json")"
+  att_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["attachment"]["id"])' "${TMP_DIR}/create-att-rst.json")"
+  object_key="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["attachment"]["objectKey"])' "${TMP_DIR}/create-att-rst.json")"
+
+  payload="${TMP_DIR}/burst.jpg"
+  printf 'snapnote-restart-bytes-%s' "${att_id}" >"${payload}"
+  local put_url
+  put_url="$(rewrite_storage_url "${upload_url}")"
+  code="$(curl --silent --show-error -o /dev/null -w '%{http_code}' \
+    -X PUT -H 'content-type: image/jpeg' --data-binary @"${payload}" \
+    "${put_url}" || echo "000")"
+  [[ "${code}" == "201" || "${code}" == "200" ]] || fail "PUT restart HTTP ${code}"
+
+  # Stop worker before complete so the message is unconsumed; Control reconciles a
+  # replacement replica (restart-safe consume + app idempotency).
+  cid="$(worker_container_id)"
+  [[ -n "${cid}" ]] || fail "worker container missing before restart proof"
+  echo "  stopping worker ${cid:0:12} before publish..."
+  docker stop "${cid}" >/dev/null || fail "docker stop worker failed"
+
+  code="$(curl --silent --show-error -o "${TMP_DIR}/complete-rst.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" -X POST \
+    "${GATEWAY_URL}/notes/${note_id}/attachments/${att_id}/complete" || echo "000")"
+  [[ "${code}" == "202" || "${code}" == "200" ]] ||
+    fail "complete during worker stop HTTP ${code}: $(cat "${TMP_DIR}/complete-rst.json")"
+
+  echo "  waiting for Control to reconcile a replacement worker..."
+  # Best-effort start of the stopped container; reconciler may also create a new one.
+  docker start "${cid}" >/dev/null 2>&1 || true
+  wait_host_http "${WORKER_HOST}" "/health/ready" 200 180
+
+  for _ in $(seq 1 90); do
+    code="$(curl --silent --show-error -o "${TMP_DIR}/get-att-rst.json" -w '%{http_code}' \
+      -H "Host: ${API_HOST}" \
+      "${GATEWAY_URL}/notes/${note_id}/attachments/${att_id}" || echo "000")"
+    if [[ "${code}" == "200" ]]; then
+      status="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status",""))' "${TMP_DIR}/get-att-rst.json")"
+      thumb_key="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("thumbnailKey") or "")' "${TMP_DIR}/get-att-rst.json")"
+      if [[ "${status}" == "ready" && -n "${thumb_key}" ]]; then
+        break
+      fi
+    fi
+    sleep 1
+  done
+  [[ "${status}" == "ready" && -n "${thumb_key}" ]] ||
+    fail "attachment not ready after worker restart; last=$(cat "${TMP_DIR}/get-att-rst.json" 2>/dev/null || true)"
+
+  code="$(curl --silent --show-error -o "${TMP_DIR}/get-thumb-rst.bin" -w '%{http_code}' \
+    -H "X-Forge-Project: ${STORAGE_PROJECT}" \
+    "${STORAGE_URL}/v1/buckets/${STORAGE_BUCKET}/objects/$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe="/"))' "${thumb_key}")" || echo "000")"
+  [[ "${code}" == "200" ]] || fail "thumbnail after restart HTTP ${code}"
+  echo "  restart-safe exactly-once ok id=${att_id} thumbnailKey=${thumb_key}"
+}
+
 deploy() {
   if [[ -f "${STATE_FILE}" ]]; then
     teardown
@@ -610,8 +874,8 @@ deploy() {
 
   echo "Rendering forge.yaml → apply (project=${PROJECT_SLUG})..."
   PROJECT_NAME="${PROJECT_NAME}" PROJECT_SLUG="${PROJECT_SLUG}" \
-    API_IMAGE="${API_IMAGE}" WEB_IMAGE="${WEB_IMAGE}" \
-    envsubst '${PROJECT_NAME} ${PROJECT_SLUG} ${API_IMAGE} ${WEB_IMAGE}' \
+    API_IMAGE="${API_IMAGE}" WEB_IMAGE="${WEB_IMAGE}" WORKER_IMAGE="${WORKER_IMAGE}" \
+    envsubst '${PROJECT_NAME} ${PROJECT_SLUG} ${API_IMAGE} ${WEB_IMAGE} ${WORKER_IMAGE}' \
     <"${DEMO_DIR}/forge.yaml" >"${TMP_DIR}/forge.yaml"
 
   forge_json "${TMP_DIR}/apply.json" apply -f "${TMP_DIR}/forge.yaml"
@@ -619,16 +883,19 @@ deploy() {
   PROJECT_ID=""
   API_DEPLOYMENT_ID=""
   WEB_DEPLOYMENT_ID=""
+  WORKER_DEPLOYMENT_ID=""
   while IFS= read -r line; do
     case "${line}" in
       PROJECT_ID=*) PROJECT_ID="${line#PROJECT_ID=}" ;;
       DEPLOYMENT:snapnote-api=*) API_DEPLOYMENT_ID="${line#DEPLOYMENT:snapnote-api=}" ;;
       DEPLOYMENT:snapnote-web=*) WEB_DEPLOYMENT_ID="${line#DEPLOYMENT:snapnote-web=}" ;;
+      DEPLOYMENT:snapnote-worker=*) WORKER_DEPLOYMENT_ID="${line#DEPLOYMENT:snapnote-worker=}" ;;
     esac
   done < <(extract_apply_ids)
 
   [[ -n "${API_DEPLOYMENT_ID}" ]] || fail "snapnote-api Deployment id missing from apply"
   [[ -n "${WEB_DEPLOYMENT_ID}" ]] || fail "snapnote-web Deployment id missing from apply"
+  [[ -n "${WORKER_DEPLOYMENT_ID}" ]] || fail "snapnote-worker Deployment id missing from apply"
 
   if [[ -z "${PROJECT_ID}" ]]; then
     # Resolve project UUID by slug via Control list API (auth=dev).
@@ -642,20 +909,25 @@ for p in json.load(sys.stdin):
 ')" || true
   fi
   [[ -n "${PROJECT_ID}" ]] || fail "PROJECT_ID missing from apply/list"
-  echo "Deployments api=${API_DEPLOYMENT_ID} web=${WEB_DEPLOYMENT_ID} project=${PROJECT_ID}"
+  echo "Deployments api=${API_DEPLOYMENT_ID} worker=${WORKER_DEPLOYMENT_ID} web=${WEB_DEPLOYMENT_ID} project=${PROJECT_ID}"
 
   provision_managed_db
   wait_database_url_injected
+  wait_database_url_injected_worker
   assert_applications_ready
   wait_route_host "${API_HOST}" 90
+  wait_route_host "${WORKER_HOST}" 90
   wait_route_host "${APP_HOST}" 90
   wait_host_http "${API_HOST}" "/health/ready" 200 90
+  wait_host_http "${WORKER_HOST}" "/health/ready" 200 90
   wait_host_http "${APP_HOST}" "/" 200 60
 
   # Optional: forge wait Ready when CLI supports it.
   if "${FORGE_BIN}" wait --help >/dev/null 2>&1; then
     forge wait "application/snapnote-api" --for=condition=Ready --timeout=2m ||
       fail "forge wait snapnote-api failed"
+    forge wait "application/snapnote-worker" --for=condition=Ready --timeout=2m ||
+      fail "forge wait snapnote-worker failed"
     forge wait "application/snapnote-web" --for=condition=Ready --timeout=2m ||
       fail "forge wait snapnote-web failed"
   fi
@@ -664,16 +936,21 @@ for p in json.load(sys.stdin):
   bash "${DEMO_DIR}/seed.sh" || fail "seed.sh failed"
   prove_persistence
   prove_storage_roundtrip
+  prove_worker_thumbnail
+  prove_worker_restart_exactly_once
 
   echo
-  echo "demo 52 deploy READY (managed Postgres + object storage attachments)"
+  echo "demo 52 deploy READY (storage + events queue + idempotent worker)"
   echo "  App:          http://${APP_HOST}:4000/"
   echo "  API:          http://${API_HOST}:4000/health/ready"
+  echo "  Worker:       http://${WORKER_HOST}:4000/health/ready"
   echo "  API image:    ${API_IMAGE}"
+  echo "  Worker image: ${WORKER_IMAGE}"
   echo "  Web image:    ${WEB_IMAGE}"
   echo "  Database:     ${DB_NAME} (Ready)"
   echo "  Storage:      ${STORAGE_BUCKET} @ ${STORAGE_URL}"
-  echo "  Deployments:  api=${API_DEPLOYMENT_ID} web=${WEB_DEPLOYMENT_ID}"
+  echo "  Events:       ${EVENTS_URL} (queue snapnote-attachments / attachment.uploaded)"
+  echo "  Deployments:  api=${API_DEPLOYMENT_ID} worker=${WORKER_DEPLOYMENT_ID} web=${WEB_DEPLOYMENT_ID}"
   echo "  Project:      ${PROJECT_SLUG} (${PROJECT_ID})"
 }
 

@@ -1,31 +1,33 @@
 # Demo 52 — SnapNote
 
-Epic **52** step `52.02`: notes with file attachments stored in Forge Storage via
-presigned PUT/GET. Later steps add the attachment worker queue and autoscaling.
+Epic **52** step `52.03`: notes with file attachments in Forge Storage, published to a
+durable Events queue, processed by an idempotent background worker that writes a
+thumbnail and flips `status` to `ready`.
 
-## What it proves (52.02)
+## What it proves (52.03)
 
-1. Deploy SnapNote onto Forge (`forge build` + `forge apply` + managed DB + Storage).
-2. Gateway hosts `app.snapnote.localhost` / `api.snapnote.localhost` return 200.
+1. Deploy SnapNote onto Forge (`forge build` + `forge apply` + managed DB + Storage + Events).
+2. Gateway hosts `app` / `api` / `worker.snapnote.localhost` return 200.
 3. Notes CRUD persists in managed Postgres across an API container restart.
-4. Attachments: API issues presigned upload URLs; objects land in bucket
-   `snapnote-attachments`; metadata rows stay `status=pending`; downloadable via
-   signed GET or streamed API content.
+4. Attachments: presigned PUT → `POST …/complete` publishes `attachment.uploaded`
+   (Idempotency-Key = `attachment_id`) to queue `snapnote-attachments`.
+5. `snapnote-worker` consumes with ack + `POST /v1/processed`; thumbnail object appears;
+   metadata reaches `status=ready`. Restart-safe (exactly-once side effects).
 
 ## Layout
 
 | Path | Role |
 |---|---|
-| `api/` | Go API (notes CRUD + attachment presign/download/stream) |
-| `api/storage.go` | Forge Storage client (bucket ensure, sign, get) |
+| `api/` | Go API (notes CRUD + attachment presign/complete/download/stream + events publish) |
+| `worker/` | Go worker (durable consume → thumbnail → mark ready); `worker.yaml` Worker resource doc |
 | `migrations/` | Idempotent Postgres schema (`notes`, `attachments`) |
-| `public/` | SPA: create notes + attach files (browser PUT to signed URL) |
+| `public/` | SPA: create notes, attach files, poll until thumbnail ready |
 | `nginx.conf` | Static files + `/storage/` same-origin proxy to forge-storage |
-| `forge.yaml` | Portable manifests + `dependencies.database` + `dependencies.storage` |
-| `run.sh` | Deploy / teardown; DB + storage proofs |
+| `forge.yaml` | Portable manifests + `dependencies.database|storage|queue` + worker Application |
+| `run.sh` | Deploy / teardown; DB + storage + queue/worker proofs |
 | `seed.sh` | Idempotent two starter notes |
 | `demo.json` | Harness `DemoProject` contract (`id: 02-snapnote`) |
-| `docker-compose.yml` | Overlay: Control LocalProvisioner, Gateway hosts |
+| `docker-compose.yml` | Overlay: Control LocalProvisioner, Gateway hosts, Events `attachment` stream |
 
 ## Commands
 
@@ -37,51 +39,52 @@ make demo DEMO=52 HEADLESS=1
 # Manual product deploy only (leave running for curl / browser checks)
 ./demos/52-snapnote/run.sh
 curl -fsS -H 'Host: api.snapnote.localhost' http://127.0.0.1:4000/health/ready
+curl -fsS -H 'Host: worker.snapnote.localhost' http://127.0.0.1:4000/health/ready
 
-# Presign → PUT → list (API)
+# Presign → PUT → complete (API)
 NOTE_ID=... # from POST /notes
-curl -fsS -H 'Host: api.snapnote.localhost' -H 'content-type: application/json' \
+ATT=$(curl -fsS -H 'Host: api.snapnote.localhost' -H 'content-type: application/json' \
   -d '{"filename":"lake.jpg","contentType":"image/jpeg"}' \
-  http://127.0.0.1:4000/notes/$NOTE_ID/attachments
-# then PUT bytes to uploadUrl (or use the SPA Attach file button)
+  http://127.0.0.1:4000/notes/$NOTE_ID/attachments)
+# PUT bytes to uploadUrl, then:
+curl -fsS -H 'Host: api.snapnote.localhost' -X POST \
+  http://127.0.0.1:4000/notes/$NOTE_ID/attachments/$ATT_ID/complete
+# poll GET …/attachments/$ATT_ID until status=ready
 
 ./demos/52-snapnote/run.sh --down
 
 # Browser smoke (product must already be up via run.sh or KEEP=1)
 cd tests/e2e && npx playwright test projects/02-snapnote
 
-# API unit + repository + storage fake round-trip
+# Unit tests
 cd demos/52-snapnote/api && go test ./...
+cd demos/52-snapnote/worker && go test ./...
 ```
 
 ## Host routing
 
 Gateway overlay sets `FORGE_HOST_PATTERN={service}.snapnote.localhost`. Services are
-named `api` and `app`, so the product is reachable at:
+named `api`, `app`, and `worker`:
 
 * `http://api.snapnote.localhost:4000/health/ready`
-* `http://api.snapnote.localhost:4000/notes`
+* `http://worker.snapnote.localhost:4000/health/ready`
 * `http://app.snapnote.localhost:4000/`
 
-Browser upload URLs use `http://app.snapnote.localhost:4000/storage/...` (nginx
-proxies to host-published `forge-storage:4107`) so PUT stays same-origin.
-
 ## Dependencies
-
-`forge.yaml` declares:
 
 ```yaml
 dependencies:
   database: { type: postgres, plan: standard, name: snapnote-db }
   storage:  { type: object, bucket: snapnote-attachments }
+  queue:    { type: durable, name: snapnote-attachments }
 ```
 
-`run.sh` materializes the database with `forge database create/attach`, starts
-`forge-storage`, ensures the bucket exists, and proves a presign → PUT → GET
-round-trip. Storage client env is baked into the API image (`FORGE_STORAGE_*`).
+Logical queue `snapnote-attachments` maps to forge-events subject `attachment.uploaded`
+and durable consumer `snapnote-attachments`. Portable `kind: Worker` doc lives at
+`worker/worker.yaml`; Control deploys the runnable form as Application/Service/Deployment
+`snapnote-worker` until Worker is a first-class controller.
 
 ## Out of scope (later steps)
 
-* Events queue + worker + idempotent thumbnails (`52.03`) — status stays `pending`
 * Worker autoscaling (`52.04`)
 * Full headed browser E2E (`52.05`) and epic gate (`52.06`)

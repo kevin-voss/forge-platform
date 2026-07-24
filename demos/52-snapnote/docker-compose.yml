@@ -1,13 +1,26 @@
-# Demo 52 overlay — SnapNote + managed Postgres (epic 52.01).
+# Demo 52 overlay — SnapNote + managed Postgres + Events (epic 52.03).
 # Used with the root compose file:
 #   docker compose -f compose.yaml -f demos/52-snapnote/docker-compose.yml up -d ...
 #
-# Host pattern yields api.snapnote.localhost / app.snapnote.localhost for services
-# named `api` and `app`. LocalProvisioner starts isolated product Postgres
+# Host pattern yields api/app/worker.snapnote.localhost for services named
+# `api`, `app`, and `worker`. LocalProvisioner starts isolated product Postgres
 # containers; DATABASE_URL is injected via Control's in-memory secrets client
 # while FORGE_SECRETS_URL=disabled.
 
 services:
+  forge-events:
+    environment:
+      FORGE_AUTH_MODE: ${FORGE_EVENTS_AUTH_MODE:-dev}
+      # Include attachment family for attachment.uploaded (SnapNote queue).
+      FORGE_EVENTS_STREAMS: ${FORGE_EVENTS_STREAMS:-build,deployment,runtime,application,agent,attachment}
+      FORGE_DEFAULT_ACK_WAIT_S: ${FORGE_DEFAULT_ACK_WAIT_S:-10}
+      FORGE_DEFAULT_MAX_DELIVERIES: ${FORGE_DEFAULT_MAX_DELIVERIES:-5}
+      FORGE_ACK_TOKEN_TTL_S: ${FORGE_ACK_TOKEN_TTL_S:-30}
+      FORGE_DEDUP_WINDOW_S: ${FORGE_DEDUP_WINDOW_S:-120}
+      FORGE_CONSUME_WAIT_MS: ${FORGE_CONSUME_WAIT_MS:-1000}
+      FORGE_DLQ_ENABLED: "true"
+      FORGE_SCHEMA_VALIDATION: strict
+
   forge-control:
     environment:
       FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}

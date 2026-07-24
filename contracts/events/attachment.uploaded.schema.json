@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/contracts/events/attachment.uploaded/v1",
+  "title": "attachment.uploaded",
+  "description": "Emitted by SnapNote when a note attachment has been uploaded to object storage and is ready for async processing.",
+  "x-forge-subject": "attachment.uploaded",
+  "x-forge-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["attachment_id", "note_id", "object_key", "content_type", "uploaded_at"],
+  "properties": {
+    "attachment_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque attachment identifier (also used as publish Idempotency-Key)"
+    },
+    "note_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Parent note identifier"
+    },
+    "object_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Object key in the snapnote-attachments bucket"
+    },
+    "content_type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "MIME type of the uploaded object"
+    },
+    "uploaded_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the upload was confirmed (RFC 3339)"
+    },
+    "source": {
+      "type": "string",
+      "description": "Producing service name"
+    }
+  }
+}

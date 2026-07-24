@@ -51,6 +51,10 @@
       const text = await put.text();
       throw new Error(text || `upload HTTP ${put.status}`);
     }
+    // Confirm upload → publish attachment.uploaded to durable queue.
+    await api(`/notes/${noteId}/attachments/${created.attachment.id}/complete`, {
+      method: 'POST',
+    });
     return created.attachment;
   }
 
@@ -73,7 +77,15 @@
     for (const att of items) {
       const li = document.createElement('li');
       const label = document.createElement('span');
-      label.textContent = `${att.objectKey.split('/').pop()} · ${att.status}`;
+      const statusLabel =
+        att.status === 'pending' ? 'processing…' : att.status === 'ready' ? 'ready' : att.status;
+      label.textContent = `${att.objectKey.split('/').pop()} · ${statusLabel}`;
+      if (att.status === 'ready' && att.thumbnailKey) {
+        const thumb = document.createElement('span');
+        thumb.className = 'thumb-key';
+        thumb.textContent = ` thumb:${att.thumbnailKey.split('/').pop()}`;
+        label.appendChild(thumb);
+      }
       const openBtn = document.createElement('button');
       openBtn.type = 'button';
       openBtn.className = 'secondary';
@@ -141,9 +153,21 @@
         if (!file) return;
         try {
           status.textContent = `Uploading ${file.name}…`;
-          await uploadAttachment(note.id, file);
+          const uploaded = await uploadAttachment(note.id, file);
           await refresh();
-          status.textContent = `Uploaded ${file.name}`;
+          status.textContent = `Uploaded ${file.name} — processing thumbnail…`;
+          // Poll until worker flips status to ready (async queue proof).
+          for (let i = 0; i < 40; i++) {
+            await new Promise((r) => setTimeout(r, 500));
+            const items = await loadAttachments(note.id);
+            const match = items.find((a) => a.id === uploaded.id);
+            if (match && match.status === 'ready') {
+              await refresh();
+              status.textContent = `Thumbnail ready for ${file.name}`;
+              return;
+            }
+          }
+          await refresh();
         } catch (err) {
           status.textContent = `Failed to upload: ${err.message}`;
         }

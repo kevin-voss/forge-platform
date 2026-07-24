@@ -36,7 +36,17 @@ func main() {
 		storageCfg.Bucket, storageCfg.ProjectID, storageCfg.BaseURL, storageCfg.PublicURL,
 	)
 
-	srv := newServer(store, storage)
+	eventsCfg := loadEventsConfig()
+	events := newEventsClient(eventsCfg)
+	if err := ensureEventsReady(events, 60*time.Second); err != nil {
+		log.Fatalf("events: %v", err)
+	}
+	log.Printf(
+		"snapnote-api events ready subject=%s url=%s",
+		eventsCfg.Subject, eventsCfg.BaseURL,
+	)
+
+	srv := newServer(store, storage, events)
 	log.Printf("snapnote-api listening on %s", addr)
 	if err := http.ListenAndServe(addr, srv.routes()); err != nil {
 		log.Fatal(err)
@@ -86,6 +96,25 @@ func ensureStorageReady(storage *storageClient, budget time.Duration) error {
 			return last
 		}
 		log.Printf("waiting for forge-storage: %v", err)
+		time.Sleep(2 * time.Second)
+	}
+}
+
+func ensureEventsReady(events *eventsClient, budget time.Duration) error {
+	deadline := time.Now().Add(budget)
+	var last error
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := events.Ping(ctx)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		last = err
+		if time.Now().After(deadline) {
+			return last
+		}
+		log.Printf("waiting for forge-events: %v", err)
 		time.Sleep(2 * time.Second)
 	}
 }

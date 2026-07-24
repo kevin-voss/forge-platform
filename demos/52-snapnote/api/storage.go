@@ -148,6 +148,29 @@ func (c *storageClient) Sign(ctx context.Context, method, key string) (publicURL
 	return c.cfg.PublicURL + signed.URL, signed.ExpiresAt, nil
 }
 
+// PutObject writes an object using project credentials (server-side).
+func (c *storageClient) PutObject(ctx context.Context, key, contentType string, data []byte) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.cfg.BaseURL+c.objectAPIPath(key), bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Forge-Project", c.cfg.ProjectID)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	req.Header.Set("Content-Type", contentType)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("put object HTTP %d: %s", resp.StatusCode, string(b))
+	}
+	return nil
+}
+
 // GetObject streams an object from storage using project credentials (server-side).
 func (c *storageClient) GetObject(ctx context.Context, key string) (io.ReadCloser, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.cfg.BaseURL+c.objectAPIPath(key), nil)

@@ -27,4 +27,7 @@ ENV FORGE_STORAGE_URL=http://host.docker.internal:4107
 ENV FORGE_STORAGE_PUBLIC_URL=http://app.snapnote.localhost:4000/storage
 ENV FORGE_STORAGE_BUCKET=snapnote-attachments
 ENV FORGE_STORAGE_PROJECT=snapnote
+ENV FORGE_EVENTS_URL=http://host.docker.internal:4105
+ENV FORGE_EVENTS_SUBJECT=attachment.uploaded
+ENV FORGE_SERVICE_NAME=snapnote-api
 ENTRYPOINT ["/snapnote-api"]

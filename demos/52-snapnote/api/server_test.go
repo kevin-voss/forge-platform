@@ -12,7 +12,7 @@ import (
 )
 
 func TestHealthReady(t *testing.T) {
-	srv := newServer(newMemoryStore(), nil)
+	srv := newServer(newMemoryStore(), nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
 	rec := httptest.NewRecorder()
 	srv.routes().ServeHTTP(rec, req)
@@ -29,7 +29,7 @@ func TestHealthReady(t *testing.T) {
 }
 
 func TestNotesCRUDStub(t *testing.T) {
-	srv := newServer(newMemoryStore(), nil)
+	srv := newServer(newMemoryStore(), nil, nil)
 	handler := srv.routes()
 
 	createBody := bytes.NewBufferString(`{"title":"Trip photos","body":"Lake day"}`)
@@ -101,7 +101,7 @@ func TestAttachmentPresignPutGetRoundTrip(t *testing.T) {
 	}
 
 	store := newMemoryStore()
-	srv := newServer(store, storage)
+	srv := newServer(store, storage, nil)
 	handler := srv.routes()
 
 	createNote := httptest.NewRequest(http.MethodPost, "/notes", bytes.NewBufferString(`{"title":"Trip","body":""}`))
@@ -192,6 +192,77 @@ func TestAttachmentPresignPutGetRoundTrip(t *testing.T) {
 	}
 	if !bytes.Equal(streamRec.Body.Bytes(), payload) {
 		t.Fatalf("streamed bytes mismatch")
+	}
+}
+
+func TestCompleteAttachmentPublishesEvent(t *testing.T) {
+	var (
+		mu        sync.Mutex
+		published []string
+		lastKey   string
+	)
+	eventsSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/health/ready":
+			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/events":
+			var body struct {
+				Subject string `json:"subject"`
+				Data    struct {
+					AttachmentID string `json:"attachment_id"`
+				} `json:"data"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			mu.Lock()
+			published = append(published, body.Data.AttachmentID)
+			lastKey = r.Header.Get("Idempotency-Key")
+			mu.Unlock()
+			if body.Subject != "attachment.uploaded" {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad subject"})
+				return
+			}
+			writeJSON(w, http.StatusAccepted, map[string]any{"event_id": body.Data.AttachmentID, "seq": 1})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer eventsSrv.Close()
+
+	fake := newFakeStorage(t)
+	defer fake.Close()
+	storage := newStorageClient(storageConfig{
+		BaseURL: fake.URL, PublicURL: fake.URL, ProjectID: "snapnote",
+		Bucket: "snapnote-attachments", SignTTLSec: 300,
+	})
+	_ = storage.EnsureBucket(t.Context())
+	events := newEventsClient(eventsConfig{BaseURL: eventsSrv.URL, Source: "snapnote-api", Subject: "attachment.uploaded"})
+	srv := newServer(newMemoryStore(), storage, events)
+	handler := srv.routes()
+
+	createRec := httptest.NewRecorder()
+	handler.ServeHTTP(createRec, httptest.NewRequest(http.MethodPost, "/notes", bytes.NewBufferString(`{"title":"T","body":""}`)))
+	var note Note
+	_ = json.NewDecoder(createRec.Body).Decode(&note)
+
+	attRec := httptest.NewRecorder()
+	handler.ServeHTTP(attRec, httptest.NewRequest(http.MethodPost, "/notes/"+note.ID+"/attachments",
+		bytes.NewBufferString(`{"filename":"a.jpg","contentType":"image/jpeg"}`)))
+	var created createAttachmentResponse
+	_ = json.NewDecoder(attRec.Body).Decode(&created)
+
+	completeRec := httptest.NewRecorder()
+	handler.ServeHTTP(completeRec, httptest.NewRequest(http.MethodPost,
+		"/notes/"+note.ID+"/attachments/"+created.Attachment.ID+"/complete", nil))
+	if completeRec.Code != http.StatusAccepted {
+		t.Fatalf("complete status=%d body=%s", completeRec.Code, completeRec.Body.String())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(published) != 1 || published[0] != created.Attachment.ID {
+		t.Fatalf("published=%v want [%s]", published, created.Attachment.ID)
+	}
+	if lastKey != created.Attachment.ID {
+		t.Fatalf("Idempotency-Key=%q want %q", lastKey, created.Attachment.ID)
 	}
 }
 

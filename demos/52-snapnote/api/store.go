@@ -24,6 +24,7 @@ type NoteStore interface {
 	ListAttachments(ctx context.Context, noteID string) ([]*Attachment, error)
 	GetAttachment(ctx context.Context, noteID, attachmentID string) (*Attachment, error)
 	CreateAttachment(ctx context.Context, noteID, filename, contentType string) (*Attachment, error)
+	MarkAttachmentReady(ctx context.Context, noteID, attachmentID, thumbnailKey string) (*Attachment, error)
 }
 
 type pgStore struct {
@@ -236,6 +237,26 @@ func (s *pgStore) CreateAttachment(ctx context.Context, noteID, filename, conten
 		return nil, err
 	}
 	return att, nil
+}
+
+func (s *pgStore) MarkAttachmentReady(ctx context.Context, noteID, attachmentID, thumbnailKey string) (*Attachment, error) {
+	now := time.Now().UTC()
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE attachments
+		SET status = 'ready', thumbnail_key = $3, updated_at = $4
+		WHERE note_id = $1 AND id = $2
+	`, noteID, attachmentID, thumbnailKey, now)
+	if err != nil {
+		return nil, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return nil, nil
+	}
+	return s.GetAttachment(ctx, noteID, attachmentID)
 }
 
 type attachmentScanner interface {

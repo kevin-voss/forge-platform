@@ -154,3 +154,18 @@ func (m *memoryStore) CreateAttachment(_ context.Context, noteID, filename, cont
 	cp := *att
 	return &cp, nil
 }
+
+func (m *memoryStore) MarkAttachmentReady(_ context.Context, noteID, attachmentID, thumbnailKey string) (*Attachment, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, a := range m.attachments[noteID] {
+		if a.ID == attachmentID {
+			a.Status = "ready"
+			a.ThumbnailKey = thumbnailKey
+			a.UpdatedAt = time.Now().UTC()
+			cp := *a
+			return &cp, nil
+		}
+	}
+	return nil, nil
+}
