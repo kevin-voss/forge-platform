@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Demo 51: TaskFlow + managed Postgres (epic 51.02).
+# Demo 51: TaskFlow + managed Postgres + Identity auth (epic 51.03).
 # Usage:
-#   demos/51-taskflow/run.sh          # build → apply → DB → Ready → seed → persist check
+#   demos/51-taskflow/run.sh          # build → apply → DB → Identity → seed → persist → RBAC
 #   demos/51-taskflow/run.sh --down   # tear down product resources only
 set -euo pipefail
 
@@ -40,10 +40,12 @@ CONTROL_URL="${FORGE_CONTROL_URL:-http://127.0.0.1:4001}"
 RUNTIME_URL="${FORGE_RUNTIME_URL:-http://127.0.0.1:4102}"
 GATEWAY_URL="${FORGE_GATEWAY_URL:-http://127.0.0.1:4000}"
 BUILD_URL="${FORGE_BUILD_URL:-http://127.0.0.1:4103}"
+IDENTITY_URL="${FORGE_IDENTITY_HOST_URL:-http://127.0.0.1:4002}"
 CONTROL_SERVICE="forge-control"
 RUNTIME_SERVICE="forge-runtime"
 GATEWAY_SERVICE="forge-gateway"
 BUILD_SERVICE="forge-build"
+IDENTITY_SERVICE="forge-identity"
 POSTGRES_SERVICE="postgres"
 REGISTRY_SERVICE="registry"
 CLI_DIR="${ROOT_DIR}/tools/forge-cli"
@@ -56,6 +58,8 @@ APP_HOST="app.taskflow.localhost"
 DB_NAME="taskflow-db"          # instance / dependency name (may contain '-')
 DB_LOGICAL_NAME="taskflow_db"  # Postgres DB name ([a-z_][a-z0-9_]*)
 ENV_NAME="local"
+ADMIN_EMAIL="${TASKFLOW_ADMIN_EMAIL:-admin@taskflow.local}"
+ADMIN_PASSWORD="${TASKFLOW_ADMIN_PASSWORD:-AdminPass123!}"
 
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/forge-demo-51.XXXXXX")"
 CONFIG_HOME="${TMP_DIR}/xdg-config"
@@ -162,8 +166,39 @@ teardown() {
   echo "Teardown complete."
 }
 
+identity_json() {
+  local method="$1" path="$2" body="${3:-}" output="$4"
+  local status
+  if [[ -n "${body}" ]]; then
+    status="$(curl --silent --show-error --output "${output}" --write-out '%{http_code}' \
+      --request "${method}" "${IDENTITY_URL}${path}" \
+      --header 'content-type: application/json' \
+      --data "${body}")" || fail "Identity ${method} ${path} did not complete"
+  else
+    status="$(curl --silent --show-error --output "${output}" --write-out '%{http_code}' \
+      --request "${method}" "${IDENTITY_URL}${path}")" ||
+      fail "Identity ${method} ${path} did not complete"
+  fi
+  echo "${status}"
+}
+
+control_json() {
+  local method="$1" path="$2" token="$3" body="${4:-}" output="$5"
+  local status
+  local -a args=(
+    --silent --show-error --output "${output}" --write-out '%{http_code}'
+    --request "${method}" "${CONTROL_URL}${path}"
+    --header "Authorization: Bearer ${token}"
+  )
+  if [[ -n "${body}" ]]; then
+    args+=(--header 'content-type: application/json' --data "${body}")
+  fi
+  status="$(curl "${args[@]}")" || fail "Control ${method} ${path} did not complete"
+  echo "${status}"
+}
+
 ensure_platform() {
-  echo "Ensuring Postgres, registry, Control (LocalProvisioner), Runtime, Gateway, Build..."
+  echo "Ensuring Postgres, registry, Identity, Control (LocalProvisioner), Runtime, Gateway, Build..."
   "${COMPOSE[@]}" up -d "${POSTGRES_SERVICE}" "${REGISTRY_SERVICE}"
   for _ in $(seq 1 60); do
     if "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" pg_isready -U forge >/dev/null 2>&1; then
@@ -174,6 +209,9 @@ ensure_platform() {
   "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" pg_isready -U forge >/dev/null 2>&1 ||
     fail "Postgres not ready"
 
+  "${COMPOSE[@]}" up -d --build "${IDENTITY_SERVICE}"
+  wait_http "${IDENTITY_URL}/health/ready" "Identity"
+
   local need_recreate=0
   local auth_mode pattern strategy provisioner secrets_url
   auth_mode="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_AUTH_MODE 2>/dev/null || true)"
@@ -181,6 +219,7 @@ ensure_platform() {
   strategy="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_SCHEDULER_STRATEGY 2>/dev/null || true)"
   provisioner="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_DB_PROVISIONER 2>/dev/null || true)"
   secrets_url="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_SECRETS_URL 2>/dev/null || true)"
+  # Main product path uses Control auth=dev; RBAC proof switches enforce later.
   if [[ "${auth_mode}" != "dev" ]]; then
     need_recreate=1
   fi
@@ -202,11 +241,11 @@ ensure_platform() {
 
   if [[ "${need_recreate}" -eq 1 ]]; then
     echo "Recreating Control/Runtime/Gateway with demo 51 managed-DB overlay..."
-    "${COMPOSE[@]}" up -d --force-recreate \
+    FORGE_AUTH_MODE=dev "${COMPOSE[@]}" up -d --force-recreate \
       "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}"
   else
     echo "Control/Gateway already configured for demo 51; ensuring they are up..."
-    "${COMPOSE[@]}" up -d "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}"
+    FORGE_AUTH_MODE=dev "${COMPOSE[@]}" up -d "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}"
   fi
   "${COMPOSE[@]}" up -d "${BUILD_SERVICE}"
 
@@ -221,6 +260,88 @@ ensure_platform() {
   provisioner="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_DB_PROVISIONER 2>/dev/null || true)"
   [[ "${provisioner}" == "local" ]] ||
     fail "control FORGE_DB_PROVISIONER must be local (got: ${provisioner})"
+}
+
+bootstrap_identity_project() {
+  echo "Bootstrapping Identity org/project for Control project ${PROJECT_ID}..."
+  [[ -n "${PROJECT_ID}" ]] || fail "PROJECT_ID required for Identity bootstrap"
+  local suffix status owner_email owner_password session org_id
+  suffix="$(python3 -c 'import uuid; print(uuid.uuid4().hex[:8])')"
+  owner_email="taskflow-owner-${suffix}@example.com"
+  owner_password="OwnerPass123!"
+
+  status="$(identity_json POST /v1/auth/register \
+    "{\"email\":\"${owner_email}\",\"password\":\"${owner_password}\",\"display_name\":\"TaskFlow Owner\"}" \
+    "${TMP_DIR}/id-register.json")"
+  [[ "${status}" == "201" ]] || fail "identity register HTTP ${status}: $(cat "${TMP_DIR}/id-register.json")"
+  OWNER_USER_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["user_id"])' "${TMP_DIR}/id-register.json")"
+
+  status="$(identity_json POST /v1/auth/login \
+    "{\"email\":\"${owner_email}\",\"password\":\"${owner_password}\"}" \
+    "${TMP_DIR}/id-login.json")"
+  [[ "${status}" == "200" ]] || fail "identity login HTTP ${status}: $(cat "${TMP_DIR}/id-login.json")"
+  session="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["session_token"])' "${TMP_DIR}/id-login.json")"
+  _="${session}"
+
+  status="$(identity_json POST /v1/orgs \
+    "{\"name\":\"TaskFlow Org ${suffix}\"}" \
+    "${TMP_DIR}/id-org.json")"
+  [[ "${status}" == "201" ]] || fail "create org HTTP ${status}: $(cat "${TMP_DIR}/id-org.json")"
+  org_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "${TMP_DIR}/id-org.json")"
+  status="$(identity_json POST "/v1/orgs/${org_id}/members" \
+    "{\"user_id\":\"${OWNER_USER_ID}\",\"role\":\"organization-owner\"}" \
+    "${TMP_DIR}/id-org-member.json")"
+  [[ "${status}" == "201" || "${status}" == "200" ]] ||
+    fail "org member HTTP ${status}: $(cat "${TMP_DIR}/id-org-member.json")"
+
+  status="$(identity_json POST /v1/projects \
+    "{\"id\":\"${PROJECT_ID}\",\"org_id\":\"${org_id}\",\"name\":\"taskflow-${suffix}\"}" \
+    "${TMP_DIR}/id-project.json")"
+  if [[ "${status}" != "201" && "${status}" != "409" ]]; then
+    fail "identity project register HTTP ${status}: $(cat "${TMP_DIR}/id-project.json")"
+  fi
+  status="$(identity_json POST "/v1/projects/${PROJECT_ID}/members" \
+    "{\"user_id\":\"${OWNER_USER_ID}\",\"role\":\"project-admin\"}" \
+    "${TMP_DIR}/id-proj-member.json")"
+  [[ "${status}" == "201" || "${status}" == "200" || "${status}" == "409" ]] ||
+    fail "project-admin member HTTP ${status}: $(cat "${TMP_DIR}/id-proj-member.json")"
+
+  # Developer + viewer principals for deploy RBAC proof.
+  status="$(identity_json POST /v1/users \
+    "{\"email\":\"dev-${suffix}@example.com\",\"display_name\":\"Developer\"}" \
+    "${TMP_DIR}/dev-user.json")"
+  [[ "${status}" == "201" ]] || fail "create developer user HTTP ${status}: $(cat "${TMP_DIR}/dev-user.json")"
+  DEV_USER_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "${TMP_DIR}/dev-user.json")"
+  status="$(identity_json POST /v1/users \
+    "{\"email\":\"viewer-${suffix}@example.com\",\"display_name\":\"Viewer\"}" \
+    "${TMP_DIR}/viewer-user.json")"
+  [[ "${status}" == "201" ]] || fail "create viewer user HTTP ${status}: $(cat "${TMP_DIR}/viewer-user.json")"
+  VIEWER_USER_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "${TMP_DIR}/viewer-user.json")"
+
+  status="$(identity_json POST "/v1/projects/${PROJECT_ID}/members" \
+    "{\"user_id\":\"${DEV_USER_ID}\",\"role\":\"developer\"}" \
+    "${TMP_DIR}/dev-member.json")"
+  [[ "${status}" == "201" || "${status}" == "200" || "${status}" == "409" ]] ||
+    fail "developer member HTTP ${status}: $(cat "${TMP_DIR}/dev-member.json")"
+  status="$(identity_json POST "/v1/projects/${PROJECT_ID}/members" \
+    "{\"user_id\":\"${VIEWER_USER_ID}\",\"role\":\"viewer\"}" \
+    "${TMP_DIR}/viewer-member.json")"
+  [[ "${status}" == "201" || "${status}" == "200" || "${status}" == "409" ]] ||
+    fail "viewer member HTTP ${status}: $(cat "${TMP_DIR}/viewer-member.json")"
+
+  status="$(identity_json POST /v1/tokens \
+    "{\"owner\":{\"type\":\"user\",\"id\":\"${DEV_USER_ID}\"},\"project_id\":\"${PROJECT_ID}\",\"role\":\"developer\"}" \
+    "${TMP_DIR}/dev-token.json")"
+  [[ "${status}" == "201" ]] || fail "developer PAT HTTP ${status}: $(cat "${TMP_DIR}/dev-token.json")"
+  DEV_TOKEN="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "${TMP_DIR}/dev-token.json")"
+  status="$(identity_json POST /v1/tokens \
+    "{\"owner\":{\"type\":\"user\",\"id\":\"${VIEWER_USER_ID}\"},\"project_id\":\"${PROJECT_ID}\",\"role\":\"viewer\"}" \
+    "${TMP_DIR}/viewer-token.json")"
+  [[ "${status}" == "201" ]] || fail "viewer PAT HTTP ${status}: $(cat "${TMP_DIR}/viewer-token.json")"
+  VIEWER_TOKEN="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "${TMP_DIR}/viewer-token.json")"
+  [[ "${DEV_TOKEN}" == forge_pat_* ]] || fail "developer token missing forge_pat_ prefix"
+  [[ "${VIEWER_TOKEN}" == forge_pat_* ]] || fail "viewer token missing forge_pat_ prefix"
+  echo "  Identity project=${PROJECT_ID} developer/viewer PATs issued"
 }
 
 # Prefer `forge build` when the CLI subcommand exists; otherwise docker build+push
@@ -417,13 +538,26 @@ wait_database_url_injected() {
   fail "DATABASE_URL never appeared on API container"
 }
 
+login_admin_token() {
+  local code
+  code="$(curl --silent --show-error -o "${TMP_DIR}/admin-login.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" -H 'content-type: application/json' \
+    -d "{\"email\":\"${ADMIN_EMAIL}\",\"password\":\"${ADMIN_PASSWORD}\"}" \
+    "${GATEWAY_URL}/auth/login" || echo "000")"
+  [[ "${code}" == "200" ]] || fail "admin login HTTP ${code}: $(cat "${TMP_DIR}/admin-login.json")"
+  python3 -c 'import json,sys; b=json.load(open(sys.argv[1])); t=b.get("token") or b.get("pat") or ""; assert t, b; print(t)' \
+    "${TMP_DIR}/admin-login.json"
+}
+
 prove_persistence() {
   local title="persist-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:8])')"
-  local create_body task_id code listed cid
+  local create_body task_id code cid token
   echo "Proving task persistence across API container restart..."
+  token="$(login_admin_token)"
   create_body="$(python3 -c 'import json,sys; print(json.dumps({"title":sys.argv[1]}))' "${title}")"
   code="$(curl --silent --show-error -o "${TMP_DIR}/create-task.json" -w '%{http_code}' \
     -H "Host: ${API_HOST}" -H 'content-type: application/json' \
+    -H "Authorization: Bearer ${token}" \
     -d "${create_body}" "${GATEWAY_URL}/tasks" || echo "000")"
   [[ "${code}" == "201" ]] || fail "create task HTTP ${code}: $(cat "${TMP_DIR}/create-task.json")"
   task_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "${TMP_DIR}/create-task.json")"
@@ -436,11 +570,13 @@ prove_persistence() {
   # Gateway may briefly 502/503 while the container and upstream probe recover.
   wait_host_http "${API_HOST}" "/health/ready" 200 120
   refresh_routes
+  token="$(login_admin_token)"
 
   code="000"
   for _ in $(seq 1 60); do
     code="$(curl --silent --show-error -o "${TMP_DIR}/list-tasks.json" -w '%{http_code}' \
-      -H "Host: ${API_HOST}" "${GATEWAY_URL}/tasks" || echo "000")"
+      -H "Host: ${API_HOST}" -H "Authorization: Bearer ${token}" \
+      "${GATEWAY_URL}/tasks" || echo "000")"
     if [[ "${code}" == "200" ]]; then
       break
     fi
@@ -457,6 +593,58 @@ assert match, {"want": want_id, "tasks": tasks}
 assert match[0].get("title") == want_title, match[0]
 print(f"  persisted task id={want_id} title={want_title}")
 PY
+}
+
+prove_deploy_rbac() {
+  echo "Proving deploy RBAC (viewer PAT → 403, developer PAT → 201)..."
+  [[ -n "${DEV_TOKEN:-}" && -n "${VIEWER_TOKEN:-}" ]] || fail "DEV_TOKEN/VIEWER_TOKEN missing; bootstrap Identity first"
+  [[ -n "${API_DEPLOYMENT_ID}" ]] || fail "API_DEPLOYMENT_ID missing"
+
+  curl --fail --silent --show-error "${CONTROL_URL}/v1/deployments/${API_DEPLOYMENT_ID}" \
+    >"${TMP_DIR}/dep.json" || fail "GET deployment failed"
+  local service_id environment_id image
+  service_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("serviceId") or "")' "${TMP_DIR}/dep.json")"
+  environment_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("environmentId") or "")' "${TMP_DIR}/dep.json")"
+  image="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("image") or "")' "${TMP_DIR}/dep.json")"
+  [[ -n "${service_id}" && -n "${environment_id}" && -n "${image}" ]] ||
+    fail "deployment missing serviceId/environmentId/image: $(cat "${TMP_DIR}/dep.json")"
+
+  echo "  switching Control to FORGE_AUTH_MODE=enforce for RBAC proof..."
+  FORGE_AUTH_MODE=enforce "${COMPOSE[@]}" up -d --force-recreate --no-deps "${CONTROL_SERVICE}"
+  wait_http "${CONTROL_URL}/health/ready" "Control (enforce)"
+  local mode
+  mode="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_AUTH_MODE 2>/dev/null || true)"
+  [[ "${mode}" == "enforce" ]] || fail "Control FORGE_AUTH_MODE want enforce, got ${mode}"
+
+  local body status
+  body="$(python3 -c 'import json,sys; print(json.dumps({"image":sys.argv[1],"desiredReplicas":1,"environmentId":sys.argv[2]}))' \
+    "${image}" "${environment_id}")"
+
+  status="$(control_json POST "/v1/services/${service_id}/deployments" "${VIEWER_TOKEN}" "${body}" \
+    "${TMP_DIR}/deploy-viewer.json")"
+  [[ "${status}" == "403" ]] ||
+    fail "viewer deploy expected 403, got ${status}: $(cat "${TMP_DIR}/deploy-viewer.json")"
+  python3 -c 'import json,sys; e=json.load(open(sys.argv[1])); assert e.get("error",{}).get("code")=="forbidden", e' \
+    "${TMP_DIR}/deploy-viewer.json" || fail "viewer deploy missing forbidden envelope"
+  echo "  viewer PAT deploy → 403 OK"
+
+  status="$(control_json POST "/v1/services/${service_id}/deployments" "${DEV_TOKEN}" "${body}" \
+    "${TMP_DIR}/deploy-dev.json")"
+  [[ "${status}" == "201" ]] ||
+    fail "developer deploy expected 201, got ${status}: $(cat "${TMP_DIR}/deploy-dev.json")"
+  local extra_dep
+  extra_dep="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("id",""))' "${TMP_DIR}/deploy-dev.json")"
+  echo "  developer PAT deploy → 201 OK (deployment ${extra_dep})"
+
+  # Best-effort cleanup of the proof deployment, then restore Control to auth=dev.
+  if [[ -n "${extra_dep}" ]]; then
+    curl --silent --show-error -X DELETE \
+      -H "Authorization: Bearer ${DEV_TOKEN}" \
+      "${CONTROL_URL}/v1/deployments/${extra_dep}" >/dev/null 2>&1 || true
+  fi
+  echo "  restoring Control FORGE_AUTH_MODE=dev..."
+  FORGE_AUTH_MODE=dev "${COMPOSE[@]}" up -d --force-recreate --no-deps "${CONTROL_SERVICE}"
+  wait_http "${CONTROL_URL}/health/ready" "Control (dev)"
 }
 
 deploy() {
@@ -525,18 +713,22 @@ for p in json.load(sys.stdin):
   fi
 
   write_state
+  bootstrap_identity_project
   bash "${DEMO_DIR}/seed.sh" || fail "seed.sh failed"
   prove_persistence
+  prove_deploy_rbac
 
   echo
-  echo "demo 51 deploy READY (managed Postgres + schema)"
+  echo "demo 51 deploy READY (managed Postgres + Identity auth + deploy RBAC)"
   echo "  App:          http://${APP_HOST}:4000/"
   echo "  API:          http://${API_HOST}:4000/health/ready"
   echo "  API image:    ${API_IMAGE}"
   echo "  Web image:    ${WEB_IMAGE}"
   echo "  Database:     ${DB_NAME} (Ready)"
+  echo "  Identity:     ${IDENTITY_URL}"
   echo "  Deployments:  api=${API_DEPLOYMENT_ID} web=${WEB_DEPLOYMENT_ID}"
   echo "  Project:      ${PROJECT_SLUG} (${PROJECT_ID})"
+  echo "  Seed logins:  ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}"
 }
 
 case "${1:-}" in

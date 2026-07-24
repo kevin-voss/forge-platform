@@ -153,3 +153,49 @@ li.done .title {
 #error {
   color: var(--danger);
 }
+
+#auth-panel {
+  margin-bottom: 1rem;
+}
+
+#auth-panel label {
+  margin-top: 0.75rem;
+}
+
+#auth-panel input[type="email"],
+#auth-panel input[type="password"] {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 0.7rem 0.8rem;
+  font: inherit;
+  background: #fff;
+  color: var(--text);
+}
+
+.session-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.session-bar p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.admin-actions {
+  margin-top: 1rem;
+}
+
+button.danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+#auth-status {
+  color: var(--muted);
+  min-height: 1.25rem;
+}

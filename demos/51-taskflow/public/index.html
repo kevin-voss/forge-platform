@@ -11,22 +11,48 @@
       <header>
         <p class="brand">TaskFlow</p>
         <h1>Team tasks</h1>
-        <p class="lede">Create and complete tasks. Auth and Postgres arrive in later steps.</p>
+        <p class="lede">Sign in to create and complete tasks. Admins can delete the shared project.</p>
       </header>
 
-      <form id="task-form" aria-label="Create task">
-        <label for="task-title">New task</label>
-        <div class="row">
-          <input id="task-title" name="title" type="text" required placeholder="Buy milk" autocomplete="off" />
-          <button type="submit">Add</button>
+      <section id="auth-panel" aria-labelledby="auth-heading">
+        <h2 id="auth-heading">Sign in</h2>
+        <p id="auth-status" role="status"></p>
+        <form id="auth-form" aria-label="Login or signup">
+          <label for="auth-email">Email</label>
+          <input id="auth-email" name="email" type="email" required autocomplete="username" />
+          <label for="auth-password">Password</label>
+          <input id="auth-password" name="password" type="password" required minlength="8" autocomplete="current-password" />
+          <div class="row">
+            <button type="submit" id="auth-login">Log in</button>
+            <button type="button" class="secondary" id="auth-signup">Sign up</button>
+          </div>
+        </form>
+        <div id="session-bar" class="session-bar" hidden>
+          <p id="session-label"></p>
+          <button type="button" class="secondary" id="auth-logout">Log out</button>
         </div>
-      </form>
-
-      <section aria-labelledby="task-list-heading">
-        <h2 id="task-list-heading">Tasks</h2>
-        <p id="task-status" role="status"></p>
-        <ul id="task-list"></ul>
       </section>
+
+      <div id="board" hidden>
+        <form id="task-form" aria-label="Create task">
+          <label for="task-title">New task</label>
+          <div class="row">
+            <input id="task-title" name="title" type="text" required placeholder="Buy milk" autocomplete="off" />
+            <button type="submit">Add</button>
+          </div>
+        </form>
+
+        <section aria-labelledby="task-list-heading">
+          <h2 id="task-list-heading">Tasks</h2>
+          <p id="task-status" role="status"></p>
+          <ul id="task-list"></ul>
+          <div class="admin-actions">
+            <button type="button" id="delete-project" class="danger" hidden>
+              Delete project
+            </button>
+          </div>
+        </section>
+      </div>
     </main>
     <script src="/app.js"></script>
   </body>

@@ -3,24 +3,76 @@
     window.TASKFLOW_API_BASE ||
     `${window.location.protocol}//api.taskflow.localhost${window.location.port ? `:${window.location.port}` : ''}`;
 
+  const TOKEN_KEY = 'taskflow.token';
+  const USER_KEY = 'taskflow.user';
+
+  const authForm = document.getElementById('auth-form');
+  const authEmail = document.getElementById('auth-email');
+  const authPassword = document.getElementById('auth-password');
+  const authSignup = document.getElementById('auth-signup');
+  const authLogout = document.getElementById('auth-logout');
+  const authStatus = document.getElementById('auth-status');
+  const sessionBar = document.getElementById('session-bar');
+  const sessionLabel = document.getElementById('session-label');
+  const board = document.getElementById('board');
   const form = document.getElementById('task-form');
   const titleInput = document.getElementById('task-title');
   const list = document.getElementById('task-list');
   const status = document.getElementById('task-status');
+  const deleteProjectBtn = document.getElementById('delete-project');
 
-  if (!form || !titleInput || !list || !status) return;
+  if (!authForm || !form || !titleInput || !list || !status) return;
+
+  function getToken() {
+    return localStorage.getItem(TOKEN_KEY) || '';
+  }
+
+  function getUser() {
+    try {
+      return JSON.parse(localStorage.getItem(USER_KEY) || 'null');
+    } catch {
+      return null;
+    }
+  }
+
+  function setSession(token, user) {
+    localStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+  }
+
+  function clearSession() {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+  }
 
   async function api(path, options = {}) {
-    const res = await fetch(`${API_BASE}${path}`, {
-      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-      ...options,
-    });
+    const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+    const token = getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(text || `HTTP ${res.status}`);
     }
     if (res.status === 204) return null;
     return res.json();
+  }
+
+  function renderSession() {
+    const user = getUser();
+    const token = getToken();
+    if (!token || !user) {
+      sessionBar.hidden = true;
+      board.hidden = true;
+      authForm.hidden = false;
+      deleteProjectBtn.hidden = true;
+      return;
+    }
+    authForm.hidden = true;
+    sessionBar.hidden = false;
+    board.hidden = false;
+    sessionLabel.textContent = `Signed in as ${user.email} (${user.role})`;
+    deleteProjectBtn.hidden = user.role !== 'admin';
   }
 
   function renderTasks(tasks) {
@@ -67,6 +119,11 @@
   }
 
   async function refresh() {
+    if (!getToken()) {
+      status.textContent = 'Sign in to load tasks.';
+      list.replaceChildren();
+      return;
+    }
     status.textContent = 'Loading tasks…';
     try {
       const tasks = await api('/tasks');
@@ -75,8 +132,50 @@
     } catch (err) {
       status.textContent = `API unavailable: ${err.message}`;
       list.replaceChildren();
+      if (String(err.message).includes('401') || String(err.message).includes('unauthenticated')) {
+        clearSession();
+        renderSession();
+      }
     }
   }
+
+  async function authenticate(path) {
+    authStatus.textContent = 'Working…';
+    const email = authEmail.value.trim();
+    const password = authPassword.value;
+    try {
+      const body = await api(path, {
+        method: 'POST',
+        body: JSON.stringify({ email, password, displayName: email.split('@')[0] || email }),
+      });
+      const token = body.token || body.pat || body.jwt;
+      if (!token || !body.user) throw new Error('auth response missing token/user');
+      setSession(token, body.user);
+      authStatus.textContent = '';
+      authPassword.value = '';
+      renderSession();
+      await refresh();
+    } catch (err) {
+      authStatus.textContent = `Auth failed: ${err.message}`;
+    }
+  }
+
+  authForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await authenticate('/auth/login');
+  });
+
+  authSignup.addEventListener('click', async () => {
+    await authenticate('/auth/signup');
+  });
+
+  authLogout.addEventListener('click', () => {
+    clearSession();
+    authStatus.textContent = 'Signed out.';
+    renderSession();
+    list.replaceChildren();
+    status.textContent = '';
+  });
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -91,5 +190,17 @@
     }
   });
 
+  deleteProjectBtn.addEventListener('click', async () => {
+    if (!confirm('Delete the shared project? Tasks will be removed.')) return;
+    try {
+      await api('/projects/project-shared', { method: 'DELETE' });
+      status.textContent = 'Project deleted.';
+      await refresh();
+    } catch (err) {
+      status.textContent = `Delete project failed: ${err.message}`;
+    }
+  });
+
+  renderSession();
   refresh();
 })();

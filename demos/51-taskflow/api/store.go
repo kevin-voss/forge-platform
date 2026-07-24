@@ -22,6 +22,12 @@ type TaskStore interface {
 	PatchTask(ctx context.Context, id string, title *string, done *bool) (*Task, error)
 	DeleteTask(ctx context.Context, id string) error
 	EnsureDefaultProject(ctx context.Context) (string, error)
+	UpsertUser(ctx context.Context, id, email, passwordHash, role string) error
+	GetUserByID(ctx context.Context, id string) (*User, error)
+	GetUserByEmail(ctx context.Context, email string) (*User, error)
+	GetSetting(ctx context.Context, key string) (string, error)
+	SetSetting(ctx context.Context, key, value string) error
+	DeleteProject(ctx context.Context, id string) error
 }
 
 type pgStore struct {
@@ -198,6 +204,82 @@ func (s *pgStore) PatchTask(ctx context.Context, id string, title *string, done 
 
 func (s *pgStore) DeleteTask(ctx context.Context, id string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM tasks WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return errNotFound
+	}
+	return nil
+}
+
+func (s *pgStore) UpsertUser(ctx context.Context, id, email, passwordHash, role string) error {
+	email = strings.ToLower(strings.TrimSpace(email))
+	role = strings.TrimSpace(role)
+	if role != "admin" && role != "member" {
+		role = "member"
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO users (id, email, password_hash, role)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (email) DO UPDATE
+		SET role = EXCLUDED.role,
+		    password_hash = EXCLUDED.password_hash
+	`, id, email, passwordHash, role)
+	return err
+}
+
+func (s *pgStore) GetUserByID(ctx context.Context, id string) (*User, error) {
+	var u User
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, email, role FROM users WHERE id = $1
+	`, id).Scan(&u.ID, &u.Email, &u.Role)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func (s *pgStore) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+	var u User
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, email, role FROM users WHERE email = $1
+	`, strings.ToLower(strings.TrimSpace(email))).Scan(&u.ID, &u.Email, &u.Role)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func (s *pgStore) GetSetting(ctx context.Context, key string) (string, error) {
+	var v string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM app_settings WHERE key = $1`, key).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return v, err
+}
+
+func (s *pgStore) SetSetting(ctx context.Context, key, value string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO app_settings (key, value) VALUES ($1, $2)
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+	`, key, value)
+	return err
+}
+
+func (s *pgStore) DeleteProject(ctx context.Context, id string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM projects WHERE id = $1`, id)
 	if err != nil {
 		return err
 	}

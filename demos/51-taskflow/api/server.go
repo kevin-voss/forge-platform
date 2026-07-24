@@ -30,22 +30,31 @@ type patchTaskRequest struct {
 }
 
 type server struct {
-	store TaskStore
+	store    TaskStore
+	cfg      config
+	identity IdentityClient
 }
 
-func newServer(store TaskStore) *server {
-	return &server{store: store}
+func newServer(store TaskStore, cfg config, identity IdentityClient) *server {
+	return &server{store: store, cfg: cfg, identity: identity}
 }
 
 func (s *server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", s.handleLive)
 	mux.HandleFunc("GET /health/ready", s.handleReady)
-	mux.HandleFunc("GET /tasks", s.handleListTasks)
-	mux.HandleFunc("POST /tasks", s.handleCreateTask)
-	mux.HandleFunc("GET /tasks/{id}", s.handleGetTask)
-	mux.HandleFunc("PATCH /tasks/{id}", s.handlePatchTask)
-	mux.HandleFunc("DELETE /tasks/{id}", s.handleDeleteTask)
+
+	mux.HandleFunc("POST /auth/signup", s.handleSignup)
+	mux.HandleFunc("POST /auth/login", s.handleLogin)
+	mux.HandleFunc("GET /auth/me", s.requireAuth(s.handleMe))
+
+	mux.HandleFunc("GET /tasks", s.requireAuth(s.handleListTasks))
+	mux.HandleFunc("POST /tasks", s.requireAuth(s.handleCreateTask))
+	mux.HandleFunc("GET /tasks/{id}", s.requireAuth(s.handleGetTask))
+	mux.HandleFunc("PATCH /tasks/{id}", s.requireAuth(s.handlePatchTask))
+	mux.HandleFunc("DELETE /tasks/{id}", s.requireAuth(s.handleDeleteTask))
+
+	mux.HandleFunc("DELETE /projects/{id}", s.requireAuth(s.handleDeleteProject))
 	return withCORS(mux)
 }
 

@@ -18,23 +18,23 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 
 | Metric | Count |
 |---|---|
-| Total findings | 0 |
-| Open | 0 |
+| Total findings | 1 |
+| Open | 1 |
 | Blocker | 0 |
 | Major | 0 |
-| Minor | 0 |
+| Minor | 1 |
 
 ## By service
 
 | Service | Open | Blocker | Major | Minor |
 |---|--:|--:|--:|--:|
-| _(none yet)_ | 0 | 0 | 0 | 0 |
+| forge-identity | 1 | 0 | 0 | 1 |
 
 ## By demo
 
 | Demo | Findings |
 |---|--:|
-| 01-taskflow | 0 |
+| 01-taskflow | 1 |
 | 02-snapnote | 0 |
 | 03-askdocs | 0 |
 | 04-orderpipe | 0 |
@@ -44,15 +44,45 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 
 ## Findings
 
-_No findings recorded yet. The first demo run appends entries below._
+### F-001 — No prescribed app JWT-over-PAT product session pattern
 
-<!--
-Append entries here, newest last, using the block from findings-template.md, e.g.:
-
-### F-001 — Queue redelivers acked messages after consumer restart
 | Field | Value |
+|---|---|
 | Status | Open |
-| Severity | blocker |
-| Service | forge-events |
-...
--->
+| Severity | minor |
+| Service | forge-identity |
+| Area / contract | Product auth guidance / OpenAPI sessions+tokens (epic 09) |
+| Found by demo | 01-taskflow (step 51.03) |
+| First seen | 2026-07-24 |
+| Reproducible | always |
+
+**What we tested**
+TaskFlow needs a browser-facing login that yields a client-stored credential while API
+authorization remains Identity introspect (PAT/session). Product design asks for an
+app-issued JWT wrapping a PAT.
+
+**Expected (per spec/contract)**
+A platform-prescribed login/session pattern for product apps (or explicit guidance that
+apps should mint their own JWT over Identity PATs).
+
+**Actual**
+Identity exposes register/login → opaque `session_token`, plus PAT issue/introspect, but
+does not define an app JWT / product-session contract. TaskFlow adopts PAT-as-Bearer with
+an optional local HS256 JWT (plaintext `JWT_SIGNING_KEY` until 51.04) and local
+`admin`/`member` roles in product Postgres.
+
+**Evidence**
+- Identity OpenAPI: `POST /v1/auth/login`, `POST /v1/auth/introspect`, `POST /v1/tokens`
+- No app-JWT issuance endpoint or product session schema in forge-identity
+
+**Impact**
+Demo/apps must invent thin JWT wrapping; roles like `admin`/`member` stay product-local
+(distinct from platform `developer`/`viewer`).
+
+**Workaround used by demo**
+TaskFlow API mints PAT on signup/login, returns PAT (+ optional JWT embedding the PAT);
+middleware always introspects the PAT via Identity.
+
+**Suggested platform fix**
+Document the recommended product auth pattern (PAT-as-Bearer vs app JWT) in Identity docs /
+contracts, or add a first-class product-session helper if the platform wants to own it.

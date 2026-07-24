@@ -54,7 +54,7 @@ deploy with a viewer PAT returns 403 while a developer PAT succeeds.
 |---|---|---|---|
 | 51.01 | Product scaffold + baseline deploy | Complete | Go API + SPA, Dockerfiles, `forge build` + `forge apply`, routes app./api.taskflow.localhost |
 | 51.02 | Managed Postgres + schema | Complete | `dependencies.database`; migrations; users/projects/tasks; seed.sh |
-| 51.03 | Identity auth + roles | Not started | signup/login → PAT; introspect middleware; admin/member gating; deploy RBAC viewer=403/developer=200 |
+| 51.03 | Identity auth + roles | Complete | signup/login → PAT; introspect middleware; admin/member gating; deploy RBAC viewer=403/developer=200 |
 | 51.04 | Secrets injection | Not started | DB url + JWT key from forge-secrets; no plaintext in manifest/logs |
 | 51.05 | E2E browser spec | Not started | signup→login→create→persist→complete→role gating; product + platform assertions |
 | 51.06 | Demo + epic gate | Not started | `demos/51-taskflow` run/seed/demo.json; `make demo DEMO=51`; wired into test-platform-e2e |
@@ -63,5 +63,6 @@ Ordering + `N`: [`../steps/51-demo-taskflow/README.md`](../steps/51-demo-taskflo
 
 ## Open questions
 
-* Does the platform prescribe a login/session pattern, or is app-issued JWT-over-PAT acceptable?
-  If a prescribed pattern exists, adopt it in `51.03` (else record any gap as a finding).
+* ~~Does the platform prescribe a login/session pattern, or is app-issued JWT-over-PAT acceptable?~~
+  **Resolved in 51.03:** no prescribed app JWT pattern — recorded as finding `F-001`; TaskFlow uses
+  PAT-as-Bearer (+ optional local JWT) with product-local `admin`/`member` roles.

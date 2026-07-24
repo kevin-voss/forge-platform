@@ -10,6 +10,7 @@ import (
 
 func main() {
 	addr := listenAddr()
+	cfg := loadConfig()
 	migrationsDir := resolveMigrationsDir(os.Getenv("MIGRATIONS_DIR"))
 	databaseURL := os.Getenv("DATABASE_URL")
 
@@ -26,7 +27,13 @@ func main() {
 	}
 	log.Printf("taskflow-api migrations applied from %s", migrationsDir)
 
-	srv := newServer(store)
+	var identity IdentityClient
+	if cfg.ProductAuth == "enforce" || cfg.IdentityURL != "" {
+		identity = newHTTPIdentityClient(cfg.IdentityURL)
+		log.Printf("taskflow-api identity url=%s product_auth=%s", cfg.IdentityURL, cfg.ProductAuth)
+	}
+
+	srv := newServer(store, cfg, identity)
 	log.Printf("taskflow-api listening on %s", addr)
 	if err := http.ListenAndServe(addr, srv.routes()); err != nil {
 		log.Fatal(err)

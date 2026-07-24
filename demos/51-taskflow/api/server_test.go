@@ -9,7 +9,7 @@ import (
 )
 
 func TestHealthReady(t *testing.T) {
-	srv := newServer(newMemoryStore())
+	srv := newServer(newMemoryStore(), config{ProductAuth: "dev"}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
 	rec := httptest.NewRecorder()
 	srv.routes().ServeHTTP(rec, req)
@@ -26,7 +26,7 @@ func TestHealthReady(t *testing.T) {
 }
 
 func TestTasksCRUDStub(t *testing.T) {
-	srv := newServer(newMemoryStore())
+	srv := newServer(newMemoryStore(), config{ProductAuth: "dev"}, nil)
 	handler := srv.routes()
 
 	createBody := bytes.NewBufferString(`{"title":"Buy milk"}`)

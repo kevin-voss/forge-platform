@@ -1,16 +1,19 @@
-# Demo 51 overlay — TaskFlow + managed Postgres (epic 51.02).
+# Demo 51 overlay — TaskFlow + managed Postgres + Identity (epic 51.03).
 # Used with the root compose file:
 #   docker compose -f compose.yaml -f demos/51-taskflow/docker-compose.yml up -d ...
 #
 # Host pattern yields api.taskflow.localhost / app.taskflow.localhost for services
 # named `api` and `app`. LocalProvisioner starts isolated product Postgres
 # containers; DATABASE_URL is injected via Control's in-memory secrets client
-# while FORGE_SECRETS_URL=disabled (plaintext until 51.04).
+# while FORGE_SECRETS_URL=disabled (plaintext until 51.04). Product API reaches
+# Identity at host.docker.internal:4002. Control stays auth=dev for apply; run.sh
+# briefly switches enforce for viewer/developer deploy RBAC proof.
 
 services:
   forge-control:
     environment:
       FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+      FORGE_IDENTITY_URL: http://forge-identity:8080
       FORGE_LIFECYCLE_OWNER: ${FORGE_LIFECYCLE_OWNER:-control}
       FORGE_RECONCILE_INTERVAL_MS: ${FORGE_RECONCILE_INTERVAL_MS:-1000}
       FORGE_READINESS_POLL_MS: ${FORGE_READINESS_POLL_MS:-500}

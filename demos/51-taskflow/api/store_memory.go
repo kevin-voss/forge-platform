@@ -9,13 +9,23 @@ import (
 
 // memoryStore is a test-only TaskStore (production uses Postgres).
 type memoryStore struct {
-	mu    sync.Mutex
-	tasks map[string]*Task
-	order []string
+	mu       sync.Mutex
+	tasks    map[string]*Task
+	order    []string
+	users    map[string]*User // by id
+	byEmail  map[string]string
+	settings map[string]string
+	projects map[string]bool
 }
 
 func newMemoryStore() *memoryStore {
-	return &memoryStore{tasks: make(map[string]*Task)}
+	return &memoryStore{
+		tasks:    make(map[string]*Task),
+		users:    make(map[string]*User),
+		byEmail:  make(map[string]string),
+		settings: make(map[string]string),
+		projects: map[string]bool{"project-default": true, "project-shared": true},
+	}
 }
 
 func (m *memoryStore) Migrate(context.Context) error             { return nil }
@@ -96,5 +106,64 @@ func (m *memoryStore) DeleteTask(_ context.Context, id string) error {
 		}
 	}
 	m.order = next
+	return nil
+}
+
+func (m *memoryStore) UpsertUser(_ context.Context, id, email, _ /*passwordHash*/, role string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	email = strings.ToLower(strings.TrimSpace(email))
+	if role != "admin" && role != "member" {
+		role = "member"
+	}
+	u := &User{ID: id, Email: email, Role: role}
+	m.users[id] = u
+	m.byEmail[email] = id
+	return nil
+}
+
+func (m *memoryStore) GetUserByID(_ context.Context, id string) (*User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[id]
+	if !ok {
+		return nil, nil
+	}
+	cp := *u
+	return &cp, nil
+}
+
+func (m *memoryStore) GetUserByEmail(_ context.Context, email string) (*User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	id, ok := m.byEmail[strings.ToLower(strings.TrimSpace(email))]
+	if !ok {
+		return nil, nil
+	}
+	u := m.users[id]
+	cp := *u
+	return &cp, nil
+}
+
+func (m *memoryStore) GetSetting(_ context.Context, key string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.settings[key], nil
+}
+
+func (m *memoryStore) SetSetting(_ context.Context, key, value string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.settings[key] = value
+	return nil
+}
+
+func (m *memoryStore) DeleteProject(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.projects[id] {
+		return errNotFound
+	}
+	delete(m.projects, id)
 	return nil
 }
