@@ -4,8 +4,10 @@ Design for the machinery that runs all demo products end-to-end with **visible b
 automation**, collects **platform findings**, and exposes a single entry point:
 
 ```bash
-make test-platform-e2e            # headed, runs demos 1→5, then the aggregate gate
-make test-platform-e2e HEADLESS=1 # headless (CI); PROJECTS=01,03 to subset
+make test-platform-e2e                     # headed, runs demos 1→5, then the aggregate gate
+make test-platform-e2e HEADLESS=1          # headless; PROJECTS=01,03 to subset
+CI=1 CI_SUBSET=1 make test-platform-e2e    # CI PR gate (headless, KEEP=0, PROJECTS=01,03)
+CI=1 make test-platform-e2e                # CI nightly (headless, KEEP=0, full 01–05)
 ```
 
 Implemented by **epic [50](../implementation/epics/50-e2e-harness.md)**. Every demo product
@@ -29,6 +31,7 @@ tests/e2e/
 │   ├── gateway.ts              # host-header helpers for *.localhost routing
 │   ├── coverage.ts             # services.json coverage gate (full suite, 56.02)
 │   ├── services.json           # canonical platform service list for coverage
+│   ├── artifacts.ts            # CI upload staging + upload-manifest.json (56.04)
 │   └── report.ts               # per-run markdown/HTML report + coverage rollup
 ├── projects/
 │   ├── 01-taskflow/spec.ts     # Playwright specs (one folder per demo product)
@@ -183,11 +186,12 @@ increments per-service counters used by the final report. Findings are **append-
 `orchestrator.ts` (invoked by the Make target) does:
 
 ```text
-parse env: HEADLESS, PROJECTS=01,02.. (default 01–05), KEEP, FINDINGS_ONLY
+parse env: HEADLESS, CI, CI_SUBSET, PROJECTS=01,02.. (default 01–05), KEEP, FINDINGS_ONLY
 platform preflight (fail fast if platform can't come up → single blocker finding)
 for each selected product in numeric order:
     run lifecycle (§3); capture pass/degraded/fail + findings + artifacts
 write run report (report.ts) + coverage rollup (§ matrix)
+on CI=1: stage artifacts/ upload bundle (PLATFORM_FINDINGS.md copy + upload-manifest.json)
 print aggregate rollup; exit 0 iff all selected products passed/degraded AND zero blocker findings
 ```
 
@@ -231,12 +235,20 @@ emits a **Triage** hand-off table (service owner + suspected component), and fla
 entries under **Evidence gaps**. The orchestrator runs consolidation at the end of every suite so
 [`PLATFORM_FINDINGS.md`](PLATFORM_FINDINGS.md) stays the single ranked artifact.
 
+### 56.04 outcome — headless/CI mode + artifacts
+
+**Landed:** `CI=1` → headless + `KEEP=0`; `CI_SUBSET=1` → PR subset `01,03`; nightly full
+suite when `CI_SUBSET` is unset. `artifacts.stageCiArtifacts()` copies findings into
+`tests/e2e/artifacts/` and writes `upload-manifest.json`. Example GitHub Actions workflow
+[`.github/workflows/platform-e2e.yml`](../../.github/workflows/platform-e2e.yml) runs the subset
+on PRs and the full five on a nightly schedule, uploading the artifacts directory.
+
 ```make
 test-platform-e2e:
-	@cd tests/e2e && npm ci --no-audit --no-fund
-	@cd tests/e2e && npm run build
-	@cd tests/e2e && HEADLESS=$(HEADLESS) PROJECTS=$(PROJECTS) KEEP=$(KEEP) FINDINGS_ONLY=$(FINDINGS_ONLY) \
-		node harness/orchestrator.js
+	# CI=1 → HEADLESS=1 KEEP=0; CI_SUBSET=1 → PROJECTS=01,03 when PROJECTS empty
+	@cd tests/e2e && npm ci --no-audit --no-fund && npm run build && \
+		CI=$(CI) CI_SUBSET=$(CI_SUBSET) HEADLESS=$(HEADLESS) PROJECTS=$(PROJECTS) \
+		KEEP=$(KEEP) FINDINGS_ONLY=$(FINDINGS_ONLY) node harness/orchestrator.js
 
 e2e-report:
 	@cd tests/e2e && npm run build
@@ -318,10 +330,28 @@ demo uses `1`s) does not fail the gate. Epic 55 marked Complete.
 
 ## 10. CI mode
 
-`CI=1` implies `HEADLESS=1`, `KEEP=0`, uploads `tests/e2e/artifacts/` (traces, videos, report,
-`findings.json`, `PLATFORM_FINDINGS.md`). A `CI_SUBSET` variable can restrict to the fast products
-(`PROJECTS=01,03`) for PR gating while nightly runs the full five, mirroring the capstone's
-`CI_SUBSET` pattern.
+**Landed (56.04):** `CI=1` (or `true`) implies `HEADLESS=1` and forces `KEEP=0` in both the
+Makefile and `orchestrator.parseEnv`. After the run, the orchestrator stages an upload bundle
+under `tests/e2e/artifacts/`: Playwright traces/videos/screenshots, `report.md` /
+`report.html`, `findings.json`, `orchestrator-result.json`, a copy of
+`PLATFORM_FINDINGS.md`, and `upload-manifest.json`.
+
+| Mode | Trigger | Env | Suite |
+|---|---|---|---|
+| PR subset | pull_request / `workflow_dispatch` `pr-subset` | `CI=1` `CI_SUBSET=1` | `PROJECTS=01,03` (TaskFlow + AskDocs) |
+| Nightly full | `schedule` / `workflow_dispatch` `full` | `CI=1` (no `CI_SUBSET`) | default `01`–`05` + coverage gate |
+
+Explicit `PROJECTS=…` always wins over `CI_SUBSET`. Fake backends (`FORGE_MODELS_BACKEND=fake`,
+`FORGE_AGENTS_TOOLS_MODE=fake`) keep AskDocs deterministic with no secrets.
+
+Example workflow: [`.github/workflows/platform-e2e.yml`](../../.github/workflows/platform-e2e.yml)
+(uploads `tests/e2e/artifacts/` via `actions/upload-artifact` on every conclusion).
+
+```bash
+CI=1 HEADLESS=1 CI_SUBSET=1 make test-platform-e2e   # PR gate
+CI=1 HEADLESS=1 make test-platform-e2e               # nightly full
+CI=1 HEADLESS=1 make test-platform-e2e PROJECTS=01,03  # explicit subset
+```
 
 ## 11. Open questions
 

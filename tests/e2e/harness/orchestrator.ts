@@ -25,6 +25,7 @@ import {
   verifyCoverage,
   type CoverageGateResult,
 } from './coverage';
+import { stageCiArtifacts } from './artifacts';
 import { HostPreflightError, preflightHosts } from './gateway';
 import { PreflightError, preflight } from './platform';
 import { writeReport } from './report';
@@ -42,10 +43,16 @@ import { writeReport } from './report';
  * harness self-test (`50`) is opt-in via PROJECTS. Degraded (non-blocker) products
  * continue the suite; a failed/blocker product makes the aggregate exit non-zero
  * (stop-eligible) while remaining products still run for a complete rollup.
+ *
+ * CI semantics (56.04): `CI=1` implies headless + KEEP=0; `CI_SUBSET=1` (with
+ * empty PROJECTS) selects the PR gate subset `01,03`; full five is the nightly.
  */
 
 /** Default suite: demos 1→5 (epics 51–55). Harness self-test (50) is opt-in. */
 export const DEFAULT_SUITE_SELECTORS = ['01', '02', '03', '04', '05'] as const;
+
+/** PR / CI_SUBSET gate: TaskFlow + AskDocs (mirrors capstone fast-path idea). */
+export const CI_SUBSET_PROJECTS = ['01', '03'] as const;
 
 export interface OrchestratorEnv {
   headless: boolean;
@@ -54,6 +61,10 @@ export interface OrchestratorEnv {
   keep: boolean;
   /** Skip Playwright browser specs; still run deploy -> seed -> host -> teardown. */
   findingsOnly: boolean;
+  /** True when CI=1/true (forces headless + KEEP=0). Set by parseEnv. */
+  ci?: boolean;
+  /** True when CI_SUBSET=1/true (default PROJECTS → 01,03 when unset). */
+  ciSubset?: boolean;
 }
 
 export interface ProductRunResult {
@@ -110,24 +121,32 @@ function defaultRepoRoot(): string {
   return path.resolve(e2eRoot(), '../..');
 }
 
-/** Parse HEADLESS / CI / PROJECTS / KEEP / FINDINGS_ONLY from process env (or override). */
+function truthyEnv(value: string | undefined): boolean {
+  return value === '1' || value === 'true';
+}
+
+/** Parse HEADLESS / CI / CI_SUBSET / PROJECTS / KEEP / FINDINGS_ONLY from process env. */
 export function parseEnv(
   source: NodeJS.ProcessEnv | Partial<NodeJS.ProcessEnv> = process.env,
 ): OrchestratorEnv {
-  const headless =
-    source.HEADLESS === '1' ||
-    source.CI === '1' ||
-    source.CI === 'true';
-  const keep = source.KEEP === '1';
+  const ci = truthyEnv(source.CI);
+  const ciSubset = truthyEnv(source.CI_SUBSET);
+  const headless = source.HEADLESS === '1' || ci;
+  // CI always tears down product stacks — KEEP is forced off.
+  const keep = ci ? false : source.KEEP === '1';
   const findingsOnly = source.FINDINGS_ONLY === '1';
   const raw = (source.PROJECTS ?? '').trim();
-  const projects = raw
+  let projects = raw
     ? raw
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean)
     : [];
-  return { headless, projects, keep, findingsOnly };
+  // PR subset when CI_SUBSET is set and PROJECTS was not explicitly provided.
+  if (projects.length === 0 && ciSubset) {
+    projects = [...CI_SUBSET_PROJECTS];
+  }
+  return { headless, projects, keep, findingsOnly, ci, ciSubset };
 }
 
 function isOrchestratorEnv(value: unknown): value is OrchestratorEnv {
@@ -139,6 +158,15 @@ function isOrchestratorEnv(value: unknown): value is OrchestratorEnv {
     'keep' in value &&
     'findingsOnly' in value
   );
+}
+
+/** Normalize a partial/test OrchestratorEnv so ci/ciSubset always exist. */
+function normalizeEnv(env: OrchestratorEnv): OrchestratorEnv {
+  return {
+    ...env,
+    ci: env.ci ?? false,
+    ciSubset: env.ciSubset ?? false,
+  };
 }
 
 /** Numeric prefix from a product id or selector (`50-e2e-harness` -> 50, `01` -> 1). */
@@ -472,9 +500,11 @@ export async function runOrchestrator(
 ): Promise<OrchestratorResult> {
   const repoRoot = options.repoRoot ?? defaultRepoRoot();
   const demosRoot = options.demosRoot ?? path.join(repoRoot, 'demos');
-  const env = isOrchestratorEnv(options.env)
-    ? options.env
-    : parseEnv((options.env as NodeJS.ProcessEnv | undefined) ?? process.env);
+  const env = normalizeEnv(
+    isOrchestratorEnv(options.env)
+      ? options.env
+      : parseEnv((options.env as NodeJS.ProcessEnv | undefined) ?? process.env),
+  );
 
   const discovered = discoverProducts(demosRoot);
   const selectors = resolveProjectSelectors(env.projects);
@@ -666,6 +696,25 @@ function writeResultArtifact(
     `[orchestrator] report: ${report.markdownPath}` +
       ` (coverage ${report.coverage.covered}/${report.coverage.total})\n`,
   );
+
+  // 56.04: on CI, stage upload bundle (findings copy + manifest) under artifacts/.
+  if (result.env.ci) {
+    const findingsMarkdownPath =
+      options.findingsPaths?.markdownPath ??
+      path.join(
+        options.repoRoot ?? defaultRepoRoot(),
+        'docs/demo-projects/PLATFORM_FINDINGS.md',
+      );
+    const bundle = stageCiArtifacts({
+      artifactsDir,
+      findingsMarkdownPath,
+      repoRoot: options.repoRoot ?? defaultRepoRoot(),
+    });
+    process.stdout.write(
+      `[orchestrator] ci-artifacts: staged ${bundle.relativePaths.length} files` +
+        ` under ${bundle.artifactsDir} (manifest=${path.basename(bundle.manifestPath)})\n`,
+    );
+  }
 }
 
 async function main(): Promise<void> {

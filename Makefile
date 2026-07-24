@@ -24,6 +24,10 @@ HEADLESS ?=
 PROJECTS ?=
 KEEP ?=
 FINDINGS_ONLY ?=
+CI ?=
+CI_SUBSET ?=
+# PR gate subset (TaskFlow + AskDocs). Nightly leaves CI_SUBSET unset for 01–05.
+CI_SUBSET_PROJECTS ?= 01,03
 
 help:
 	@echo "Forge Platform Make targets"
@@ -65,7 +69,7 @@ help:
 	@echo "  make service-test SERVICE= Run tests for one service"
 	@echo "  make service-run SERVICE=  Run one service locally"
 	@echo "  make e2e-install           Install Playwright browsers for tests/e2e"
-	@echo "  make test-platform-e2e     Full suite 01–05 (PROJECTS=… to subset; HEADLESS/KEEP)"
+	@echo "  make test-platform-e2e     Full suite 01–05 (PROJECTS=…; HEADLESS/KEEP; CI/CI_SUBSET)"
 	@echo "  make e2e-report            Open the last platform E2E HTML report"
 	@echo "  make demo DEMO=5X          Demo product (demo.json → orchestrator lifecycle)"
 
@@ -156,17 +160,31 @@ e2e-install:
 	@cd tests/e2e && npx playwright install --with-deps
 
 # Headed by default; HEADLESS=1 (or CI=1) for CI. No PROJECTS = full suite 01–05 in order.
-# PROJECTS=01,03 (or 50) subsets; KEEP=1 skips teardown.
+# PROJECTS=01,03 (or 50) subsets; KEEP=1 skips teardown (forced off when CI=1).
+# CI_SUBSET=1 with empty PROJECTS → PR gate 01,03; nightly leaves CI_SUBSET unset.
 # Full suite and PulseBoard (PROJECTS=05 / 55) need a longer deploy timeout for scale legs.
 test-platform-e2e:
-	@demo_timeout="$(DEMO_TIMEOUT_MS)"; \
+	@projects="$(PROJECTS)"; \
+	headless="$(HEADLESS)"; \
+	keep="$(KEEP)"; \
+	ci="$(CI)"; \
+	ci_subset="$(CI_SUBSET)"; \
+	if [[ "$${ci}" == "1" || "$${ci}" == "true" ]]; then \
+		headless=1; \
+		keep=0; \
+	fi; \
+	if [[ -z "$${projects}" && ( "$${ci_subset}" == "1" || "$${ci_subset}" == "true" ) ]]; then \
+		projects="$(CI_SUBSET_PROJECTS)"; \
+	fi; \
+	demo_timeout="$(DEMO_TIMEOUT_MS)"; \
 	if [[ -z "$${demo_timeout}" ]]; then \
-		if [[ -z "$(PROJECTS)" ]] || echo ",$(PROJECTS)," | grep -Eq ',0?5,|,55,'; then \
+		if [[ -z "$${projects}" ]] || echo ",$${projects}," | grep -Eq ',0?5,|,55,'; then \
 			demo_timeout=900000; \
 		fi; \
 	fi; \
 	cd tests/e2e && npm ci --no-audit --no-fund && npm run build && \
-		HEADLESS="$(HEADLESS)" PROJECTS="$(PROJECTS)" KEEP="$(KEEP)" FINDINGS_ONLY="$(FINDINGS_ONLY)" \
+		CI="$${ci}" CI_SUBSET="$${ci_subset}" \
+		HEADLESS="$${headless}" PROJECTS="$${projects}" KEEP="$${keep}" FINDINGS_ONLY="$(FINDINGS_ONLY)" \
 		DEMO_TIMEOUT_MS="$${demo_timeout}" \
 		node harness/orchestrator.js
 

@@ -55,12 +55,13 @@ findings, and leaves a consolidated report + `PLATFORM_FINDINGS.md`.
 | 56.01 | Full-suite orchestration | Complete | default `PROJECTS` = 01–05; aggregate pass/degraded/fail + exit code |
 | 56.02 | Coverage verification gate | Complete | `services.json` + coverage.ts; full suite fails on uncovered services |
 | 56.03 | Findings consolidation + triage | Complete | dedupe, rank by severity, group by service; summary/by-service/by-demo tables |
-| 56.04 | Headless/CI mode + artifacts | Not started | `HEADLESS=1`/`CI=1`, `CI_SUBSET`, upload traces/videos/report/findings.json |
+| 56.04 | Headless/CI mode + artifacts | Complete | `CI=1` → headless/`KEEP=0`; `CI_SUBSET` PR `01,03`; nightly full; workflow uploads artifacts |
 | 56.05 | North-star gate + docs | Not started | final acceptance, runbook, README; `make test-platform-e2e` is the gate |
 
 Ordering + `N`: [`../steps/56-platform-e2e-gate/README.md`](../steps/56-platform-e2e-gate/README.md).
 
 ## Open questions
 
-* PR gate = fast subset (`PROJECTS=01,03`) vs full five nightly? Recommend subset on PR, full
-  nightly (decide in `56.04`, mirroring the capstone `CI_SUBSET`).
+* ~~PR gate = fast subset (`PROJECTS=01,03`) vs full five nightly?~~ **Decided in 56.04:** PR /
+  `CI_SUBSET=1` → `01,03`; nightly schedule → full five (see
+  [`.github/workflows/platform-e2e.yml`](../../../.github/workflows/platform-e2e.yml)).

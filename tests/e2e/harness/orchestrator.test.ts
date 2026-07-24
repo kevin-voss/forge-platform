@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  CI_SUBSET_PROJECTS,
   DEFAULT_SUITE_SELECTORS,
   discoverProducts,
   matchesProjectSelector,
@@ -38,6 +39,8 @@ test('parseEnv defaults to headed, empty PROJECTS (default suite), no keep', () 
   assert.deepEqual(env.projects, []);
   assert.equal(env.keep, false);
   assert.equal(env.findingsOnly, false);
+  assert.equal(env.ci, false);
+  assert.equal(env.ciSubset, false);
 });
 
 test('resolveProjectSelectors empty → default suite 01–05', () => {
@@ -62,6 +65,33 @@ test('parseEnv honors HEADLESS=1, PROJECTS subset, KEEP, FINDINGS_ONLY', () => {
 test('parseEnv treats CI=1 as headless', () => {
   assert.equal(parseEnv({ CI: '1' }).headless, true);
   assert.equal(parseEnv({ CI: 'true' }).headless, true);
+});
+
+test('parseEnv CI=1 forces KEEP=0 even when KEEP=1', () => {
+  const env = parseEnv({ CI: '1', KEEP: '1', HEADLESS: '0' });
+  assert.equal(env.ci, true);
+  assert.equal(env.headless, true);
+  assert.equal(env.keep, false);
+});
+
+test('parseEnv CI_SUBSET=1 defaults PROJECTS to 01,03', () => {
+  const env = parseEnv({ CI_SUBSET: '1' });
+  assert.equal(env.ciSubset, true);
+  assert.deepEqual(env.projects, [...CI_SUBSET_PROJECTS]);
+});
+
+test('parseEnv explicit PROJECTS wins over CI_SUBSET', () => {
+  const env = parseEnv({ CI_SUBSET: '1', PROJECTS: '02,04' });
+  assert.deepEqual(env.projects, ['02', '04']);
+});
+
+test('CI=1 + CI_SUBSET=1 is headless, no keep, PR subset', () => {
+  const env = parseEnv({ CI: '1', CI_SUBSET: '1', KEEP: '1' });
+  assert.equal(env.ci, true);
+  assert.equal(env.ciSubset, true);
+  assert.equal(env.headless, true);
+  assert.equal(env.keep, false);
+  assert.deepEqual(env.projects, ['01', '03']);
 });
 
 test('numericPrefix extracts leading digits', () => {
@@ -423,4 +453,69 @@ test('full default suite exits non-zero when a product blocks', async () => {
 test('selectProducts throws when selector matches nothing', () => {
   const found = discoverProducts(fixturesDemos);
   assert.throws(() => selectProducts(found, ['99']), /matched no demo\.json/);
+});
+
+test('CI=1 stages artifact upload bundle (findings + manifest)', async () => {
+  const findings = tempFindingsPaths();
+  const artifactsDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'forge-orch-ci-artifacts-'),
+  );
+  try {
+    // Point result writes at a temp artifacts dir by running with skipResultWrite
+    // false would use tests/e2e/artifacts — exercise stage via parseEnv + direct call path.
+    const result = await runOrchestrator({
+      repoRoot,
+      demosRoot: fixturesDemos,
+      env: {
+        CI: '1',
+        CI_SUBSET: '1',
+        // Override subset to fixture ids that exist under fixtures/demos.
+        PROJECTS: '01,03',
+      },
+      findingsPaths: {
+        markdownPath: findings.markdownPath,
+        jsonPath: findings.jsonPath,
+      },
+      platformPreflight: async () => undefined,
+      hostPreflight: async () => undefined,
+      runPlaywright: async () => 0,
+      skipResultWrite: true,
+      skipCoverageGate: true,
+      timeoutMs: 10_000,
+    });
+
+    assert.equal(result.env.ci, true);
+    assert.equal(result.env.ciSubset, true);
+    assert.equal(result.env.headless, true);
+    assert.equal(result.env.keep, false);
+    assert.deepEqual(result.env.projects, ['01', '03']);
+    assert.deepEqual(
+      result.products.map((p) => p.project.id),
+      ['01-alpha', '03-gamma'],
+    );
+    assert.equal(result.exitCode, 0);
+
+    // Stage the same way writeResultArtifact does under CI.
+    const { stageCiArtifacts } = await import('./artifacts');
+    fs.writeFileSync(path.join(artifactsDir, 'report.md'), '# r\n', 'utf8');
+    fs.writeFileSync(
+      path.join(artifactsDir, 'findings.json'),
+      fs.readFileSync(findings.jsonPath, 'utf8'),
+    );
+    const bundle = stageCiArtifacts({
+      artifactsDir,
+      findingsMarkdownPath: findings.markdownPath,
+      repoRoot,
+    });
+    assert.ok(fs.existsSync(bundle.findingsCopyPath));
+    assert.ok(fs.existsSync(bundle.manifestPath));
+    const manifest = JSON.parse(
+      fs.readFileSync(bundle.manifestPath, 'utf8'),
+    ) as { files: string[] };
+    assert.ok(manifest.files.includes('PLATFORM_FINDINGS.md'));
+    assert.ok(manifest.files.includes('report.md'));
+  } finally {
+    fs.rmSync(findings.dir, { recursive: true, force: true });
+    fs.rmSync(artifactsDir, { recursive: true, force: true });
+  }
 });

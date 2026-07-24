@@ -1,0 +1,97 @@
+# Platform E2E gate (epic 56.04) — example CI workflow.
+#
+# PR / workflow_dispatch(subset): fast gate — CI_SUBSET=1 → PROJECTS=01,03
+#   (TaskFlow + AskDocs; fake-backed demos, no secrets required).
+# Nightly schedule / workflow_dispatch(full): full suite 01–05 + coverage gate.
+#
+# Artifacts uploaded always (even on failure): tests/e2e/artifacts/
+# (traces, videos, report.md/html, findings.json, PLATFORM_FINDINGS.md copy,
+# upload-manifest.json).
+
+name: platform-e2e
+
+on:
+  pull_request:
+  schedule:
+    # Nightly full suite (06:00 UTC).
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: 'pr-subset (01,03) or full (01–05)'
+        required: true
+        default: 'pr-subset'
+        type: choice
+        options:
+          - pr-subset
+          - full
+
+concurrency:
+  group: platform-e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  platform-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      # Playwright / orchestrator treat CI as headless + KEEP=0.
+      CI: '1'
+      HEADLESS: '1'
+      # Deterministic AI backends for AskDocs (no cloud keys).
+      FORGE_MODELS_BACKEND: fake
+      FORGE_AGENTS_TOOLS_MODE: fake
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node (Playwright harness)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tests/e2e/package-lock.json
+
+      - name: Local env + executable scripts
+        run: make setup
+
+      - name: Install Playwright browsers
+        run: make e2e-install
+
+      - name: Resolve suite mode
+        id: suite
+        run: |
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            echo "mode=full" >> "$GITHUB_OUTPUT"
+            echo "ci_subset=" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.suite }}" == "full" ]]; then
+            echo "mode=full" >> "$GITHUB_OUTPUT"
+            echo "ci_subset=" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=pr-subset" >> "$GITHUB_OUTPUT"
+            echo "ci_subset=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bring up local platform
+        run: make dev
+
+      - name: Wait for platform health
+        run: make wait
+
+      - name: Run platform E2E (PR subset or nightly full)
+        run: |
+          echo "suite mode=${{ steps.suite.outputs.mode }} CI_SUBSET=${{ steps.suite.outputs.ci_subset }}"
+          if [[ -n "${{ steps.suite.outputs.ci_subset }}" ]]; then
+            CI=1 HEADLESS=1 CI_SUBSET=1 make test-platform-e2e
+          else
+            CI=1 HEADLESS=1 make test-platform-e2e
+          fi
+
+      - name: Upload E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-e2e-${{ steps.suite.outputs.mode }}-${{ github.run_id }}
+          path: tests/e2e/artifacts/
+          if-no-files-found: warn
+          retention-days: 14
