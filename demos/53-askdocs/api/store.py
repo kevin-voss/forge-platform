@@ -331,6 +331,78 @@ class MessageStore:
         ).fetchall()
         return [self._row_to_chunk(r) for r in rows]
 
+    def list_ready_chunks(self) -> list[Chunk]:
+        """Chunks belonging to documents with status=ready."""
+        self.connect()
+        assert self._conn is not None
+        rows = self._conn.execute(
+            """
+            SELECT c.id, c.document_id, c.ordinal, c.text, c.memory_id, c.created_at
+            FROM chunks c
+            INNER JOIN documents d ON d.id = c.document_id
+            WHERE d.status = 'ready'
+            ORDER BY c.document_id ASC, c.ordinal ASC, c.id ASC
+            """
+        ).fetchall()
+        return [self._row_to_chunk(r) for r in rows]
+
+    def get_chunks_by_ids(self, chunk_ids: list[str]) -> list[Chunk]:
+        ids = [str(i).strip() for i in chunk_ids if str(i).strip()]
+        if not ids:
+            return []
+        self.connect()
+        assert self._conn is not None
+        rows = self._conn.execute(
+            """
+            SELECT id, document_id, ordinal, text, memory_id, created_at
+            FROM chunks
+            WHERE id = ANY(%s)
+            """,
+            (ids,),
+        ).fetchall()
+        by_id = {str(r["id"]): self._row_to_chunk(r) for r in rows}
+        return [by_id[i] for i in ids if i in by_id]
+
+    def set_chunk_memory_ids(self, document_id: str, mapping: dict[str, str]) -> None:
+        """Set memory_id for chunks of a document (chunk_id → memory_id)."""
+        document_id = (document_id or "").strip()
+        if not document_id:
+            raise StoreError("document_id is required")
+        if not mapping:
+            return
+        self.connect()
+        assert self._conn is not None
+        for chunk_id, memory_id in mapping.items():
+            cid = str(chunk_id).strip()
+            mid = str(memory_id).strip()
+            if not cid or not mid:
+                continue
+            self._conn.execute(
+                """
+                UPDATE chunks
+                SET memory_id = %s
+                WHERE id = %s AND document_id = %s
+                """,
+                (mid, cid, document_id),
+            )
+        self._conn.commit()
+
+    def mark_document_ready(self, document_id: str) -> Document:
+        document_id = (document_id or "").strip()
+        if not document_id:
+            raise StoreError("document_id is required")
+        self.connect()
+        assert self._conn is not None
+        self._conn.execute(
+            "UPDATE documents SET status = 'ready' WHERE id = %s",
+            (document_id,),
+        )
+        self._conn.commit()
+        doc = self.get_document(document_id)
+        if doc is None:
+            raise StoreError(f"document not found: {document_id}")
+        return doc
+
     @staticmethod
     def _row_to_message(row: dict[str, Any]) -> Message:
         citations = row.get("citations") or []

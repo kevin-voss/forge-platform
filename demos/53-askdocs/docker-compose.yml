@@ -1,11 +1,12 @@
-# Demo 53 overlay — AskDocs + managed Postgres + Events/Storage (epic 53.02).
+# Demo 53 overlay — AskDocs + managed Postgres + Events/Storage/Models/Memory (epic 53.03).
 # Used with the root compose file:
 #   docker compose -f compose.yaml -f demos/53-askdocs/docker-compose.yml up -d ...
 #
 # Host pattern yields api/app/worker.askdocs.localhost for services named
 # `api`, `app`, and `worker`. LocalProvisioner starts isolated product Postgres
 # containers; DATABASE_URL is injected via Control's in-memory secrets client
-# while FORGE_SECRETS_URL=disabled.
+# while FORGE_SECRETS_URL=disabled. Models/Memory are started by run.sh from the
+# root compose (ports 4300 / 4303).
 
 services:
   forge-events:

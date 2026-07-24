@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AskDocs API — chat echo + document upload/ingest kickoff (epic 53.02)."""
+"""AskDocs API — upload/ingest + Models/Memory retrieval (epic 53.03)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from embeddings import EMBEDDING_DIM, EMBEDDING_MODEL, MEMORY_COLLECTION
 from events import EventsClient
+from memory import MemoryClient
+from models import ModelsClient
+from retrieve import retrieve
 from storage import StorageClient
 from store import (
     EmptyDocumentError,
@@ -31,6 +35,8 @@ STARTED_AT = time.time()
 _STORE: MessageStore | None = None
 _STORAGE: StorageClient | None = None
 _EVENTS: EventsClient | None = None
+_MODELS: ModelsClient | None = None
+_MEMORY: MemoryClient | None = None
 
 _DOC_RE = re.compile(r"^/documents/([A-Za-z0-9_-]+)$")
 _CHUNKS_RE = re.compile(r"^/documents/([A-Za-z0-9_-]+)/chunks$")
@@ -55,6 +61,20 @@ def get_events() -> EventsClient:
     if _EVENTS is None:
         raise StoreError("events not initialized")
     return _EVENTS
+
+
+def get_models() -> ModelsClient:
+    global _MODELS
+    if _MODELS is None:
+        raise StoreError("models not initialized")
+    return _MODELS
+
+
+def get_memory() -> MemoryClient:
+    global _MEMORY
+    if _MEMORY is None:
+        raise StoreError("memory not initialized")
+    return _MEMORY
 
 
 def sanitize_filename(name: str) -> str:
@@ -106,10 +126,26 @@ class Handler(BaseHTTPRequestHandler):
                 get_events().ping()
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"events: {type(exc).__name__}: {exc}")
+            try:
+                get_models().ping()
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"models: {type(exc).__name__}: {exc}")
+            try:
+                get_memory().ping()
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"memory: {type(exc).__name__}: {exc}")
             if errors:
                 self._write_json(503, {"status": "not_ready", "error": "; ".join(errors)})
             else:
-                self._write_json(200, {"status": "ok"})
+                self._write_json(
+                    200,
+                    {
+                        "status": "ok",
+                        "embedModel": EMBEDDING_MODEL,
+                        "embedDim": EMBEDDING_DIM,
+                        "collection": MEMORY_COLLECTION,
+                    },
+                )
             return
         if path == "/messages":
             qs = parse_qs(parsed.query)
@@ -161,6 +197,10 @@ class Handler(BaseHTTPRequestHandler):
                     "uptime_seconds": time.time() - STARTED_AT,
                     "chat": "POST /chat (echo stub until 53.04)",
                     "documents": "GET/POST /documents",
+                    "query": "POST /query (Models embed + Memory kNN)",
+                    "embedModel": EMBEDDING_MODEL,
+                    "embedDim": EMBEDDING_DIM,
+                    "collection": MEMORY_COLLECTION,
                 },
             )
             return
@@ -169,6 +209,45 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path
+        if path == "/query":
+            body = self._read_json()
+            if body is None:
+                self._write_json(400, {"error": "invalid json"})
+                return
+            text = str(body.get("text") or body.get("question") or body.get("q") or "")
+            top_k_raw = body.get("topK") if "topK" in body else body.get("top_k", 5)
+            try:
+                top_k = int(top_k_raw)
+            except (TypeError, ValueError):
+                self._write_json(400, {"error": "topK must be an integer"})
+                return
+            if not text.strip():
+                self._write_json(400, {"error": "text is required"})
+                return
+            try:
+                hits = retrieve(
+                    get_store(),
+                    get_models(),
+                    get_memory(),
+                    text,
+                    top_k=top_k,
+                )
+                self._write_json(
+                    200,
+                    {
+                        "question": text.strip(),
+                        "topK": top_k,
+                        "collection": get_memory().cfg.collection,
+                        "embedModel": get_models().cfg.model,
+                        "embedDim": get_models().cfg.expected_dim,
+                        "results": [h.to_json() for h in hits],
+                    },
+                )
+            except ValueError as exc:
+                self._write_json(400, {"error": str(exc)})
+            except Exception as exc:  # noqa: BLE001
+                self._write_json(500, {"error": f"query failed: {exc}"})
+            return
         if path == "/chat":
             body = self._read_json()
             if body is None:
@@ -305,22 +384,32 @@ def _form_str(form: cgi.FieldStorage, key: str) -> str:
 
 
 def main() -> None:
-    global _STORE, _STORAGE, _EVENTS
+    global _STORE, _STORAGE, _EVENTS, _MODELS, _MEMORY
     store = open_store_with_retry()
     store.migrate()
     storage = StorageClient()
     events = EventsClient()
+    models = ModelsClient()
+    memory = MemoryClient()
     try:
         storage.ensure_bucket()
     except Exception as exc:  # noqa: BLE001
         print(f"askdocs-api warn: ensure_bucket: {exc}", flush=True)
+    try:
+        memory.ensure_collection()
+    except Exception as exc:  # noqa: BLE001
+        print(f"askdocs-api warn: ensure_collection: {exc}", flush=True)
     _STORE = store
     _STORAGE = storage
     _EVENTS = events
+    _MODELS = models
+    _MEMORY = memory
     print(f"askdocs-api migrations applied from {store.migrations_dir}", flush=True)
     print(
         f"askdocs-api listening on :{PORT} storage={storage.cfg.base_url} "
-        f"bucket={storage.cfg.bucket} events={events.cfg.base_url}",
+        f"bucket={storage.cfg.bucket} events={events.cfg.base_url} "
+        f"models={models.cfg.base_url} memory={memory.cfg.base_url} "
+        f"collection={memory.cfg.collection} dim={models.cfg.expected_dim}",
         flush=True,
     )
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

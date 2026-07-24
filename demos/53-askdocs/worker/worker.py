@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AskDocs ingest worker — consume document.uploaded, chunk, persist (epic 53.02)."""
+"""AskDocs ingest worker — chunk, embed, Memory upsert (epic 53.03)."""
 
 from __future__ import annotations
 
@@ -12,6 +12,9 @@ from typing import Any
 
 from chunking import chunk_text
 from events import DeliveredMessage, EventsClient
+from ingest_embed import embed_and_store_chunks
+from memory import MemoryClient
+from models import ModelsClient
 from storage import StorageClient
 from store import MessageStore, open_store_with_retry
 
@@ -50,7 +53,13 @@ def wait_ping(fn, label: str, budget_s: float = 60.0) -> None:
             time.sleep(2)
 
 
-def process_message(store: MessageStore, storage: StorageClient, msg: DeliveredMessage) -> None:
+def process_message(
+    store: MessageStore,
+    storage: StorageClient,
+    models: ModelsClient,
+    memory: MemoryClient,
+    msg: DeliveredMessage,
+) -> None:
     data = msg.data or {}
     document_id = str(data.get("document_id") or "").strip()
     object_key = str(data.get("object_key") or "").strip()
@@ -64,9 +73,19 @@ def process_message(store: MessageStore, storage: StorageClient, msg: DeliveredM
     raw = storage.get_object(object_key)
     text = raw.decode("utf-8", errors="replace")
     chunks = chunk_text(text, max_chars=400)
-    store.replace_chunks(document_id, chunks)
+    stored = store.replace_chunks(document_id, chunks)
+    result = embed_and_store_chunks(
+        store,
+        models,
+        memory,
+        document_id,
+        stored,
+        object_key=object_key,
+    )
     print(
-        f"ingested document_id={document_id} chunks={len(chunks)} event_id={msg.event_id} "
+        f"ingested document_id={document_id} chunks={result.get('chunks')} "
+        f"upserted={result.get('upserted')} dim={result.get('dim')} "
+        f"collection={result.get('collection')} event_id={msg.event_id} "
         f"delivery={msg.delivery_count}",
         flush=True,
     )
@@ -76,10 +95,12 @@ def handle_message(
     events: EventsClient,
     store: MessageStore,
     storage: StorageClient,
+    models: ModelsClient,
+    memory: MemoryClient,
     msg: DeliveredMessage,
 ) -> bool:
     try:
-        process_message(store, storage, msg)
+        process_message(store, storage, models, memory, msg)
     except Exception as exc:  # noqa: BLE001
         print(f"process failed event_id={msg.event_id}: {exc}", flush=True)
         try:
@@ -101,7 +122,13 @@ def handle_message(
     return True
 
 
-def run_consume_loop(events: EventsClient, store: MessageStore, storage: StorageClient) -> None:
+def run_consume_loop(
+    events: EventsClient,
+    store: MessageStore,
+    storage: StorageClient,
+    models: ModelsClient,
+    memory: MemoryClient,
+) -> None:
     poll = max(events.cfg.poll_ms, 100) / 1000.0
     while True:
         try:
@@ -111,7 +138,7 @@ def run_consume_loop(events: EventsClient, store: MessageStore, storage: Storage
             time.sleep(poll)
             continue
         for msg in msgs:
-            handle_message(events, store, storage, msg)
+            handle_message(events, store, storage, models, memory, msg)
         if not msgs:
             time.sleep(poll)
 
@@ -121,6 +148,8 @@ class Handler(BaseHTTPRequestHandler):
     store: MessageStore
     storage: StorageClient
     events: EventsClient
+    models: ModelsClient
+    memory: MemoryClient
 
     def log_message(self, fmt: str, *args: Any) -> None:  # noqa: A003
         return
@@ -143,6 +172,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.events.ping()
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"events: {exc}")
+            try:
+                self.models.ping()
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"models: {exc}")
+            try:
+                self.memory.ping()
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"memory: {exc}")
             if not _ready:
                 errors.append("starting")
             if errors:
@@ -155,6 +192,9 @@ class Handler(BaseHTTPRequestHandler):
                         "processed_count": _processed_count(),
                         "consumer": self.events.cfg.consumer,
                         "subject": self.events.cfg.subject,
+                        "collection": self.memory.cfg.collection,
+                        "embed_model": self.models.cfg.model,
+                        "embed_dim": self.models.cfg.expected_dim,
                     },
                 )
             return
@@ -174,25 +214,34 @@ def main() -> None:
     store = open_store_with_retry()
     storage = StorageClient()
     events = EventsClient()
+    models = ModelsClient()
+    memory = MemoryClient()
     wait_ping(storage.ping, "forge-storage")
     wait_ping(events.ping, "forge-events")
+    wait_ping(models.ping, "forge-models")
+    wait_ping(memory.ping, "forge-memory")
+    wait_ping(memory.ensure_collection, "memory-collection")
     wait_ping(events.ensure_consumer, "events-consumer")
     _ready = True
 
     Handler.store = store
     Handler.storage = storage
     Handler.events = events
+    Handler.models = models
+    Handler.memory = memory
 
     threading.Thread(
         target=run_consume_loop,
-        args=(events, store, storage),
+        args=(events, store, storage, models, memory),
         name="consume-loop",
         daemon=True,
     ).start()
 
     print(
         f"{SERVICE_NAME} listening on :{PORT} consumer={events.cfg.consumer} "
-        f"subject={events.cfg.subject} bucket={storage.cfg.bucket}",
+        f"subject={events.cfg.subject} bucket={storage.cfg.bucket} "
+        f"models={models.cfg.base_url} memory={memory.cfg.base_url} "
+        f"collection={memory.cfg.collection} dim={models.cfg.expected_dim}",
         flush=True,
     )
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

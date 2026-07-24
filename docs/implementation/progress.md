@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 195`** (verification track; epic 53 AskDocs).
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 196`** (verification track; epic 53 AskDocs).
 
 ## Epics
 
@@ -282,7 +282,7 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 | [50](epics/50-e2e-harness.md) | Platform E2E harness & orchestrator | Complete | `174`–`180` |
 | [51](epics/51-demo-taskflow.md) | Demo 1 — TaskFlow (auth + DB + secrets) | Complete | `181`–`186`; `make demo DEMO=51` gate |
 | [52](epics/52-demo-snapnote.md) | Demo 2 — SnapNote (storage + queue + worker autoscaling) | Complete | `187`–`192`; `make demo DEMO=52` gate |
-| [53](epics/53-demo-askdocs.md) | Demo 3 — AskDocs (models + memory + agents) | In progress | `193`–`198`; `53.01` complete |
+| [53](epics/53-demo-askdocs.md) | Demo 3 — AskDocs (models + memory + agents) | In progress | `193`–`198`; `53.01`–`53.03` complete |
 | [54](epics/54-demo-orderpipe.md) | Demo 4 — OrderPipe (workflows + events + discovery + network) | Planning | `199`–`205` |
 | [55](epics/55-demo-pulseboard.md) | Demo 5 — PulseBoard (autoscaler + infra + observe) | Planning | `206`–`211` |
 | [56](epics/56-platform-e2e-gate.md) | Platform E2E gate & findings consolidation | Planning | `212`–`216` |
@@ -312,7 +312,7 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 | **192** | Demo + epic gate | 52 | Complete |
 | **193** | Product scaffold + Postgres | 53 | Complete |
 | **194** | Storage upload + ingest pipeline | 53 | Complete |
-| **195** | Embeddings (Models) + Memory upsert/query | 53 | Not started |
+| **195** | Embeddings (Models) + Memory upsert/query | 53 | Complete |
 | **196** | Agent grounded answerer | 53 | Not started |
 | **197** | E2E browser spec | 53 | Not started |
 | **198** | Demo + epic gate | 53 | Not started |

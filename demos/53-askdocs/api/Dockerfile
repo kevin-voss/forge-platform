@@ -7,7 +7,8 @@ RUN apk add --no-cache libpq
 COPY api/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY api/store.py api/server.py api/chunking.py api/storage.py api/events.py \
-	api/test_store.py api/test_chunking.py /app/
+	api/embeddings.py api/models.py api/memory.py api/retrieve.py api/ingest_embed.py \
+	api/test_store.py api/test_chunking.py api/test_embeddings.py /app/
 COPY migrations /migrations
 ENV MIGRATIONS_DIR=/migrations \
 	PORT=8080 \
@@ -17,8 +18,14 @@ ENV MIGRATIONS_DIR=/migrations \
 	FORGE_STORAGE_BUCKET=askdocs-corpus \
 	FORGE_STORAGE_PROJECT=askdocs \
 	FORGE_EVENTS_URL=http://host.docker.internal:4105 \
-	FORGE_EVENTS_SUBJECT=document.uploaded
+	FORGE_EVENTS_SUBJECT=document.uploaded \
+	FORGE_MODELS_URL=http://host.docker.internal:4300 \
+	FORGE_MEMORY_URL=http://host.docker.internal:4303 \
+	FORGE_MEMORY_PROJECT=askdocs \
+	FORGE_MEMORY_COLLECTION=askdocs-chunks \
+	FORGE_MODELS_EMBED_MODEL=local-embed-small \
+	FORGE_MODELS_EMBED_DIM=384
 # Import check only — Postgres-backed unittest needs a live DB (run on host/CI).
-RUN python -c "import store, server, chunking, storage, events; print('imports ok')"
+RUN python -c "import store, server, chunking, storage, events, embeddings, models, memory, retrieve, ingest_embed; print('imports ok')"
 EXPOSE 8080
 CMD ["python", "/app/server.py"]

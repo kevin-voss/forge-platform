@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Demo 53: AskDocs + managed Postgres + Storage/Events ingest (epic 53.02).
+# Demo 53: AskDocs + Models embeddings + Memory retrieval (epic 53.03).
 # Usage:
 #   demos/53-askdocs/run.sh          # build → apply → DB → Ready → seed → proofs
 #   demos/53-askdocs/run.sh --down   # tear down product resources only
@@ -29,6 +29,8 @@ export FORGE_DB_MANAGED_NETWORK="${FORGE_DB_MANAGED_NETWORK:-forge-net}"
 export FORGE_INJECT_MASK_IN_LOGS="${FORGE_INJECT_MASK_IN_LOGS:-true}"
 export FORGE_EVENTS_STREAMS="${FORGE_EVENTS_STREAMS:-build,deployment,runtime,application,agent,document}"
 export FORGE_EVENTS_AUTH_MODE="${FORGE_EVENTS_AUTH_MODE:-dev}"
+export FORGE_MODELS_BACKEND="${FORGE_MODELS_BACKEND:-fake}"
+export FORGE_MEMORY_DEFAULT_MODEL="${FORGE_MEMORY_DEFAULT_MODEL:-local-embed-small}"
 export DOCKER_GID="${DOCKER_GID:-$(stat -f '%g' /var/run/docker.sock 2>/dev/null || stat -c '%g' /var/run/docker.sock 2>/dev/null || echo 0)}"
 export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"
 
@@ -44,15 +46,24 @@ GATEWAY_URL="${FORGE_GATEWAY_URL:-http://127.0.0.1:4000}"
 BUILD_URL="${FORGE_BUILD_URL:-http://127.0.0.1:4103}"
 STORAGE_URL="${FORGE_STORAGE_HOST_URL:-http://127.0.0.1:4107}"
 EVENTS_URL="${FORGE_EVENTS_HOST_URL:-http://127.0.0.1:4105}"
+MODELS_URL="${FORGE_MODELS_HOST_URL:-http://127.0.0.1:4300}"
+MEMORY_URL="${FORGE_MEMORY_HOST_URL:-http://127.0.0.1:4303}"
 CONTROL_SERVICE="forge-control"
 RUNTIME_SERVICE="forge-runtime"
 GATEWAY_SERVICE="forge-gateway"
 BUILD_SERVICE="forge-build"
 STORAGE_SERVICE="forge-storage"
 EVENTS_SERVICE="forge-events"
+MODELS_SERVICE="forge-models"
+MEMORY_SERVICE="forge-memory"
 POSTGRES_SERVICE="postgres"
 REGISTRY_SERVICE="registry"
 NATS_SERVICE="nats"
+MEMORY_COLLECTION="${FORGE_MEMORY_COLLECTION:-askdocs-chunks}"
+MEMORY_PROJECT="${FORGE_MEMORY_PROJECT:-askdocs}"
+EMBED_MODEL="${FORGE_MODELS_EMBED_MODEL:-local-embed-small}"
+EMBED_DIM="${FORGE_MODELS_EMBED_DIM:-384}"
+RETRIEVAL_QUESTION="${ASKDOCS_RETRIEVAL_QUESTION:-When is the office closed?}"
 CLI_DIR="${ROOT_DIR}/tools/forge-cli"
 FORGE_BIN="${CLI_DIR}/forge"
 REGISTRY="${FORGE_REGISTRY:-localhost:5000}"
@@ -92,6 +103,10 @@ fail() {
   "${COMPOSE[@]}" logs --tail=60 "${EVENTS_SERVICE}" >&2 || true
   echo "--- ${STORAGE_SERVICE} logs (tail) ---" >&2
   "${COMPOSE[@]}" logs --tail=60 "${STORAGE_SERVICE}" >&2 || true
+  echo "--- ${MODELS_SERVICE} logs (tail) ---" >&2
+  "${COMPOSE[@]}" logs --tail=40 "${MODELS_SERVICE}" >&2 || true
+  echo "--- ${MEMORY_SERVICE} logs (tail) ---" >&2
+  "${COMPOSE[@]}" logs --tail=40 "${MEMORY_SERVICE}" >&2 || true
   echo "--- managed db containers ---" >&2
   docker ps --filter "label=forge.managed_db=true" --format '{{.Names}} {{.Status}}' >&2 || true
   exit 1
@@ -195,7 +210,7 @@ ensure_storage_bucket() {
 }
 
 ensure_platform() {
-  echo "Ensuring Postgres, registry, NATS, Events, Storage, Control, Runtime, Gateway, Build..."
+  echo "Ensuring Postgres, registry, NATS, Events, Storage, Models, Memory, Control, Runtime, Gateway, Build..."
   "${COMPOSE[@]}" up -d "${POSTGRES_SERVICE}" "${REGISTRY_SERVICE}" "${NATS_SERVICE}"
   for _ in $(seq 1 60); do
     if "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" pg_isready -U forge >/dev/null 2>&1; then
@@ -249,6 +264,9 @@ ensure_platform() {
   "${COMPOSE[@]}" up -d --build --force-recreate "${EVENTS_SERVICE}" ||
     fail "compose up ${EVENTS_SERVICE} failed"
   "${COMPOSE[@]}" up -d "${BUILD_SERVICE}" "${STORAGE_SERVICE}"
+  echo "Starting forge-models + forge-memory (FORGE_MODELS_BACKEND=${FORGE_MODELS_BACKEND})..."
+  "${COMPOSE[@]}" up -d "${MODELS_SERVICE}" "${MEMORY_SERVICE}" ||
+    fail "compose up models/memory failed"
 
   wait_http "${CONTROL_URL}/health/ready" "Control"
   wait_http "${RUNTIME_URL}/health/ready" "Runtime"
@@ -256,6 +274,8 @@ ensure_platform() {
   wait_http "${BUILD_URL}/health/ready" "Build" 60 || true
   wait_http "${STORAGE_URL}/health/ready" "Storage" 90
   wait_http "${EVENTS_URL}/health/ready" "Events" 90
+  wait_http "${MODELS_URL}/health/ready" "Models" 120
+  wait_http "${MEMORY_URL}/health/ready" "Memory" 120
 
   pattern="$(docker exec "${GATEWAY_SERVICE}" printenv FORGE_HOST_PATTERN 2>/dev/null || true)"
   [[ "${pattern}" == *'{service}.askdocs.localhost'* ]] ||
@@ -288,7 +308,49 @@ assert any("document.uploaded" in str(x) for x in flat), raw
 print("  schema document.uploaded registered")
 PY
 
+  # Pin Models↔Memory embedding contract before product deploy.
+  curl --fail --silent --show-error \
+    "${MODELS_URL}/v1/models/${EMBED_MODEL}" >"${TMP_DIR}/embed-model.json" ||
+    fail "GET models/${EMBED_MODEL} failed"
+  EMBED_DIM="${EMBED_DIM}" EMBED_MODEL="${EMBED_MODEL}" python3 - <<'PY' "${TMP_DIR}/embed-model.json" || fail "embedding model dim contract mismatch"
+import json, os, sys
+body = json.load(open(sys.argv[1]))
+dim = body.get("embedding_dim")
+want = int(os.environ["EMBED_DIM"])
+assert dim == want, (body, want)
+print(f"  models {os.environ['EMBED_MODEL']} embedding_dim={dim}")
+PY
+
   ensure_storage_bucket
+  ensure_memory_collection
+}
+
+ensure_memory_collection() {
+  echo "Ensuring memory collection ${MEMORY_COLLECTION} (project=${MEMORY_PROJECT}, dim=${EMBED_DIM})..."
+  local code
+  code="$(curl --silent --show-error -o "${TMP_DIR}/mem-collection.json" -w '%{http_code}' \
+    -H "X-Forge-Project: ${MEMORY_PROJECT}" \
+    "${MEMORY_URL}/v1/collections/${MEMORY_COLLECTION}" || echo "000")"
+  if [[ "${code}" == "200" ]]; then
+    EMBED_DIM="${EMBED_DIM}" python3 - <<'PY' "${TMP_DIR}/mem-collection.json" || fail "existing memory collection dim mismatch (Models↔Memory finding)"
+import json, os, sys
+body = json.load(open(sys.argv[1]))
+dim = int(body.get("dim") or 0)
+want = int(os.environ["EMBED_DIM"])
+assert dim == want, (body, want)
+print(f"  collection {body.get('name')} dim={dim} ready")
+PY
+    return 0
+  fi
+  code="$(curl --silent --show-error -o "${TMP_DIR}/mem-collection.json" -w '%{http_code}' \
+    -H "X-Forge-Project: ${MEMORY_PROJECT}" \
+    -H 'content-type: application/json' \
+    -d "{\"name\":\"${MEMORY_COLLECTION}\",\"dim\":${EMBED_DIM},\"distance\":\"cosine\"}" \
+    "${MEMORY_URL}/v1/collections" || echo "000")"
+  if [[ "${code}" != "201" && "${code}" != "200" && "${code}" != "409" ]]; then
+    fail "create memory collection HTTP ${code}: $(cat "${TMP_DIR}/mem-collection.json" 2>/dev/null || true)"
+  fi
+  echo "  collection ${MEMORY_COLLECTION} ready (HTTP ${code})"
 }
 
 ensure_images() {
@@ -593,7 +655,7 @@ PY
 prove_upload_and_ingest() {
   local title="handbook-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:8])')"
   local doc_id object_key code text body
-  echo "Proving document upload → storage object → ingest chunks..."
+  echo "Proving document upload → storage → chunk → embed → Memory upsert → ready..."
   [[ -f "${FIXTURE_DOC}" ]] || fail "fixture missing: ${FIXTURE_DOC}"
   text="$(cat "${FIXTURE_DOC}")"
   body="$(TITLE="${title}" TEXT="${text}" python3 - <<'PY'
@@ -614,6 +676,7 @@ PY
   object_key="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["objectKey"])' "${TMP_DIR}/upload-doc.json")"
   [[ -n "${doc_id}" && -n "${object_key}" ]] || fail "upload response incomplete"
   echo "  document id=${doc_id} objectKey=${object_key}"
+  PROOF_DOC_ID="${doc_id}"
 
   code="$(curl --silent --show-error -o "${TMP_DIR}/storage-obj.bin" -w '%{http_code}' \
     -H "X-Forge-Project: ${STORAGE_PROJECT}" \
@@ -626,27 +689,65 @@ assert os.environ["PLANTED_FACT"] in raw, raw[:500]
 print("  storage object contains planted fact")
 PY
 
-  echo "  waiting for ingest chunks..."
+  echo "  waiting for document status=ready + embedded chunks..."
   code="000"
-  for _ in $(seq 1 90); do
-    code="$(curl --silent --show-error -o "${TMP_DIR}/chunks.json" -w '%{http_code}' \
+  for _ in $(seq 1 120); do
+    code="$(curl --silent --show-error -o "${TMP_DIR}/doc-status.json" -w '%{http_code}' \
       -H "Host: ${API_HOST}" \
-      "${GATEWAY_URL}/documents/${doc_id}/chunks" || echo "000")"
+      "${GATEWAY_URL}/documents/${doc_id}" || echo "000")"
     if [[ "${code}" == "200" ]]; then
-      if python3 -c 'import json,sys; raise SystemExit(0 if json.load(open(sys.argv[1])).get("chunks") else 1)' "${TMP_DIR}/chunks.json"; then
+      if python3 -c 'import json,sys; raise SystemExit(0 if json.load(open(sys.argv[1])).get("status")=="ready" else 1)' \
+        "${TMP_DIR}/doc-status.json"; then
         break
       fi
     fi
     sleep 1
   done
+  [[ "${code}" == "200" ]] || fail "get document HTTP ${code}: $(cat "${TMP_DIR}/doc-status.json" 2>/dev/null || true)"
+  python3 -c 'import json,sys; assert json.load(open(sys.argv[1])).get("status")=="ready"' \
+    "${TMP_DIR}/doc-status.json" || fail "document never reached status=ready"
+
+  code="$(curl --silent --show-error -o "${TMP_DIR}/chunks.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" \
+    "${GATEWAY_URL}/documents/${doc_id}/chunks" || echo "000")"
   [[ "${code}" == "200" ]] || fail "list chunks HTTP ${code}: $(cat "${TMP_DIR}/chunks.json" 2>/dev/null || true)"
-  DOC_ID="${doc_id}" PLANTED_FACT="${PLANTED_FACT}" python3 - <<'PY' "${TMP_DIR}/chunks.json" || fail "chunks missing planted fact"
+  DOC_ID="${doc_id}" PLANTED_FACT="${PLANTED_FACT}" python3 - <<'PY' "${TMP_DIR}/chunks.json" || fail "chunks missing planted fact / memory_id"
 import json, os, sys
 body = json.load(open(sys.argv[1]))
 chunks = body.get("chunks") or []
 assert chunks, body
 assert any(os.environ["PLANTED_FACT"] in (c.get("text") or "") for c in chunks), chunks
-print(f"  ingest ok document={os.environ['DOC_ID']} chunks={len(chunks)}")
+assert all((c.get("memoryId") or "").strip() for c in chunks), chunks
+print(f"  ingest+embed ok document={os.environ['DOC_ID']} chunks={len(chunks)} memory_ids=set")
+PY
+}
+
+prove_retrieval() {
+  local code
+  echo "Proving query retrieval returns planted chunk for: ${RETRIEVAL_QUESTION}"
+  code="$(curl --silent --show-error -o "${TMP_DIR}/query.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" -H 'content-type: application/json' \
+    -d "$(QUESTION="${RETRIEVAL_QUESTION}" python3 -c 'import json,os; print(json.dumps({"text":os.environ["QUESTION"],"topK":5}))')" \
+    "${GATEWAY_URL}/query" || echo "000")"
+  [[ "${code}" == "200" ]] || fail "query HTTP ${code}: $(cat "${TMP_DIR}/query.json" 2>/dev/null || true)"
+  PLANTED_FACT="${PLANTED_FACT}" EMBED_DIM="${EMBED_DIM}" EMBED_MODEL="${EMBED_MODEL}" \
+    MEMORY_COLLECTION="${MEMORY_COLLECTION}" python3 - <<'PY' "${TMP_DIR}/query.json" || fail "retrieval missing planted chunk"
+import json, os, sys
+body = json.load(open(sys.argv[1]))
+assert int(body.get("embedDim") or 0) == int(os.environ["EMBED_DIM"]), body
+assert body.get("embedModel") == os.environ["EMBED_MODEL"], body
+assert body.get("collection") == os.environ["MEMORY_COLLECTION"], body
+results = body.get("results") or []
+assert results, body
+joined = "\n".join((r.get("chunk") or {}).get("text") or "" for r in results)
+fact = os.environ["PLANTED_FACT"]
+assert fact in joined, {"results": results, "fact": fact}
+hit = next(r for r in results if fact in ((r.get("chunk") or {}).get("text") or ""))
+cite = hit.get("citation") or {}
+assert cite.get("chunkId"), cite
+assert cite.get("documentId"), cite
+assert cite.get("memoryId"), cite
+print(f"  retrieval ok topK={len(results)} planted in results citation={cite.get('title')}")
 PY
 }
 
@@ -725,18 +826,23 @@ for p in json.load(sys.stdin):
   write_state
   bash "${DEMO_DIR}/seed.sh" || fail "seed.sh failed"
   prove_persistence
+  PROOF_DOC_ID=""
   prove_upload_and_ingest
+  prove_retrieval
 
   echo
-  echo "demo 53 deploy READY (storage upload + ingest pipeline)"
+  echo "demo 53 deploy READY (Models embeddings + Memory retrieval)"
   echo "  App:          http://${APP_HOST}:4000/"
   echo "  API:          http://${API_HOST}:4000/health/ready"
   echo "  Worker:       http://${WORKER_HOST}:4000/health/ready"
+  echo "  Query:        POST http://${API_HOST}:4000/query"
   echo "  API image:    ${API_IMAGE}"
   echo "  Worker image: ${WORKER_IMAGE}"
   echo "  Web image:    ${WEB_IMAGE}"
   echo "  Storage:      ${STORAGE_BUCKET} @ ${STORAGE_URL}"
   echo "  Events:       document.uploaded @ ${EVENTS_URL}"
+  echo "  Models:       ${EMBED_MODEL} dim=${EMBED_DIM} @ ${MODELS_URL}"
+  echo "  Memory:       ${MEMORY_COLLECTION} @ ${MEMORY_URL}"
   echo "  Database:     ${DB_NAME} (Ready)"
   echo "  Deployments:  api=${API_DEPLOYMENT_ID} worker=${WORKER_DEPLOYMENT_ID} web=${WEB_DEPLOYMENT_ID}"
   echo "  Project:      ${PROJECT_SLUG} (${PROJECT_ID})"

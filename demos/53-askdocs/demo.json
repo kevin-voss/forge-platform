@@ -32,7 +32,9 @@
     "build",
     "managed-postgresql",
     "storage",
-    "events"
+    "events",
+    "models",
+    "memory"
   ],
   "teardown": "demos/53-askdocs/run.sh --down"
 }
