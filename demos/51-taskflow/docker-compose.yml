@@ -1,15 +1,23 @@
-# Demo 51 overlay — TaskFlow + managed Postgres + Identity (epic 51.03).
+# Demo 51 overlay — TaskFlow + managed Postgres + Identity + Secrets (epic 51.04).
 # Used with the root compose file:
 #   docker compose -f compose.yaml -f demos/51-taskflow/docker-compose.yml up -d ...
 #
 # Host pattern yields api.taskflow.localhost / app.taskflow.localhost for services
 # named `api` and `app`. LocalProvisioner starts isolated product Postgres
-# containers; DATABASE_URL is injected via Control's in-memory secrets client
-# while FORGE_SECRETS_URL=disabled (plaintext until 51.04). Product API reaches
-# Identity at host.docker.internal:4002. Control stays auth=dev for apply; run.sh
-# briefly switches enforce for viewer/developer deploy RBAC proof.
+# containers; DATABASE_URL + JWT_SIGNING_KEY are resolved from forge-secrets at
+# deploy (never plaintext in manifests). Product API reaches Identity at
+# host.docker.internal:4002. Control stays auth=dev for apply; run.sh briefly
+# switches enforce for viewer/developer deploy RBAC proof.
 
 services:
+  forge-secrets:
+    environment:
+      FORGE_AUTH_MODE: enforce
+      FORGE_IDENTITY_URL: http://forge-identity:8080
+      FORGE_SECRETS_MASTER_KEY: ${FORGE_SECRETS_MASTER_KEY:?FORGE_SECRETS_MASTER_KEY required for demo 51}
+      FORGE_SECRETS_MASTER_KEY_ID: ${FORGE_SECRETS_MASTER_KEY_ID:-demo-m51}
+      FORGE_INTROSPECT_CACHE_TTL_S: ${FORGE_INTROSPECT_CACHE_TTL_S:-2}
+
   forge-control:
     environment:
       FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
@@ -19,7 +27,8 @@ services:
       FORGE_READINESS_POLL_MS: ${FORGE_READINESS_POLL_MS:-500}
       FORGE_READINESS_MAX_WAIT_S: ${FORGE_READINESS_MAX_WAIT_S:-90}
       FORGE_RESOURCE_API_ENABLED: ${FORGE_RESOURCE_API_ENABLED:-true}
-      FORGE_SECRETS_URL: ${FORGE_SECRETS_URL:-disabled}
+      FORGE_SECRETS_URL: http://forge-secrets:8080
+      FORGE_SECRETS_SERVICE_ACCOUNT: ${FORGE_SECRETS_SERVICE_ACCOUNT:-}
       FORGE_OTEL_ENABLED: ${FORGE_OTEL_ENABLED:-false}
       # Pin to local runtime so leftover offline HA nodes (demo 25) cannot steal placement.
       FORGE_SCHEDULER_STRATEGY: ${FORGE_SCHEDULER_STRATEGY:-single-node}

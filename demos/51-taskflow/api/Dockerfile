@@ -22,8 +22,7 @@ EXPOSE 8080
 ENV PORT=8080
 ENV MIGRATIONS_DIR=/migrations
 # Identity reachable via host-published port from workload bridge network (51.03).
-# JWT_SIGNING_KEY stays plaintext until 51.04 moves it behind forge-secrets.
+# JWT_SIGNING_KEY and DATABASE_URL are injected at deploy via Forge Secrets (51.04).
 ENV FORGE_IDENTITY_URL=http://host.docker.internal:4002
 ENV FORGE_PRODUCT_AUTH=enforce
-ENV JWT_SIGNING_KEY=taskflow-dev-jwt-key
 ENTRYPOINT ["/taskflow-api"]

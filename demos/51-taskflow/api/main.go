@@ -5,14 +5,21 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
 func main() {
 	addr := listenAddr()
-	cfg := loadConfig()
+	cfg, err := loadConfig()
+	if err != nil {
+		log.Fatalf("config: %v", err)
+	}
 	migrationsDir := resolveMigrationsDir(os.Getenv("MIGRATIONS_DIR"))
-	databaseURL := os.Getenv("DATABASE_URL")
+	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	if databaseURL == "" {
+		log.Fatal("config: DATABASE_URL is required (inject via Forge Secrets / managed-db attach)")
+	}
 
 	store, err := openStoreWithRetry(databaseURL, migrationsDir, 60*time.Second)
 	if err != nil {

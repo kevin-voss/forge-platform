@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"strings"
 )
@@ -13,11 +14,11 @@ type config struct {
 	// IdentityProjectID is the Identity project used for PAT issuance (optional; may be
 	// loaded later from app_settings).
 	IdentityProjectID string
-	// JWTSigningKey signs optional app JWTs. Plaintext until 51.04 moves it to Secrets.
+	// JWTSigningKey signs optional app JWTs. Required — inject via Forge Secrets (51.04).
 	JWTSigningKey string
 }
 
-func loadConfig() config {
+func loadConfig() (config, error) {
 	auth := strings.ToLower(strings.TrimSpace(os.Getenv("FORGE_PRODUCT_AUTH")))
 	if auth == "" {
 		auth = strings.ToLower(strings.TrimSpace(os.Getenv("PRODUCT_AUTH")))
@@ -44,7 +45,7 @@ func loadConfig() config {
 
 	jwtKey := strings.TrimSpace(os.Getenv("JWT_SIGNING_KEY"))
 	if jwtKey == "" {
-		jwtKey = "taskflow-dev-jwt-key"
+		return config{}, errors.New("JWT_SIGNING_KEY is required (inject via Forge Secrets; no plaintext default)")
 	}
 
 	return config{
@@ -52,5 +53,5 @@ func loadConfig() config {
 		IdentityURL:       strings.TrimRight(identityURL, "/"),
 		IdentityProjectID: projectID,
 		JWTSigningKey:     jwtKey,
-	}
+	}, nil
 }

@@ -37,9 +37,21 @@ spec:
   scaling:
     minReplicas: 1
     maxReplicas: 1
+  # Secret refs only — no plaintext DB URL / JWT key (51.04).
+  # Product design aliases taskflow/db-url + taskflow/jwt-key; forge-secrets names
+  # must be [A-Za-z_][A-Za-z0-9_]* so run.sh materialises:
+  #   DATABASE_URL     ← managed-db attach secretRef
+  #   JWT_SIGNING_KEY  ← forge secret set + service bindings
+  env:
+    - name: DATABASE_URL
+      valueFrom:
+        secret: DATABASE_URL
+    - name: JWT_SIGNING_KEY
+      valueFrom:
+        secret: JWT_SIGNING_KEY
+    - name: IDENTITY_URL
+      value: http://host.docker.internal:4002
   # Typed managed Postgres dependency (materialized by run.sh via forge database).
-  # Until 51.04, DATABASE_URL is injected as plaintext env from the in-memory
-  # secrets client when FORGE_SECRETS_URL=disabled.
   dependencies:
     database:
       type: postgres

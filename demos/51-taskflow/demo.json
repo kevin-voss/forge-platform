@@ -19,6 +19,6 @@
   ],
   "baseURL": "http://app.taskflow.localhost:4000",
   "spec": "tests/e2e/projects/01-taskflow/spec.ts",
-  "services": ["control", "cli", "runtime", "gateway", "build", "managed-postgresql", "identity"],
+  "services": ["control", "cli", "runtime", "gateway", "build", "managed-postgresql", "identity", "secrets"],
   "teardown": "demos/51-taskflow/run.sh --down"
 }

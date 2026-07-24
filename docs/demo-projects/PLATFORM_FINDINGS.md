@@ -18,23 +18,24 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 
 | Metric | Count |
 |---|---|
-| Total findings | 1 |
-| Open | 1 |
+| Total findings | 2 |
+| Open | 2 |
 | Blocker | 0 |
 | Major | 0 |
-| Minor | 1 |
+| Minor | 2 |
 
 ## By service
 
 | Service | Open | Blocker | Major | Minor |
 |---|--:|--:|--:|--:|
 | forge-identity | 1 | 0 | 0 | 1 |
+| forge-secrets / forge-control | 1 | 0 | 0 | 1 |
 
 ## By demo
 
 | Demo | Findings |
 |---|--:|
-| 01-taskflow | 1 |
+| 01-taskflow | 2 |
 | 02-snapnote | 0 |
 | 03-askdocs | 0 |
 | 04-orderpipe | 0 |
@@ -68,8 +69,8 @@ apps should mint their own JWT over Identity PATs).
 **Actual**
 Identity exposes register/login → opaque `session_token`, plus PAT issue/introspect, but
 does not define an app JWT / product-session contract. TaskFlow adopts PAT-as-Bearer with
-an optional local HS256 JWT (plaintext `JWT_SIGNING_KEY` until 51.04) and local
-`admin`/`member` roles in product Postgres.
+an optional local HS256 JWT (`JWT_SIGNING_KEY` injected from Forge Secrets as of 51.04)
+and local `admin`/`member` roles in product Postgres.
 
 **Evidence**
 - Identity OpenAPI: `POST /v1/auth/login`, `POST /v1/auth/introspect`, `POST /v1/tokens`
@@ -86,3 +87,48 @@ middleware always introspects the PAT via Identity.
 **Suggested platform fix**
 Document the recommended product auth pattern (PAT-as-Bearer vs app JWT) in Identity docs /
 contracts, or add a first-class product-session helper if the platform wants to own it.
+
+### F-002 — Application `valueFrom.secret` is documentation-only; slash secret names rejected
+
+| Field | Value |
+|---|---|
+| Status | Open |
+| Severity | minor |
+| Service | forge-secrets / forge-control |
+| Area / contract | Portable Application env + Secrets name/bindings (epics 10, 20) |
+| Found by demo | 01-taskflow (step 51.04) |
+| First seen | 2026-07-24 |
+| Reproducible | always |
+
+**What we tested**
+Product design asks for Application env entries like
+`valueFrom: { secret: taskflow/db-url }` and `taskflow/jwt-key`, expecting apply to wire
+injection from Forge Secrets.
+
+**Expected (per product design)**
+`forge apply` materialises `valueFrom.secret` into Secrets bindings (or equivalent), and
+slash-namespaced secret ids are accepted.
+
+**Actual**
+- Secret / binding names must match `[A-Za-z_][A-Za-z0-9_]*` (slashes rejected).
+- Apply stores Application `spec.env` / `valueFrom` as opaque JSON but does **not** create
+  Secrets bindings; injection requires explicit `forge secret set` +
+  `PUT …/services/{svc}/bindings` (and managed-db attach for `DATABASE_URL`).
+
+**Evidence**
+- `tools/forge-cli/cmd/secret.go` `secretNamePattern`
+- `services/forge-secrets` bindings `validate_env_name`
+- Control `ApplyService` / `PortableManifest` accept env without binding side effects
+
+**Impact**
+Demo/apps must provision secrets + bindings in `run.sh` (or equivalent) even when the
+portable manifest already declares `valueFrom.secret` refs.
+
+**Workaround used by demo**
+TaskFlow documents `valueFrom` refs in `forge.yaml` using env-var names
+(`DATABASE_URL`, `JWT_SIGNING_KEY`); `run.sh` sets the JWT secret, puts bindings on
+service `api`, and relies on managed-db attach for `DATABASE_URL`.
+
+**Suggested platform fix**
+Either wire apply/`valueFrom.secret` → Secrets bindings, or document that bindings are
+mandatory and restrict product design to valid secret name grammar (no `/`).

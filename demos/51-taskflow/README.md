@@ -1,11 +1,12 @@
 # Demo 51 — TaskFlow
 
 Epic **51** product: a small team task manager that proves the core Forge path
-(build → apply → managed Postgres → Identity auth → Gateway routes). Step
-**51.03** adds signup/login PAT issuance, Bearer introspect middleware, app-role
-gating (`admin`/`member`), and deploy-time RBAC (viewer PAT → 403 / developer → 201).
+(build → apply → managed Postgres → Identity auth → Secrets injection → Gateway
+routes). Step **51.04** moves `DATABASE_URL` and `JWT_SIGNING_KEY` into
+forge-secrets (bindings + managed-db attach) with no plaintext in manifests or
+logs.
 
-Later steps add secrets (51.04), full browser E2E (51.05), and the epic gate (51.06).
+Later steps add full browser E2E (51.05) and the epic gate (51.06).
 
 ## Layout
 
@@ -15,12 +16,12 @@ Later steps add secrets (51.04), full browser E2E (51.05), and the epic gate (51
 | `migrations/` | Idempotent Postgres schema (`users`, `projects`, `tasks`, `app_settings`) |
 | `public/` | Minimal SPA with login/signup + role-gated delete control |
 | `Dockerfile.web` + `nginx.conf` | Static nginx image on port `8080` |
-| `forge.yaml` | Portable Project / Applications / Services / Deployments + DB dependency |
+| `forge.yaml` | Portable Project / Applications / Services / Deployments + DB dependency + secret refs |
 | `api/forge.yaml`, `web.forge.yaml` | Build manifests for `forge build` |
-| `run.sh` | Deploy (`up`) / teardown (`--down`); Identity bootstrap + RBAC proof |
+| `run.sh` | Deploy (`up`) / teardown (`--down`); Secrets + Identity + RBAC proof |
 | `seed.sh` | Idempotent Identity users + admin/member + shared project + tasks |
 | `demo.json` | Harness `DemoProject` contract |
-| `docker-compose.yml` | Overlay: Control LocalProvisioner, Gateway `{service}.taskflow.localhost` |
+| `docker-compose.yml` | Overlay: Secrets master key, Control LocalProvisioner, Gateway hosts |
 
 ## Commands
 
@@ -48,7 +49,7 @@ cd demos/51-taskflow/api && go test ./...
 ## Auth model
 
 * Signup/login register credentials with **forge-identity**, mint a **PAT**, and
-  optionally an app JWT (HMAC, plaintext `JWT_SIGNING_KEY` until 51.04).
+  optionally an app JWT (HMAC; signing key injected from Forge Secrets).
 * Protected routes send `Authorization: Bearer <PAT|JWT>`; middleware introspects
   the PAT via Identity and attaches the local app role (`admin`/`member`).
 * `DELETE /projects/{id}` is **admin-only** (members receive 403; SPA hides the control).
@@ -57,6 +58,20 @@ cd demos/51-taskflow/api && go test ./...
 
 Seed logins: `admin@taskflow.local` / `AdminPass123!` and
 `member@taskflow.local` / `MemberPass123!`.
+
+## Secrets (51.04)
+
+Product design names `taskflow/db-url` / `taskflow/jwt-key` are illustrative;
+forge-secrets requires `[A-Za-z_][A-Za-z0-9_]*`. `run.sh` materialises:
+
+| Env var | Source |
+|---|---|
+| `DATABASE_URL` | `forge database attach` → Secrets `secretRef` (managed-db env) |
+| `JWT_SIGNING_KEY` | `forge secret set` + bindings on service `api` |
+
+`forge.yaml` documents `valueFrom.secret` refs (no plaintext). Boot fails clearly if
+either env var is missing. `run.sh` greps the rendered manifest and platform/API
+logs to assert zero secret leakage.
 
 ## Host routing
 
@@ -79,7 +94,7 @@ dependencies:
 
 `run.sh` materializes that with `forge database create/attach`, waits for the
 `Database` to be available, and confirms `DATABASE_URL` is injected into the API
-container (plaintext env until 51.04 moves it behind forge-secrets). Migrations
-run on API boot; `seed.sh` upserts Identity-backed admin/member users, one shared
-project, and two open tasks. Deploy also creates a task, restarts the API
-container, and asserts the task still lists.
+container from Forge Secrets. Migrations run on API boot; `seed.sh` upserts
+Identity-backed admin/member users, one shared project, and two open tasks.
+Deploy also creates a task, restarts the API container, and asserts the task
+still lists.
