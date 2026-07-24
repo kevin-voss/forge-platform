@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PulseBoard</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="brand">PulseBoard</p>
+        <h1>Live metrics</h1>
+        <p class="lede">
+          Baseline dashboard: replica count and request counter. Autoscaling and
+          Observe wiring arrive in later steps.
+        </p>
+      </header>
+
+      <section aria-labelledby="metrics-heading">
+        <h2 id="metrics-heading">Platform pulse</h2>
+        <p id="status" role="status">Connecting…</p>
+        <dl class="metrics">
+          <div>
+            <dt>Replicas</dt>
+            <dd id="replicas">—</dd>
+          </div>
+          <div>
+            <dt>Counter</dt>
+            <dd id="counter">—</dd>
+          </div>
+          <div>
+            <dt>RPS</dt>
+            <dd id="rps">—</dd>
+          </div>
+          <div>
+            <dt>p95 (ms)</dt>
+            <dd id="p95">—</dd>
+          </div>
+        </dl>
+        <p class="meta">Instance <span id="instance">—</span></p>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

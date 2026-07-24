@@ -1,0 +1,23 @@
+{
+  "id": "05-pulseboard",
+  "title": "PulseBoard",
+  "epic": "55",
+  "compose": "demos/55-pulseboard/docker-compose.yml",
+  "deploy": "demos/55-pulseboard/run.sh",
+  "hosts": [
+    {
+      "host": "board.pulseboard.localhost",
+      "path": "/",
+      "expect": 200
+    },
+    {
+      "host": "api.pulseboard.localhost",
+      "path": "/health/ready",
+      "expect": 200
+    }
+  ],
+  "baseURL": "http://board.pulseboard.localhost:4000",
+  "spec": "tests/e2e/projects/05-pulseboard/spec.ts",
+  "services": ["control", "cli", "runtime", "gateway", "build"],
+  "teardown": "demos/55-pulseboard/run.sh --down"
+}

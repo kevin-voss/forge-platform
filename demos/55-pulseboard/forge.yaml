@@ -1,0 +1,111 @@
+# PulseBoard build manifests + portable resource docs (epic 55.01).
+#
+# Build (read by `forge build` when available; run.sh also docker-builds locally):
+#   api/forge.yaml  → pulseboard-api
+#   web build uses Dockerfile.web at repo root of this demo
+#
+# Applied by run.sh via `forge apply -f` (placeholders filled at deploy time).
+# Intentionally stateless — no database dependency.
+
+apiVersion: forge.dev/v1
+kind: Project
+metadata:
+  name: ${PROJECT_NAME}
+spec:
+  slug: ${PROJECT_SLUG}
+---
+apiVersion: forge.dev/v1
+kind: Environment
+metadata:
+  name: local
+  project: ${PROJECT_SLUG}
+spec: {}
+---
+apiVersion: forge.dev/v1
+kind: Application
+metadata:
+  name: pulseboard-api
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    app: pulseboard-api
+    demo: "55"
+spec:
+  image: ${API_IMAGE}
+  # Modest resources so later HTTP request-rate scaling is observable.
+  resources:
+    cpu: 250m
+    memory: 128Mi
+  scaling:
+    minReplicas: 1
+    maxReplicas: 1
+---
+apiVersion: forge.dev/v1
+kind: Service
+metadata:
+  name: api
+  project: ${PROJECT_SLUG}
+  annotations:
+    forge.dev/parent: pulseboard-api
+spec:
+  port: 8080
+---
+apiVersion: forge.dev/v1
+kind: Deployment
+metadata:
+  name: pulseboard-api
+  project: ${PROJECT_SLUG}
+  environment: local
+  annotations:
+    forge.dev/parent: pulseboard-api
+  labels:
+    app: pulseboard-api
+    demo: "55"
+spec:
+  service: api
+  image: ${API_IMAGE}
+  replicas: 1
+---
+apiVersion: forge.dev/v1
+kind: Application
+metadata:
+  name: pulseboard-web
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    app: pulseboard-web
+    demo: "55"
+spec:
+  image: ${WEB_IMAGE}
+  resources:
+    cpu: 50m
+    memory: 64Mi
+  scaling:
+    minReplicas: 1
+    maxReplicas: 1
+---
+apiVersion: forge.dev/v1
+kind: Service
+metadata:
+  name: board
+  project: ${PROJECT_SLUG}
+  annotations:
+    forge.dev/parent: pulseboard-web
+spec:
+  port: 8080
+---
+apiVersion: forge.dev/v1
+kind: Deployment
+metadata:
+  name: pulseboard-web
+  project: ${PROJECT_SLUG}
+  environment: local
+  annotations:
+    forge.dev/parent: pulseboard-web
+  labels:
+    app: pulseboard-web
+    demo: "55"
+spec:
+  service: board
+  image: ${WEB_IMAGE}
+  replicas: 1

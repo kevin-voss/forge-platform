@@ -58,6 +58,7 @@ help:
 	@echo "  make demo DEMO=52          SnapNote product demo gate (epic 52)"
 	@echo "  make demo DEMO=53          AskDocs product demo gate (epic 53)"
 	@echo "  make demo DEMO=54          OrderPipe product demo gate (epic 54)"
+	@echo "  make demo DEMO=55          PulseBoard product scaffold (epic 55)"
 	@echo "  make demo DEMO=09-full-platform  Start capstone (start.sh)"
 	@echo "  make demo-accept DEMO=...  Run demo acceptance suite (capstone accept.sh)"
 	@echo "  make demo-full             Alias: demo DEMO=09-full-platform"

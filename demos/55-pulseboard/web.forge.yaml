@@ -1,0 +1,7 @@
+# Build manifest for pulseboard-web (`forge build` when multi-service build lands).
+service:
+  name: board
+  port: 8080
+build:
+  dockerfile: Dockerfile.web
+  context: .

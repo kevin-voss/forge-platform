@@ -1,0 +1,7 @@
+# Build manifest for pulseboard-api (`forge build --source` reads this).
+service:
+  name: api
+  port: 8080
+build:
+  dockerfile: Dockerfile
+  context: .
