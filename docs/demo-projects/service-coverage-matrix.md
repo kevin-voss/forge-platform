@@ -75,6 +75,12 @@ service misbehaves), so a red service maps to a specific demo to debug first.
   `managed-postgresql`, `storage`, `events`, `models`, `memory`, `agents`, `observe`).
   Non-blocker findings `F-006`–`F-007` remain open in
   [`PLATFORM_FINDINGS.md`](PLATFORM_FINDINGS.md); zero blockers.
+* **Epic 54 (OrderPipe) Complete:** column **4 OrderPipe** exercised end-to-end via
+  `make demo DEMO=54` / `make test-platform-e2e PROJECTS=04` (headed + headless). Coverage tokens
+  from `demos/54-orderpipe/demo.json` (`control`, `cli`, `runtime`, `gateway`, `build`,
+  `managed-postgresql`, `discovery`, `network`, `events`, `workflows`, `secrets`).
+  Non-blocker finding `F-008` remains open in
+  [`PLATFORM_FINDINGS.md`](PLATFORM_FINDINGS.md); zero blockers.
 
 ## Deliberate gaps (recorded, not accidental)
 

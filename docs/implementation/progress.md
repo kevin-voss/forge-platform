@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 205`** (verification track; epic 54 OrderPipe).
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 206`** (verification track; epic 55 PulseBoard).
 
 ## Epics
 
@@ -265,16 +265,16 @@ Per-step rows live in each epic's steps README; the global lookup is
 
 ## Verification & demo-projects track (epics 50–56, `N = 174`–`216`)
 
-In progress (epics 50–53 Complete). Deploys small real-world demo products onto the shipped
+In progress (epics 50–54 Complete). Deploys small real-world demo products onto the shipped
 platform and proves them end-to-end with visible browser automation; platform bugs it surfaces are
 recorded in [`../demo-projects/PLATFORM_FINDINGS.md`](../demo-projects/PLATFORM_FINDINGS.md), not patched.
 Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global lookup:
 [`STEPS.md`](STEPS.md#verification--demo-projects-queue-epics-5056).
 
-> Continues the global `N` queue after the platform queue (`N ≤ 173`). Epics 50–53 Complete;
-> next are demos 54→55 (any order), then 56. Entry point: `make test-platform-e2e` (headed) /
+> Continues the global `N` queue after the platform queue (`N ≤ 173`). Epics 50–54 Complete;
+> next is demo 55, then 56. Entry point: `make test-platform-e2e` (headed) /
 > `make test-platform-e2e HEADLESS=1` (CI); gates: `make demo DEMO=50` / `DEMO=51` / `DEMO=52` /
-> `DEMO=53`.
+> `DEMO=53` / `DEMO=54`.
 
 ### Epics
 
@@ -284,7 +284,7 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 | [51](epics/51-demo-taskflow.md) | Demo 1 — TaskFlow (auth + DB + secrets) | Complete | `181`–`186`; `make demo DEMO=51` gate |
 | [52](epics/52-demo-snapnote.md) | Demo 2 — SnapNote (storage + queue + worker autoscaling) | Complete | `187`–`192`; `make demo DEMO=52` gate |
 | [53](epics/53-demo-askdocs.md) | Demo 3 — AskDocs (models + memory + agents) | Complete | `193`–`198`; `make demo DEMO=53` gate |
-| [54](epics/54-demo-orderpipe.md) | Demo 4 — OrderPipe (workflows + events + discovery + network) | In progress | `199`–`205`; `54.01`–`54.06` complete |
+| [54](epics/54-demo-orderpipe.md) | Demo 4 — OrderPipe (workflows + events + discovery + network) | Complete | `199`–`205`; `make demo DEMO=54` gate |
 | [55](epics/55-demo-pulseboard.md) | Demo 5 — PulseBoard (autoscaler + infra + observe) | Planning | `206`–`211` |
 | [56](epics/56-platform-e2e-gate.md) | Platform E2E gate & findings consolidation | Planning | `212`–`216` |
 
@@ -323,7 +323,7 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 | **202** | Event choreography | 54 | Complete |
 | **203** | Workflow saga + retry/compensation | 54 | Complete |
 | **204** | E2E browser spec | 54 | Complete |
-| **205** | Demo + epic gate | 54 | Not started |
+| **205** | Demo + epic gate | 54 | Complete |
 | **206** | Product scaffold + baseline deploy | 55 | Not started |
 | **207** | HTTP request-rate autoscaling + load gen | 55 | Not started |
 | **208** | Node autoscaling (Infrastructure) | 55 | Not started |

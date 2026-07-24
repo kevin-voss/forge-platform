@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Demo 54: OrderPipe multi-service + Discovery + NetworkPolicy + Events + Workflows saga (epic 54.05).
+# Demo 54: OrderPipe epic gate (54.07) — Discovery + NetworkPolicy + Events + Workflows saga.
 # Usage:
 #   demos/54-orderpipe/run.sh          # build → apply → DB → Discovery → Events → saga proofs
 #   demos/54-orderpipe/run.sh --down   # tear down product resources only
@@ -1190,7 +1190,7 @@ for p in json.load(sys.stdin):
   prove_network_policy
 
   echo
-  echo "demo 54 deploy READY (OrderPipe Discovery + NetworkPolicy + Events + Workflows saga)"
+  echo "demo 54 deploy READY (OrderPipe epic gate)"
   echo "  Shop:         http://${SHOP_HOST}:4000/"
   echo "  API:          http://${API_HOST}:4000/health/ready"
   echo "  Fulfillment:  http://${FULFILLMENT_HOST}:4000/health/ready"

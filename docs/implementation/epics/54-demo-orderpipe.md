@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Goal
 
@@ -61,7 +61,7 @@ service-to-service pair is blocked while allowed pairs succeed; no hard-coded pe
 | 54.04 | Event choreography | Complete | `order.*` events emitted/consumed; status advances via events |
 | 54.05 | Workflow saga + retry/compensation | Complete | in-process saga + Workflow YAML; F-008 (no HTTP actions); decline→retry→refunded |
 | 54.06 | E2E browser spec | Complete | happy path to `notified`; failure path compensates; network-policy proof |
-| 54.07 | Demo + epic gate | Not started | `demos/54-orderpipe`; `make demo DEMO=54`; wired into test-platform-e2e |
+| 54.07 | Demo + epic gate | Complete | `demos/54-orderpipe`; `make demo DEMO=54`; wired into test-platform-e2e |
 
 Ordering + `N`: [`../steps/54-demo-orderpipe/README.md`](../steps/54-demo-orderpipe/README.md).
 
@@ -70,4 +70,7 @@ Ordering + `N`: [`../steps/54-demo-orderpipe/README.md`](../steps/54-demo-orderp
 * ~~Does forge-workflows own step orchestration + compensation directly, or coordinate via events
   only?~~ **Resolved in 54.05:** engine owns durable retry/compensate *contract*, but has no
   HTTP/service actions (**F-008**). OrderPipe drives validate/charge (+ refund) in-process and
-  keeps fulfill/notify on forge-events after `order.charged`.
+  keeps fulfill/notify on forge-events after `order.charged`. **Confirmed in 54.07:** headed +
+  headless `make demo DEMO=54` / `make test-platform-e2e PROJECTS=04` pass with zero blockers;
+  non-blocker `F-008` remains open in
+  [`PLATFORM_FINDINGS.md`](../../demo-projects/PLATFORM_FINDINGS.md).

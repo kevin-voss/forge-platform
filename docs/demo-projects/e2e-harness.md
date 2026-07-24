@@ -257,6 +257,17 @@ refusal→history persist and soft platform asserts (Models↔Memory dim, Memory
 Control-applied `kind: Agent`) and `F-007` (Observe AI-stack evidence) do not fail the gate.
 Epic 53 marked Complete.
 
+### 54.07 outcome — OrderPipe demo + epic gate
+
+**Landed:** `demos/54-orderpipe/demo.json` (`id: 04-orderpipe`) wires deploy/seed/hosts/spec/services/
+teardown into the orchestrator. `make demo DEMO=54` (and `HEADLESS=1`) plus
+`make test-platform-e2e PROJECTS=04` run the full lifecycle; Playwright
+`tests/e2e/projects/04-orderpipe/spec.ts` covers happy order→`notified`, declined
+order→compensated `refunded`, and NetworkPolicy allow/deny proof, plus soft platform asserts
+(Discovery `*.svc.forge`, Events `order.*` choreography, Workflows `order-saga` listing,
+Secrets `PSP_API_KEY` metadata). Non-blocker finding `F-008` (no HTTP/service workflow
+actions; in-process saga driver) does not fail the gate. Epic 54 marked Complete.
+
 ## 9. Determinism
 
 * AI backends use fakes: `FORGE_MODELS_BACKEND=fake`, `FORGE_AGENTS_TOOLS_MODE=fake` (same knobs the
