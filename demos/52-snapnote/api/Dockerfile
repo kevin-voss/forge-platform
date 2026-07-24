@@ -21,4 +21,10 @@ USER nonroot:nonroot
 EXPOSE 8080
 ENV PORT=8080
 ENV MIGRATIONS_DIR=/migrations
+# Storage reachable via host-published port from workload bridge network (52.02).
+# Browser uploads use the SPA nginx /storage/ proxy (same-origin) against signed URLs.
+ENV FORGE_STORAGE_URL=http://host.docker.internal:4107
+ENV FORGE_STORAGE_PUBLIC_URL=http://app.snapnote.localhost:4000/storage
+ENV FORGE_STORAGE_BUCKET=snapnote-attachments
+ENV FORGE_STORAGE_PROJECT=snapnote
 ENTRYPOINT ["/snapnote-api"]

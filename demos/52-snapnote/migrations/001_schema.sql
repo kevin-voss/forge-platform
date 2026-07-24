@@ -1,5 +1,5 @@
--- SnapNote schema (epic 52.01). Idempotent — safe to re-run on boot.
--- attachments is a stub for 52.02+ (object storage / worker); notes CRUD is live.
+-- SnapNote schema (epic 52.01/52.02). Idempotent — safe to re-run on boot.
+-- attachments metadata is written on presign (status=pending); worker flips ready in 52.03.
 
 CREATE TABLE IF NOT EXISTS notes (
     id         TEXT PRIMARY KEY,

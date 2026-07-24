@@ -40,11 +40,15 @@ spec:
   # Typed managed Postgres dependency (materialized by run.sh via forge database).
   # DATABASE_URL is injected as plaintext env from the in-memory secrets client
   # when FORGE_SECRETS_URL=disabled (Secrets product path is TaskFlow's job).
+  # Object storage (52.02): bucket wired via FORGE_STORAGE_* image env + run.sh.
   dependencies:
     database:
       type: postgres
       plan: standard
       name: snapnote-db
+    storage:
+      type: object
+      bucket: snapnote-attachments
 ---
 apiVersion: forge.dev/v1
 kind: Service

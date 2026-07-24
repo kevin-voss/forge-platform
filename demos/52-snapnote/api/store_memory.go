@@ -116,3 +116,41 @@ func (m *memoryStore) ListAttachments(_ context.Context, noteID string) ([]*Atta
 	}
 	return out, nil
 }
+
+func (m *memoryStore) GetAttachment(_ context.Context, noteID, attachmentID string) (*Attachment, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, a := range m.attachments[noteID] {
+		if a.ID == attachmentID {
+			cp := *a
+			return &cp, nil
+		}
+	}
+	return nil, nil
+}
+
+func (m *memoryStore) CreateAttachment(_ context.Context, noteID, filename, contentType string) (*Attachment, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.notes[noteID]; !ok {
+		return nil, errNotFound
+	}
+	ct := strings.TrimSpace(contentType)
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	now := time.Now().UTC()
+	id := newID()
+	att := &Attachment{
+		ID:          id,
+		NoteID:      noteID,
+		ObjectKey:   attachmentObjectKey(noteID, id, filename),
+		ContentType: ct,
+		Status:      "pending",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	m.attachments[noteID] = append(m.attachments[noteID], att)
+	cp := *att
+	return &cp, nil
+}

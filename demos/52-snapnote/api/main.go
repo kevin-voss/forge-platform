@@ -26,7 +26,17 @@ func main() {
 	}
 	log.Printf("snapnote-api migrations applied from %s", migrationsDir)
 
-	srv := newServer(store)
+	storageCfg := loadStorageConfig()
+	storage := newStorageClient(storageCfg)
+	if err := ensureStorageReady(storage, 60*time.Second); err != nil {
+		log.Fatalf("storage: %v", err)
+	}
+	log.Printf(
+		"snapnote-api storage ready bucket=%s project=%s url=%s public=%s",
+		storageCfg.Bucket, storageCfg.ProjectID, storageCfg.BaseURL, storageCfg.PublicURL,
+	)
+
+	srv := newServer(store, storage)
 	log.Printf("snapnote-api listening on %s", addr)
 	if err := http.ListenAndServe(addr, srv.routes()); err != nil {
 		log.Fatal(err)
@@ -54,6 +64,28 @@ func openStoreWithRetry(databaseURL, migrationsDir string, budget time.Duration)
 			return nil, last
 		}
 		log.Printf("waiting for DATABASE_URL / postgres: %v", err)
+		time.Sleep(2 * time.Second)
+	}
+}
+
+func ensureStorageReady(storage *storageClient, budget time.Duration) error {
+	deadline := time.Now().Add(budget)
+	var last error
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := storage.Ping(ctx)
+		if err == nil {
+			err = storage.EnsureBucket(ctx)
+		}
+		cancel()
+		if err == nil {
+			return nil
+		}
+		last = err
+		if time.Now().After(deadline) {
+			return last
+		}
+		log.Printf("waiting for forge-storage: %v", err)
 		time.Sleep(2 * time.Second)
 	}
 }

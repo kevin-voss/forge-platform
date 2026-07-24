@@ -25,7 +25,8 @@
     "runtime",
     "gateway",
     "build",
-    "managed-postgresql"
+    "managed-postgresql",
+    "storage"
   ],
   "teardown": "demos/52-snapnote/run.sh --down"
 }

@@ -55,7 +55,7 @@ help:
 	@echo "  make demo DEMO=25          HA placement M1 exit gate (epic 25)"
 	@echo "  make demo DEMO=50          E2E harness self-test gate (epic 50)"
 	@echo "  make demo DEMO=51          TaskFlow product demo gate (epic 51)"
-	@echo "  make demo DEMO=52          SnapNote product scaffold (epic 52)"
+	@echo "  make demo DEMO=52          SnapNote product + storage attachments (epic 52)"
 	@echo "  make demo DEMO=09-full-platform  Start capstone (start.sh)"
 	@echo "  make demo-accept DEMO=...  Run demo acceptance suite (capstone accept.sh)"
 	@echo "  make demo-full             Alias: demo DEMO=09-full-platform"

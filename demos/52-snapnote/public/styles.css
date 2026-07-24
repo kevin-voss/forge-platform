@@ -164,3 +164,34 @@ li:first-child {
   border-radius: 0.45rem;
   padding: 0.8rem 0.9rem;
 }
+
+.attachments {
+  margin-top: 0.65rem;
+}
+
+.attachments-empty {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.attachment-list {
+  margin: 0;
+  padding: 0;
+}
+
+.attachment-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-top: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.attachment-list button {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.85rem;
+}

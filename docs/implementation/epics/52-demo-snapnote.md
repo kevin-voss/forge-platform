@@ -53,7 +53,7 @@ processing is exactly-once across a worker restart.
 | Step | Title | Status | Notes |
 |---|---|---|---|
 | 52.01 | Product scaffold + notes CRUD + Postgres | Complete | API + SPA, notes/attachments schema, baseline deploy + routes |
-| 52.02 | Object storage integration | Not started | bucket, presigned PUT/GET, attachment upload + retrieval |
+| 52.02 | Object storage integration | Complete | bucket, presigned PUT/GET, attachment upload + retrieval |
 | 52.03 | Events queue + worker + idempotency | Not started | publish `attachment.uploaded`; durable consume + ack; exactly-once thumbnailing |
 | 52.04 | Worker autoscaling (+ optional node pressure) | Not started | `ScalingPolicy queueDepth`; burst load; scale up/down; retry blocks scale-down; optional infra node |
 | 52.05 | E2E browser spec | Not started | upload→async thumbnail→burst→watch replicas→drain; restart-mid-burst idempotency |

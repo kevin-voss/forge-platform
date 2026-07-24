@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Demo 52: SnapNote + managed Postgres (epic 52.01).
+# Demo 52: SnapNote + managed Postgres + object storage (epic 52.02).
 # Usage:
-#   demos/52-snapnote/run.sh          # build → apply → DB → Ready → seed → persist check
+#   demos/52-snapnote/run.sh          # build → apply → DB → storage → Ready → seed → proofs
 #   demos/52-snapnote/run.sh --down   # tear down product resources only
 set -euo pipefail
 
@@ -44,8 +44,12 @@ CONTROL_SERVICE="forge-control"
 RUNTIME_SERVICE="forge-runtime"
 GATEWAY_SERVICE="forge-gateway"
 BUILD_SERVICE="forge-build"
+STORAGE_SERVICE="forge-storage"
 POSTGRES_SERVICE="postgres"
 REGISTRY_SERVICE="registry"
+STORAGE_URL="${FORGE_STORAGE_HOST_URL:-http://127.0.0.1:4107}"
+STORAGE_BUCKET="${FORGE_STORAGE_BUCKET:-snapnote-attachments}"
+STORAGE_PROJECT="${FORGE_STORAGE_PROJECT:-snapnote}"
 CLI_DIR="${ROOT_DIR}/tools/forge-cli"
 FORGE_BIN="${CLI_DIR}/forge"
 REGISTRY="${FORGE_REGISTRY:-localhost:5000}"
@@ -77,6 +81,8 @@ fail() {
   "${COMPOSE[@]}" logs --tail=60 "${GATEWAY_SERVICE}" >&2 || true
   echo "--- managed db containers ---" >&2
   docker ps --filter "label=forge.managed_db=true" --format '{{.Names}} {{.Status}}' >&2 || true
+  echo "--- ${STORAGE_SERVICE} logs (tail) ---" >&2
+  "${COMPOSE[@]}" logs --tail=60 "${STORAGE_SERVICE}" >&2 || true
   exit 1
 }
 
@@ -162,7 +168,7 @@ teardown() {
 }
 
 ensure_platform() {
-  echo "Ensuring Postgres, registry, Control (LocalProvisioner), Runtime, Gateway, Build..."
+  echo "Ensuring Postgres, registry, Storage, Control (LocalProvisioner), Runtime, Gateway, Build..."
   "${COMPOSE[@]}" up -d "${POSTGRES_SERVICE}" "${REGISTRY_SERVICE}"
   for _ in $(seq 1 60); do
     if "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" pg_isready -U forge >/dev/null 2>&1; then
@@ -207,12 +213,13 @@ ensure_platform() {
     echo "Control/Gateway already configured for demo 52; ensuring they are up..."
     "${COMPOSE[@]}" up -d "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}"
   fi
-  "${COMPOSE[@]}" up -d "${BUILD_SERVICE}"
+  "${COMPOSE[@]}" up -d "${BUILD_SERVICE}" "${STORAGE_SERVICE}"
 
   wait_http "${CONTROL_URL}/health/ready" "Control"
   wait_http "${RUNTIME_URL}/health/ready" "Runtime"
   wait_http "${GATEWAY_URL}/health/ready" "Gateway"
   wait_http "${BUILD_URL}/health/ready" "Build" 60 || true
+  wait_http "${STORAGE_URL}/health/ready" "Storage" 90
 
   pattern="$(docker exec "${GATEWAY_SERVICE}" printenv FORGE_HOST_PATTERN 2>/dev/null || true)"
   [[ "${pattern}" == *'{service}.snapnote.localhost'* ]] ||
@@ -220,6 +227,22 @@ ensure_platform() {
   provisioner="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_DB_PROVISIONER 2>/dev/null || true)"
   [[ "${provisioner}" == "local" ]] ||
     fail "control FORGE_DB_PROVISIONER must be local (got: ${provisioner})"
+
+  ensure_storage_bucket
+}
+
+ensure_storage_bucket() {
+  echo "Ensuring storage bucket ${STORAGE_BUCKET} (project=${STORAGE_PROJECT})..."
+  local code
+  code="$(curl --silent --show-error -o "${TMP_DIR}/bucket.json" -w '%{http_code}' \
+    -H "X-Forge-Project: ${STORAGE_PROJECT}" \
+    -H 'content-type: application/json' \
+    -d "{\"name\":\"${STORAGE_BUCKET}\"}" \
+    "${STORAGE_URL}/v1/buckets" || echo "000")"
+  if [[ "${code}" != "201" && "${code}" != "200" && "${code}" != "409" ]]; then
+    fail "create bucket HTTP ${code}: $(cat "${TMP_DIR}/bucket.json" 2>/dev/null || true)"
+  fi
+  echo "  bucket ${STORAGE_BUCKET} ready (HTTP ${code})"
 }
 
 # Prefer `forge build` when the CLI subcommand exists; otherwise docker build+push
@@ -477,6 +500,100 @@ print(f"  persisted note id={want_id} title={want_title}")
 PY
 }
 
+prove_storage_roundtrip() {
+  local title="attach-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:8])')"
+  local create_body note_id att_id upload_url object_key code payload download_url
+  echo "Proving attachment presign + PUT + GET against Forge Storage..."
+  create_body="$(python3 -c 'import json,sys; print(json.dumps({"title":sys.argv[1],"body":"with file"}))' "${title}")"
+  code="$(curl --silent --show-error -o "${TMP_DIR}/create-note-att.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" -H 'content-type: application/json' \
+    -d "${create_body}" "${GATEWAY_URL}/notes" || echo "000")"
+  [[ "${code}" == "201" ]] || fail "create note for attachment HTTP ${code}: $(cat "${TMP_DIR}/create-note-att.json")"
+  note_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "${TMP_DIR}/create-note-att.json")"
+
+  code="$(curl --silent --show-error -o "${TMP_DIR}/create-att.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" -H 'content-type: application/json' \
+    -d '{"filename":"lake.jpg","contentType":"image/jpeg"}' \
+    "${GATEWAY_URL}/notes/${note_id}/attachments" || echo "000")"
+  [[ "${code}" == "201" ]] || fail "create attachment HTTP ${code}: $(cat "${TMP_DIR}/create-att.json")"
+  upload_url="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["uploadUrl"])' "${TMP_DIR}/create-att.json")"
+  att_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["attachment"]["id"])' "${TMP_DIR}/create-att.json")"
+  object_key="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["attachment"]["objectKey"])' "${TMP_DIR}/create-att.json")"
+  [[ -n "${upload_url}" && -n "${att_id}" && -n "${object_key}" ]] ||
+    fail "attachment response incomplete: $(cat "${TMP_DIR}/create-att.json")"
+  echo "  attachment id=${att_id} objectKey=${object_key}"
+
+  payload="${TMP_DIR}/lake.jpg"
+  printf 'snapnote-demo-bytes-%s' "${att_id}" >"${payload}"
+  # Prefer direct storage host URL for the demo proof (public URL is SPA nginx proxy).
+  # Rewrite app.snapnote.localhost:4000/storage → STORAGE_URL when present.
+  local put_url="${upload_url}"
+  put_url="$(UPLOAD_URL="${upload_url}" STORAGE_URL="${STORAGE_URL}" python3 - <<'PY'
+import os, urllib.parse
+u = os.environ["UPLOAD_URL"]
+storage = os.environ["STORAGE_URL"].rstrip("/")
+parsed = urllib.parse.urlparse(u)
+if parsed.path.startswith("/storage/"):
+    path = parsed.path[len("/storage"):]
+    print(storage + path + (("?" + parsed.query) if parsed.query else ""))
+else:
+    print(u)
+PY
+)"
+  code="$(curl --silent --show-error -o "${TMP_DIR}/put-object.json" -w '%{http_code}' \
+    -X PUT -H 'content-type: image/jpeg' --data-binary @"${payload}" \
+    "${put_url}" || echo "000")"
+  [[ "${code}" == "201" || "${code}" == "200" ]] ||
+    fail "storage PUT HTTP ${code}: $(cat "${TMP_DIR}/put-object.json" 2>/dev/null || true)"
+
+  code="$(curl --silent --show-error -o "${TMP_DIR}/download-att.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" \
+    "${GATEWAY_URL}/notes/${note_id}/attachments/${att_id}/download" || echo "000")"
+  [[ "${code}" == "200" ]] || fail "download presign HTTP ${code}: $(cat "${TMP_DIR}/download-att.json")"
+  download_url="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["downloadUrl"])' "${TMP_DIR}/download-att.json")"
+  local get_url="${download_url}"
+  get_url="$(DOWNLOAD_URL="${download_url}" STORAGE_URL="${STORAGE_URL}" python3 - <<'PY'
+import os, urllib.parse
+u = os.environ["DOWNLOAD_URL"]
+storage = os.environ["STORAGE_URL"].rstrip("/")
+parsed = urllib.parse.urlparse(u)
+if parsed.path.startswith("/storage/"):
+    path = parsed.path[len("/storage"):]
+    print(storage + path + (("?" + parsed.query) if parsed.query else ""))
+else:
+    print(u)
+PY
+)"
+  code="$(curl --silent --show-error -o "${TMP_DIR}/get-object.bin" -w '%{http_code}' \
+    "${get_url}" || echo "000")"
+  [[ "${code}" == "200" ]] || fail "storage GET HTTP ${code}"
+  cmp -s "${payload}" "${TMP_DIR}/get-object.bin" || fail "downloaded object bytes differ from upload"
+
+  # Streamed GET via API (project-credential path).
+  code="$(curl --silent --show-error -o "${TMP_DIR}/stream-object.bin" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" \
+    "${GATEWAY_URL}/notes/${note_id}/attachments/${att_id}/content" || echo "000")"
+  [[ "${code}" == "200" ]] || fail "streamed content HTTP ${code}"
+  cmp -s "${payload}" "${TMP_DIR}/stream-object.bin" || fail "streamed object bytes differ from upload"
+
+  # Metadata list includes pending row with correct key.
+  code="$(curl --silent --show-error -o "${TMP_DIR}/list-att.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" \
+    "${GATEWAY_URL}/notes/${note_id}/attachments" || echo "000")"
+  [[ "${code}" == "200" ]] || fail "list attachments HTTP ${code}"
+  ATT_ID="${att_id}" OBJECT_KEY="${object_key}" python3 - <<'PY' "${TMP_DIR}/list-att.json" || fail "attachment metadata mismatch"
+import json, os, sys
+items = json.load(open(sys.argv[1]))
+want_id = os.environ["ATT_ID"]
+want_key = os.environ["OBJECT_KEY"]
+match = [a for a in items if a.get("id") == want_id]
+assert match, items
+assert match[0].get("objectKey") == want_key, match[0]
+assert match[0].get("status") == "pending", match[0]
+print(f"  storage round-trip ok id={want_id} key={want_key} status=pending")
+PY
+}
+
 deploy() {
   if [[ -f "${STATE_FILE}" ]]; then
     teardown
@@ -546,14 +663,16 @@ for p in json.load(sys.stdin):
   write_state
   bash "${DEMO_DIR}/seed.sh" || fail "seed.sh failed"
   prove_persistence
+  prove_storage_roundtrip
 
   echo
-  echo "demo 52 deploy READY (managed Postgres + notes schema)"
+  echo "demo 52 deploy READY (managed Postgres + object storage attachments)"
   echo "  App:          http://${APP_HOST}:4000/"
   echo "  API:          http://${API_HOST}:4000/health/ready"
   echo "  API image:    ${API_IMAGE}"
   echo "  Web image:    ${WEB_IMAGE}"
   echo "  Database:     ${DB_NAME} (Ready)"
+  echo "  Storage:      ${STORAGE_BUCKET} @ ${STORAGE_URL}"
   echo "  Deployments:  api=${API_DEPLOYMENT_ID} web=${WEB_DEPLOYMENT_ID}"
   echo "  Project:      ${PROJECT_SLUG} (${PROJECT_ID})"
 }

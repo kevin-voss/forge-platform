@@ -11,7 +11,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-// NoteStore persists notes (and attachment stub rows) in Postgres.
+// NoteStore persists notes and attachment metadata in Postgres.
 type NoteStore interface {
 	Migrate(ctx context.Context) error
 	Ping(ctx context.Context) error
@@ -22,6 +22,8 @@ type NoteStore interface {
 	PatchNote(ctx context.Context, id string, title, body *string) (*Note, error)
 	DeleteNote(ctx context.Context, id string) error
 	ListAttachments(ctx context.Context, noteID string) ([]*Attachment, error)
+	GetAttachment(ctx context.Context, noteID, attachmentID string) (*Attachment, error)
+	CreateAttachment(ctx context.Context, noteID, filename, contentType string) (*Attachment, error)
 }
 
 type pgStore struct {
@@ -178,20 +180,81 @@ func (s *pgStore) ListAttachments(ctx context.Context, noteID string) ([]*Attach
 	defer rows.Close()
 	out := make([]*Attachment, 0)
 	for rows.Next() {
-		var a Attachment
-		var thumb sql.NullString
-		if err := rows.Scan(
-			&a.ID, &a.NoteID, &a.ObjectKey, &a.ContentType, &a.Status,
-			&thumb, &a.CreatedAt, &a.UpdatedAt,
-		); err != nil {
+		a, err := scanAttachment(rows)
+		if err != nil {
 			return nil, err
 		}
-		if thumb.Valid {
-			a.ThumbnailKey = thumb.String
-		}
-		out = append(out, &a)
+		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+func (s *pgStore) GetAttachment(ctx context.Context, noteID, attachmentID string) (*Attachment, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, note_id, object_key, content_type, status, thumbnail_key, created_at, updated_at
+		FROM attachments
+		WHERE note_id = $1 AND id = $2
+	`, noteID, attachmentID)
+	a, err := scanAttachment(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+func (s *pgStore) CreateAttachment(ctx context.Context, noteID, filename, contentType string) (*Attachment, error) {
+	note, err := s.GetNote(ctx, noteID)
+	if err != nil {
+		return nil, err
+	}
+	if note == nil {
+		return nil, errNotFound
+	}
+	ct := strings.TrimSpace(contentType)
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	now := time.Now().UTC()
+	id := newID()
+	att := &Attachment{
+		ID:          id,
+		NoteID:      noteID,
+		ObjectKey:   attachmentObjectKey(noteID, id, filename),
+		ContentType: ct,
+		Status:      "pending",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO attachments (id, note_id, object_key, content_type, status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, att.ID, att.NoteID, att.ObjectKey, att.ContentType, att.Status, att.CreatedAt, att.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return att, nil
+}
+
+type attachmentScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanAttachment(row attachmentScanner) (*Attachment, error) {
+	var a Attachment
+	var thumb sql.NullString
+	if err := row.Scan(
+		&a.ID, &a.NoteID, &a.ObjectKey, &a.ContentType, &a.Status,
+		&thumb, &a.CreatedAt, &a.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	if thumb.Valid {
+		a.ThumbnailKey = thumb.String
+	}
+	return &a, nil
 }
 
 var (

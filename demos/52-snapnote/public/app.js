@@ -12,9 +12,13 @@
   if (!form || !titleInput || !bodyInput || !list || !status) return;
 
   async function api(path, options = {}) {
+    const headers = { ...(options.headers || {}) };
+    if (options.body && !(options.body instanceof FormData) && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
     const res = await fetch(`${API_BASE}${path}`, {
-      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
       ...options,
+      headers,
     });
     if (!res.ok) {
       const text = await res.text();
@@ -24,7 +28,71 @@
     return res.json();
   }
 
-  function renderNotes(notes) {
+  async function loadAttachments(noteId) {
+    return api(`/notes/${noteId}/attachments`);
+  }
+
+  async function uploadAttachment(noteId, file) {
+    const created = await api(`/notes/${noteId}/attachments`, {
+      method: 'POST',
+      body: JSON.stringify({
+        filename: file.name || 'upload.bin',
+        contentType: file.type || 'application/octet-stream',
+      }),
+    });
+    const put = await fetch(created.uploadUrl, {
+      method: created.uploadMethod || 'PUT',
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+      },
+      body: file,
+    });
+    if (!put.ok) {
+      const text = await put.text();
+      throw new Error(text || `upload HTTP ${put.status}`);
+    }
+    return created.attachment;
+  }
+
+  async function downloadAttachment(noteId, attachmentId) {
+    const meta = await api(`/notes/${noteId}/attachments/${attachmentId}/download`);
+    window.open(meta.downloadUrl, '_blank', 'noopener,noreferrer');
+  }
+
+  function renderAttachments(noteId, items, container) {
+    container.replaceChildren();
+    if (!items.length) {
+      const empty = document.createElement('p');
+      empty.className = 'attachments-empty';
+      empty.textContent = 'No attachments yet.';
+      container.appendChild(empty);
+      return;
+    }
+    const ul = document.createElement('ul');
+    ul.className = 'attachment-list';
+    for (const att of items) {
+      const li = document.createElement('li');
+      const label = document.createElement('span');
+      label.textContent = `${att.objectKey.split('/').pop()} · ${att.status}`;
+      const openBtn = document.createElement('button');
+      openBtn.type = 'button';
+      openBtn.className = 'secondary';
+      openBtn.textContent = 'Download';
+      openBtn.addEventListener('click', async () => {
+        try {
+          await downloadAttachment(noteId, att.id);
+        } catch (err) {
+          status.textContent = `Failed to download: ${err.message}`;
+        }
+      });
+      li.appendChild(label);
+      li.appendChild(openBtn);
+      ul.appendChild(li);
+    }
+    container.appendChild(ul);
+  }
+
+  function renderNotes(notes, attachmentsByNote) {
     list.replaceChildren();
     if (!notes.length) {
       const empty = document.createElement('p');
@@ -50,8 +118,36 @@
       meta.appendChild(title);
       if (note.body) meta.appendChild(body);
 
+      const attachments = document.createElement('div');
+      attachments.className = 'attachments';
+      renderAttachments(note.id, attachmentsByNote[note.id] || [], attachments);
+      meta.appendChild(attachments);
+
       const actions = document.createElement('div');
       actions.className = 'actions';
+
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = 'image/*,.pdf,application/pdf';
+      fileInput.hidden = true;
+
+      const attachBtn = document.createElement('button');
+      attachBtn.type = 'button';
+      attachBtn.textContent = 'Attach file';
+      attachBtn.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', async () => {
+        const file = fileInput.files && fileInput.files[0];
+        fileInput.value = '';
+        if (!file) return;
+        try {
+          status.textContent = `Uploading ${file.name}…`;
+          await uploadAttachment(note.id, file);
+          await refresh();
+          status.textContent = `Uploaded ${file.name}`;
+        } catch (err) {
+          status.textContent = `Failed to upload: ${err.message}`;
+        }
+      });
 
       const del = document.createElement('button');
       del.type = 'button';
@@ -66,6 +162,8 @@
         }
       });
 
+      actions.appendChild(attachBtn);
+      actions.appendChild(fileInput);
       actions.appendChild(del);
       li.appendChild(meta);
       li.appendChild(actions);
@@ -77,7 +175,13 @@
     status.textContent = 'Loading notes…';
     try {
       const notes = await api('/notes');
-      renderNotes(notes);
+      const attachmentsByNote = {};
+      await Promise.all(
+        notes.map(async (note) => {
+          attachmentsByNote[note.id] = await loadAttachments(note.id);
+        }),
+      );
+      renderNotes(notes, attachmentsByNote);
       status.textContent = `${notes.length} note${notes.length === 1 ? '' : 's'}`;
     } catch (err) {
       status.textContent = `API unavailable: ${err.message}`;
