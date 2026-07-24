@@ -12,7 +12,7 @@ Atomic steps for [Demo 4 — OrderPipe](../../epics/54-demo-orderpipe.md). Produ
 | **201** | `54.03` | [54.03-network-policy.md](54.03-network-policy.md) | Complete |
 | **202** | `54.04` | [54.04-event-choreography.md](54.04-event-choreography.md) | Complete |
 | **203** | `54.05` | [54.05-workflow-saga.md](54.05-workflow-saga.md) | Complete |
-| **204** | `54.06` | [54.06-e2e-browser-spec.md](54.06-e2e-browser-spec.md) | Not started |
+| **204** | `54.06` | [54.06-e2e-browser-spec.md](54.06-e2e-browser-spec.md) | Complete |
 | **205** | `54.07` | [54.07-demo-and-gate.md](54.07-demo-and-gate.md) | Not started |
 
 Implement with [`../../IMPLEMENT_STEP.md`](../../IMPLEMENT_STEP.md) (`N = 199` first).

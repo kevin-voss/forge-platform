@@ -60,7 +60,7 @@ service-to-service pair is blocked while allowed pairs succeed; no hard-coded pe
 | 54.03 | Network policy | Complete | overlay + NetworkPolicy allow/deny; denied pair blocked, allowed pairs work |
 | 54.04 | Event choreography | Complete | `order.*` events emitted/consumed; status advances via events |
 | 54.05 | Workflow saga + retry/compensation | Complete | in-process saga + Workflow YAML; F-008 (no HTTP actions); decline→retry→refunded |
-| 54.06 | E2E browser spec | Not started | happy path to `notified`; failure path compensates; network-policy proof |
+| 54.06 | E2E browser spec | Complete | happy path to `notified`; failure path compensates; network-policy proof |
 | 54.07 | Demo + epic gate | Not started | `demos/54-orderpipe`; `make demo DEMO=54`; wired into test-platform-e2e |
 
 Ordering + `N`: [`../steps/54-demo-orderpipe/README.md`](../steps/54-demo-orderpipe/README.md).
