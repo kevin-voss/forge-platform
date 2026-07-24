@@ -43,13 +43,16 @@ func (s *memoryStore) ListCatalog(context.Context) ([]CatalogItem, error) {
 	return out, nil
 }
 
-func (s *memoryStore) PlaceOrder(_ context.Context, email string, items []PlaceOrderItem) (*Order, error) {
+func (s *memoryStore) PlaceOrder(_ context.Context, email string, items []PlaceOrderItem, declineCharge bool) (*Order, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
 	if email == "" {
 		return nil, errors.New("customer email is required")
 	}
 	if len(items) == 0 {
 		return nil, errors.New("at least one item is required")
+	}
+	if declineFromEmail(email) {
+		declineCharge = true
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -75,6 +78,7 @@ func (s *memoryStore) PlaceOrder(_ context.Context, email string, items []PlaceO
 		CustomerEmail: email,
 		Status:        "placed",
 		TotalCents:    total,
+		DeclineCharge: declineCharge,
 		Items:         orderItems,
 		CreatedAt:     now,
 		UpdatedAt:     now,

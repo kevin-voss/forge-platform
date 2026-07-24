@@ -46,7 +46,7 @@ func TestOrderStorePostgresPlaceOrder(t *testing.T) {
 		t.Fatalf("seed catalog: %v", err)
 	}
 
-	created, err := store.PlaceOrder(ctx, "buyer@example.com", []PlaceOrderItem{{SKU: "mug", Qty: 1}})
+	created, err := store.PlaceOrder(ctx, "buyer@example.com", []PlaceOrderItem{{SKU: "mug", Qty: 1}}, false)
 	if err != nil {
 		t.Fatalf("place: %v", err)
 	}

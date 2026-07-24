@@ -30,4 +30,9 @@ ENV FORGE_DISCOVERY_ENVIRONMENT=local
 # Forge Events choreography (54.04).
 ENV FORGE_EVENTS_URL=http://host.docker.internal:4105
 ENV FORGE_SERVICE_NAME=orderpipe-api
+# Mock PSP key for charge step (54.05). Same value is provisioned into forge-secrets
+# by run.sh. Application env from forge.yaml is not injected by Control today (F-002).
+ENV PSP_API_KEY=orderpipe-demo-psp-key
+ENV ORDERPIPE_CHARGE_RETRIES=3
+ENV ORDERPIPE_CHARGE_BACKOFF_MS=50
 ENTRYPOINT ["/orderpipe-api"]

@@ -61,6 +61,12 @@ spec:
       value: http://host.docker.internal:4105
     - name: FORGE_SERVICE_NAME
       value: orderpipe-api
+    # PSP_API_KEY is baked into the API image (Control does not apply Application
+    # env today — F-002). Documented here for the portable resource intent;
+    # run.sh provisions the same value into forge-secrets.
+    - name: PSP_API_KEY
+      valueFrom:
+        secret: PSP_API_KEY
 ---
 apiVersion: forge.dev/v1
 kind: Service

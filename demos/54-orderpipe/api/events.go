@@ -162,9 +162,9 @@ type consumerBinding struct {
 }
 
 func (c *eventsClient) bindings() []consumerBinding {
+	// validate/charge are owned by the order-saga driver (54.05); API only
+	// mirrors fulfill/notify completions onto order status + saga_events.
 	return []consumerBinding{
-		{Name: c.cfg.ValidateConsumer, Subject: subjectPlaced},
-		{Name: c.cfg.ChargeConsumer, Subject: subjectValidated},
 		{Name: c.cfg.FulfilledConsumer, Subject: subjectFulfilled},
 		{Name: c.cfg.NotifiedConsumer, Subject: subjectNotified},
 	}

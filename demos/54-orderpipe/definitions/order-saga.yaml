@@ -1,0 +1,41 @@
+# OrderPipe order-saga (epic 54.05 / N=203).
+#
+# Intended contract: forge-workflows owns validate→charge→fulfill→notify with
+# per-step retry + compensate. Mapped to the *actual* forge-workflows YAML schema
+# (`retry`, not product-doc `retries`; `action` names instead of `service:`).
+#
+# Platform gap (see PLATFORM_FINDINGS F-008): StepExecutor has no HTTP/service
+# action, so `orderpipe.*` actions are not executable by the engine today.
+# OrderPipe drives the same semantics in-process via api/saga.go step handlers
+# and still loads this definition so GET /v1/workflows lists `order-saga`.
+name: order-saga
+trigger:
+  event: order.placed
+timeout_ms: 120000
+steps:
+  - id: validate
+    type: task
+    action: orderpipe.validate
+  - id: charge
+    type: task
+    action: orderpipe.charge
+    retry:
+      max_attempts: 3
+      backoff: fixed
+      base_ms: 100
+    compensate: orderpipe.refund
+  - id: fulfill
+    type: task
+    action: orderpipe.fulfill
+    retry:
+      max_attempts: 2
+      backoff: fixed
+      base_ms: 100
+    compensate: orderpipe.cancel_fulfillment
+  - id: notify
+    type: task
+    action: orderpipe.notify
+    retry:
+      max_attempts: 5
+      backoff: fixed
+      base_ms: 100

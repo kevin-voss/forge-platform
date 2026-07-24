@@ -46,7 +46,11 @@ func main() {
 	log.Printf("orderpipe-api events url=%s source=%s", eventsCfg.BaseURL, eventsCfg.Source)
 	newChoreography(store, events).Start(context.Background())
 
-	srv := newServer(store, peers, events)
+	saga := newSagaRunner(store, events)
+	log.Printf("orderpipe-api saga chargeRetries=%d pspKeyConfigured=%t",
+		saga.chargeRetries, saga.handlers.pspKey != "")
+
+	srv := newServer(store, peers, events, saga)
 	log.Printf("orderpipe-api listening on %s", addr)
 	if err := http.ListenAndServe(addr, srv.routes()); err != nil {
 		log.Fatal(err)

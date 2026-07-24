@@ -1,11 +1,12 @@
-# Demo 54 overlay — OrderPipe + managed Postgres + Discovery + NetworkPolicy + Events
-# (epic 54.04). Used with the root compose file:
+# Demo 54 overlay — OrderPipe + managed Postgres + Discovery + NetworkPolicy +
+# Events + Workflows + Secrets (epic 54.05). Used with the root compose file:
 #   docker compose -f compose.yaml -f demos/54-orderpipe/docker-compose.yml up -d ...
 #
 # Host pattern yields shop/api/fulfillment/notify.orderpipe.localhost for services
 # named `shop`, `api`, `fulfillment`, and `notify`. LocalProvisioner starts isolated
 # product Postgres containers; DATABASE_URL is injected via Control's in-memory
-# secrets client while FORGE_SECRETS_URL=disabled.
+# secrets client while FORGE_SECRETS_URL=disabled (PSP_API_KEY is applied via
+# Application env + provisioned into forge-secrets for the Secrets proof).
 #
 # Discovery: Runtime registers leases; run.sh also registers canonical service
 # names (fulfillment/notify/api) under project=orderpipe so peers resolve via
@@ -16,8 +17,28 @@
 # backend for local compose (observable denies via /network-policy-denied).
 #
 # Events: forge-events includes the `order` stream family for order.* subjects.
+# Workflows: mounts demos/54-orderpipe/definitions (order-saga). Secrets: auth=dev.
 
 services:
+  forge-secrets:
+    environment:
+      FORGE_AUTH_MODE: ${FORGE_SECRETS_AUTH_MODE:-dev}
+      FORGE_SECRETS_MASTER_KEY: ${FORGE_SECRETS_MASTER_KEY:-bG9jYWwtZGV2LWZvcmdlLXNlY3JldHMta2V5ISEhISE=}
+      FORGE_SECRETS_MASTER_KEY_ID: ${FORGE_SECRETS_MASTER_KEY_ID:-demo-m54}
+
+  forge-workflows:
+    environment:
+      FORGE_WORKFLOWS_DEFS_DIR: /app/definitions
+      # Keep false until orderpipe.* HTTP actions exist (F-008); listing still works.
+      FORGE_WORKFLOWS_EVENTS_ENABLED: ${FORGE_WORKFLOWS_EVENTS_ENABLED:-false}
+      FORGE_EVENTS_URL: ${FORGE_EVENTS_URL:-http://forge-events:4105}
+      FORGE_WORKFLOWS_DEFAULT_PROJECT: ${FORGE_WORKFLOWS_DEFAULT_PROJECT:-orderpipe}
+      FORGE_WORKFLOWS_CONTROL_MODE: ${FORGE_WORKFLOWS_CONTROL_MODE:-fake}
+      FORGE_WORKFLOWS_AGENTS_MODE: ${FORGE_WORKFLOWS_AGENTS_MODE:-fake}
+    volumes:
+      # Path is relative to compose --project-directory (repo root).
+      - ./demos/54-orderpipe/definitions/order-saga.yaml:/app/definitions/order-saga.yaml:ro
+
   forge-events:
     environment:
       FORGE_AUTH_MODE: ${FORGE_EVENTS_AUTH_MODE:-dev}

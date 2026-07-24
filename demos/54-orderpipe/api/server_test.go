@@ -9,7 +9,7 @@ import (
 )
 
 func TestHealthReady(t *testing.T) {
-	srv := newServer(newMemoryStore(), nil, nil)
+	srv := newServer(newMemoryStore(), nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
 	rec := httptest.NewRecorder()
 	srv.routes().ServeHTTP(rec, req)
@@ -26,7 +26,7 @@ func TestHealthReady(t *testing.T) {
 }
 
 func TestPlaceOrderStub(t *testing.T) {
-	srv := newServer(newMemoryStore(), nil, nil)
+	srv := newServer(newMemoryStore(), nil, nil, nil)
 	handler := srv.routes()
 
 	body := bytes.NewBufferString(`{"customerEmail":"buyer@example.com","items":[{"sku":"mug","qty":2}]}`)

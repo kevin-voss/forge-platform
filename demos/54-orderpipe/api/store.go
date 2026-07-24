@@ -32,6 +32,7 @@ type Order struct {
 	CustomerEmail string      `json:"customerEmail"`
 	Status        string      `json:"status"`
 	TotalCents    int         `json:"totalCents"`
+	DeclineCharge bool        `json:"declineCharge,omitempty"`
 	Items         []OrderItem `json:"items"`
 	SagaEvents    []SagaEvent `json:"sagaEvents,omitempty"`
 	CreatedAt     time.Time   `json:"createdAt"`
@@ -56,7 +57,7 @@ type OrderStore interface {
 	Ping(ctx context.Context) error
 	Close() error
 	ListCatalog(ctx context.Context) ([]CatalogItem, error)
-	PlaceOrder(ctx context.Context, email string, items []PlaceOrderItem) (*Order, error)
+	PlaceOrder(ctx context.Context, email string, items []PlaceOrderItem, declineCharge bool) (*Order, error)
 	GetOrder(ctx context.Context, id string) (*Order, error)
 	AdvanceStatus(ctx context.Context, id, status string) (*Order, error)
 	AppendSagaEvent(ctx context.Context, orderID, step, outcome string) (*SagaEvent, error)
@@ -143,13 +144,16 @@ func (s *pgStore) ListCatalog(ctx context.Context) ([]CatalogItem, error) {
 	return out, rows.Err()
 }
 
-func (s *pgStore) PlaceOrder(ctx context.Context, email string, items []PlaceOrderItem) (*Order, error) {
+func (s *pgStore) PlaceOrder(ctx context.Context, email string, items []PlaceOrderItem, declineCharge bool) (*Order, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
 	if email == "" {
 		return nil, errors.New("customer email is required")
 	}
 	if len(items) == 0 {
 		return nil, errors.New("at least one item is required")
+	}
+	if declineFromEmail(email) {
+		declineCharge = true
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -188,9 +192,9 @@ func (s *pgStore) PlaceOrder(ctx context.Context, email string, items []PlaceOrd
 	orderID := newID("ord")
 	now := time.Now().UTC()
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO orders (id, customer_email, status, total_cents, created_at, updated_at)
-		VALUES ($1, $2, 'placed', $3, $4, $4)
-	`, orderID, email, total, now)
+		INSERT INTO orders (id, customer_email, status, total_cents, decline_charge, created_at, updated_at)
+		VALUES ($1, $2, 'placed', $3, $4, $5, $5)
+	`, orderID, email, total, declineCharge, now)
 	if err != nil {
 		return nil, fmt.Errorf("insert order: %w", err)
 	}
@@ -218,6 +222,7 @@ func (s *pgStore) PlaceOrder(ctx context.Context, email string, items []PlaceOrd
 		CustomerEmail: email,
 		Status:        "placed",
 		TotalCents:    total,
+		DeclineCharge: declineCharge,
 		Items:         orderItems,
 		CreatedAt:     now,
 		UpdatedAt:     now,
@@ -227,9 +232,9 @@ func (s *pgStore) PlaceOrder(ctx context.Context, email string, items []PlaceOrd
 func (s *pgStore) GetOrder(ctx context.Context, id string) (*Order, error) {
 	var o Order
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, customer_email, status, total_cents, created_at, updated_at
+		SELECT id, customer_email, status, total_cents, decline_charge, created_at, updated_at
 		FROM orders WHERE id = $1
-	`, id).Scan(&o.ID, &o.CustomerEmail, &o.Status, &o.TotalCents, &o.CreatedAt, &o.UpdatedAt)
+	`, id).Scan(&o.ID, &o.CustomerEmail, &o.Status, &o.TotalCents, &o.DeclineCharge, &o.CreatedAt, &o.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Demo 54: OrderPipe multi-service + Discovery + NetworkPolicy + Events (epic 54.04).
+# Demo 54: OrderPipe multi-service + Discovery + NetworkPolicy + Events + Workflows saga (epic 54.05).
 # Usage:
-#   demos/54-orderpipe/run.sh          # build → apply → DB → Discovery → Events → proofs
+#   demos/54-orderpipe/run.sh          # build → apply → DB → Discovery → Events → saga proofs
 #   demos/54-orderpipe/run.sh --down   # tear down product resources only
 set -euo pipefail
 
@@ -9,12 +9,21 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DEMO_DIR="${ROOT_DIR}/demos/54-orderpipe"
 STATE_FILE="${DEMO_DIR}/.demo-state"
 
+# Demo-only Secrets master key (32 bytes, base64). Generated per run unless provided.
+if [[ -z "${FORGE_SECRETS_MASTER_KEY:-}" ]]; then
+  FORGE_SECRETS_MASTER_KEY="$(python3 -c 'import base64,os; print(base64.b64encode(os.urandom(32)).decode())')"
+fi
+export FORGE_SECRETS_MASTER_KEY
+export FORGE_SECRETS_MASTER_KEY_ID="${FORGE_SECRETS_MASTER_KEY_ID:-demo-m54}"
+
 export FORGE_AUTH_MODE="${FORGE_AUTH_MODE:-dev}"
 export FORGE_LIFECYCLE_OWNER="${FORGE_LIFECYCLE_OWNER:-control}"
 export FORGE_RECONCILE_INTERVAL_MS="${FORGE_RECONCILE_INTERVAL_MS:-1000}"
 export FORGE_READINESS_POLL_MS="${FORGE_READINESS_POLL_MS:-500}"
 export FORGE_READINESS_MAX_WAIT_S="${FORGE_READINESS_MAX_WAIT_S:-90}"
 export FORGE_RESOURCE_API_ENABLED="${FORGE_RESOURCE_API_ENABLED:-true}"
+# Control keeps LocalProvisioner in-memory secrets for DATABASE_URL; product PSP
+# key is applied via Application env + provisioned into forge-secrets (54.05).
 export FORGE_SECRETS_URL="${FORGE_SECRETS_URL:-disabled}"
 export FORGE_OTEL_ENABLED="${FORGE_OTEL_ENABLED:-false}"
 export FORGE_SCHEDULER_STRATEGY="${FORGE_SCHEDULER_STRATEGY:-single-node}"
@@ -32,8 +41,14 @@ export FORGE_DISCOVERY_DEFAULT_ENVIRONMENT="${FORGE_DISCOVERY_DEFAULT_ENVIRONMEN
 export FORGE_NETWORK_DNS_SEARCH="${FORGE_NETWORK_DNS_SEARCH:-local.orderpipe.svc.forge}"
 export FORGE_EVENTS_STREAMS="${FORGE_EVENTS_STREAMS:-build,deployment,runtime,application,agent,order}"
 export FORGE_EVENTS_AUTH_MODE="${FORGE_EVENTS_AUTH_MODE:-dev}"
+export FORGE_WORKFLOWS_EVENTS_ENABLED="${FORGE_WORKFLOWS_EVENTS_ENABLED:-false}"
+export FORGE_WORKFLOWS_DEFAULT_PROJECT="${FORGE_WORKFLOWS_DEFAULT_PROJECT:-orderpipe}"
 export DOCKER_GID="${DOCKER_GID:-$(stat -f '%g' /var/run/docker.sock 2>/dev/null || stat -c '%g' /var/run/docker.sock 2>/dev/null || echo 0)}"
 export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"
+
+# Mock PSP key for charge step — must match api/Dockerfile ENV (Control does not
+# inject Application env from forge.yaml; see F-002). Also stored in forge-secrets.
+export PSP_API_KEY="${PSP_API_KEY:-orderpipe-demo-psp-key}"
 
 COMPOSE=(
   docker compose
@@ -48,6 +63,8 @@ BUILD_URL="${FORGE_BUILD_URL:-http://127.0.0.1:4103}"
 DISCOVERY_URL="${FORGE_DISCOVERY_HOST_URL:-http://127.0.0.1:4109}"
 NETWORK_URL="${FORGE_NETWORK_URL:-http://127.0.0.1:4110}"
 EVENTS_URL="${FORGE_EVENTS_HOST_URL:-http://127.0.0.1:4105}"
+WORKFLOWS_URL="${FORGE_WORKFLOWS_URL:-http://127.0.0.1:4302}"
+SECRETS_URL="${FORGE_SECRETS_HOST_URL:-http://127.0.0.1:4104}"
 CONTROL_SERVICE="forge-control"
 RUNTIME_SERVICE="forge-runtime"
 GATEWAY_SERVICE="forge-gateway"
@@ -55,9 +72,13 @@ BUILD_SERVICE="forge-build"
 DISCOVERY_SERVICE="forge-discovery"
 NETWORK_SERVICE="forge-network"
 EVENTS_SERVICE="forge-events"
+WORKFLOWS_SERVICE="forge-workflows"
+SECRETS_SERVICE="forge-secrets"
 NATS_SERVICE="nats"
 POSTGRES_SERVICE="postgres"
 REGISTRY_SERVICE="registry"
+PSP_SECRET_NAME="PSP_API_KEY"
+ENV_NAME="local"
 DISC_PROJECT="${FORGE_DISCOVERY_DEFAULT_PROJECT}"
 DISC_ENV="${FORGE_DISCOVERY_DEFAULT_ENVIRONMENT}"
 DISC_NODE="${FORGE_SCHEDULER_LOCAL_NODE_ID}"
@@ -98,6 +119,10 @@ fail() {
   "${COMPOSE[@]}" logs --tail=60 "${GATEWAY_SERVICE}" >&2 || true
   echo "--- ${EVENTS_SERVICE} logs (tail) ---" >&2
   "${COMPOSE[@]}" logs --tail=60 "${EVENTS_SERVICE}" >&2 || true
+  echo "--- ${WORKFLOWS_SERVICE} logs (tail) ---" >&2
+  "${COMPOSE[@]}" logs --tail=60 "${WORKFLOWS_SERVICE}" >&2 || true
+  echo "--- ${SECRETS_SERVICE} logs (tail) ---" >&2
+  "${COMPOSE[@]}" logs --tail=40 "${SECRETS_SERVICE}" >&2 || true
   echo "--- managed db containers ---" >&2
   docker ps --filter "label=forge.managed_db=true" --format '{{.Names}} {{.Status}}' >&2 || true
   exit 1
@@ -190,7 +215,7 @@ teardown() {
 }
 
 ensure_platform() {
-  echo "Ensuring Postgres, registry, NATS, Events, Network, Discovery, Control, Runtime, Gateway, Build..."
+  echo "Ensuring Postgres, registry, NATS, Secrets, Workflows, Events, Network, Discovery, Control, Runtime, Gateway, Build..."
   "${COMPOSE[@]}" up -d "${POSTGRES_SERVICE}" "${REGISTRY_SERVICE}" "${NATS_SERVICE}"
   for _ in $(seq 1 60); do
     if "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" pg_isready -U forge >/dev/null 2>&1; then
@@ -200,6 +225,9 @@ ensure_platform() {
   done
   "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" pg_isready -U forge >/dev/null 2>&1 ||
     fail "Postgres not ready"
+
+  "${COMPOSE[@]}" up -d --force-recreate --no-deps "${SECRETS_SERVICE}"
+  wait_http "${SECRETS_URL}/health/ready" "Secrets"
 
   local need_recreate=0
   local auth_mode pattern strategy provisioner secrets_url disc_project dns_search net_url policy_backend streams
@@ -257,6 +285,7 @@ ensure_platform() {
     "${COMPOSE[@]}" up -d "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}" \
       "${EVENTS_SERVICE}"
   fi
+  "${COMPOSE[@]}" up -d --force-recreate --no-deps "${WORKFLOWS_SERVICE}"
   "${COMPOSE[@]}" up -d "${BUILD_SERVICE}"
 
   wait_http "${CONTROL_URL}/health/ready" "Control"
@@ -265,6 +294,7 @@ ensure_platform() {
   wait_http "${RUNTIME_URL}/health/ready" "Runtime"
   wait_http "${GATEWAY_URL}/health/ready" "Gateway"
   wait_http "${EVENTS_URL}/health/ready" "Events" 90
+  wait_http "${WORKFLOWS_URL}/health/ready" "Workflows" 180
   wait_http "${BUILD_URL}/health/ready" "Build" 60 || true
 
   pattern="$(docker exec "${GATEWAY_SERVICE}" printenv FORGE_HOST_PATTERN 2>/dev/null || true)"
@@ -827,10 +857,72 @@ PY
   verify_denied_counter_bumped "${deny_before}"
 }
 
+provision_psp_secret() {
+  echo "Provisioning Forge Secrets ${PSP_SECRET_NAME} (mock PSP key; auth=dev)..."
+  [[ -n "${PROJECT_ID}" ]] || fail "PROJECT_ID required for secrets provisioning"
+  [[ -n "${PSP_API_KEY}" ]] || fail "PSP_API_KEY unset"
+  # Control remains FORGE_SECRETS_URL=disabled for LocalProvisioner DATABASE_URL;
+  # store the PSP key in forge-secrets for the Secrets service proof (metadata-only).
+  local code
+  code="$(curl --silent --show-error -o "${TMP_DIR}/secret-put.json" -w '%{http_code}' \
+    -X PUT "${SECRETS_URL}/v1/projects/${PROJECT_ID}/envs/${ENV_NAME}/secrets/${PSP_SECRET_NAME}" \
+    -H 'content-type: application/json' \
+    -d "$(python3 -c 'import json,os; print(json.dumps({"value":os.environ["PSP_API_KEY"]}))')" || echo "000")"
+  [[ "${code}" == "200" || "${code}" == "201" ]] ||
+    fail "PUT secret ${PSP_SECRET_NAME} HTTP ${code}: $(cat "${TMP_DIR}/secret-put.json")"
+  curl --fail --silent --show-error \
+    "${SECRETS_URL}/v1/projects/${PROJECT_ID}/envs/${ENV_NAME}/secrets" \
+    >"${TMP_DIR}/secret-list.json" || fail "list secrets failed"
+  PSP_SECRET_NAME="${PSP_SECRET_NAME}" PSP_API_KEY="${PSP_API_KEY}" python3 - <<'PY' "${TMP_DIR}/secret-list.json" \
+    || fail "secret list leaked plaintext or missing PSP secret"
+import json, os, sys
+items = json.load(open(sys.argv[1]))
+if isinstance(items, dict):
+    items = items.get("items") or items.get("secrets") or []
+name = os.environ["PSP_SECRET_NAME"]
+value = os.environ["PSP_API_KEY"]
+match = [i for i in items if isinstance(i, dict) and i.get("name") == name]
+assert match, items
+blob = json.dumps(items)
+assert value not in blob, "plaintext PSP key in secret list"
+assert "value" not in match[0], match[0]
+print(f"  secret {name} metadata-only OK (version={match[0].get('version')})")
+PY
+
+  local cid key
+  cid="$(api_container_id)"
+  [[ -n "${cid}" ]] || fail "API container missing for PSP_API_KEY check"
+  key="$(container_env "${cid}" PSP_API_KEY)"
+  [[ "${key}" == "${PSP_API_KEY}" ]] ||
+    fail "container PSP_API_KEY=${key:-<empty>} want ${PSP_API_KEY} (image ENV / rebuild required)"
+  echo "  order-api has PSP_API_KEY matching forge-secrets provisioned value"
+}
+
+prove_workflow_definition() {
+  echo "Proving forge-workflows lists order-saga definition..."
+  curl --fail --silent --show-error \
+    -H "X-Forge-Project: orderpipe" \
+    "${WORKFLOWS_URL}/v1/workflows" >"${TMP_DIR}/workflows.json" ||
+    fail "GET /v1/workflows failed"
+  python3 - <<'PY' "${TMP_DIR}/workflows.json" || fail "order-saga missing from workflows list"
+import json, sys
+raw = json.load(open(sys.argv[1]))
+items = raw if isinstance(raw, list) else raw.get("workflows") or raw.get("items") or []
+names = set()
+for it in items:
+    if isinstance(it, str):
+        names.add(it)
+    elif isinstance(it, dict):
+        names.add(it.get("name") or it.get("id") or "")
+assert "order-saga" in names, raw
+print("  workflows include order-saga (mounted definition; see F-008 for execution gap)")
+PY
+}
+
 prove_place_order() {
   local email="buyer-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:8])')@example.com"
   local code order_id cid
-  echo "Proving place-order advances via forge-events choreography..."
+  echo "Proving place-order saga → notified (validate/charge + events fulfill/notify)..."
   code="$(curl --silent --show-error -o "${TMP_DIR}/place-order.json" -w '%{http_code}' \
     -H "Host: ${API_HOST}" -H 'content-type: application/json' \
     -d "{\"customerEmail\":\"${email}\",\"items\":[{\"sku\":\"mug\",\"qty\":1}]}" \
@@ -963,6 +1055,50 @@ print(f"  persisted order id={os.environ['ORDER_ID']} status=notified")
 PY
 }
 
+prove_declined_order() {
+  local email="declined-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:8])')@example.com"
+  local code order_id
+  echo "Proving declined charge → retries → compensation → refunded..."
+  code="$(curl --silent --show-error -o "${TMP_DIR}/place-declined.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" -H 'content-type: application/json' \
+    -d "{\"customerEmail\":\"${email}\",\"declineCharge\":true,\"items\":[{\"sku\":\"mug\",\"qty\":1}]}" \
+    "${GATEWAY_URL}/orders" || echo "000")"
+  [[ "${code}" == "201" ]] || fail "declined place order HTTP ${code}: $(cat "${TMP_DIR}/place-declined.json")"
+  order_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "${TMP_DIR}/place-declined.json")"
+  [[ -n "${order_id}" ]] || fail "declined place missing id"
+
+  code="000"
+  for _ in $(seq 1 90); do
+    code="$(curl --silent --show-error -o "${TMP_DIR}/get-declined.json" -w '%{http_code}' \
+      -H "Host: ${API_HOST}" \
+      "${GATEWAY_URL}/orders/${order_id}" || echo "000")"
+    if [[ "${code}" == "200" ]] && python3 - <<'PY' "${TMP_DIR}/get-declined.json"
+import json, sys
+body = json.load(open(sys.argv[1]))
+sys.exit(0 if body.get("status") == "refunded" else 1)
+PY
+    then
+      break
+    fi
+    sleep 1
+  done
+  [[ "${code}" == "200" ]] || fail "get declined order HTTP ${code}: $(cat "${TMP_DIR}/get-declined.json" 2>/dev/null || true)"
+  ORDER_ID="${order_id}" python3 - <<'PY' "${TMP_DIR}/get-declined.json" || fail "declined order did not compensate cleanly"
+import json, os, sys
+body = json.load(open(sys.argv[1]))
+assert body.get("id") == os.environ["ORDER_ID"], body
+assert body.get("status") == "refunded", body
+assert body.get("declineCharge") is True, body
+outcomes = [(e.get("step"), e.get("outcome")) for e in (body.get("sagaEvents") or [])]
+retries = sum(1 for s, o in outcomes if s == "charge" and o == "retry")
+assert retries >= 3, (retries, outcomes)
+assert ("charge", "compensated") in outcomes, outcomes
+assert ("fulfill", "ok") not in outcomes, outcomes
+assert ("notify", "ok") not in outcomes, outcomes
+print(f"  declined order id={os.environ['ORDER_ID']} status=refunded retries={retries} compensated")
+PY
+}
+
 deploy() {
   if [[ -f "${STATE_FILE}" ]]; then
     teardown
@@ -1047,11 +1183,14 @@ for p in json.load(sys.stdin):
   wire_discovery_peers
   bash "${DEMO_DIR}/check-discovery.sh" || fail "discovery contract check failed"
   wire_network_policy
+  provision_psp_secret
+  prove_workflow_definition
   prove_place_order
+  prove_declined_order
   prove_network_policy
 
   echo
-  echo "demo 54 deploy READY (OrderPipe Discovery + NetworkPolicy + Events)"
+  echo "demo 54 deploy READY (OrderPipe Discovery + NetworkPolicy + Events + Workflows saga)"
   echo "  Shop:         http://${SHOP_HOST}:4000/"
   echo "  API:          http://${API_HOST}:4000/health/ready"
   echo "  Fulfillment:  http://${FULFILLMENT_HOST}:4000/health/ready"
@@ -1059,7 +1198,9 @@ for p in json.load(sys.stdin):
   echo "  Discovery:    ${DISC_PROJECT}/${DISC_ENV} (*.svc.forge)"
   echo "  DNS:          fulfillment/notify/api.${DISC_ENV}.${DISC_PROJECT}.svc.forge"
   echo "  Network:      orderpipe-mesh (allow api→fulfillment/notify; deny fulfillment↔notify)"
-  echo "  Events:       ${EVENTS_URL} (order.* choreography → notified)"
+  echo "  Events:       ${EVENTS_URL} (order.* fulfill/notify after saga charge)"
+  echo "  Workflows:    ${WORKFLOWS_URL} (order-saga definition; in-process driver — F-008)"
+  echo "  Secrets:      ${SECRETS_URL} (${PSP_SECRET_NAME} provisioned)"
   echo "  API image:    ${API_IMAGE}"
   echo "  Shop image:   ${WEB_IMAGE}"
   echo "  Fulfillment:  ${FULFILLMENT_IMAGE}"

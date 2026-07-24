@@ -38,7 +38,9 @@
     "managed-postgresql",
     "discovery",
     "network",
-    "events"
+    "events",
+    "workflows",
+    "secrets"
   ],
   "teardown": "demos/54-orderpipe/run.sh --down"
 }

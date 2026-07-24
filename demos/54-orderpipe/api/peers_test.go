@@ -109,7 +109,7 @@ func TestPlaceOrderDoesNotCallPeersSync(t *testing.T) {
 		calls++
 		return nil
 	}}
-	srv := newServer(newMemoryStore(), peers, nil)
+	srv := newServer(newMemoryStore(), peers, nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/orders",
 		bytes.NewBufferString(`{"customerEmail":"buyer@example.com","items":[{"sku":"mug","qty":1}]}`))
 	rec := httptest.NewRecorder()

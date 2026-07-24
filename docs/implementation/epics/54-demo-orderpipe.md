@@ -59,7 +59,7 @@ service-to-service pair is blocked while allowed pairs succeed; no hard-coded pe
 | 54.02 | Service discovery wiring | Complete | peers resolved via `*.svc.forge`; contract check: no hard-coded DNS |
 | 54.03 | Network policy | Complete | overlay + NetworkPolicy allow/deny; denied pair blocked, allowed pairs work |
 | 54.04 | Event choreography | Complete | `order.*` events emitted/consumed; status advances via events |
-| 54.05 | Workflow saga + retry/compensation | Not started | validate→charge→fulfill→notify; injected charge failure → retry → compensate |
+| 54.05 | Workflow saga + retry/compensation | Complete | in-process saga + Workflow YAML; F-008 (no HTTP actions); decline→retry→refunded |
 | 54.06 | E2E browser spec | Not started | happy path to `notified`; failure path compensates; network-policy proof |
 | 54.07 | Demo + epic gate | Not started | `demos/54-orderpipe`; `make demo DEMO=54`; wired into test-platform-e2e |
 
@@ -67,5 +67,7 @@ Ordering + `N`: [`../steps/54-demo-orderpipe/README.md`](../steps/54-demo-orderp
 
 ## Open questions
 
-* Does forge-workflows own step orchestration + compensation directly, or coordinate via events
-  only? Confirm in `54.05`; model the saga to the actual contract and record gaps as findings.
+* ~~Does forge-workflows own step orchestration + compensation directly, or coordinate via events
+  only?~~ **Resolved in 54.05:** engine owns durable retry/compensate *contract*, but has no
+  HTTP/service actions (**F-008**). OrderPipe drives validate/charge (+ refund) in-process and
+  keeps fulfill/notify on forge-events after `order.charged`.

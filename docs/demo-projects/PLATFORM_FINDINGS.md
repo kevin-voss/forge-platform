@@ -18,10 +18,10 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 
 | Metric | Count |
 |---|---|
-| Total findings | 7 |
-| Open | 7 |
+| Total findings | 8 |
+| Open | 8 |
 | Blocker | 0 |
-| Major | 3 |
+| Major | 4 |
 | Minor | 4 |
 
 ## By service
@@ -33,6 +33,7 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 | forge-identity | 1 | 0 | 0 | 1 |
 | forge-observe | 2 | 0 | 2 | 0 |
 | forge-secrets / forge-control | 1 | 0 | 0 | 1 |
+| forge-workflows | 1 | 0 | 1 | 0 |
 | platform | 1 | 0 | 1 | 0 |
 
 ## By demo
@@ -42,7 +43,7 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 | 01-taskflow | 4 |
 | 02-snapnote | 1 |
 | 03-askdocs | 2 |
-| 04-orderpipe | 0 |
+| 04-orderpipe | 1 |
 | 05-pulseboard | 0 |
 
 ---
@@ -337,3 +338,62 @@ curl -s "http://127.0.0.1:4106/v1/logs?service=askdocs-api&limit=50"
 
 **Impact on demo**
 Demo marked **degraded**; run continues.
+
+### F-008 — No HTTP/service workflow actions for product saga steps
+
+| Field | Value |
+|---|---|
+| Status | Open |
+| Severity | major |
+| Service | forge-workflows |
+| Area / contract | StepExecutor action allowlist / Workflow YAML (`action`, `retry`, `compensate`) |
+| Found by demo | 04-orderpipe (step 54.05) |
+| First seen | 2026-07-24 |
+| Reproducible | always |
+
+**What we tested**
+OrderPipe needs forge-workflows to drive `validate → charge → fulfill → notify` by
+invoking product services (order-api / fulfillment / notify), with charge retries and
+`orderpipe.refund` compensation, as described in the product design and
+`demos/54-orderpipe/definitions/order-saga.yaml`.
+
+**Expected (per product design / epic 16 saga contract)**
+A Workflow step can call an external HTTP/service action (or declare `service:`) so the
+engine owns orchestration, durable `retry`, and reverse-order `compensate` across product
+handlers. Compensator args should carry order identifiers from run input / forward output.
+
+**Actual**
+`ForgeWorkflows.Engine.StepExecutor` only allows built-in actions (`noop`, `fail`,
+`fail_until`, `sleep`, `control.apply`, `control.rollback_deployment`, `rollback`,
+`report.store`). Any other action (including `orderpipe.*`) returns
+`unsupported action`. There is no generic HTTP client action. Compensator args are
+centered on `deployment_id` for Control rollbacks.
+
+**Evidence**
+- `services/forge-workflows/lib/forge_workflows/engine/step_executor.ex` (`execute_action/4`)
+- `services/forge-workflows/lib/forge_workflows/saga/compensator.ex` (`execute_action/4`)
+- Mounted def lists successfully: `GET http://127.0.0.1:4302/v1/workflows` includes `order-saga`
+- Starting `POST /v1/workflows/order-saga/runs` would fail at first `orderpipe.validate` step
+
+**Reproduce**
+```bash
+make demo DEMO=54 KEEP=1
+curl -s http://127.0.0.1:4302/v1/workflows | python3 -c 'import json,sys; print([w["name"] for w in json.load(sys.stdin)["workflows"]])'
+# includes order-saga
+curl -s -X POST http://127.0.0.1:4302/v1/workflows/order-saga/runs \
+  -H 'content-type: application/json' -H 'X-Forge-Project: orderpipe' \
+  -d '{"input":{"order_id":"ord_demo"}}'
+# run fails: unsupported action "orderpipe.validate"
+```
+
+**Impact on demo**
+Demo continues with an in-process saga driver in `orderpipe-api` (`api/saga.go` +
+`POST /saga/*` step handlers) that mirrors retry/compensation semantics and emits
+`order.charged` for the existing event choreography. Workflow definition is mounted for
+listing only (`FORGE_WORKFLOWS_EVENTS_ENABLED=false`). Marked **degraded** if counted as a
+platform assertion; product happy/failure paths still pass via the workaround.
+
+**Suggested platform fix**
+Add an `http.request` (or `service.call`) task action with URL/body/header templating from
+run input, record compensators with full forward args (not only `deployment_id`), and
+document the product-saga pattern in forge-workflows README / OpenAPI.

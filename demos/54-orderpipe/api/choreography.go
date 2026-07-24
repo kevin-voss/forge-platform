@@ -7,7 +7,8 @@ import (
 	"time"
 )
 
-// choreography advances order status from forge-events (epic 54.04).
+// choreography advances fulfill/notify status from forge-events (epic 54.04).
+// validate/charge are owned by the order-saga driver (54.05).
 type choreography struct {
 	store  OrderStore
 	events *eventsClient
@@ -87,24 +88,12 @@ func (c *choreography) handle(ctx context.Context, consumer string, msg delivere
 		// Unknown order — ack to avoid poison loop in demos.
 		return c.ack(ctx, consumer, msg)
 	}
+	// Skip late events for compensated/failed orders.
+	if order.Status == "refunded" || order.Status == "failed" {
+		return c.ack(ctx, consumer, msg)
+	}
 
 	switch msg.Subject {
-	case subjectPlaced:
-		if err := c.advance(ctx, order, "validated", "validate"); err != nil {
-			return err
-		}
-		order.Status = "validated"
-		if err := c.events.PublishOrderEvent(ctx, subjectValidated, order); err != nil {
-			return err
-		}
-	case subjectValidated:
-		if err := c.advance(ctx, order, "charged", "charge"); err != nil {
-			return err
-		}
-		order.Status = "charged"
-		if err := c.events.PublishOrderEvent(ctx, subjectCharged, order); err != nil {
-			return err
-		}
 	case subjectFulfilled:
 		if err := c.advance(ctx, order, "fulfilled", "fulfill"); err != nil {
 			return err

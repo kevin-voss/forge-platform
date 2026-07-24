@@ -6,100 +6,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
+	"os"
 	"sync"
 	"testing"
 	"time"
 )
 
-// fakeEventsBroker is an in-memory forge-events stand-in for choreography tests.
-// Each durable consumer gets its own queue (JetStream fan-out).
-type fakeEventsBroker struct {
-	mu        sync.Mutex
-	queues    map[string][]deliveredMessage // consumer → pending
-	consumers map[string]string             // consumer → subject
-	seq       int
-}
-
-func newFakeEventsBroker() *fakeEventsBroker {
-	return &fakeEventsBroker{
-		queues:    map[string][]deliveredMessage{},
-		consumers: map[string]string{},
-	}
-}
-
-func (b *fakeEventsBroker) handler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-	})
-	mux.HandleFunc("POST /v1/consumers", func(w http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Name    string `json:"name"`
-			Subject string `json:"subject"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		b.mu.Lock()
-		b.consumers[body.Name] = body.Subject
-		if _, ok := b.queues[body.Name]; !ok {
-			b.queues[body.Name] = nil
-		}
-		b.mu.Unlock()
-		w.WriteHeader(http.StatusCreated)
-	})
-	mux.HandleFunc("POST /v1/events", func(w http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Subject string          `json:"subject"`
-			Data    json.RawMessage `json:"data"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		b.mu.Lock()
-		b.seq++
-		baseID := strconv.Itoa(b.seq)
-		for name, subject := range b.consumers {
-			if subject != body.Subject {
-				continue
-			}
-			msg := deliveredMessage{
-				EventID:  "evt-" + baseID + "-" + name,
-				Subject:  body.Subject,
-				AckToken: "ack-" + baseID + "-" + name,
-				Data:     body.Data,
-			}
-			b.queues[name] = append(b.queues[name], msg)
-		}
-		seq := b.seq
-		b.mu.Unlock()
-		writeJSON(w, http.StatusAccepted, map[string]any{"event_id": "evt-" + baseID, "seq": seq})
-	})
-	mux.HandleFunc("POST /v1/consume", func(w http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Consumer string `json:"consumer"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		b.mu.Lock()
-		var msgs []deliveredMessage
-		if q := b.queues[body.Consumer]; len(q) > 0 {
-			msgs = append([]deliveredMessage{}, q[0])
-			b.queues[body.Consumer] = q[1:]
-		}
-		b.mu.Unlock()
-		writeJSON(w, http.StatusOK, consumeResponse{Messages: msgs})
-	})
-	mux.HandleFunc("POST /v1/processed", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("POST /v1/ack", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("POST /v1/nak", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	})
-	return mux
-}
-
-func TestOrderPlacedDrivesChainToNotified(t *testing.T) {
-	// Covered by TestSagaHappyPathReachesNotified (54.05 saga + 54.04 events).
+func TestSagaHappyPathReachesNotified(t *testing.T) {
 	t.Setenv("PSP_API_KEY", "test-psp-key")
 	t.Setenv("ORDERPIPE_CHARGE_RETRIES", "3")
 	t.Setenv("ORDERPIPE_CHARGE_BACKOFF_MS", "1")
@@ -115,10 +28,12 @@ func TestOrderPlacedDrivesChainToNotified(t *testing.T) {
 	fulfillEvents := newEventsClient(eventsConfig{
 		BaseURL: eventsSrv.URL, Source: "orderpipe-fulfillment",
 		PollMS: 50, Batch: 4, AckWaitS: 5, MaxDeliveries: 3,
+		FulfilledConsumer: "unused-f-f", NotifiedConsumer: "unused-f-n",
 	})
 	notifyEvents := newEventsClient(eventsConfig{
 		BaseURL: eventsSrv.URL, Source: "orderpipe-notify",
 		PollMS: 50, Batch: 4, AckWaitS: 5, MaxDeliveries: 3,
+		FulfilledConsumer: "unused-n-f", NotifiedConsumer: "unused-n-n",
 	})
 	for _, pair := range []struct{ name, subject string }{
 		{"orderpipe-fulfill", subjectCharged},
@@ -218,11 +133,10 @@ func TestOrderPlacedDrivesChainToNotified(t *testing.T) {
 	}()
 
 	srv := newServer(store, nil, apiEvents, saga)
-	handler := srv.routes()
 	body := bytes.NewBufferString(`{"customerEmail":"buyer@example.com","items":[{"sku":"mug","qty":1}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/orders", body)
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
+	srv.routes().ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("place status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -247,7 +161,6 @@ func TestOrderPlacedDrivesChainToNotified(t *testing.T) {
 	if got == nil || got.Status != "notified" {
 		t.Fatalf("status did not reach notified; last=%+v", got)
 	}
-
 	steps := map[string]bool{}
 	for _, ev := range got.SagaEvents {
 		if ev.Outcome == "ok" {
@@ -259,7 +172,6 @@ func TestOrderPlacedDrivesChainToNotified(t *testing.T) {
 			t.Fatalf("missing saga step %s in %+v", step, got.SagaEvents)
 		}
 	}
-
 	sideMu.Lock()
 	defer sideMu.Unlock()
 	if len(fulfillments) == 0 || fulfillments[0] != created.ID {
@@ -267,5 +179,77 @@ func TestOrderPlacedDrivesChainToNotified(t *testing.T) {
 	}
 	if len(notifications) == 0 || notifications[0] != created.ID {
 		t.Fatalf("notify not reacted: %v", notifications)
+	}
+}
+
+func TestSagaDeclinedChargeRetriesThenCompensates(t *testing.T) {
+	t.Setenv("PSP_API_KEY", "test-psp-key")
+	t.Setenv("ORDERPIPE_CHARGE_RETRIES", "3")
+	t.Setenv("ORDERPIPE_CHARGE_BACKOFF_MS", "1")
+
+	store := newMemoryStore()
+	saga := newSagaRunner(store, nil)
+
+	order, err := store.PlaceOrder(context.Background(), "buyer@example.com",
+		[]PlaceOrderItem{{SKU: "mug", Qty: 1}}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendSagaEvent(context.Background(), order.ID, "place", "ok"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := saga.Run(context.Background(), order.ID); err != nil {
+		t.Fatalf("saga run: %v", err)
+	}
+	// Idempotent re-run must not duplicate compensation side effects.
+	if err := saga.Run(context.Background(), order.ID); err != nil {
+		t.Fatalf("saga rerun: %v", err)
+	}
+
+	got, err := store.GetOrder(context.Background(), order.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "refunded" {
+		t.Fatalf("status=%q want refunded; saga=%+v", got.Status, got.SagaEvents)
+	}
+	retries := countSagaOutcomes(got.SagaEvents, "charge", "retry")
+	if retries != 3 {
+		t.Fatalf("charge retries=%d want 3; saga=%+v", retries, got.SagaEvents)
+	}
+	if !hasSagaOutcome(got.SagaEvents, "charge", "compensated") {
+		t.Fatalf("missing charge compensated; saga=%+v", got.SagaEvents)
+	}
+	if hasSagaOutcome(got.SagaEvents, "fulfill", "ok") || hasSagaOutcome(got.SagaEvents, "notify", "ok") {
+		t.Fatalf("fulfill/notify must not run after decline; saga=%+v", got.SagaEvents)
+	}
+	compensated := countSagaOutcomes(got.SagaEvents, "charge", "compensated")
+	if compensated != 1 {
+		t.Fatalf("compensated count=%d want 1 (idempotent)", compensated)
+	}
+}
+
+func TestChargeRequiresPSPKey(t *testing.T) {
+	_ = os.Unsetenv("PSP_API_KEY")
+	t.Setenv("ORDERPIPE_CHARGE_RETRIES", "1")
+	t.Setenv("ORDERPIPE_CHARGE_BACKOFF_MS", "0")
+
+	store := newMemoryStore()
+	saga := newSagaRunner(store, nil)
+	order, err := store.PlaceOrder(context.Background(), "buyer@example.com",
+		[]PlaceOrderItem{{SKU: "mug", Qty: 1}}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := saga.Run(context.Background(), order.ID); err != nil {
+		t.Fatalf("saga run: %v", err)
+	}
+	got, err := store.GetOrder(context.Background(), order.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "refunded" {
+		t.Fatalf("status=%q want refunded when PSP key missing", got.Status)
 	}
 }
