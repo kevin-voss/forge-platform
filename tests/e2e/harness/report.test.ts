@@ -7,10 +7,10 @@ import test from 'node:test';
 import type { DemoProject } from './demo';
 import type { FindingsDocument } from './findings';
 import type { OrchestratorResult } from './orchestrator';
+import { loadExpectedServices } from './coverage';
 import {
   coverageRollup,
   findProductArtifacts,
-  loadMatrixServices,
   normalizeCoverageService,
   parseMatrixServices,
   renderReportMarkdown,
@@ -22,6 +22,7 @@ const matrixPath = path.join(
   repoRoot,
   'docs/demo-projects/service-coverage-matrix.md',
 );
+const servicesPath = path.join(__dirname, 'services.json');
 
 function sampleProject(
   overrides: Partial<DemoProject> & Pick<DemoProject, 'id' | 'services'>,
@@ -192,10 +193,10 @@ test('report renders from a fixture result with mixed pass/degraded/fail', () =>
       artifactsDir: dir,
       markdownPath: path.join(dir, 'report.md'),
       htmlPath: path.join(dir, 'report.html'),
-      matrixPath,
+      servicesPath,
     });
 
-    assert.equal(written.coverage.total, loadMatrixServices(matrixPath).length);
+    assert.equal(written.coverage.total, loadExpectedServices(servicesPath).length);
     assert.ok(written.coverage.uncovered > 0);
 
     const md = fs.readFileSync(written.markdownPath, 'utf8');

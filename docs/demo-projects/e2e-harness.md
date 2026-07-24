@@ -27,6 +27,8 @@ tests/e2e/
 │   ├── findings.ts             # structured findings API → PLATFORM_FINDINGS.md + json
 │   ├── forge.ts                # thin wrapper around the `forge` CLI (deploy/apply/logs)
 │   ├── gateway.ts              # host-header helpers for *.localhost routing
+│   ├── coverage.ts             # services.json coverage gate (full suite, 56.02)
+│   ├── services.json           # canonical platform service list for coverage
 │   └── report.ts               # per-run markdown/HTML report + coverage rollup
 ├── projects/
 │   ├── 01-taskflow/spec.ts     # Playwright specs (one folder per demo product)
@@ -209,8 +211,17 @@ PulseBoard deploy timeout for the full suite.
 **Landed:** `tests/e2e/harness/report.ts` writes `artifacts/report.md` + `artifacts/report.html`
 after every orchestrator run (product results, durations, findings counts, video/trace links).
 Coverage rollup unions each product’s `demo.json.services` against
-[`service-coverage-matrix.md`](service-coverage-matrix.md) and marks covered/uncovered
-(informational; enforcement is 56.02). `make e2e-report` opens the last HTML report.
+`tests/e2e/harness/services.json` (documented in
+[`service-coverage-matrix.md`](service-coverage-matrix.md)) and marks covered/uncovered.
+`make e2e-report` opens the last HTML report.
+
+### 56.02 outcome — coverage verification gate
+
+**Landed:** `tests/e2e/harness/coverage.ts` + `services.json` are the machine-readable expected
+service list. On a full suite run (`PROJECTS` unset or covering `01`–`05`), the orchestrator
+unions each product’s `demo.json.services`, prints `coverage: N/N services` plus a coverage
+table into the run report, and exits non-zero if any service is uncovered (message names each
+gap). Subset `PROJECTS` skips the gate.
 
 ```make
 test-platform-e2e:

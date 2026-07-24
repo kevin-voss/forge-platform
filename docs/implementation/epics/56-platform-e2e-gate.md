@@ -53,7 +53,7 @@ findings, and leaves a consolidated report + `PLATFORM_FINDINGS.md`.
 | Step | Title | Status | Notes |
 |---|---|---|---|
 | 56.01 | Full-suite orchestration | Complete | default `PROJECTS` = 01–05; aggregate pass/degraded/fail + exit code |
-| 56.02 | Coverage verification gate | Not started | union of `demo.json.services` must cover the matrix; fail if any service uncovered |
+| 56.02 | Coverage verification gate | Complete | `services.json` + coverage.ts; full suite fails on uncovered services |
 | 56.03 | Findings consolidation + triage | Not started | dedupe, rank by severity, group by service; summary/by-service/by-demo tables |
 | 56.04 | Headless/CI mode + artifacts | Not started | `HEADLESS=1`/`CI=1`, `CI_SUBSET`, upload traces/videos/report/findings.json |
 | 56.05 | North-star gate + docs | Not started | final acceptance, runbook, README; `make test-platform-e2e` is the gate |

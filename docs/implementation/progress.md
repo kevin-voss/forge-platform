@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 213`** (verification track; epic 56 platform E2E gate).
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 214`** (verification track; epic 56 platform E2E gate).
 
 ## Epics
 
@@ -272,9 +272,9 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 [`STEPS.md`](STEPS.md#verification--demo-projects-queue-epics-5056).
 
 > Continues the global `N` queue after the platform queue (`N ≤ 173`). Epics 50–55 Complete;
-> epic 56 in progress (`56.01` done). Entry point: `make test-platform-e2e` (headed, full suite
-> 01→05) / `make test-platform-e2e HEADLESS=1` (CI); gates: `make demo DEMO=50` / `DEMO=51` /
-> `DEMO=52` / `DEMO=53` / `DEMO=54` / `DEMO=55`.
+> epic 56 in progress (`56.01`–`56.02` done). Entry point: `make test-platform-e2e` (headed, full
+> suite 01→05 + coverage gate) / `make test-platform-e2e HEADLESS=1` (CI); gates: `make demo
+> DEMO=50` / `DEMO=51` / `DEMO=52` / `DEMO=53` / `DEMO=54` / `DEMO=55`.
 
 ### Epics
 
@@ -286,7 +286,7 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 | [53](epics/53-demo-askdocs.md) | Demo 3 — AskDocs (models + memory + agents) | Complete | `193`–`198`; `make demo DEMO=53` gate |
 | [54](epics/54-demo-orderpipe.md) | Demo 4 — OrderPipe (workflows + events + discovery + network) | Complete | `199`–`205`; `make demo DEMO=54` gate |
 | [55](epics/55-demo-pulseboard.md) | Demo 5 — PulseBoard (autoscaler + infra + observe) | Complete | `206`–`211`; `make demo DEMO=55` gate |
-| [56](epics/56-platform-e2e-gate.md) | Platform E2E gate & findings consolidation | In progress | `212`–`216`; `56.01` full suite default |
+| [56](epics/56-platform-e2e-gate.md) | Platform E2E gate & findings consolidation | In progress | `212`–`216`; `56.01`–`56.02` coverage gate |
 
 ### Steps
 
@@ -331,7 +331,7 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 | **210** | E2E browser spec | 55 | Complete |
 | **211** | Demo + epic gate | 55 | Complete |
 | **212** | Full-suite orchestration | 56 | Complete |
-| **213** | Coverage verification gate | 56 | Not started |
+| **213** | Coverage verification gate | 56 | Complete |
 | **214** | Findings consolidation + triage | 56 | Not started |
 | **215** | Headless/CI mode + artifacts | 56 | Not started |
 | **216** | North-star gate + docs | 56 | Not started |

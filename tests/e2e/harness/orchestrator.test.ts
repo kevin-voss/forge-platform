@@ -361,6 +361,8 @@ test('full default suite exits 0 when all five products pass', async () => {
         return 0;
       },
       skipResultWrite: true,
+      // Fixture demos do not claim every platform service; coverage is tested in coverage.test.ts.
+      skipCoverageGate: true,
       timeoutMs: 10_000,
     });
 
@@ -401,6 +403,7 @@ test('full default suite exits non-zero when a product blocks', async () => {
       hostPreflight: async () => undefined,
       runPlaywright: async (project) => (project.id === '03-gamma' ? 1 : 0),
       skipResultWrite: true,
+      skipCoverageGate: true,
       timeoutMs: 10_000,
     });
 

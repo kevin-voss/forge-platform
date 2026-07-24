@@ -17,6 +17,13 @@ import {
   type FindingsPaths,
   type ProductOutcome,
 } from './findings';
+import {
+  formatCoverageTable,
+  isFullSuiteRun,
+  loadExpectedServices,
+  verifyCoverage,
+  type CoverageGateResult,
+} from './coverage';
 import { HostPreflightError, preflightHosts } from './gateway';
 import { PreflightError, preflight } from './platform';
 import { writeReport } from './report';
@@ -26,8 +33,9 @@ import { writeReport } from './report';
  *
  * Discovers demos/<id>/demo.json, runs each selected product through the lifecycle
  * in numeric order, aggregates pass/degraded/fail + findings, and exits 0 iff
- * every selected product passed or degraded (non-blocker findings) and there are
- * zero blocker findings.
+ * every selected product passed or degraded (non-blocker findings), there are
+ * zero blocker findings, and (on a full 01–05 suite) every platform service in
+ * `services.json` is covered by at least one product's `demo.json.services`.
  *
  * Default (no PROJECTS) runs the five demo products `01`–`05` in order. The
  * harness self-test (`50`) is opt-in via PROJECTS. Degraded (non-blocker) products
@@ -60,6 +68,8 @@ export interface OrchestratorResult {
   env: OrchestratorEnv;
   products: ProductRunResult[];
   findings: FindingsDocument;
+  /** Coverage gate result when a full suite run enforced coverage (56.02). */
+  coverage?: CoverageGateResult;
   /** True when every selected product passed and blocker findings == 0. */
   ok: boolean;
   exitCode: number;
@@ -82,6 +92,13 @@ export interface OrchestratorOptions {
   skipResultWrite?: boolean;
   /** Timeout for deploy/seed/teardown scripts. */
   timeoutMs?: number;
+  /**
+   * Skip the full-suite coverage gate (tests with fixture demos that do not
+   * claim every platform service). Production full runs always enforce.
+   */
+  skipCoverageGate?: boolean;
+  /** Override path to services.json (tests). */
+  servicesPath?: string;
 }
 
 function e2eRoot(): string {
@@ -543,11 +560,32 @@ export async function runOrchestrator(
     (p) => p.outcome === 'passed' || p.outcome === 'degraded',
   );
   const noBlockers = findings.summary.blocker === 0;
-  const ok = productsSucceeded && noBlockers && products.length > 0;
+
+  // 56.02: on a full 01–05 suite, every services.json entry must be covered.
+  let coverage: CoverageGateResult | undefined;
+  const enforceCoverage =
+    !options.skipCoverageGate && isFullSuiteRun(selectors) && products.length > 0;
+  if (enforceCoverage) {
+    const expected = loadExpectedServices(options.servicesPath);
+    coverage = verifyCoverage(
+      products.map((p) => ({
+        id: p.project.id,
+        services: p.project.services,
+      })),
+      expected,
+    );
+    process.stdout.write(`[orchestrator] ${coverage.message}\n`);
+    process.stdout.write(formatCoverageTable(coverage.coverage));
+  }
+
+  const coverageOk = coverage ? coverage.ok : true;
+  const ok =
+    productsSucceeded && noBlockers && products.length > 0 && coverageOk;
   const result: OrchestratorResult = {
     env,
     products,
     findings,
+    coverage,
     ok,
     exitCode: ok ? 0 : 1,
   };
@@ -565,7 +603,11 @@ export async function runOrchestrator(
     .join(' ');
   process.stdout.write(
     `[orchestrator] aggregate: ${rollup || '(none)'}` +
-      ` blockers=${findings.summary.blocker} exit=${result.exitCode}\n`,
+      ` blockers=${findings.summary.blocker}` +
+      (coverage
+        ? ` coverage=${coverage.coverage.covered}/${coverage.coverage.total}`
+        : '') +
+      ` exit=${result.exitCode}\n`,
   );
 
   writeResultArtifact(result, options);
@@ -580,7 +622,10 @@ function writeResultArtifact(
   const artifactsDir = path.join(e2eRoot(), 'artifacts');
   const outPath = path.join(artifactsDir, 'orchestrator-result.json');
   fs.mkdirSync(artifactsDir, { recursive: true });
-  const report = writeReport(result, { artifactsDir });
+  const report = writeReport(result, {
+    artifactsDir,
+    servicesPath: options.servicesPath,
+  });
   const serializable = {
     ok: result.ok,
     exitCode: result.exitCode,
@@ -604,6 +649,9 @@ function writeResultArtifact(
       covered: report.coverage.covered,
       uncovered: report.coverage.uncovered,
       total: report.coverage.total,
+      ok: result.coverage ? result.coverage.ok : undefined,
+      message: result.coverage?.message,
+      uncoveredServices: result.coverage?.uncoveredServices,
     },
     report: {
       markdown: path.relative(e2eRoot(), report.markdownPath),

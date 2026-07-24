@@ -3,26 +3,31 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import type { DemoProject } from './demo';
-import { normalizeService, type FindingsDocument } from './findings';
+import {
+  coverageRollup,
+  loadExpectedServices,
+  loadMatrixServices,
+  normalizeCoverageService,
+  parseMatrixServices,
+  type CoverageRollup,
+  type CoverageRow,
+} from './coverage';
+import type { FindingsDocument } from './findings';
 import type { OrchestratorResult, ProductRunResult } from './orchestrator';
 
 /**
- * Per-run markdown/HTML report + service-coverage rollup (informational; gate is 56.02).
+ * Per-run markdown/HTML report + service-coverage rollup.
+ * Coverage enforcement on full suite runs is owned by coverage.ts (56.02).
  */
 
-export interface CoverageRow {
-  service: string;
-  status: 'covered' | 'uncovered';
-  /** Product ids that listed this service in demo.json.services. */
-  products: string[];
-}
-
-export interface CoverageRollup {
-  rows: CoverageRow[];
-  covered: number;
-  uncovered: number;
-  total: number;
-}
+export type { CoverageRollup, CoverageRow };
+export {
+  coverageRollup,
+  loadExpectedServices,
+  loadMatrixServices,
+  normalizeCoverageService,
+  parseMatrixServices,
+};
 
 export interface ProductArtifactLinks {
   productId: string;
@@ -36,6 +41,9 @@ export interface ReportPaths {
   markdownPath?: string;
   htmlPath?: string;
   artifactsDir?: string;
+  /** Override path to services.json (tests). */
+  servicesPath?: string;
+  /** @deprecated Prefer servicesPath; kept for matrix-sync tests. */
   matrixPath?: string;
 }
 
@@ -49,140 +57,8 @@ function e2eRoot(): string {
   return path.resolve(__dirname, '..');
 }
 
-function defaultRepoRoot(): string {
-  return path.resolve(e2eRoot(), '../..');
-}
-
 function defaultArtifactsDir(): string {
   return path.join(e2eRoot(), 'artifacts');
-}
-
-function defaultMatrixPath(): string {
-  return path.join(
-    defaultRepoRoot(),
-    'docs/demo-projects/service-coverage-matrix.md',
-  );
-}
-
-/** Aliases from demo.json.services short names → matrix service labels. */
-const COVERAGE_ALIASES: Record<string, string> = {
-  postgres: 'managed PostgreSQL',
-  postgresql: 'managed PostgreSQL',
-  'managed-postgresql': 'managed PostgreSQL',
-  'managed postgresql': 'managed PostgreSQL',
-  'forge-postgres': 'managed PostgreSQL',
-  apply: 'Declarative API (`forge apply`)',
-  declarative: 'Declarative API (`forge apply`)',
-  'declarative-api': 'Declarative API (`forge apply`)',
-  'declarative api': 'Declarative API (`forge apply`)',
-  'declarative api (forge apply)': 'Declarative API (`forge apply`)',
-};
-
-/**
- * Normalize a demo.json service token to a matrix service name.
- * Reuses forge-* prefixing for ordinary services; maps postgres/apply aliases.
- */
-export function normalizeCoverageService(service: string): string {
-  const trimmed = service.trim();
-  if (!trimmed) {
-    throw new Error('service is required');
-  }
-  const lower = trimmed.toLowerCase();
-  if (COVERAGE_ALIASES[lower]) {
-    return COVERAGE_ALIASES[lower];
-  }
-  if (trimmed === 'managed PostgreSQL') {
-    return trimmed;
-  }
-  if (trimmed.startsWith('Declarative API')) {
-    return 'Declarative API (`forge apply`)';
-  }
-  return normalizeService(trimmed);
-}
-
-/**
- * Parse the primary service table from service-coverage-matrix.md.
- * Returns ordered unique service names from the first column.
- */
-export function parseMatrixServices(markdown: string): string[] {
-  const services: string[] = [];
-  let inTable = false;
-
-  for (const line of markdown.split('\n')) {
-    if (!inTable) {
-      if (/^\|\s*Service\s*\|/i.test(line)) {
-        inTable = true;
-      }
-      continue;
-    }
-    if (!line.startsWith('|')) {
-      break;
-    }
-    if (/^\|\s*[-:| ]+\|\s*$/.test(line) || line.includes('---')) {
-      continue;
-    }
-    const cells = line.split('|').map((c) => c.trim());
-    // ["", "forge-control", "4001", ...]
-    const name = cells[1];
-    if (!name || /^service$/i.test(name)) continue;
-    if (!services.includes(name)) {
-      services.push(name);
-    }
-  }
-
-  return services;
-}
-
-/** Load expected services from the coverage matrix markdown file. */
-export function loadMatrixServices(matrixPath?: string): string[] {
-  const file = matrixPath ?? defaultMatrixPath();
-  const md = fs.readFileSync(file, 'utf8');
-  const services = parseMatrixServices(md);
-  if (services.length === 0) {
-    throw new Error(`no services parsed from coverage matrix: ${file}`);
-  }
-  return services;
-}
-
-/**
- * Union demo.json.services across run products vs the matrix; mark covered/uncovered.
- * Informational only — does not fail the run (enforced in 56.02).
- */
-export function coverageRollup(
-  products: Array<{ id: string; services: string[] }>,
-  expectedServices: string[],
-): CoverageRollup {
-  const coveredBy = new Map<string, string[]>();
-
-  for (const product of products) {
-    for (const raw of product.services) {
-      const service = normalizeCoverageService(raw);
-      const list = coveredBy.get(service) ?? [];
-      if (!list.includes(product.id)) {
-        list.push(product.id);
-      }
-      coveredBy.set(service, list);
-    }
-  }
-
-  const rows: CoverageRow[] = expectedServices.map((service) => {
-    const productsFor = coveredBy.get(service) ?? [];
-    return {
-      service,
-      status: productsFor.length > 0 ? 'covered' : 'uncovered',
-      products: productsFor,
-    };
-  });
-
-  const covered = rows.filter((r) => r.status === 'covered').length;
-  const uncovered = rows.length - covered;
-
-  return {
-    rows,
-    covered,
-    uncovered,
-    total: rows.length,
-  };
 }
 
 function walkFiles(dir: string): string[] {
@@ -309,6 +185,17 @@ function artifactLinkHtml(
   return `<a href="${escapeHtml(href)}">${escapeHtml(label)}</a>`;
 }
 
+/** Resolve expected services: services.json by default; matrixPath for legacy tests. */
+function resolveExpectedServices(options: ReportPaths): string[] {
+  if (options.servicesPath) {
+    return loadExpectedServices(options.servicesPath);
+  }
+  if (options.matrixPath) {
+    return loadMatrixServices(options.matrixPath);
+  }
+  return loadExpectedServices();
+}
+
 /** Render markdown report body from an orchestrator result + coverage rollup. */
 export function renderReportMarkdown(
   result: OrchestratorResult,
@@ -338,7 +225,11 @@ export function renderReportMarkdown(
     `| PROJECTS | ${result.env.projects.length > 0 ? result.env.projects.join(',') : '(all)'} |`,
   );
   lines.push(
-    `| Coverage | ${coverage.covered}/${coverage.total} covered (${coverage.uncovered} uncovered, informational) |`,
+    `| Coverage | ${coverage.covered}/${coverage.total} covered` +
+      (coverage.uncovered > 0
+        ? ` (${coverage.uncovered} uncovered)`
+        : '') +
+      ` |`,
   );
   lines.push('');
 
@@ -385,8 +276,9 @@ export function renderReportMarkdown(
   lines.push('');
   lines.push(
     'Union of `demo.json.services` for products in this run vs ' +
-      '[service-coverage-matrix.md](../../../docs/demo-projects/service-coverage-matrix.md). ' +
-      'Uncovered rows are informational here (enforced in 56.02).',
+      '`tests/e2e/harness/services.json` (see ' +
+      '[service-coverage-matrix.md](../../../docs/demo-projects/service-coverage-matrix.md)). ' +
+      'Full-suite runs enforce zero uncovered services (56.02).',
   );
   lines.push('');
   lines.push('| Service | Status | Products |');
@@ -455,6 +347,10 @@ export function renderReportHtml(
     )
     .join('\n');
 
+  const coverageSummary =
+    `${coverage.covered}/${coverage.total} covered` +
+    (coverage.uncovered > 0 ? ` (${coverage.uncovered} uncovered)` : '');
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -487,7 +383,7 @@ export function renderReportHtml(
 <tr><td>Findings</td><td>total=${result.findings.summary.total}, blocker=${result.findings.summary.blocker}, major=${result.findings.summary.major}, minor=${result.findings.summary.minor}</td></tr>
 <tr><td>Headless</td><td>${result.env.headless ? 'yes' : 'no'}</td></tr>
 <tr><td>PROJECTS</td><td>${escapeHtml(result.env.projects.length > 0 ? result.env.projects.join(',') : '(all)')}</td></tr>
-<tr><td>Coverage</td><td>${coverage.covered}/${coverage.total} covered (${coverage.uncovered} uncovered, informational)</td></tr>
+<tr><td>Coverage</td><td>${escapeHtml(coverageSummary)}</td></tr>
 </table>
 
 <h2>Products</h2>
@@ -507,8 +403,8 @@ ${errorBlocks}
 </table>
 
 <h2>Service coverage rollup</h2>
-<p>Union of <code>demo.json.services</code> for products in this run vs the service coverage matrix.
-Uncovered rows are informational here (enforced in 56.02).</p>
+<p>Union of <code>demo.json.services</code> for products in this run vs
+<code>tests/e2e/harness/services.json</code>. Full-suite runs enforce zero uncovered services (56.02).</p>
 <table>
 <tr><th>Service</th><th>Status</th><th>Products</th></tr>
 ${coverageRows}
@@ -544,7 +440,7 @@ export function writeReport(
     options.markdownPath ?? path.join(artifactsDir, 'report.md');
   const htmlPath = options.htmlPath ?? path.join(artifactsDir, 'report.html');
 
-  const expected = loadMatrixServices(options.matrixPath);
+  const expected = resolveExpectedServices(options);
   const coverage = coverageRollup(productsForCoverage(result.products), expected);
   const artifacts = result.products.map((p) =>
     findProductArtifacts(artifactsDir, p.project),

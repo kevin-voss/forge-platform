@@ -5,6 +5,10 @@ least one demo product through real product usage (not a synthetic smoke call). 
 [`56.02`](../implementation/steps/56-platform-e2e-gate/56.02-coverage-verification.md) fails the
 suite if any service drops to zero coverage.
 
+Machine-readable source of truth for the expected service list:
+[`tests/e2e/harness/services.json`](../../tests/e2e/harness/services.json)
+(keep this table in sync).
+
 Legend: **●** primary focus (the demo is designed to prove this service) · **○** used as a
 supporting dependency · blank = not used.
 

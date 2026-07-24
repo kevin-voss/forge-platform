@@ -1,0 +1,25 @@
+{
+  "$comment": "Canonical platform service list for the E2E coverage gate (56.02). Keep in sync with docs/demo-projects/service-coverage-matrix.md.",
+  "services": [
+    "forge-control",
+    "forge-cli",
+    "forge-runtime",
+    "forge-gateway",
+    "forge-build",
+    "forge-identity",
+    "forge-secrets",
+    "forge-events",
+    "forge-observe",
+    "forge-storage",
+    "forge-discovery",
+    "forge-network",
+    "forge-infrastructure",
+    "forge-autoscaler",
+    "forge-models",
+    "forge-agents",
+    "forge-workflows",
+    "forge-memory",
+    "managed PostgreSQL",
+    "Declarative API (`forge apply`)"
+  ]
+}
