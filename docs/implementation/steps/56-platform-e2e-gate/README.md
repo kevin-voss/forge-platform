@@ -10,6 +10,7 @@ Atomic steps for [Platform E2E gate & findings consolidation](../../epics/56-pla
 | **213** | `56.02` | [56.02-coverage-verification.md](56.02-coverage-verification.md) | Complete |
 | **214** | `56.03` | [56.03-findings-consolidation.md](56.03-findings-consolidation.md) | Complete |
 | **215** | `56.04` | [56.04-headless-ci-and-artifacts.md](56.04-headless-ci-and-artifacts.md) | Complete |
-| **216** | `56.05` | [56.05-north-star-gate-and-docs.md](56.05-north-star-gate-and-docs.md) | Not started |
+| **216** | `56.05` | [56.05-north-star-gate-and-docs.md](56.05-north-star-gate-and-docs.md) | Complete |
 
-Implement with [`../../IMPLEMENT_STEP.md`](../../IMPLEMENT_STEP.md) (`N = 212` first).
+Epic **56** Complete. North-star gate: `make test-platform-e2e` — see
+[`../../../demo-projects/RUNBOOK.md`](../../../demo-projects/RUNBOOK.md).

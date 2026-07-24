@@ -353,6 +353,13 @@ CI=1 HEADLESS=1 make test-platform-e2e               # nightly full
 CI=1 HEADLESS=1 make test-platform-e2e PROJECTS=01,03  # explicit subset
 ```
 
+### 56.05 outcome — north-star gate + docs
+
+**Landed:** `make test-platform-e2e` (headed) and `HEADLESS=1` are the verification track’s
+north-star gate: demos 01→05, coverage **20/20**, consolidated [`PLATFORM_FINDINGS.md`](PLATFORM_FINDINGS.md),
+exit 0 with zero blockers. Operator runbook: [`RUNBOOK.md`](RUNBOOK.md). Track README / roadmap /
+progress mark epics **50–56** Complete (`N = 174`–`216`).
+
 ## 11. Open questions
 
 * ~~Do we standardize product frontends on one stack?~~ **Decided in 50.02:** one shared minimal

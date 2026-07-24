@@ -10,6 +10,7 @@
 | [testing/](testing/) | Test strategy and suites |
 | [decisions/](decisions/) | Architecture Decision Records |
 | [implementation/](implementation/) | Epics, atomic steps, progress, agent prompts |
+| [demo-projects/](demo-projects/) | Verification track — five products + north-star `make test-platform-e2e` ([RUNBOOK](demo-projects/RUNBOOK.md)) |
 
 Product vision and coarse roadmap live in [`specs.md`](../specs.md).
 

@@ -255,5 +255,6 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Build `
 | **215** | Headless/CI mode + artifacts | 56 | [56.04-headless-ci-and-artifacts.md](steps/56-platform-e2e-gate/56.04-headless-ci-and-artifacts.md) |
 | **216** | North-star gate + docs | 56 | [56.05-north-star-gate-and-docs.md](steps/56-platform-e2e-gate/56.05-north-star-gate-and-docs.md) |
 
-Verification steps: **43** (`N = 174` … `N = 216`). Grand total planned: **216**
-(`N = 1` … `N = 216`). After the platform queue completes at `173`, continue at **`N = 174`**.
+Verification steps: **43** (`N = 174` … `N = 216`) — **complete**. Grand total planned: **216**
+(`N = 1` … `N = 216`) — **complete**. After this queue, materialize standalone-cloud M2 epics
+`26`+ with [`PLAN_STEPS.md`](PLAN_STEPS.md) (`N` continues after `216`).

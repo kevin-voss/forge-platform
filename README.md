@@ -44,6 +44,8 @@ make test
 make test-unit
 make test-integration
 make test-e2e
+make test-platform-e2e          # verification north-star (demos 01–05 + coverage)
+make test-platform-e2e HEADLESS=1
 make test-infrastructure
 make lint
 make format
@@ -58,6 +60,7 @@ make demo DEMO=00
 * [Getting started](docs/development/getting-started.md)
 * [Repository layout](docs/development/repository-layout.md)
 * [Local infrastructure](docs/architecture/local-infrastructure.md)
+* [Platform E2E runbook](docs/demo-projects/RUNBOOK.md) (verification track north-star gate)
 * [Implementation system](docs/implementation/README.md) (epics → many steps)
 * [Roadmap](docs/implementation/roadmap.md)
 * [Progress](docs/implementation/progress.md)

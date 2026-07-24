@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 216`** (verification track; epic 56 platform E2E gate).
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Planned queue complete through **`N = 216`** (platform + verification tracks). Epic **56** / verification track **Complete**. Next: materialize standalone-cloud M2 epics **`26`+** with [`PLAN_STEPS.md`](PLAN_STEPS.md) (`N` continues after `216`).
 
 ## Epics
 
@@ -256,8 +256,8 @@ next implementable step is still the one named at the top of this file. Plan:
 Per-step rows live in each epic's steps README; the global lookup is
 [`STEPS.md`](STEPS.md#future-queue--standalone-cloud-epics-2025).
 
-> Platform capability queue complete at **N = 173** (M1 exit). Verification track in
-> progress at **N = 174+** (epic 50 harness) — see table below.
+> Platform capability queue complete at **N = 173** (M1 exit). Verification track complete at
+> **N = 216** (epic 56 north-star gate) — see table below.
 
 > Planned platform steps: **173** (`N = 1` … `N = 173`).
 
@@ -265,17 +265,17 @@ Per-step rows live in each epic's steps README; the global lookup is
 
 ## Verification & demo-projects track (epics 50–56, `N = 174`–`216`)
 
-In progress (epics 50–55 Complete). Deploys small real-world demo products onto the shipped
-platform and proves them end-to-end with visible browser automation; platform bugs it surfaces are
-recorded in [`../demo-projects/PLATFORM_FINDINGS.md`](../demo-projects/PLATFORM_FINDINGS.md), not patched.
-Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global lookup:
+**Complete.** Deploys small real-world demo products onto the shipped platform and proves them
+end-to-end with visible browser automation; platform bugs it surfaces are recorded in
+[`../demo-projects/PLATFORM_FINDINGS.md`](../demo-projects/PLATFORM_FINDINGS.md), not patched.
+Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Runbook:
+[`../demo-projects/RUNBOOK.md`](../demo-projects/RUNBOOK.md). Global lookup:
 [`STEPS.md`](STEPS.md#verification--demo-projects-queue-epics-5056).
 
-> Continues the global `N` queue after the platform queue (`N ≤ 173`). Epics 50–55 Complete;
-> epic 56 in progress (`56.01`–`56.04` done). Entry point: `make test-platform-e2e` (headed, full
-> suite 01→05 + coverage gate) / `CI=1 make test-platform-e2e` (headless CI; `CI_SUBSET=1` → PR
-> gate `01,03`); gates: `make demo DEMO=50` / `DEMO=51` / `DEMO=52` / `DEMO=53` / `DEMO=54` /
-> `DEMO=55`.
+> Continues the global `N` queue after the platform queue (`N ≤ 173`). Epics **50–56 Complete**.
+> North-star gate: `make test-platform-e2e` (headed, full suite 01→05 + coverage 20/20) /
+> `make test-platform-e2e HEADLESS=1` / `CI=1 make test-platform-e2e` (headless CI;
+> `CI_SUBSET=1` → PR gate `01,03`); per-product gates: `make demo DEMO=50` … `DEMO=55`.
 
 ### Epics
 
@@ -287,7 +287,7 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 | [53](epics/53-demo-askdocs.md) | Demo 3 — AskDocs (models + memory + agents) | Complete | `193`–`198`; `make demo DEMO=53` gate |
 | [54](epics/54-demo-orderpipe.md) | Demo 4 — OrderPipe (workflows + events + discovery + network) | Complete | `199`–`205`; `make demo DEMO=54` gate |
 | [55](epics/55-demo-pulseboard.md) | Demo 5 — PulseBoard (autoscaler + infra + observe) | Complete | `206`–`211`; `make demo DEMO=55` gate |
-| [56](epics/56-platform-e2e-gate.md) | Platform E2E gate & findings consolidation | In progress | `212`–`216`; `56.01`–`56.04` headless/CI + artifacts |
+| [56](epics/56-platform-e2e-gate.md) | Platform E2E gate & findings consolidation | Complete | `212`–`216`; north-star `make test-platform-e2e` |
 
 ### Steps
 
@@ -335,8 +335,9 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 | **213** | Coverage verification gate | 56 | Complete |
 | **214** | Findings consolidation + triage | 56 | Complete |
 | **215** | Headless/CI mode + artifacts | 56 | Complete |
-| **216** | North-star gate + docs | 56 | Not started |
+| **216** | North-star gate + docs | 56 | Complete |
 
-Track total: **43 steps** (`N = 174`–`216`) across 7 epics. Grand total planned across both tracks:
-**216** (`N = 1` … `N = 216`).
+Track total: **43 steps** (`N = 174`–`216`) across 7 epics — **complete**. Grand total planned
+across both tracks: **216** (`N = 1` … `N = 216`) — **complete**. Next implementable work is
+outside this queue: materialize M2 epics `26`+ (`N` after `216`) via [`PLAN_STEPS.md`](PLAN_STEPS.md).
 

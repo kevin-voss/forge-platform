@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Goal
 
@@ -24,6 +24,7 @@ result points precisely at the responsible service.
 * `tests/e2e/harness/` — orchestrator aggregation, coverage check, consolidated report.
 * `Makefile` — final `test-platform-e2e` behaviour (full suite + subsets).
 * `docs/demo-projects/PLATFORM_FINDINGS.md` — consolidated, triaged output.
+* `docs/demo-projects/RUNBOOK.md` — operator runbook for the north-star gate.
 
 ## Suggested language
 
@@ -31,7 +32,7 @@ TypeScript/Node (orchestrator) + markdown reporting.
 
 ## Spec references
 
-* `docs/demo-projects/README.md`, `e2e-harness.md`, `service-coverage-matrix.md`.
+* `docs/demo-projects/README.md`, `e2e-harness.md`, `service-coverage-matrix.md`, `RUNBOOK.md`.
 
 ## Dependencies
 
@@ -45,8 +46,8 @@ TypeScript/Node (orchestrator) + markdown reporting.
 ## Success demo
 
 `make test-platform-e2e` (and `HEADLESS=1`) runs demos 1→5, prints per-product results + a coverage
-table showing every service touched, exits 0 only when all products pass with zero blocker
-findings, and leaves a consolidated report + `PLATFORM_FINDINGS.md`.
+table showing every service touched (**20/20**), exits 0 only when all products pass with zero
+blocker findings, and leaves a consolidated report + `PLATFORM_FINDINGS.md`.
 
 ## Planned steps
 
@@ -56,7 +57,7 @@ findings, and leaves a consolidated report + `PLATFORM_FINDINGS.md`.
 | 56.02 | Coverage verification gate | Complete | `services.json` + coverage.ts; full suite fails on uncovered services |
 | 56.03 | Findings consolidation + triage | Complete | dedupe, rank by severity, group by service; summary/by-service/by-demo tables |
 | 56.04 | Headless/CI mode + artifacts | Complete | `CI=1` → headless/`KEEP=0`; `CI_SUBSET` PR `01,03`; nightly full; workflow uploads artifacts |
-| 56.05 | North-star gate + docs | Not started | final acceptance, runbook, README; `make test-platform-e2e` is the gate |
+| 56.05 | North-star gate + docs | Complete | runbook + track docs; `make test-platform-e2e` is the gate |
 
 Ordering + `N`: [`../steps/56-platform-e2e-gate/README.md`](../steps/56-platform-e2e-gate/README.md).
 

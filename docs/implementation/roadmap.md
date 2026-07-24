@@ -118,7 +118,7 @@ M3 — global platform
 | [22](epics/22-forge-network.md) | Forge Network | M1 | 04, 08 | Planned (7 steps, `N = 146`–`152`) |
 | [23](epics/23-forge-infrastructure.md) | Forge Infrastructure | M1 | 04, 08 | Planned (7 steps, `N = 153`–`159`) |
 | [24](epics/24-forge-autoscaler.md) | Forge Autoscaler | M1 | 07, 08, 12 | Complete (8 steps, `N = 160`–`167`) |
-| [25](epics/25-scheduling-enhancements.md) | Scheduling enhancements | M1 | 08 | In progress (1/6; `N = 168` done, next `169`) |
+| [25](epics/25-scheduling-enhancements.md) | Scheduling enhancements | M1 | 08 | Complete (6/6; `N = 168`–`173`; M1 exit) |
 | [26](epics/26-forge-registry.md) | Forge Registry | M2 | 06 | Catalog |
 | [27](epics/27-deployment-strategies.md) | Deployment strategies | M2 | 05, 07 | Catalog |
 | [28](epics/28-forge-queue.md) | Forge Queue | M2 | 11 | Catalog |
@@ -145,23 +145,27 @@ M3 — global platform
 
 # Verification & demo-projects track (epics 50–56, `N = 174`–`216`)
 
-A **separate track** that adds no platform capability. It deploys five small real-world demo
-products onto the shipped platform and proves them end-to-end with **visible browser automation**
-(Playwright, headed + headless), collectively exercising **every** service. Platform bugs surfaced
-by the demos are recorded in [`../demo-projects/PLATFORM_FINDINGS.md`](../demo-projects/PLATFORM_FINDINGS.md)
-— never patched to make a demo pass. Design home:
-[`../demo-projects/README.md`](../demo-projects/README.md).
+**Complete.** A **separate track** that adds no platform capability. It deploys five small
+real-world demo products onto the shipped platform and proves them end-to-end with **visible
+browser automation** (Playwright, headed + headless), collectively exercising **every** service.
+Platform bugs surfaced by the demos are recorded in
+[`../demo-projects/PLATFORM_FINDINGS.md`](../demo-projects/PLATFORM_FINDINGS.md) — never patched
+to make a demo pass. Design home: [`../demo-projects/README.md`](../demo-projects/README.md).
+Operator runbook: [`../demo-projects/RUNBOOK.md`](../demo-projects/RUNBOOK.md).
 
 Numbered `50`–`56` (a distinct block from the standalone-cloud feature epics `26`–`43`) and wired
 into the **global `N` queue at `174`–`216`**, continuing right after the platform queue ends at
 `173`. Full queue: [`STEPS.md`](STEPS.md#verification--demo-projects-queue-epics-5056).
+
+North-star gate: `make test-platform-e2e` / `HEADLESS=1` — full suite 01→05, coverage **20/20**,
+consolidated findings, exit 0 with zero blockers.
 
 ```text
 50 E2E harness & orchestrator  (make test-platform-e2e)          N 174–180
      ↓
 51 TaskFlow ─ 52 SnapNote ─ 53 AskDocs ─ 54 OrderPipe ─ 55 PulseBoard   N 181–211  (independent)
      ↓
-56 Platform E2E gate + findings consolidation                    N 212–216
+56 Platform E2E gate + findings consolidation                    N 212–216  ✓
 ```
 
 | Epic | Title | Focus (headline services) | N | Detail |
@@ -172,6 +176,6 @@ into the **global `N` queue at `174`–`216`**, continuing right after the platf
 | [53](epics/53-demo-askdocs.md) | Demo 3 — AskDocs | Models, Memory, Agents, Storage (RAG) | `193`–`198` | [03-askdocs.md](../demo-projects/projects/03-askdocs.md) |
 | [54](epics/54-demo-orderpipe.md) | Demo 4 — OrderPipe | Workflows, Events, Discovery, Network | `199`–`205` | [04-orderpipe.md](../demo-projects/projects/04-orderpipe.md) |
 | [55](epics/55-demo-pulseboard.md) | Demo 5 — PulseBoard | Autoscaler (HTTP + node), Infrastructure, Observe | `206`–`211` | [05-pulseboard.md](../demo-projects/projects/05-pulseboard.md) |
-| [56](epics/56-platform-e2e-gate.md) | Platform E2E gate & findings consolidation | Full-suite run, coverage gate, findings triage | `212`–`216` | [README.md](../demo-projects/README.md) |
+| [56](epics/56-platform-e2e-gate.md) | Platform E2E gate & findings consolidation | Full-suite run, coverage gate, findings triage, runbook | `212`–`216` | [RUNBOOK.md](../demo-projects/RUNBOOK.md) |
 
 Service→demo completeness: [`service-coverage-matrix.md`](../demo-projects/service-coverage-matrix.md).

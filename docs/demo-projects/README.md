@@ -1,13 +1,15 @@
 # Demo projects & platform E2E verification
 
-**Status:** Planning (no code yet). This directory holds the technical plans for a set of
-small, real-world **demo products** that deploy onto the Forge Platform locally (Docker)
-and are proven end-to-end with **visible browser automation**.
+**Status:** Complete (epics `50`–`56`, `N = 174`–`216`). North-star gate:
+`make test-platform-e2e` (headed) / `make test-platform-e2e HEADLESS=1`.
 
 > This is the *verification* track. It builds nothing new in the platform. It exercises the
 > shipped platform (epics `00`–`43`) the way a real customer would, finds where reality
 > diverges from the specs, and records those divergences as **platform findings** — it never
 > silently patches a service to make a demo pass.
+
+**Operator entry point:** [`RUNBOOK.md`](RUNBOOK.md) — prerequisites, run modes, reading the
+report, findings hand-off, troubleshooting.
 
 ---
 
@@ -27,8 +29,9 @@ deploy product onto Forge  →  seed data  →  run Playwright E2E (browser visi
      →  assert product + platform behaviour  →  collect findings  →  tear down
 ```
 
-At the end you get a **pass/fail per product**, a **service coverage report**, and — if any
-platform behaviour was wrong — a populated [`PLATFORM_FINDINGS.md`](PLATFORM_FINDINGS.md).
+At the end you get a **pass/fail per product**, a **service coverage report** (full suite must
+cover **20/20** services), and — if any platform behaviour was wrong — a populated
+[`PLATFORM_FINDINGS.md`](PLATFORM_FINDINGS.md).
 
 ## 2. What "done" means
 
@@ -61,18 +64,18 @@ Every product also implicitly exercises the baseline: **Control**, **CLI**, **Ru
 
 ## 4. How this plugs into the implementation system
 
-This track is planned as **epics `50`–`56`** in the existing implementation system so it can be
-built one step at a time with [`../implementation/IMPLEMENT_STEP.md`](../implementation/IMPLEMENT_STEP.md).
+This track is **epics `50`–`56`** in the existing implementation system, implemented one step at
+a time with [`../implementation/IMPLEMENT_STEP.md`](../implementation/IMPLEMENT_STEP.md).
 
-| Epic | Title | Steps (N) | Plan folder |
-|---|---|---|---|
-| [50](../implementation/epics/50-e2e-harness.md) | Platform E2E harness & orchestrator | `174`–`180` | [e2e-harness.md](e2e-harness.md) |
-| [51](../implementation/epics/51-demo-taskflow.md) | Demo 1 — TaskFlow | `181`–`186` | [projects/01-taskflow.md](projects/01-taskflow.md) |
-| [52](../implementation/epics/52-demo-snapnote.md) | Demo 2 — SnapNote | `187`–`192` | [projects/02-snapnote.md](projects/02-snapnote.md) |
-| [53](../implementation/epics/53-demo-askdocs.md) | Demo 3 — AskDocs | `193`–`198` | [projects/03-askdocs.md](projects/03-askdocs.md) |
-| [54](../implementation/epics/54-demo-orderpipe.md) | Demo 4 — OrderPipe | `199`–`205` | [projects/04-orderpipe.md](projects/04-orderpipe.md) |
-| [55](../implementation/epics/55-demo-pulseboard.md) | Demo 5 — PulseBoard | `206`–`211` | [projects/05-pulseboard.md](projects/05-pulseboard.md) |
-| [56](../implementation/epics/56-platform-e2e-gate.md) | Platform E2E gate & findings consolidation | `212`–`216` | this README + [PLATFORM_FINDINGS.md](PLATFORM_FINDINGS.md) |
+| Epic | Title | Steps (N) | Status | Plan folder |
+|---|---|---|---|---|
+| [50](../implementation/epics/50-e2e-harness.md) | Platform E2E harness & orchestrator | `174`–`180` | Complete | [e2e-harness.md](e2e-harness.md) |
+| [51](../implementation/epics/51-demo-taskflow.md) | Demo 1 — TaskFlow | `181`–`186` | Complete | [projects/01-taskflow.md](projects/01-taskflow.md) |
+| [52](../implementation/epics/52-demo-snapnote.md) | Demo 2 — SnapNote | `187`–`192` | Complete | [projects/02-snapnote.md](projects/02-snapnote.md) |
+| [53](../implementation/epics/53-demo-askdocs.md) | Demo 3 — AskDocs | `193`–`198` | Complete | [projects/03-askdocs.md](projects/03-askdocs.md) |
+| [54](../implementation/epics/54-demo-orderpipe.md) | Demo 4 — OrderPipe | `199`–`205` | Complete | [projects/04-orderpipe.md](projects/04-orderpipe.md) |
+| [55](../implementation/epics/55-demo-pulseboard.md) | Demo 5 — PulseBoard | `206`–`211` | Complete | [projects/05-pulseboard.md](projects/05-pulseboard.md) |
+| [56](../implementation/epics/56-platform-e2e-gate.md) | Platform E2E gate & findings consolidation | `212`–`216` | Complete | this README + [RUNBOOK.md](RUNBOOK.md) + [PLATFORM_FINDINGS.md](PLATFORM_FINDINGS.md) |
 
 ### Implementation order (recommended)
 
@@ -80,20 +83,20 @@ Build **epic 50 first** (the harness everything depends on), then the demo produ
 1→5 (each is independent and slots into the harness), then **epic 56** last (the aggregate gate).
 
 > **Numbering note.** These steps continue the global **`N` queue** at **`174`–`216`**, right after
-> the platform queue ends at `173` — so once the platform is built you keep going with `N = 174`.
-> Resolve `N` → step via [`STEPS.md`](../implementation/STEPS.md#verification--demo-projects-queue-epics-5056)
-> and implement with [`IMPLEMENT_STEP.md`](../implementation/IMPLEMENT_STEP.md). (Epics `26`–`43`,
-> when materialized, receive `N` values continuing after `217`.)
+> the platform queue ends at `173`. Resolve `N` → step via
+> [`STEPS.md`](../implementation/STEPS.md#verification--demo-projects-queue-epics-5056).
+> (Epics `26`–`43`, when materialized, receive `N` values continuing after `216`.)
 
 ## 5. Documents in this folder
 
 | File | Purpose |
 |---|---|
+| [RUNBOOK.md](RUNBOOK.md) | **Start here to run the gate** — prerequisites, modes, report, findings, troubleshooting. |
 | [service-coverage-matrix.md](service-coverage-matrix.md) | Every service × which demo(s) exercise it, and how. The completeness contract. |
 | [e2e-harness.md](e2e-harness.md) | Technical design of the harness, orchestrator, headed/headless, artifacts, findings hooks. |
 | [shared-spa-style.md](shared-spa-style.md) | Shared minimal SPA convention for all demo product UIs (decided in 50.02). |
 | [findings-template.md](findings-template.md) | Copy-paste template for one platform finding. |
-| [PLATFORM_FINDINGS.md](PLATFORM_FINDINGS.md) | The living, single findings document (starts empty). |
+| [PLATFORM_FINDINGS.md](PLATFORM_FINDINGS.md) | The living, single findings document (consolidated + triaged). |
 | [projects/](projects/) | One technical plan per demo product. |
 
 ## 6. Non-goals
@@ -103,3 +106,5 @@ Build **epic 50 first** (the harness everything depends on), then the demo produ
 * No new platform capabilities — if a demo needs something the platform can't do, that's a
   **finding**, not a feature to build here.
 * Not a load/performance benchmark — autoscaling demos prove *behaviour* (replicas move), not SLOs.
+* Fixing recorded findings — hand off via [`PLATFORM_FINDINGS.md`](PLATFORM_FINDINGS.md); platform
+  fixes are separate work.
