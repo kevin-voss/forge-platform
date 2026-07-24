@@ -1,0 +1,7 @@
+# Build manifest for snapnote-web (`forge build` when multi-service build lands).
+service:
+  name: app
+  port: 8080
+build:
+  dockerfile: Dockerfile.web
+  context: .

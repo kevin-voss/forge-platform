@@ -1,0 +1,166 @@
+:root {
+  --bg: #eef1f5;
+  --surface: rgba(255, 255, 255, 0.78);
+  --text: #1a2230;
+  --muted: #5a6678;
+  --accent: #c45c26;
+  --accent-soft: rgba(196, 92, 38, 0.12);
+  --border: #c5ceda;
+  --danger: #8a3b32;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Source Sans 3", "Segoe UI", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 88% 8%, rgba(196, 92, 38, 0.14), transparent 40%),
+    linear-gradient(160deg, #f4f6f9 0%, #e7ebf2 50%, #dce3ee 100%);
+}
+
+main {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 3.5rem 1.25rem 4rem;
+}
+
+.brand {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+h1 {
+  margin: 0 0 0.5rem;
+  font-size: clamp(2rem, 4vw, 2.6rem);
+  letter-spacing: -0.03em;
+}
+
+.lede,
+#note-status {
+  margin: 0 0 1.5rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+form,
+section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1.1rem 1.15rem;
+  backdrop-filter: blur(6px);
+}
+
+form {
+  margin-bottom: 1rem;
+}
+
+label,
+h2 {
+  display: block;
+  margin: 0 0 0.65rem;
+  font-size: 0.95rem;
+}
+
+.row {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.85rem;
+}
+
+input[type="text"],
+textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 0.7rem 0.8rem;
+  font: inherit;
+  background: #fff;
+  color: var(--text);
+  margin-bottom: 0.75rem;
+}
+
+textarea {
+  resize: vertical;
+}
+
+button {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 0.4rem;
+  background: var(--accent);
+  color: #fff8f3;
+  font: inherit;
+  font-weight: 600;
+  padding: 0.7rem 1rem;
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(1.05);
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--border);
+}
+
+ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 0;
+  border-top: 1px solid var(--border);
+}
+
+li:first-child {
+  border-top: 0;
+}
+
+.note-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.title {
+  display: block;
+  font-weight: 600;
+}
+
+.body {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+
+.actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.empty {
+  margin: 0;
+  color: var(--muted);
+  background: var(--accent-soft);
+  border-radius: 0.45rem;
+  padding: 0.8rem 0.9rem;
+}

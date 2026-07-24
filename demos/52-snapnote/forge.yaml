@@ -1,0 +1,117 @@
+# SnapNote build manifests + portable resource docs (epic 52.01).
+#
+# Build (read by `forge build` when available; run.sh also docker-builds locally):
+#   api/forge.yaml  → snapnote-api
+#   web build uses Dockerfile.web at repo root of this demo
+#
+# Applied by run.sh via `forge apply -f` (placeholders filled at deploy time).
+
+apiVersion: forge.dev/v1
+kind: Project
+metadata:
+  name: ${PROJECT_NAME}
+spec:
+  slug: ${PROJECT_SLUG}
+---
+apiVersion: forge.dev/v1
+kind: Environment
+metadata:
+  name: local
+  project: ${PROJECT_SLUG}
+spec: {}
+---
+apiVersion: forge.dev/v1
+kind: Application
+metadata:
+  name: snapnote-api
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    app: snapnote-api
+    demo: "52"
+spec:
+  image: ${API_IMAGE}
+  resources:
+    cpu: 50m
+    memory: 64Mi
+  scaling:
+    minReplicas: 1
+    maxReplicas: 1
+  # Typed managed Postgres dependency (materialized by run.sh via forge database).
+  # DATABASE_URL is injected as plaintext env from the in-memory secrets client
+  # when FORGE_SECRETS_URL=disabled (Secrets product path is TaskFlow's job).
+  dependencies:
+    database:
+      type: postgres
+      plan: standard
+      name: snapnote-db
+---
+apiVersion: forge.dev/v1
+kind: Service
+metadata:
+  name: api
+  project: ${PROJECT_SLUG}
+  annotations:
+    forge.dev/parent: snapnote-api
+spec:
+  port: 8080
+---
+apiVersion: forge.dev/v1
+kind: Deployment
+metadata:
+  name: snapnote-api
+  project: ${PROJECT_SLUG}
+  environment: local
+  annotations:
+    forge.dev/parent: snapnote-api
+  labels:
+    app: snapnote-api
+    demo: "52"
+spec:
+  service: api
+  image: ${API_IMAGE}
+  replicas: 1
+---
+apiVersion: forge.dev/v1
+kind: Application
+metadata:
+  name: snapnote-web
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    app: snapnote-web
+    demo: "52"
+spec:
+  image: ${WEB_IMAGE}
+  resources:
+    cpu: 50m
+    memory: 64Mi
+  scaling:
+    minReplicas: 1
+    maxReplicas: 1
+---
+apiVersion: forge.dev/v1
+kind: Service
+metadata:
+  name: app
+  project: ${PROJECT_SLUG}
+  annotations:
+    forge.dev/parent: snapnote-web
+spec:
+  port: 8080
+---
+apiVersion: forge.dev/v1
+kind: Deployment
+metadata:
+  name: snapnote-web
+  project: ${PROJECT_SLUG}
+  environment: local
+  annotations:
+    forge.dev/parent: snapnote-web
+  labels:
+    app: snapnote-web
+    demo: "52"
+spec:
+  service: app
+  image: ${WEB_IMAGE}
+  replicas: 1

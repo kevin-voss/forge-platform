@@ -1,0 +1,8 @@
+# Build manifest for snapnote-api (`forge build --source` reads this).
+# Context is the demo root so migrations/ are included in the image.
+service:
+  name: api
+  port: 8080
+build:
+  dockerfile: api/Dockerfile
+  context: ..

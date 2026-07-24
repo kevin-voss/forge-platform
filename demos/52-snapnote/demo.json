@@ -1,0 +1,31 @@
+{
+  "id": "02-snapnote",
+  "title": "SnapNote",
+  "epic": "52",
+  "compose": "demos/52-snapnote/docker-compose.yml",
+  "deploy": "demos/52-snapnote/run.sh",
+  "seed": "demos/52-snapnote/seed.sh",
+  "hosts": [
+    {
+      "host": "app.snapnote.localhost",
+      "path": "/",
+      "expect": 200
+    },
+    {
+      "host": "api.snapnote.localhost",
+      "path": "/health/ready",
+      "expect": 200
+    }
+  ],
+  "baseURL": "http://app.snapnote.localhost:4000",
+  "spec": "tests/e2e/projects/02-snapnote/spec.ts",
+  "services": [
+    "control",
+    "cli",
+    "runtime",
+    "gateway",
+    "build",
+    "managed-postgresql"
+  ],
+  "teardown": "demos/52-snapnote/run.sh --down"
+}

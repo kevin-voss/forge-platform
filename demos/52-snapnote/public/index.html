@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SnapNote</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="brand">SnapNote</p>
+        <h1>Notes with attachments</h1>
+        <p class="lede">
+          Write a note now. File uploads, async thumbnails, and worker autoscaling arrive in later
+          steps.
+        </p>
+      </header>
+
+      <form id="note-form" aria-label="Create note">
+        <label for="note-title">Title</label>
+        <input id="note-title" name="title" type="text" required placeholder="Trip photos" autocomplete="off" />
+        <label for="note-body">Body</label>
+        <textarea id="note-body" name="body" rows="3" placeholder="Optional details…"></textarea>
+        <div class="row">
+          <button type="submit">Add note</button>
+        </div>
+      </form>
+
+      <section aria-labelledby="note-list-heading">
+        <h2 id="note-list-heading">Notes</h2>
+        <p id="note-status" role="status"></p>
+        <ul id="note-list"></ul>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>
