@@ -1,0 +1,14 @@
+Company Handbook
+
+Welcome to Acme Corp. This handbook covers the essentials for every employee.
+
+Office hours
+The main office is open Monday through Friday, 9:00–17:00 local time.
+The office is closed on the first Monday of each month.
+
+Remote work
+Employees may work remotely up to two days per week with manager approval.
+
+Holiday schedule
+Company holidays follow the local public-holiday calendar. Extra floating days
+are announced each January.

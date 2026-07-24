@@ -18,22 +18,22 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 
 | Metric | Count |
 |---|---|
-| Total findings | 6 |
-| Open | 6 |
+| Total findings | 7 |
+| Open | 7 |
 | Blocker | 0 |
-| Major | 2 |
+| Major | 3 |
 | Minor | 4 |
 
 ## By service
 
 | Service | Open | Blocker | Major | Minor |
 |---|--:|--:|--:|--:|
+| forge-agents / forge-control | 1 | 0 | 0 | 1 |
+| forge-events | 1 | 0 | 0 | 1 |
 | forge-identity | 1 | 0 | 0 | 1 |
-| forge-observe | 1 | 0 | 1 | 0 |
+| forge-observe | 2 | 0 | 2 | 0 |
 | forge-secrets / forge-control | 1 | 0 | 0 | 1 |
 | platform | 1 | 0 | 1 | 0 |
-| forge-events | 1 | 0 | 0 | 1 |
-| forge-agents / forge-control | 1 | 0 | 0 | 1 |
 
 ## By demo
 
@@ -41,7 +41,7 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 |---|--:|
 | 01-taskflow | 4 |
 | 02-snapnote | 1 |
-| 03-askdocs | 1 |
+| 03-askdocs | 2 |
 | 04-orderpipe | 0 |
 | 05-pulseboard | 0 |
 
@@ -303,3 +303,37 @@ embeddings) with a refusal guardrail when retrieval is weak.
 Add a `retrieve` alias (or collection-bound tool binding in Agent YAML) and/or
 wire Control `kind: Agent` apply → forge-agents registry; optionally make fake
 `memory.search` proxy live Memory when available.
+
+### F-007 — Observe should show connected evidence spanning AskDocs → Models/Memory/Agents
+
+| Field | Value |
+|---|---|
+| Status | Open |
+| Severity | major |
+| Service | forge-observe |
+| Area / contract | forge-observe cross-service telemetry (53.05) |
+| Found by demo | 03-askdocs |
+| First seen | 2026-07-24 |
+| Reproducible | always |
+
+**What we tested**
+POST /chat then Tempo /api/search + Observe /v1/logs?service=…
+
+**Expected (per spec/contract)**
+≥1 Tempo trace or observe log evidence for AskDocs/AI stack path
+
+**Actual**
+no connected Observe/Tempo evidence for AskDocs query path (tempo search returned zero traces; http://127.0.0.1:4106/v1/logs?service=askdocs-api&limit=80: no AI-stack match; http://127.0.0.1:4106/v1/logs?service=forge-models&limit=40: no AI-stack match; http://127.0.0.1:4106/v1/logs?service=forge-memory&limit=40: no AI-stack match; http://127.0.0.1:4106/v1/logs?service=forge-agents&limit=40: no AI-stack match; http://127.0.0.1:4106/v1/logs?project=askdocs&limit=80: no AI-stack match)
+
+**Evidence**
+- _(none captured)_
+
+**Reproduce**
+```bash
+make demo DEMO=53 KEEP=1
+curl -s "http://127.0.0.1:3002/api/search?limit=20"
+curl -s "http://127.0.0.1:4106/v1/logs?service=askdocs-api&limit=50"
+```
+
+**Impact on demo**
+Demo marked **degraded**; run continues.

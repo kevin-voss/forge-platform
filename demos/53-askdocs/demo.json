@@ -35,7 +35,8 @@
     "events",
     "models",
     "memory",
-    "agents"
+    "agents",
+    "observe"
   ],
   "teardown": "demos/53-askdocs/run.sh --down"
 }
