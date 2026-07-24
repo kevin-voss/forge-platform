@@ -1,7 +1,8 @@
 # Build manifest for taskflow-api (`forge build --source` reads this).
+# Context is the demo root so migrations/ are included in the image.
 service:
   name: api
   port: 8080
 build:
-  dockerfile: Dockerfile
-  context: .
+  dockerfile: api/Dockerfile
+  context: ..

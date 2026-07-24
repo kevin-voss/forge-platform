@@ -37,6 +37,14 @@ spec:
   scaling:
     minReplicas: 1
     maxReplicas: 1
+  # Typed managed Postgres dependency (materialized by run.sh via forge database).
+  # Until 51.04, DATABASE_URL is injected as plaintext env from the in-memory
+  # secrets client when FORGE_SECRETS_URL=disabled.
+  dependencies:
+    database:
+      type: postgres
+      plan: standard
+      name: taskflow-db
 ---
 apiVersion: forge.dev/v1
 kind: Service

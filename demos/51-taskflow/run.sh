@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Demo 51: TaskFlow product scaffold + baseline deploy (epic 51.01).
+# Demo 51: TaskFlow + managed Postgres (epic 51.02).
 # Usage:
-#   demos/51-taskflow/run.sh          # build → apply → Ready on app./api.taskflow.localhost
+#   demos/51-taskflow/run.sh          # build → apply → DB → Ready → seed → persist check
 #   demos/51-taskflow/run.sh --down   # tear down product resources only
 set -euo pipefail
 
@@ -23,6 +23,11 @@ export FORGE_ROUTE_SYNC_INTERVAL_SECONDS="${FORGE_ROUTE_SYNC_INTERVAL_SECONDS:-2
 export FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS="${FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS:-2}"
 export FORGE_UPSTREAM_FAILURE_THRESHOLD="${FORGE_UPSTREAM_FAILURE_THRESHOLD:-1}"
 export FORGE_UPSTREAM_SUCCESS_THRESHOLD="${FORGE_UPSTREAM_SUCCESS_THRESHOLD:-1}"
+export FORGE_DB_PROVISIONER="${FORGE_DB_PROVISIONER:-local}"
+export FORGE_DB_ENDPOINT_HOST="${FORGE_DB_ENDPOINT_HOST:-host.docker.internal}"
+export FORGE_DB_MANAGED_NETWORK="${FORGE_DB_MANAGED_NETWORK:-forge-net}"
+export FORGE_INJECT_MASK_IN_LOGS="${FORGE_INJECT_MASK_IN_LOGS:-true}"
+export DOCKER_GID="${DOCKER_GID:-$(stat -f '%g' /var/run/docker.sock 2>/dev/null || stat -c '%g' /var/run/docker.sock 2>/dev/null || echo 0)}"
 export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"
 
 COMPOSE=(
@@ -48,6 +53,8 @@ API_IMAGE="${DEMO_API_IMAGE:-${REGISTRY}/taskflow/taskflow-api:v1}"
 WEB_IMAGE="${DEMO_WEB_IMAGE:-${REGISTRY}/taskflow/taskflow-web:v1}"
 API_HOST="api.taskflow.localhost"
 APP_HOST="app.taskflow.localhost"
+DB_NAME="taskflow-db"          # instance / dependency name (may contain '-')
+DB_LOGICAL_NAME="taskflow_db"  # Postgres DB name ([a-z_][a-z0-9_]*)
 ENV_NAME="local"
 
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/forge-demo-51.XXXXXX")"
@@ -69,6 +76,8 @@ fail() {
   "${COMPOSE[@]}" logs --tail=60 "${RUNTIME_SERVICE}" >&2 || true
   echo "--- ${GATEWAY_SERVICE} logs (tail) ---" >&2
   "${COMPOSE[@]}" logs --tail=60 "${GATEWAY_SERVICE}" >&2 || true
+  echo "--- managed db containers ---" >&2
+  docker ps --filter "label=forge.managed_db=true" --format '{{.Names}} {{.Status}}' >&2 || true
   exit 1
 }
 
@@ -107,10 +116,12 @@ forge_json() {
 write_state() {
   cat >"${STATE_FILE}" <<EOF
 PROJECT_SLUG=${PROJECT_SLUG}
+PROJECT_ID=${PROJECT_ID}
 API_DEPLOYMENT_ID=${API_DEPLOYMENT_ID}
 WEB_DEPLOYMENT_ID=${WEB_DEPLOYMENT_ID}
 API_IMAGE=${API_IMAGE}
 WEB_IMAGE=${WEB_IMAGE}
+DB_NAME=${DB_NAME}
 EOF
 }
 
@@ -147,11 +158,12 @@ teardown() {
         docker rm -f "${cid}" >/dev/null 2>&1 || true
       done
   fi
+  # Best-effort: leave managed DB containers for inspect unless explicitly removed.
   echo "Teardown complete."
 }
 
 ensure_platform() {
-  echo "Ensuring Postgres, registry, Control, Runtime, Gateway, Build..."
+  echo "Ensuring Postgres, registry, Control (LocalProvisioner), Runtime, Gateway, Build..."
   "${COMPOSE[@]}" up -d "${POSTGRES_SERVICE}" "${REGISTRY_SERVICE}"
   for _ in $(seq 1 60); do
     if "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" pg_isready -U forge >/dev/null 2>&1; then
@@ -163,10 +175,12 @@ ensure_platform() {
     fail "Postgres not ready"
 
   local need_recreate=0
-  local auth_mode pattern strategy
+  local auth_mode pattern strategy provisioner secrets_url
   auth_mode="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_AUTH_MODE 2>/dev/null || true)"
   pattern="$(docker exec "${GATEWAY_SERVICE}" printenv FORGE_HOST_PATTERN 2>/dev/null || true)"
   strategy="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_SCHEDULER_STRATEGY 2>/dev/null || true)"
+  provisioner="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_DB_PROVISIONER 2>/dev/null || true)"
+  secrets_url="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_SECRETS_URL 2>/dev/null || true)"
   if [[ "${auth_mode}" != "dev" ]]; then
     need_recreate=1
   fi
@@ -176,9 +190,18 @@ ensure_platform() {
   if [[ "${strategy}" != "single-node" ]]; then
     need_recreate=1
   fi
+  if [[ "${provisioner}" != "local" ]]; then
+    need_recreate=1
+  fi
+  if [[ "${secrets_url}" != "disabled" ]]; then
+    need_recreate=1
+  fi
+  if ! docker exec "${CONTROL_SERVICE}" test -S /var/run/docker.sock 2>/dev/null; then
+    need_recreate=1
+  fi
 
   if [[ "${need_recreate}" -eq 1 ]]; then
-    echo "Recreating Control/Runtime/Gateway with demo 51 overlay..."
+    echo "Recreating Control/Runtime/Gateway with demo 51 managed-DB overlay..."
     "${COMPOSE[@]}" up -d --force-recreate \
       "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}"
   else
@@ -195,6 +218,9 @@ ensure_platform() {
   pattern="$(docker exec "${GATEWAY_SERVICE}" printenv FORGE_HOST_PATTERN 2>/dev/null || true)"
   [[ "${pattern}" == *'{service}.taskflow.localhost'* ]] ||
     fail "gateway FORGE_HOST_PATTERN must be '{service}.taskflow.localhost' (got: ${pattern})"
+  provisioner="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_DB_PROVISIONER 2>/dev/null || true)"
+  [[ "${provisioner}" == "local" ]] ||
+    fail "control FORGE_DB_PROVISIONER must be local (got: ${provisioner})"
 }
 
 # Prefer `forge build` when the CLI subcommand exists; otherwise docker build+push
@@ -203,8 +229,8 @@ ensure_images() {
   if "${FORGE_BIN}" build --help >/dev/null 2>&1; then
     echo "Building via forge build --source ..."
     (
-      cd "${DEMO_DIR}/api"
-      forge build --source . --tag "${API_IMAGE}"
+      cd "${DEMO_DIR}"
+      forge build --source . --forge-yaml api/forge.yaml --tag "${API_IMAGE}"
     ) || fail "forge build api failed"
     (
       cd "${DEMO_DIR}"
@@ -214,7 +240,8 @@ ensure_images() {
   fi
 
   echo "forge build CLI not available; building from source with docker build+push..."
-  docker build -t "${API_IMAGE}" "${DEMO_DIR}/api" || fail "docker build api failed"
+  docker build -f "${DEMO_DIR}/api/Dockerfile" -t "${API_IMAGE}" "${DEMO_DIR}" ||
+    fail "docker build api failed"
   docker push "${API_IMAGE}" || fail "docker push api failed"
   docker build -f "${DEMO_DIR}/Dockerfile.web" -t "${WEB_IMAGE}" "${DEMO_DIR}" ||
     fail "docker build web failed"
@@ -291,27 +318,145 @@ wait_host_http() {
   fail "Host ${host}${path} returned HTTP ${code:-000}, want ${expect}; body=$(cat "${TMP_DIR}/host-body" 2>/dev/null || true)"
 }
 
-extract_deployment_ids() {
+extract_apply_ids() {
   python3 - "${TMP_DIR}/apply.json" <<'PY'
 import json, sys
 body = json.load(open(sys.argv[1]))
+project_id = ""
 for r in body.get("results", []):
-    if r.get("kind") != "Deployment":
-        continue
+    kind = r.get("kind") or ""
     name = r.get("name") or ""
     meta = (r.get("resource") or {}).get("metadata") or {}
-    dep_id = meta.get("id") or ""
-    if name and dep_id:
-        print(f"{name}={dep_id}")
+    rid = meta.get("id") or ""
+    if kind == "Project" and rid:
+        project_id = rid
+        print(f"PROJECT_ID={rid}")
+    if kind == "Deployment" and name and rid:
+        print(f"DEPLOYMENT:{name}={rid}")
+if not project_id:
+    # Fallback: some apply responses omit nested resource; leave empty for later lookup.
+    pass
 PY
 }
 
 assert_applications_ready() {
-  # Practical Ready signal: both deployments active (forge wait / forge get not shipped).
   echo "Checking applications/deployments Ready..."
-  wait_deployment_status "${API_DEPLOYMENT_ID}" "deployed" 120
+  wait_deployment_status "${API_DEPLOYMENT_ID}" "deployed" 180
   wait_deployment_status "${WEB_DEPLOYMENT_ID}" "deployed" 120
   echo "  applications Ready (deployments active)"
+}
+
+provision_managed_db() {
+  echo "Provisioning managed Database ${DB_NAME} (dependencies.database)..."
+  [[ -n "${PROJECT_ID}" ]] || fail "PROJECT_ID missing; cannot create managed database"
+  # Instance name matches the dependency name (taskflow-db). Logical Postgres DB
+  # names cannot contain '-' (platform pattern [a-z_][a-z0-9_]*).
+  forge_json "${TMP_DIR}/db-create.json" --project "${PROJECT_ID}" \
+    database create "${DB_NAME}" --database "${DB_LOGICAL_NAME}"
+  python3 - <<'PY' "${TMP_DIR}/db-create.json" || fail "database create did not reach available"
+import json, sys
+body = json.load(open(sys.argv[1]))
+db = body.get("database") or {}
+inst = body.get("instance") or {}
+status = db.get("status") or ""
+inst_status = inst.get("status") or ""
+assert status == "available", body
+assert inst_status == "available", body
+print(f"  database Ready id={db.get('id')} name={db.get('name')} instance={inst.get('id')}")
+PY
+
+  forge_json "${TMP_DIR}/db-attach.json" --project "${PROJECT_ID}" \
+    database attach "${DB_NAME}" --app taskflow-api --env-var DATABASE_URL
+  python3 - <<'PY' "${TMP_DIR}/db-attach.json" || fail "attach missing secretRef"
+import json, sys
+body = json.load(open(sys.argv[1]))
+ref = body.get("secretRef") or body.get("secret_ref") or ""
+assert ref, body
+assert "://" not in ref, body
+print(f"  attached DATABASE_URL secretRef={ref}")
+PY
+}
+
+api_container_id() {
+  # Runtime labels forge.deployment_id as "{service}-{shortId}-0", not the Control UUID.
+  # Prefer the UUID label when present; otherwise match by image + demo label / name prefix.
+  local cid
+  cid="$(docker ps -q \
+    --filter "label=forge.deployment_id=${API_DEPLOYMENT_ID}" \
+    --filter "label=forge.managed=true" | head -n1)"
+  if [[ -n "${cid}" ]]; then
+    echo "${cid}"
+    return 0
+  fi
+  local short
+  short="$(python3 -c 'import sys; print(sys.argv[1].replace("-", "")[:8])' "${API_DEPLOYMENT_ID}")"
+  docker ps -q --filter "label=forge.managed=true" --filter "name=forge-api-${short}-" | head -n1
+}
+
+container_env() {
+  local cid="$1" key="$2"
+  # Distroless images have no printenv/shell — read Config.Env via inspect.
+  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "${cid}" 2>/dev/null |
+    awk -F= -v k="${key}" '$1==k { print substr($0, index($0, "=")+1); exit }'
+}
+
+wait_database_url_injected() {
+  local cid="" url="" i
+  echo "Waiting for DATABASE_URL injection into API container..."
+  for i in $(seq 1 120); do
+    cid="$(api_container_id)"
+    if [[ -n "${cid}" ]]; then
+      url="$(container_env "${cid}" DATABASE_URL)"
+      if [[ -n "${url}" ]]; then
+        echo "  DATABASE_URL present on container ${cid:0:12}"
+        return 0
+      fi
+    fi
+    sleep 1
+  done
+  fail "DATABASE_URL never appeared on API container"
+}
+
+prove_persistence() {
+  local title="persist-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:8])')"
+  local create_body task_id code listed cid
+  echo "Proving task persistence across API container restart..."
+  create_body="$(python3 -c 'import json,sys; print(json.dumps({"title":sys.argv[1]}))' "${title}")"
+  code="$(curl --silent --show-error -o "${TMP_DIR}/create-task.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" -H 'content-type: application/json' \
+    -d "${create_body}" "${GATEWAY_URL}/tasks" || echo "000")"
+  [[ "${code}" == "201" ]] || fail "create task HTTP ${code}: $(cat "${TMP_DIR}/create-task.json")"
+  task_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "${TMP_DIR}/create-task.json")"
+  [[ -n "${task_id}" ]] || fail "create task missing id"
+
+  cid="$(api_container_id)"
+  [[ -n "${cid}" ]] || fail "API container missing before restart"
+  echo "  restarting API container ${cid:0:12}..."
+  docker restart "${cid}" >/dev/null || fail "docker restart api failed"
+  # Gateway may briefly 502/503 while the container and upstream probe recover.
+  wait_host_http "${API_HOST}" "/health/ready" 200 120
+  refresh_routes
+
+  code="000"
+  for _ in $(seq 1 60); do
+    code="$(curl --silent --show-error -o "${TMP_DIR}/list-tasks.json" -w '%{http_code}' \
+      -H "Host: ${API_HOST}" "${GATEWAY_URL}/tasks" || echo "000")"
+    if [[ "${code}" == "200" ]]; then
+      break
+    fi
+    sleep 1
+  done
+  [[ "${code}" == "200" ]] || fail "list tasks after restart HTTP ${code}: $(cat "${TMP_DIR}/list-tasks.json" 2>/dev/null || true)"
+  TITLE="${title}" TASK_ID="${task_id}" python3 - <<'PY' "${TMP_DIR}/list-tasks.json" || fail "task missing after restart"
+import json, os, sys
+tasks = json.load(open(sys.argv[1]))
+want_id = os.environ["TASK_ID"]
+want_title = os.environ["TITLE"]
+match = [t for t in tasks if t.get("id") == want_id]
+assert match, {"want": want_id, "tasks": tasks}
+assert match[0].get("title") == want_title, match[0]
+print(f"  persisted task id={want_id} title={want_title}")
+PY
 }
 
 deploy() {
@@ -335,23 +480,40 @@ deploy() {
 
   forge_json "${TMP_DIR}/apply.json" apply -f "${TMP_DIR}/forge.yaml"
 
+  PROJECT_ID=""
   API_DEPLOYMENT_ID=""
   WEB_DEPLOYMENT_ID=""
-  while IFS='=' read -r name dep_id; do
-    case "${name}" in
-      taskflow-api) API_DEPLOYMENT_ID="${dep_id}" ;;
-      taskflow-web) WEB_DEPLOYMENT_ID="${dep_id}" ;;
+  while IFS= read -r line; do
+    case "${line}" in
+      PROJECT_ID=*) PROJECT_ID="${line#PROJECT_ID=}" ;;
+      DEPLOYMENT:taskflow-api=*) API_DEPLOYMENT_ID="${line#DEPLOYMENT:taskflow-api=}" ;;
+      DEPLOYMENT:taskflow-web=*) WEB_DEPLOYMENT_ID="${line#DEPLOYMENT:taskflow-web=}" ;;
     esac
-  done < <(extract_deployment_ids)
+  done < <(extract_apply_ids)
 
   [[ -n "${API_DEPLOYMENT_ID}" ]] || fail "taskflow-api Deployment id missing from apply"
   [[ -n "${WEB_DEPLOYMENT_ID}" ]] || fail "taskflow-web Deployment id missing from apply"
-  echo "Deployments api=${API_DEPLOYMENT_ID} web=${WEB_DEPLOYMENT_ID}"
 
+  if [[ -z "${PROJECT_ID}" ]]; then
+    # Resolve project UUID by slug via Control list API (auth=dev).
+    PROJECT_ID="$(curl --fail --silent --show-error "${CONTROL_URL}/v1/projects" |
+      PROJECT_SLUG="${PROJECT_SLUG}" python3 -c '
+import json,os,sys
+slug=os.environ["PROJECT_SLUG"]
+for p in json.load(sys.stdin):
+    if p.get("slug")==slug or p.get("name")==slug:
+        print(p["id"]); break
+')" || true
+  fi
+  [[ -n "${PROJECT_ID}" ]] || fail "PROJECT_ID missing from apply/list"
+  echo "Deployments api=${API_DEPLOYMENT_ID} web=${WEB_DEPLOYMENT_ID} project=${PROJECT_ID}"
+
+  provision_managed_db
+  wait_database_url_injected
   assert_applications_ready
   wait_route_host "${API_HOST}" 90
   wait_route_host "${APP_HOST}" 90
-  wait_host_http "${API_HOST}" "/health/ready" 200 60
+  wait_host_http "${API_HOST}" "/health/ready" 200 90
   wait_host_http "${APP_HOST}" "/" 200 60
 
   # Optional: forge wait Ready when CLI supports it.
@@ -363,14 +525,18 @@ deploy() {
   fi
 
   write_state
+  bash "${DEMO_DIR}/seed.sh" || fail "seed.sh failed"
+  prove_persistence
+
   echo
-  echo "demo 51 deploy READY"
+  echo "demo 51 deploy READY (managed Postgres + schema)"
   echo "  App:          http://${APP_HOST}:4000/"
   echo "  API:          http://${API_HOST}:4000/health/ready"
   echo "  API image:    ${API_IMAGE}"
   echo "  Web image:    ${WEB_IMAGE}"
+  echo "  Database:     ${DB_NAME} (Ready)"
   echo "  Deployments:  api=${API_DEPLOYMENT_ID} web=${WEB_DEPLOYMENT_ID}"
-  echo "  Project slug: ${PROJECT_SLUG}"
+  echo "  Project:      ${PROJECT_SLUG} (${PROJECT_ID})"
 }
 
 case "${1:-}" in

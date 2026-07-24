@@ -1,16 +1,17 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 )
 
-// Task is an in-memory task row (Postgres lands in 51.02).
+// Task is a persisted task row.
 type Task struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`
@@ -29,13 +30,11 @@ type patchTaskRequest struct {
 }
 
 type server struct {
-	mu    sync.Mutex
-	tasks map[string]*Task
-	order []string
+	store TaskStore
 }
 
-func newServer() *server {
-	return &server{tasks: make(map[string]*Task)}
+func newServer(store TaskStore) *server {
+	return &server{store: store}
 }
 
 func (s *server) routes() http.Handler {
@@ -54,21 +53,26 @@ func (s *server) handleLive(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *server) handleReady(w http.ResponseWriter, _ *http.Request) {
+func (s *server) handleReady(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := s.store.Ping(ctx); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"status": "not_ready",
+			"error":  "database unavailable",
+		})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *server) handleListTasks(w http.ResponseWriter, _ *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]*Task, 0, len(s.order))
-	for _, id := range s.order {
-		if t, ok := s.tasks[id]; ok {
-			cp := *t
-			out = append(out, &cp)
-		}
+func (s *server) handleListTasks(w http.ResponseWriter, r *http.Request) {
+	tasks, err := s.store.ListTasks(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "list failed"})
+		return
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, tasks)
 }
 
 func (s *server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
@@ -82,32 +86,26 @@ func (s *server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "title is required"})
 		return
 	}
-	now := time.Now().UTC()
-	task := &Task{
-		ID:        newID(),
-		Title:     title,
-		Done:      false,
-		CreatedAt: now,
-		UpdatedAt: now,
+	task, err := s.store.CreateTask(r.Context(), title)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "create failed"})
+		return
 	}
-	s.mu.Lock()
-	s.tasks[task.ID] = task
-	s.order = append(s.order, task.ID)
-	s.mu.Unlock()
 	writeJSON(w, http.StatusCreated, task)
 }
 
 func (s *server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	task, ok := s.tasks[id]
-	if !ok {
+	task, err := s.store.GetTask(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "get failed"})
+		return
+	}
+	if task == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
 	}
-	cp := *task
-	writeJSON(w, http.StatusOK, &cp)
+	writeJSON(w, http.StatusOK, task)
 }
 
 func (s *server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
@@ -117,45 +115,33 @@ func (s *server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	task, ok := s.tasks[id]
-	if !ok {
+	task, err := s.store.PatchTask(r.Context(), id, req.Title, req.Done)
+	if errors.Is(err, errEmptyTitle) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "title is required"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "patch failed"})
+		return
+	}
+	if task == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
 	}
-	if req.Title != nil {
-		title := strings.TrimSpace(*req.Title)
-		if title == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "title is required"})
-			return
-		}
-		task.Title = title
-	}
-	if req.Done != nil {
-		task.Done = *req.Done
-	}
-	task.UpdatedAt = time.Now().UTC()
-	cp := *task
-	writeJSON(w, http.StatusOK, &cp)
+	writeJSON(w, http.StatusOK, task)
 }
 
 func (s *server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.tasks[id]; !ok {
+	err := s.store.DeleteTask(r.Context(), id)
+	if errors.Is(err, errNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
 	}
-	delete(s.tasks, id)
-	next := s.order[:0]
-	for _, existing := range s.order {
-		if existing != id {
-			next = append(next, existing)
-		}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "delete failed"})
+		return
 	}
-	s.order = next
 	w.WriteHeader(http.StatusNoContent)
 }
 

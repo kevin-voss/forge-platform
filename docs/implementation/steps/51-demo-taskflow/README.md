@@ -8,7 +8,7 @@ Atomic steps for [Demo 1 — TaskFlow](../../epics/51-demo-taskflow.md). Product
 | N | Step | File | Status |
 |---:|---|---|---|
 | **181** | `51.01` | [51.01-scaffold-and-deploy.md](51.01-scaffold-and-deploy.md) | Complete |
-| **182** | `51.02` | [51.02-managed-postgres-and-schema.md](51.02-managed-postgres-and-schema.md) | Not started |
+| **182** | `51.02` | [51.02-managed-postgres-and-schema.md](51.02-managed-postgres-and-schema.md) | Complete |
 | **183** | `51.03` | [51.03-identity-auth-and-roles.md](51.03-identity-auth-and-roles.md) | Not started |
 | **184** | `51.04` | [51.04-secrets-injection.md](51.04-secrets-injection.md) | Not started |
 | **185** | `51.05` | [51.05-e2e-browser-spec.md](51.05-e2e-browser-spec.md) | Not started |
