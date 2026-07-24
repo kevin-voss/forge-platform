@@ -33,8 +33,17 @@ type Order struct {
 	Status        string      `json:"status"`
 	TotalCents    int         `json:"totalCents"`
 	Items         []OrderItem `json:"items"`
+	SagaEvents    []SagaEvent `json:"sagaEvents,omitempty"`
 	CreatedAt     time.Time   `json:"createdAt"`
 	UpdatedAt     time.Time   `json:"updatedAt"`
+}
+
+type SagaEvent struct {
+	ID      string    `json:"id"`
+	OrderID string    `json:"orderId"`
+	Step    string    `json:"step"`
+	Outcome string    `json:"outcome"`
+	At      time.Time `json:"at"`
 }
 
 type PlaceOrderItem struct {
@@ -49,6 +58,29 @@ type OrderStore interface {
 	ListCatalog(ctx context.Context) ([]CatalogItem, error)
 	PlaceOrder(ctx context.Context, email string, items []PlaceOrderItem) (*Order, error)
 	GetOrder(ctx context.Context, id string) (*Order, error)
+	AdvanceStatus(ctx context.Context, id, status string) (*Order, error)
+	AppendSagaEvent(ctx context.Context, orderID, step, outcome string) (*SagaEvent, error)
+	ListSagaEvents(ctx context.Context, orderID string) ([]SagaEvent, error)
+}
+
+// statusRank is monotonic for the happy-path choreography (54.04).
+func statusRank(status string) int {
+	switch status {
+	case "placed":
+		return 1
+	case "validated":
+		return 2
+	case "charged":
+		return 3
+	case "fulfilled":
+		return 4
+	case "notified":
+		return 5
+	case "failed", "refunded":
+		return 100
+	default:
+		return 0
+	}
 }
 
 type pgStore struct {
@@ -218,7 +250,100 @@ func (s *pgStore) GetOrder(ctx context.Context, id string) (*Order, error) {
 		}
 		o.Items = append(o.Items, it)
 	}
-	return &o, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	events, err := s.ListSagaEvents(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	o.SagaEvents = events
+	return &o, nil
+}
+
+func (s *pgStore) AdvanceStatus(ctx context.Context, id, status string) (*Order, error) {
+	status = strings.TrimSpace(status)
+	if statusRank(status) == 0 {
+		return nil, fmt.Errorf("unknown status %q", status)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var current string
+	err = tx.QueryRowContext(ctx, `SELECT status FROM orders WHERE id = $1 FOR UPDATE`, id).Scan(&current)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if statusRank(status) > statusRank(current) {
+		now := time.Now().UTC()
+		_, err = tx.ExecContext(ctx, `
+			UPDATE orders SET status = $2, updated_at = $3 WHERE id = $1
+		`, id, status, now)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetOrder(ctx, id)
+}
+
+func (s *pgStore) AppendSagaEvent(ctx context.Context, orderID, step, outcome string) (*SagaEvent, error) {
+	orderID = strings.TrimSpace(orderID)
+	step = strings.TrimSpace(step)
+	outcome = strings.TrimSpace(outcome)
+	if orderID == "" || step == "" {
+		return nil, errors.New("order_id and step are required")
+	}
+	if outcome != "ok" && outcome != "retry" && outcome != "compensated" {
+		return nil, fmt.Errorf("invalid outcome %q", outcome)
+	}
+	ev := &SagaEvent{
+		ID:      newID("sge"),
+		OrderID: orderID,
+		Step:    step,
+		Outcome: outcome,
+		At:      time.Now().UTC(),
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO saga_events (id, order_id, step, outcome, at)
+		VALUES ($1, $2, $3, $4, $5)
+	`, ev.ID, ev.OrderID, ev.Step, ev.Outcome, ev.At)
+	if err != nil {
+		return nil, err
+	}
+	return ev, nil
+}
+
+func (s *pgStore) ListSagaEvents(ctx context.Context, orderID string) ([]SagaEvent, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, order_id, step, outcome, at
+		FROM saga_events WHERE order_id = $1
+		ORDER BY at ASC, id ASC
+	`, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SagaEvent
+	for rows.Next() {
+		var ev SagaEvent
+		if err := rows.Scan(&ev.ID, &ev.OrderID, &ev.Step, &ev.Outcome, &ev.At); err != nil {
+			return nil, err
+		}
+		out = append(out, ev)
+	}
+	if out == nil {
+		out = []SagaEvent{}
+	}
+	return out, rows.Err()
 }
 
 func newID(prefix string) string {

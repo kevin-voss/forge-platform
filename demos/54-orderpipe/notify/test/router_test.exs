@@ -12,7 +12,15 @@ defmodule NotifyElixir.RouterTest do
       service_name: "orderpipe-notify",
       service_version: "0.1.0",
       log_level: "error",
-      env: "test"
+      env: "test",
+      events_url: "http://127.0.0.1:4105",
+      consumer_name: "orderpipe-notify",
+      identity: "orderpipe-notify",
+      consume_subject: "order.fulfilled",
+      publish_subject: "order.notified",
+      ack_wait_s: 30,
+      max_deliveries: 5,
+      poll_ms: 400
     }
 
     Application.put_env(:notify_elixir, :runtime_config, cfg)
@@ -42,6 +50,8 @@ defmodule NotifyElixir.RouterTest do
     assert body["service"] == "orderpipe-notify"
     assert body["language"] == "elixir"
     assert body["status"] == "running"
+    assert body["events"]["consume"] == "order.fulfilled"
+    assert body["events"]["publish"] == "order.notified"
   end
 
   test "notify and list" do

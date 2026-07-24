@@ -11,9 +11,10 @@ import (
 
 // memoryStore backs health/unit tests without Postgres.
 type memoryStore struct {
-	mu      sync.Mutex
-	catalog map[string]CatalogItem
-	orders  map[string]*Order
+	mu         sync.Mutex
+	catalog    map[string]CatalogItem
+	orders     map[string]*Order
+	sagaEvents map[string][]SagaEvent
 }
 
 func newMemoryStore() *memoryStore {
@@ -23,7 +24,8 @@ func newMemoryStore() *memoryStore {
 			"mug":   {SKU: "mug", Name: "Forge Mug", UnitCents: 1800, CreatedAt: now},
 			"shirt": {SKU: "shirt", Name: "Forge Tee", UnitCents: 2800, CreatedAt: now},
 		},
-		orders: map[string]*Order{},
+		orders:     map[string]*Order{},
+		sagaEvents: map[string][]SagaEvent{},
 	}
 }
 
@@ -90,5 +92,62 @@ func (s *memoryStore) GetOrder(_ context.Context, id string) (*Order, error) {
 	}
 	cp := *o
 	cp.Items = append([]OrderItem{}, o.Items...)
+	cp.SagaEvents = append([]SagaEvent{}, s.sagaEvents[id]...)
 	return &cp, nil
+}
+
+func (s *memoryStore) AdvanceStatus(_ context.Context, id, status string) (*Order, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	o, ok := s.orders[id]
+	if !ok {
+		return nil, nil
+	}
+	if statusRank(status) == 0 {
+		return nil, fmt.Errorf("unknown status %q", status)
+	}
+	if statusRank(status) > statusRank(o.Status) {
+		o.Status = status
+		o.UpdatedAt = time.Now().UTC()
+	}
+	cp := *o
+	cp.Items = append([]OrderItem{}, o.Items...)
+	cp.SagaEvents = append([]SagaEvent{}, s.sagaEvents[id]...)
+	return &cp, nil
+}
+
+func (s *memoryStore) AppendSagaEvent(_ context.Context, orderID, step, outcome string) (*SagaEvent, error) {
+	orderID = strings.TrimSpace(orderID)
+	step = strings.TrimSpace(step)
+	outcome = strings.TrimSpace(outcome)
+	if orderID == "" || step == "" {
+		return nil, errors.New("order_id and step are required")
+	}
+	if outcome != "ok" && outcome != "retry" && outcome != "compensated" {
+		return nil, fmt.Errorf("invalid outcome %q", outcome)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.orders[orderID]; !ok {
+		return nil, fmt.Errorf("unknown order %s", orderID)
+	}
+	ev := SagaEvent{
+		ID:      newID("sge"),
+		OrderID: orderID,
+		Step:    step,
+		Outcome: outcome,
+		At:      time.Now().UTC(),
+	}
+	s.sagaEvents[orderID] = append(s.sagaEvents[orderID], ev)
+	return &ev, nil
+}
+
+func (s *memoryStore) ListSagaEvents(_ context.Context, orderID string) ([]SagaEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := append([]SagaEvent{}, s.sagaEvents[orderID]...)
+	if out == nil {
+		out = []SagaEvent{}
+	}
+	return out, nil
 }

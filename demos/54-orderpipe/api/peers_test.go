@@ -99,7 +99,8 @@ func TestDiscoveryPeersResolveAndPost(t *testing.T) {
 	}
 }
 
-func TestPlaceOrderCallsPeers(t *testing.T) {
+func TestPlaceOrderDoesNotCallPeersSync(t *testing.T) {
+	// 54.04: placement publishes order.placed; fulfillment/notify react via events.
 	calls := 0
 	peers := &stubPeers{onFulfill: func(string) error {
 		calls++
@@ -108,7 +109,7 @@ func TestPlaceOrderCallsPeers(t *testing.T) {
 		calls++
 		return nil
 	}}
-	srv := newServer(newMemoryStore(), peers)
+	srv := newServer(newMemoryStore(), peers, nil)
 	req := httptest.NewRequest(http.MethodPost, "/orders",
 		bytes.NewBufferString(`{"customerEmail":"buyer@example.com","items":[{"sku":"mug","qty":1}]}`))
 	rec := httptest.NewRecorder()
@@ -116,8 +117,8 @@ func TestPlaceOrderCallsPeers(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if calls != 2 {
-		t.Fatalf("peer calls = %d, want 2", calls)
+	if calls != 0 {
+		t.Fatalf("peer calls = %d, want 0 (async events own the chain)", calls)
 	}
 }
 

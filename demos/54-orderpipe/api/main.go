@@ -35,10 +35,59 @@ func main() {
 		peers.cfg.FulfillmentURL, peers.cfg.NotifyURL, peers.cfg.DiscoveryURL,
 		peers.cfg.Project, peers.cfg.Environment)
 
-	srv := newServer(store, peers)
+	eventsCfg := loadEventsConfig()
+	events := newEventsClient(eventsCfg)
+	if err := waitPing(events.Ping, 60*time.Second, "forge-events"); err != nil {
+		log.Fatalf("forge-events: %v", err)
+	}
+	if err := waitEnsureConsumers(events, 60*time.Second); err != nil {
+		log.Fatalf("events consumers: %v", err)
+	}
+	log.Printf("orderpipe-api events url=%s source=%s", eventsCfg.BaseURL, eventsCfg.Source)
+	newChoreography(store, events).Start(context.Background())
+
+	srv := newServer(store, peers, events)
 	log.Printf("orderpipe-api listening on %s", addr)
 	if err := http.ListenAndServe(addr, srv.routes()); err != nil {
 		log.Fatal(err)
+	}
+}
+
+func waitPing(fn func(context.Context) error, budget time.Duration, label string) error {
+	deadline := time.Now().Add(budget)
+	var last error
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := fn(ctx)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		last = err
+		if time.Now().After(deadline) {
+			return last
+		}
+		log.Printf("waiting for %s: %v", label, err)
+		time.Sleep(2 * time.Second)
+	}
+}
+
+func waitEnsureConsumers(events *eventsClient, budget time.Duration) error {
+	deadline := time.Now().Add(budget)
+	var last error
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		err := events.EnsureConsumers(ctx)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		last = err
+		if time.Now().After(deadline) {
+			return last
+		}
+		log.Printf("waiting to create order consumers: %v", err)
+		time.Sleep(2 * time.Second)
 	}
 }
 

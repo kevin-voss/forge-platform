@@ -1,5 +1,5 @@
-# Demo 54 overlay — OrderPipe + managed Postgres + Discovery + NetworkPolicy (epic 54.03).
-# Used with the root compose file:
+# Demo 54 overlay — OrderPipe + managed Postgres + Discovery + NetworkPolicy + Events
+# (epic 54.04). Used with the root compose file:
 #   docker compose -f compose.yaml -f demos/54-orderpipe/docker-compose.yml up -d ...
 #
 # Host pattern yields shop/api/fulfillment/notify.orderpipe.localhost for services
@@ -14,8 +14,22 @@
 # Network: forge-network applies orderpipe-mesh NetworkPolicy (deny-all default +
 # allow order-api→fulfillment / order-api→notify). Runtime keeps the fake policy
 # backend for local compose (observable denies via /network-policy-denied).
+#
+# Events: forge-events includes the `order` stream family for order.* subjects.
 
 services:
+  forge-events:
+    environment:
+      FORGE_AUTH_MODE: ${FORGE_EVENTS_AUTH_MODE:-dev}
+      FORGE_EVENTS_STREAMS: ${FORGE_EVENTS_STREAMS:-build,deployment,runtime,application,agent,order}
+      FORGE_DEFAULT_ACK_WAIT_S: ${FORGE_DEFAULT_ACK_WAIT_S:-10}
+      FORGE_DEFAULT_MAX_DELIVERIES: ${FORGE_DEFAULT_MAX_DELIVERIES:-5}
+      FORGE_ACK_TOKEN_TTL_S: ${FORGE_ACK_TOKEN_TTL_S:-30}
+      FORGE_DEDUP_WINDOW_S: ${FORGE_DEDUP_WINDOW_S:-120}
+      FORGE_CONSUME_WAIT_MS: ${FORGE_CONSUME_WAIT_MS:-1000}
+      FORGE_DLQ_ENABLED: "true"
+      FORGE_SCHEMA_VALIDATION: strict
+
   forge-network:
     environment:
       FORGE_NETWORK_POLICY_DEFAULT: ${FORGE_NETWORK_POLICY_DEFAULT:-allow-within-environment}

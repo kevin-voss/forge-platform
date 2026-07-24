@@ -27,4 +27,7 @@ ENV NOTIFY_URL=http://notify.svc.forge:8080
 ENV FORGE_DISCOVERY_URL=http://host.docker.internal:4109
 ENV FORGE_DISCOVERY_PROJECT=orderpipe
 ENV FORGE_DISCOVERY_ENVIRONMENT=local
+# Forge Events choreography (54.04).
+ENV FORGE_EVENTS_URL=http://host.docker.internal:4105
+ENV FORGE_SERVICE_NAME=orderpipe-api
 ENTRYPOINT ["/orderpipe-api"]

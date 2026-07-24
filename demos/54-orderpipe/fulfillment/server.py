@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""OrderPipe fulfillment — health, fulfill stub, NetworkPolicy debug probe (epic 54.03)."""
+"""OrderPipe fulfillment — events choreography + NetworkPolicy debug (epic 54.04)."""
 
 from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -13,10 +14,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 from urllib.parse import urlparse
 
+from events import EventsClient, load_events_config
+
 PORT = int(os.environ.get("PORT", "8080"))
 SERVICE_NAME = os.environ.get("FORGE_SERVICE_NAME", "orderpipe-fulfillment")
 STARTED_AT = time.time()
 _FULFILLMENTS: list[dict[str, Any]] = []
+_READY = False
 
 # forge-network deny reporting (54.03). Defaults match docker-compose host ports.
 FORGE_NETWORK_URL = os.environ.get("FORGE_NETWORK_URL", "http://host.docker.internal:4110").rstrip("/")
@@ -84,8 +88,73 @@ def report_policy_denied(
     )
 
 
+def record_fulfillment(order_id: str) -> dict[str, Any]:
+    note = {
+        "id": f"ffl-{uuid.uuid4().hex[:12]}",
+        "orderId": order_id,
+        "status": "accepted",
+    }
+    _FULFILLMENTS.append(note)
+    return note
+
+
+def handle_charged_event(events: EventsClient, msg: Any) -> None:
+    data = msg.data if hasattr(msg, "data") else {}
+    order_id = str(data.get("order_id") or "").strip()
+    if not order_id:
+        events.mark_processed(msg.event_id)
+        events.ack(msg.ack_token)
+        return
+    # Idempotent record for demo list endpoint.
+    if not any(f.get("orderId") == order_id for f in _FULFILLMENTS):
+        record_fulfillment(order_id)
+    email = str(data.get("customer_email") or "").strip() or "unknown@example.com"
+    total = int(data.get("total_cents") or 0)
+    events.publish_order_fulfilled(order_id, email, total)
+    events.mark_processed(msg.event_id)
+    events.ack(msg.ack_token)
+
+
+def run_consume_loop(events: EventsClient) -> None:
+    poll = max(0.1, events.cfg.poll_ms / 1000.0)
+    while True:
+        try:
+            msgs = events.consume()
+        except Exception as exc:  # noqa: BLE001
+            print(f"consume error: {exc}", flush=True)
+            time.sleep(poll)
+            continue
+        if not msgs:
+            time.sleep(poll)
+            continue
+        for msg in msgs:
+            try:
+                handle_charged_event(events, msg)
+            except Exception as exc:  # noqa: BLE001
+                print(f"handle error: {exc}", flush=True)
+                try:
+                    events.nak(msg.ack_token, 1)
+                except Exception:  # noqa: BLE001
+                    pass
+
+
+def wait_ping(fn: Callable[[], None], label: str, budget: float = 60.0) -> None:
+    deadline = time.time() + budget
+    last: Exception | None = None
+    while time.time() < deadline:
+        try:
+            fn()
+            return
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+            print(f"waiting for {label}: {exc}", flush=True)
+            time.sleep(2)
+    raise RuntimeError(f"timed out waiting for {label}: {last}")
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "orderpipe-fulfillment/0.1"
+    events: EventsClient | None = None
 
     def log_message(self, fmt: str, *args: Any) -> None:  # noqa: A003
         return
@@ -101,6 +170,9 @@ class Handler(BaseHTTPRequestHandler):
             self._write_json(200, {"status": "ok"})
             return
         if path == "/health/ready":
+            if not _READY:
+                self._write_json(503, {"status": "not_ready", "error": "starting"})
+                return
             self._write_json(200, {"status": "ok"})
             return
         if path == "/fulfillments":
@@ -114,7 +186,8 @@ class Handler(BaseHTTPRequestHandler):
                     "language": "python",
                     "status": "running",
                     "uptime_seconds": time.time() - STARTED_AT,
-                    "fulfill": "POST /fulfill (stub until 54.04/54.05)",
+                    "fulfill": "POST /fulfill (HTTP retained for NetworkPolicy proofs)",
+                    "events": "consumes order.charged → emits order.fulfilled",
                     "debugDeniedCall": "POST /debug/denied-call (fulfillment→notify NetworkPolicy proof)",
                 },
             )
@@ -140,12 +213,7 @@ class Handler(BaseHTTPRequestHandler):
         if not order_id:
             self._write_json(400, {"error": "orderId is required"})
             return
-        note = {
-            "id": f"ffl-{uuid.uuid4().hex[:12]}",
-            "orderId": order_id,
-            "status": "accepted",
-        }
-        _FULFILLMENTS.append(note)
+        note = record_fulfillment(order_id)
         self._write_json(202, note)
 
     def _handle_denied_call(self) -> None:
@@ -162,9 +230,6 @@ class Handler(BaseHTTPRequestHandler):
         reason = str(
             body.get("reason") or "networkpolicy:policy-default-deny"
         ).strip() or "networkpolicy:policy-default-deny"
-        # Under orderpipe-mesh, fulfillment→notify is not on the allow-list.
-        # Report the deny to forge-network (fake/host policy backends observe here)
-        # and do not complete the peer call — that is the enforcement proof.
         code, report = report_policy_denied(
             from_workload=from_wl,
             to_workload=to_wl,
@@ -223,7 +288,18 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    print(f"{SERVICE_NAME} listening on :{PORT}", flush=True)
+    global _READY
+    events = EventsClient(load_events_config())
+    wait_ping(events.ping, "forge-events")
+    wait_ping(events.ensure_consumer, "events-consumer")
+    _READY = True
+    Handler.events = events
+    threading.Thread(target=run_consume_loop, args=(events,), name="consume-loop", daemon=True).start()
+    print(
+        f"{SERVICE_NAME} listening on :{PORT} consumer={events.cfg.consumer} "
+        f"subject={events.cfg.subject} publish={events.cfg.publish_subject}",
+        flush=True,
+    )
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
 
 

@@ -19,7 +19,7 @@ defmodule NotifyElixir.MixProject do
 
   def application do
     [
-      extra_applications: [:logger, :crypto],
+      extra_applications: [:logger, :crypto, :inets, :ssl],
       mod: {NotifyElixir.Application, []}
     ]
   end

@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 202`** (verification track; epic 54 OrderPipe).
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 203`** (verification track; epic 54 OrderPipe).
 
 ## Epics
 
@@ -320,7 +320,7 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 | **199** | Multi-service scaffold + Postgres | 54 | Complete |
 | **200** | Service discovery wiring | 54 | Complete |
 | **201** | Network policy | 54 | Complete |
-| **202** | Event choreography | 54 | Not started |
+| **202** | Event choreography | 54 | Complete |
 | **203** | Workflow saga + retry/compensation | 54 | Not started |
 | **204** | E2E browser spec | 54 | Not started |
 | **205** | Demo + epic gate | 54 | Not started |

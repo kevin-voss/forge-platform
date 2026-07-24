@@ -32,6 +32,9 @@ class FakeHandler(server.Handler):
 
 
 class HealthTests(unittest.TestCase):
+    def setUp(self) -> None:
+        server._READY = True
+
     def test_ready(self) -> None:
         h = FakeHandler("GET", "/health/ready")
         h.do_GET()

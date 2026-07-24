@@ -36,7 +36,11 @@ ENV LANG=C.UTF-8 \
 	FORGE_SERVICE_NAME=orderpipe-notify \
 	FORGE_SERVICE_VERSION=0.1.0 \
 	FORGE_LOG_LEVEL=info \
-	FORGE_ENV=development
+	FORGE_ENV=development \
+	FORGE_EVENTS_URL=http://host.docker.internal:4105 \
+	FORGE_EVENTS_CONSUMER=orderpipe-notify \
+	FORGE_EVENTS_SUBJECT=order.fulfilled \
+	FORGE_EVENTS_PUBLISH_SUBJECT=order.notified
 
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends openssl ca-certificates libncurses6 locales \

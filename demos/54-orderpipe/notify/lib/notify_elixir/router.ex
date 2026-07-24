@@ -25,7 +25,12 @@ defmodule NotifyElixir.Router do
       status: "running",
       version: cfg.service_version,
       uptime_seconds: uptime,
-      notify: "POST /notify (stub until 54.04/54.05)"
+      notify: "POST /notify (HTTP retained); events consume order.fulfilled → emit order.notified",
+      events: %{
+        consume: cfg.consume_subject,
+        publish: cfg.publish_subject,
+        consumer: cfg.consumer_name
+      }
     })
   end
 

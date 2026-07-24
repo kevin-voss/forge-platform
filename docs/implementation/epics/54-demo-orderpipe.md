@@ -58,7 +58,7 @@ service-to-service pair is blocked while allowed pairs succeed; no hard-coded pe
 | 54.01 | Multi-service scaffold + Postgres | Complete | order-api + fulfillment + notify + storefront; orders/items schema; baseline deploy |
 | 54.02 | Service discovery wiring | Complete | peers resolved via `*.svc.forge`; contract check: no hard-coded DNS |
 | 54.03 | Network policy | Complete | overlay + NetworkPolicy allow/deny; denied pair blocked, allowed pairs work |
-| 54.04 | Event choreography | Not started | `order.*` events emitted/consumed; status advances via events |
+| 54.04 | Event choreography | Complete | `order.*` events emitted/consumed; status advances via events |
 | 54.05 | Workflow saga + retry/compensation | Not started | validate→charge→fulfill→notify; injected charge failure → retry → compensate |
 | 54.06 | E2E browser spec | Not started | happy path to `notified`; failure path compensates; network-policy proof |
 | 54.07 | Demo + epic gate | Not started | `demos/54-orderpipe`; `make demo DEMO=54`; wired into test-platform-e2e |

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Demo 54: OrderPipe multi-service + Discovery + NetworkPolicy (epic 54.03).
+# Demo 54: OrderPipe multi-service + Discovery + NetworkPolicy + Events (epic 54.04).
 # Usage:
-#   demos/54-orderpipe/run.sh          # build → apply → DB → Discovery → NetworkPolicy → proofs
+#   demos/54-orderpipe/run.sh          # build → apply → DB → Discovery → Events → proofs
 #   demos/54-orderpipe/run.sh --down   # tear down product resources only
 set -euo pipefail
 
@@ -30,6 +30,8 @@ export FORGE_INJECT_MASK_IN_LOGS="${FORGE_INJECT_MASK_IN_LOGS:-true}"
 export FORGE_DISCOVERY_DEFAULT_PROJECT="${FORGE_DISCOVERY_DEFAULT_PROJECT:-orderpipe}"
 export FORGE_DISCOVERY_DEFAULT_ENVIRONMENT="${FORGE_DISCOVERY_DEFAULT_ENVIRONMENT:-local}"
 export FORGE_NETWORK_DNS_SEARCH="${FORGE_NETWORK_DNS_SEARCH:-local.orderpipe.svc.forge}"
+export FORGE_EVENTS_STREAMS="${FORGE_EVENTS_STREAMS:-build,deployment,runtime,application,agent,order}"
+export FORGE_EVENTS_AUTH_MODE="${FORGE_EVENTS_AUTH_MODE:-dev}"
 export DOCKER_GID="${DOCKER_GID:-$(stat -f '%g' /var/run/docker.sock 2>/dev/null || stat -c '%g' /var/run/docker.sock 2>/dev/null || echo 0)}"
 export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"
 
@@ -45,12 +47,15 @@ GATEWAY_URL="${FORGE_GATEWAY_URL:-http://127.0.0.1:4000}"
 BUILD_URL="${FORGE_BUILD_URL:-http://127.0.0.1:4103}"
 DISCOVERY_URL="${FORGE_DISCOVERY_HOST_URL:-http://127.0.0.1:4109}"
 NETWORK_URL="${FORGE_NETWORK_URL:-http://127.0.0.1:4110}"
+EVENTS_URL="${FORGE_EVENTS_HOST_URL:-http://127.0.0.1:4105}"
 CONTROL_SERVICE="forge-control"
 RUNTIME_SERVICE="forge-runtime"
 GATEWAY_SERVICE="forge-gateway"
 BUILD_SERVICE="forge-build"
 DISCOVERY_SERVICE="forge-discovery"
 NETWORK_SERVICE="forge-network"
+EVENTS_SERVICE="forge-events"
+NATS_SERVICE="nats"
 POSTGRES_SERVICE="postgres"
 REGISTRY_SERVICE="registry"
 DISC_PROJECT="${FORGE_DISCOVERY_DEFAULT_PROJECT}"
@@ -91,6 +96,8 @@ fail() {
   "${COMPOSE[@]}" logs --tail=60 "${RUNTIME_SERVICE}" >&2 || true
   echo "--- ${GATEWAY_SERVICE} logs (tail) ---" >&2
   "${COMPOSE[@]}" logs --tail=60 "${GATEWAY_SERVICE}" >&2 || true
+  echo "--- ${EVENTS_SERVICE} logs (tail) ---" >&2
+  "${COMPOSE[@]}" logs --tail=60 "${EVENTS_SERVICE}" >&2 || true
   echo "--- managed db containers ---" >&2
   docker ps --filter "label=forge.managed_db=true" --format '{{.Names}} {{.Status}}' >&2 || true
   exit 1
@@ -183,8 +190,8 @@ teardown() {
 }
 
 ensure_platform() {
-  echo "Ensuring Postgres, registry, Network, Discovery, Control, Runtime, Gateway, Build..."
-  "${COMPOSE[@]}" up -d "${POSTGRES_SERVICE}" "${REGISTRY_SERVICE}"
+  echo "Ensuring Postgres, registry, NATS, Events, Network, Discovery, Control, Runtime, Gateway, Build..."
+  "${COMPOSE[@]}" up -d "${POSTGRES_SERVICE}" "${REGISTRY_SERVICE}" "${NATS_SERVICE}"
   for _ in $(seq 1 60); do
     if "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" pg_isready -U forge >/dev/null 2>&1; then
       break
@@ -195,7 +202,7 @@ ensure_platform() {
     fail "Postgres not ready"
 
   local need_recreate=0
-  local auth_mode pattern strategy provisioner secrets_url disc_project dns_search net_url policy_backend
+  local auth_mode pattern strategy provisioner secrets_url disc_project dns_search net_url policy_backend streams
   auth_mode="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_AUTH_MODE 2>/dev/null || true)"
   pattern="$(docker exec "${GATEWAY_SERVICE}" printenv FORGE_HOST_PATTERN 2>/dev/null || true)"
   strategy="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_SCHEDULER_STRATEGY 2>/dev/null || true)"
@@ -205,6 +212,7 @@ ensure_platform() {
   dns_search="$(docker exec "${RUNTIME_SERVICE}" printenv FORGE_NETWORK_DNS_SEARCH 2>/dev/null || true)"
   net_url="$(docker exec "${RUNTIME_SERVICE}" printenv FORGE_NETWORK_URL 2>/dev/null || true)"
   policy_backend="$(docker exec "${RUNTIME_SERVICE}" printenv FORGE_NETWORK_POLICY_BACKEND 2>/dev/null || true)"
+  streams="$(docker exec "${EVENTS_SERVICE}" printenv FORGE_EVENTS_STREAMS 2>/dev/null || true)"
   if [[ "${auth_mode}" != "dev" ]]; then
     need_recreate=1
   fi
@@ -229,6 +237,9 @@ ensure_platform() {
   if [[ "${net_url}" != *"forge-network"* && "${net_url}" != *"4110"* ]]; then
     need_recreate=1
   fi
+  if [[ "${streams}" != *order* ]]; then
+    need_recreate=1
+  fi
   if [[ "${policy_backend}" != "fake" && -n "${policy_backend}" ]]; then
     : # host/nft also fine; no recreate required
   fi
@@ -238,12 +249,13 @@ ensure_platform() {
 
   "${COMPOSE[@]}" up -d "${NETWORK_SERVICE}" "${DISCOVERY_SERVICE}"
   if [[ "${need_recreate}" -eq 1 ]]; then
-    echo "Recreating Control/Runtime/Gateway with demo 54 Discovery + Network + managed-DB overlay..."
+    echo "Recreating Control/Runtime/Gateway/Events with demo 54 Discovery + Network + Events overlay..."
     "${COMPOSE[@]}" up -d --force-recreate \
-      "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}"
+      "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}" "${EVENTS_SERVICE}"
   else
-    echo "Control/Gateway already configured for demo 54; ensuring they are up..."
-    "${COMPOSE[@]}" up -d "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}"
+    echo "Control/Gateway/Events already configured for demo 54; ensuring they are up..."
+    "${COMPOSE[@]}" up -d "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}" \
+      "${EVENTS_SERVICE}"
   fi
   "${COMPOSE[@]}" up -d "${BUILD_SERVICE}"
 
@@ -252,6 +264,7 @@ ensure_platform() {
   wait_http "${DISCOVERY_URL}/health/ready" "Discovery"
   wait_http "${RUNTIME_URL}/health/ready" "Runtime"
   wait_http "${GATEWAY_URL}/health/ready" "Gateway"
+  wait_http "${EVENTS_URL}/health/ready" "Events" 90
   wait_http "${BUILD_URL}/health/ready" "Build" 60 || true
 
   pattern="$(docker exec "${GATEWAY_SERVICE}" printenv FORGE_HOST_PATTERN 2>/dev/null || true)"
@@ -263,6 +276,33 @@ ensure_platform() {
   disc_project="$(docker exec "${RUNTIME_SERVICE}" printenv FORGE_DISCOVERY_DEFAULT_PROJECT 2>/dev/null || true)"
   [[ "${disc_project}" == "${DISC_PROJECT}" ]] ||
     fail "runtime FORGE_DISCOVERY_DEFAULT_PROJECT must be ${DISC_PROJECT} (got: ${disc_project})"
+  streams="$(docker exec "${EVENTS_SERVICE}" printenv FORGE_EVENTS_STREAMS 2>/dev/null || true)"
+  [[ "${streams}" == *order* ]] ||
+    fail "events FORGE_EVENTS_STREAMS must include order (got: ${streams})"
+
+  curl --fail --silent --show-error "${EVENTS_URL}/v1/schemas" >"${TMP_DIR}/schemas.json" ||
+    fail "GET /v1/schemas failed"
+  python3 - <<'PY' "${TMP_DIR}/schemas.json" || fail "order.* schemas missing"
+import json, sys
+raw = json.load(open(sys.argv[1]))
+flat = []
+if isinstance(raw, dict):
+    flat.extend(raw.keys())
+    for v in raw.values():
+        if isinstance(v, dict):
+            flat.extend(v.keys())
+elif isinstance(raw, list):
+    for item in raw:
+        flat.append(str(item))
+        if isinstance(item, dict):
+            flat.extend(str(x) for x in item.keys())
+            flat.extend(str(x) for x in item.values())
+want = ["order.placed", "order.validated", "order.charged", "order.fulfilled", "order.notified"]
+text = json.dumps(raw)
+for subj in want:
+    assert subj in text, (subj, text[:500])
+print("  schemas order.* registered")
+PY
 }
 
 ensure_images() {
@@ -790,7 +830,7 @@ PY
 prove_place_order() {
   local email="buyer-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:8])')@example.com"
   local code order_id cid
-  echo "Proving place-order reaches peers via Discovery (*.svc.forge)..."
+  echo "Proving place-order advances via forge-events choreography..."
   code="$(curl --silent --show-error -o "${TMP_DIR}/place-order.json" -w '%{http_code}' \
     -H "Host: ${API_HOST}" -H 'content-type: application/json' \
     -d "{\"customerEmail\":\"${email}\",\"items\":[{\"sku\":\"mug\",\"qty\":1}]}" \
@@ -805,10 +845,41 @@ assert body.get("status") == "placed", body
 assert body.get("customerEmail") == os.environ["EMAIL"], body
 assert body.get("totalCents") == 1800, body
 assert body.get("items"), body
+steps = {e.get("step") for e in (body.get("sagaEvents") or [])}
+assert "place" in steps, body
 print(f"  created order id={os.environ['ORDER_ID']} status=placed")
 PY
 
-  echo "  verifying fulfillment accepted order via Discovery peer call..."
+  echo "  waiting for status placed→…→notified via order.* events..."
+  code="000"
+  for _ in $(seq 1 90); do
+    code="$(curl --silent --show-error -o "${TMP_DIR}/get-order.json" -w '%{http_code}' \
+      -H "Host: ${API_HOST}" \
+      "${GATEWAY_URL}/orders/${order_id}" || echo "000")"
+    if [[ "${code}" == "200" ]] && ORDER_ID="${order_id}" python3 - <<'PY' "${TMP_DIR}/get-order.json"
+import json, os, sys
+body = json.load(open(sys.argv[1]))
+sys.exit(0 if body.get("status") == "notified" else 1)
+PY
+    then
+      break
+    fi
+    sleep 1
+  done
+  [[ "${code}" == "200" ]] || fail "get order HTTP ${code}: $(cat "${TMP_DIR}/get-order.json" 2>/dev/null || true)"
+  ORDER_ID="${order_id}" EMAIL="${email}" python3 - <<'PY' "${TMP_DIR}/get-order.json" || fail "order did not reach notified via events"
+import json, os, sys
+body = json.load(open(sys.argv[1]))
+assert body.get("id") == os.environ["ORDER_ID"], body
+assert body.get("customerEmail") == os.environ["EMAIL"], body
+assert body.get("status") == "notified", body
+steps = {e.get("step"): e.get("outcome") for e in (body.get("sagaEvents") or [])}
+for step in ("place", "validate", "charge", "fulfill", "notify"):
+    assert steps.get(step) == "ok", (step, steps, body)
+print(f"  choreography complete id={os.environ['ORDER_ID']} status=notified saga={sorted(steps)}")
+PY
+
+  echo "  verifying fulfillment reacted to order.charged..."
   code="000"
   for _ in $(seq 1 30); do
     code="$(curl --silent --show-error -o "${TMP_DIR}/fulfillments.json" -w '%{http_code}' \
@@ -826,14 +897,14 @@ PY
     sleep 1
   done
   [[ "${code}" == "200" ]] || fail "fulfillments list HTTP ${code}"
-  ORDER_ID="${order_id}" python3 - <<'PY' "${TMP_DIR}/fulfillments.json" || fail "fulfillment missing order after Discovery peer call"
+  ORDER_ID="${order_id}" python3 - <<'PY' "${TMP_DIR}/fulfillments.json" || fail "fulfillment missing order after events"
 import json, os, sys
 body = json.load(open(sys.argv[1]))
 items = body.get("items") or []
 assert any(i.get("orderId") == os.environ["ORDER_ID"] for i in items), body
 PY
 
-  echo "  verifying notify queued order via Discovery peer call..."
+  echo "  verifying notify reacted to order.fulfilled..."
   code="000"
   for _ in $(seq 1 30); do
     code="$(curl --silent --show-error -o "${TMP_DIR}/notifications.json" -w '%{http_code}' \
@@ -851,7 +922,7 @@ PY
     sleep 1
   done
   [[ "${code}" == "200" ]] || fail "notifications list HTTP ${code}"
-  ORDER_ID="${order_id}" python3 - <<'PY' "${TMP_DIR}/notifications.json" || fail "notify missing order after Discovery peer call"
+  ORDER_ID="${order_id}" python3 - <<'PY' "${TMP_DIR}/notifications.json" || fail "notify missing order after events"
 import json, os, sys
 body = json.load(open(sys.argv[1]))
 items = body.get("items") or []
@@ -884,8 +955,11 @@ import json, os, sys
 body = json.load(open(sys.argv[1]))
 assert body.get("id") == os.environ["ORDER_ID"], body
 assert body.get("customerEmail") == os.environ["EMAIL"], body
-assert body.get("status") == "placed", body
-print(f"  persisted order id={os.environ['ORDER_ID']}")
+assert body.get("status") == "notified", body
+steps = {e.get("step"): e.get("outcome") for e in (body.get("sagaEvents") or [])}
+for step in ("place", "validate", "charge", "fulfill", "notify"):
+    assert steps.get(step) == "ok", (step, steps, body)
+print(f"  persisted order id={os.environ['ORDER_ID']} status=notified")
 PY
 }
 
@@ -977,7 +1051,7 @@ for p in json.load(sys.stdin):
   prove_network_policy
 
   echo
-  echo "demo 54 deploy READY (OrderPipe Discovery + NetworkPolicy)"
+  echo "demo 54 deploy READY (OrderPipe Discovery + NetworkPolicy + Events)"
   echo "  Shop:         http://${SHOP_HOST}:4000/"
   echo "  API:          http://${API_HOST}:4000/health/ready"
   echo "  Fulfillment:  http://${FULFILLMENT_HOST}:4000/health/ready"
@@ -985,6 +1059,7 @@ for p in json.load(sys.stdin):
   echo "  Discovery:    ${DISC_PROJECT}/${DISC_ENV} (*.svc.forge)"
   echo "  DNS:          fulfillment/notify/api.${DISC_ENV}.${DISC_PROJECT}.svc.forge"
   echo "  Network:      orderpipe-mesh (allow api→fulfillment/notify; deny fulfillment↔notify)"
+  echo "  Events:       ${EVENTS_URL} (order.* choreography → notified)"
   echo "  API image:    ${API_IMAGE}"
   echo "  Shop image:   ${WEB_IMAGE}"
   echo "  Fulfillment:  ${FULFILLMENT_IMAGE}"

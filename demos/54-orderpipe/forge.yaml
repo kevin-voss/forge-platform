@@ -45,7 +45,7 @@ spec:
       type: postgres
       plan: standard
       name: orderpipe-db
-  # Peer Discovery names (54.02). Defaults also baked into the API image.
+  # Peer Discovery names (54.02) + Events choreography (54.04).
   env:
     - name: FULFILLMENT_URL
       value: http://fulfillment.svc.forge:8080
@@ -57,6 +57,10 @@ spec:
       value: orderpipe
     - name: FORGE_DISCOVERY_ENVIRONMENT
       value: local
+    - name: FORGE_EVENTS_URL
+      value: http://host.docker.internal:4105
+    - name: FORGE_SERVICE_NAME
+      value: orderpipe-api
 ---
 apiVersion: forge.dev/v1
 kind: Service
@@ -101,7 +105,7 @@ spec:
   scaling:
     minReplicas: 1
     maxReplicas: 1
-  # NetworkPolicy debug probe (54.03): attempt denied pair fulfillment→notify.
+  # NetworkPolicy debug (54.03) + Events choreography (54.04).
   env:
     - name: NOTIFY_URL
       value: http://notify.svc.forge:8080
@@ -115,6 +119,16 @@ spec:
       value: http://host.docker.internal:4110
     - name: FORGE_NETWORK_NODE_ID
       value: node-local
+    - name: FORGE_EVENTS_URL
+      value: http://host.docker.internal:4105
+    - name: FORGE_SERVICE_NAME
+      value: orderpipe-fulfillment
+    - name: FORGE_EVENTS_CONSUMER
+      value: orderpipe-fulfill
+    - name: FORGE_EVENTS_SUBJECT
+      value: order.charged
+    - name: FORGE_EVENTS_PUBLISH_SUBJECT
+      value: order.fulfilled
 ---
 apiVersion: forge.dev/v1
 kind: Service
@@ -159,6 +173,17 @@ spec:
   scaling:
     minReplicas: 1
     maxReplicas: 1
+  env:
+    - name: FORGE_EVENTS_URL
+      value: http://host.docker.internal:4105
+    - name: FORGE_SERVICE_NAME
+      value: orderpipe-notify
+    - name: FORGE_EVENTS_CONSUMER
+      value: orderpipe-notify
+    - name: FORGE_EVENTS_SUBJECT
+      value: order.fulfilled
+    - name: FORGE_EVENTS_PUBLISH_SUBJECT
+      value: order.notified
 ---
 apiVersion: forge.dev/v1
 kind: Service

@@ -1,0 +1,8 @@
+{
+  "order_id": "ord-demo-0001",
+  "customer_email": "buyer@example.com",
+  "status": "charged",
+  "total_cents": 1800,
+  "occurred_at": "2026-07-24T10:00:02Z",
+  "source": "orderpipe-api"
+}

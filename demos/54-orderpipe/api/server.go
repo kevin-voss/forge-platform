@@ -9,12 +9,13 @@ import (
 )
 
 type server struct {
-	store OrderStore
-	peers PeerCaller
+	store  OrderStore
+	peers  PeerCaller
+	events *eventsClient
 }
 
-func newServer(store OrderStore, peers PeerCaller) *server {
-	return &server{store: store, peers: peers}
+func newServer(store OrderStore, peers PeerCaller, events *eventsClient) *server {
+	return &server{store: store, peers: peers, events: events}
 }
 
 func (s *server) routes() http.Handler {
@@ -50,9 +51,10 @@ func (s *server) handleRoot(w http.ResponseWriter, _ *http.Request) {
 		"service":  "orderpipe-api",
 		"language": "go",
 		"status":   "running",
-		"orders":   "POST /orders (peers via fulfillment/notify.svc.forge; saga in 54.04/54.05)",
+		"orders":   "POST /orders → order.placed; status advances via forge-events (54.04)",
 		"catalog":  "GET /catalog",
-		"peers":    "FULFILLMENT_URL / NOTIFY_URL → Discovery Ready endpoints",
+		"events":   "order.placed/validated/charged/fulfilled/notified",
+		"peers":    "FULFILLMENT_URL / NOTIFY_URL → Discovery Ready endpoints (HTTP retained for policy proofs)",
 	})
 }
 
@@ -94,25 +96,25 @@ func (s *server) handlePlaceOrder(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "place order failed"})
 		return
 	}
-	if s.peers != nil {
+	if _, err := s.store.AppendSagaEvent(r.Context(), order.ID, "place", "ok"); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "saga audit failed"})
+		return
+	}
+	if s.events != nil && s.events.enabled() {
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 		defer cancel()
-		if err := s.peers.Fulfill(ctx, order.ID); err != nil {
+		if err := s.events.PublishOrderEvent(ctx, subjectPlaced, order); err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]string{
-				"error":   "fulfillment peer call failed",
+				"error":   "events publish failed",
 				"detail":  err.Error(),
 				"orderId": order.ID,
 			})
 			return
 		}
-		if err := s.peers.Notify(ctx, order.ID, email); err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]string{
-				"error":   "notify peer call failed",
-				"detail":  err.Error(),
-				"orderId": order.ID,
-			})
-			return
-		}
+	}
+	// Reload so sagaEvents is present on the create response.
+	if refreshed, err := s.store.GetOrder(r.Context(), order.ID); err == nil && refreshed != nil {
+		order = refreshed
 	}
 	writeJSON(w, http.StatusCreated, order)
 }

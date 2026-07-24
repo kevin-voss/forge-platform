@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/contracts/events/order.placed/v1",
+  "title": "order.placed",
+  "description": "Emitted by OrderPipe order-api when a new order is accepted.",
+  "x-forge-subject": "order.placed",
+  "x-forge-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["order_id", "customer_email", "status", "total_cents", "occurred_at"],
+  "properties": {
+    "order_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque order identifier (also used as publish Idempotency-Key suffix)"
+    },
+    "customer_email": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Customer email on the order"
+    },
+    "status": {
+      "type": "string",
+      "const": "placed",
+      "description": "Order status at emit time"
+    },
+    "total_cents": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Order total in cents"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the order was placed (RFC 3339)"
+    },
+    "source": {
+      "type": "string",
+      "description": "Producing service name"
+    }
+  }
+}

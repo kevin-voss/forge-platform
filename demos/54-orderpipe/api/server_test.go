@@ -9,7 +9,7 @@ import (
 )
 
 func TestHealthReady(t *testing.T) {
-	srv := newServer(newMemoryStore(), nil)
+	srv := newServer(newMemoryStore(), nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
 	rec := httptest.NewRecorder()
 	srv.routes().ServeHTTP(rec, req)
@@ -26,7 +26,7 @@ func TestHealthReady(t *testing.T) {
 }
 
 func TestPlaceOrderStub(t *testing.T) {
-	srv := newServer(newMemoryStore(), nil)
+	srv := newServer(newMemoryStore(), nil, nil)
 	handler := srv.routes()
 
 	body := bytes.NewBufferString(`{"customerEmail":"buyer@example.com","items":[{"sku":"mug","qty":2}]}`)
@@ -45,6 +45,9 @@ func TestPlaceOrderStub(t *testing.T) {
 	}
 	if len(created.Items) != 1 || created.Items[0].SKU != "mug" || created.Items[0].Qty != 2 {
 		t.Fatalf("unexpected items: %+v", created.Items)
+	}
+	if len(created.SagaEvents) != 1 || created.SagaEvents[0].Step != "place" {
+		t.Fatalf("unexpected saga events: %+v", created.SagaEvents)
 	}
 
 	getReq := httptest.NewRequest(http.MethodGet, "/orders/"+created.ID, nil)

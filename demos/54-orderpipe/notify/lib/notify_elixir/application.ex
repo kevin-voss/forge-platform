@@ -5,6 +5,9 @@ defmodule NotifyElixir.Application do
 
   @impl true
   def start(_type, _args) do
+    _ = Application.ensure_all_started(:inets)
+    _ = Application.ensure_all_started(:ssl)
+
     children =
       if Application.get_env(:notify_elixir, :start_http, true) do
         cfg = NotifyElixir.Config.load!()
@@ -14,11 +17,15 @@ defmodule NotifyElixir.Application do
         NotifyElixir.JsonLog.info(cfg.service_name, "listening", %{
           port: cfg.port,
           version: cfg.service_version,
-          env: cfg.env
+          env: cfg.env,
+          events: cfg.events_url,
+          consumer: cfg.consumer_name,
+          subject: cfg.consume_subject
         })
 
         [
           NotifyElixir.Store,
+          {NotifyElixir.Worker, cfg},
           {Bandit,
            plug: NotifyElixir.Router,
            scheme: :http,

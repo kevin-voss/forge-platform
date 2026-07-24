@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/contracts/events/order.validated/v1",
+  "title": "order.validated",
+  "description": "Emitted by OrderPipe order-api after stock/format validation succeeds.",
+  "x-forge-subject": "order.validated",
+  "x-forge-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["order_id", "customer_email", "status", "total_cents", "occurred_at"],
+  "properties": {
+    "order_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "customer_email": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "const": "validated"
+    },
+    "total_cents": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "type": "string"
+    }
+  }
+}
