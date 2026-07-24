@@ -1,14 +1,30 @@
-# Demo 53 overlay — AskDocs + managed Postgres + Events/Storage/Models/Memory (epic 53.03).
-# Used with the root compose file:
+# Demo 53 overlay — AskDocs + managed Postgres + Events/Storage/Models/Memory/Agents
+# (epic 53.04). Used with the root compose file:
 #   docker compose -f compose.yaml -f demos/53-askdocs/docker-compose.yml up -d ...
 #
 # Host pattern yields api/app/worker.askdocs.localhost for services named
 # `api`, `app`, and `worker`. LocalProvisioner starts isolated product Postgres
 # containers; DATABASE_URL is injected via Control's in-memory secrets client
-# while FORGE_SECRETS_URL=disabled. Models/Memory are started by run.sh from the
-# root compose (ports 4300 / 4303).
+# while FORGE_SECRETS_URL=disabled. Models/Memory/Agents are started by run.sh
+# from the root compose (ports 4300 / 4303 / 4301).
 
 services:
+  forge-agents:
+    environment:
+      FORGE_AGENTS_TOOLS_MODE: ${FORGE_AGENTS_TOOLS_MODE:-fake}
+      FORGE_MODELS_URL: http://forge-models:8080
+      FORGE_MEMORY_URL: http://forge-memory:8080
+      FORGE_CONTROL_URL: http://forge-control:4001
+      FORGE_RUNTIME_URL: http://forge-runtime:4102
+      FORGE_OBSERVE_URL: http://forge-observe:4106
+      FORGE_STORAGE_URL: http://forge-storage:4107
+      FORGE_EVENTS_URL: http://forge-events:4105
+      FORGE_AGENTS_DEFS_DIR: /app/agents
+    volumes:
+      # Product Agent def (askdocs-answerer); keeps packaged agents alongside.
+      # Path is relative to compose --project-directory (repo root).
+      - ./demos/53-askdocs/agents/askdocs-answerer.yaml:/app/agents/askdocs-answerer.yaml:ro
+
   forge-events:
     environment:
       FORGE_AUTH_MODE: ${FORGE_EVENTS_AUTH_MODE:-dev}

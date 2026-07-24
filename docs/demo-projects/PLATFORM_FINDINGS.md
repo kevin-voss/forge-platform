@@ -18,11 +18,11 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 
 | Metric | Count |
 |---|---|
-| Total findings | 5 |
-| Open | 5 |
+| Total findings | 6 |
+| Open | 6 |
 | Blocker | 0 |
 | Major | 2 |
-| Minor | 3 |
+| Minor | 4 |
 
 ## By service
 
@@ -33,6 +33,7 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 | forge-secrets / forge-control | 1 | 0 | 0 | 1 |
 | platform | 1 | 0 | 1 | 0 |
 | forge-events | 1 | 0 | 0 | 1 |
+| forge-agents / forge-control | 1 | 0 | 0 | 1 |
 
 ## By demo
 
@@ -40,7 +41,7 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 |---|--:|
 | 01-taskflow | 4 |
 | 02-snapnote | 1 |
-| 03-askdocs | 0 |
+| 03-askdocs | 1 |
 | 04-orderpipe | 0 |
 | 05-pulseboard | 0 |
 
@@ -250,3 +251,55 @@ still passes; only the metrics source is a platform gap (future forge-queue / ep
 
 **Suspected component / notes**
 Related to epic 28 (forge-queue). Workaround is intentional for the verification track.
+
+### F-006 — No `retrieve` tool alias or Control-applied `kind: Agent`
+
+| Field | Value |
+|---|---|
+| Status | Open |
+| Severity | minor |
+| Service | forge-agents / forge-control |
+| Area / contract | Agent tool registry + portable `kind: Agent` apply (epics 15, 20) |
+| Found by demo | 03-askdocs (step 53.04) |
+| First seen | 2026-07-24 |
+| Reproducible | always |
+
+**What we tested**
+AskDocs product design declares `kind: Agent` `askdocs-answerer` with
+`tools: [{ name: retrieve, memory: askdocs-chunks }]` and expects the Agent to
+retrieve from Memory collection `askdocs-chunks` under `FORGE_AGENTS_TOOLS_MODE=fake`.
+
+**Expected (per product design)**
+A first-class `retrieve` tool (or alias) bound to a Memory collection, and
+`forge apply` of `kind: Agent` registering the definition in forge-agents.
+
+**Actual**
+- Tool registry exposes `memory.search` (collection is a call argument), not `retrieve`.
+- Control/apply has no `kind: Agent` path; agents load only from
+  `FORGE_AGENTS_DEFS_DIR` YAML files.
+- Fake `memory.search` returns fixture JSON, not live Memory contents — so a
+  dry-run plan alone cannot ground answers in uploaded corpus chunks.
+
+**Evidence**
+- `services/forge-agents/app/tools/memory.py` tool name `memory.search`
+- `GET /v1/tools` lists `memory.search`, no `retrieve`
+- AskDocs portable doc: `demos/53-askdocs/agents/askdocs-answerer.resource.yaml`
+- Runtime def mount: `demos/53-askdocs/agents/askdocs-answerer.yaml`
+
+**Reproduce**
+```bash
+make demo DEMO=53 KEEP=1
+curl -s http://127.0.0.1:4301/v1/tools | python3 -c 'import json,sys; print([t["name"] for t in json.load(sys.stdin)["tools"]])'
+# expect memory.search; no retrieve
+```
+
+**Impact on demo**
+Demo marked degraded only if counted as a product failure; AskDocs workarounds:
+mount `askdocs-answerer.yaml`, invoke dry-run plans that call `memory.search`,
+and ground answers via product Models+Memory retrieval (lexical boost for fake
+embeddings) with a refusal guardrail when retrieval is weak.
+
+**Suggested platform fix**
+Add a `retrieve` alias (or collection-bound tool binding in Agent YAML) and/or
+wire Control `kind: Agent` apply → forge-agents registry; optionally make fake
+`memory.search` proxy live Memory when available.

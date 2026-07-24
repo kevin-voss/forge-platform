@@ -56,7 +56,7 @@ chat history persists.
 | 53.01 | Product scaffold + Postgres | Complete | API + chat SPA, documents/chunks/messages schema, baseline deploy |
 | 53.02 | Storage upload + ingest pipeline | Complete | store doc to Storage; `document.uploaded` event → chunk worker |
 | 53.03 | Embeddings (Models) + Memory upsert/query | Complete | fake embeddings; collection `askdocs-chunks`; dim 384; kNN + query |
-| 53.04 | Agent grounded answerer | Not started | Agent with `retrieve` tool; grounded answer + citations; refusal guardrail |
+| 53.04 | Agent grounded answerer | Complete | Agent `askdocs-answerer` (`memory.search` stand-in for `retrieve`); grounded + refusal; F-006 |
 | 53.05 | E2E browser spec | Not started | upload→ready→ask→cited answer; out-of-corpus refusal; history persists |
 | 53.06 | Demo + epic gate | Not started | `demos/53-askdocs`; `make demo DEMO=53`; wired into test-platform-e2e |
 

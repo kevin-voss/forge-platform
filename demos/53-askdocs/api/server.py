@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AskDocs API — upload/ingest + Models/Memory retrieval (epic 53.03)."""
+"""AskDocs API — upload/ingest + grounded Agent answerer (epic 53.04)."""
 
 from __future__ import annotations
 
@@ -13,6 +13,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from agents import AgentsClient
+from answer import REFUSAL_TEXT, grounded_chat
 from embeddings import EMBEDDING_DIM, EMBEDDING_MODEL, MEMORY_COLLECTION
 from events import EventsClient
 from memory import MemoryClient
@@ -30,6 +32,7 @@ from store import (
 PORT = int(os.environ.get("PORT", "8080"))
 SERVICE_NAME = os.environ.get("FORGE_SERVICE_NAME", "askdocs-api")
 DEFAULT_SESSION = os.environ.get("ASKDOCS_DEFAULT_SESSION", "default")
+AGENT_NAME = os.environ.get("ASKDOCS_AGENT_NAME", "askdocs-answerer")
 STARTED_AT = time.time()
 
 _STORE: MessageStore | None = None
@@ -37,6 +40,7 @@ _STORAGE: StorageClient | None = None
 _EVENTS: EventsClient | None = None
 _MODELS: ModelsClient | None = None
 _MEMORY: MemoryClient | None = None
+_AGENTS: AgentsClient | None = None
 
 _DOC_RE = re.compile(r"^/documents/([A-Za-z0-9_-]+)$")
 _CHUNKS_RE = re.compile(r"^/documents/([A-Za-z0-9_-]+)/chunks$")
@@ -77,6 +81,13 @@ def get_memory() -> MemoryClient:
     return _MEMORY
 
 
+def get_agents() -> AgentsClient:
+    global _AGENTS
+    if _AGENTS is None:
+        raise StoreError("agents not initialized")
+    return _AGENTS
+
+
 def sanitize_filename(name: str) -> str:
     name = (name or "").strip().replace("\\", "_").replace("/", "_").replace("..", "_")
     if not name:
@@ -96,7 +107,7 @@ def document_object_key(document_id: str, filename: str) -> str:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "askdocs-api/0.2"
+    server_version = "askdocs-api/0.3"
 
     def log_message(self, fmt: str, *args: Any) -> None:  # noqa: A003
         return
@@ -134,6 +145,11 @@ class Handler(BaseHTTPRequestHandler):
                 get_memory().ping()
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"memory: {type(exc).__name__}: {exc}")
+            try:
+                get_agents().ping()
+                get_agents().ensure_agent()
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"agents: {type(exc).__name__}: {exc}")
             if errors:
                 self._write_json(503, {"status": "not_ready", "error": "; ".join(errors)})
             else:
@@ -144,6 +160,8 @@ class Handler(BaseHTTPRequestHandler):
                         "embedModel": EMBEDDING_MODEL,
                         "embedDim": EMBEDDING_DIM,
                         "collection": MEMORY_COLLECTION,
+                        "agent": AGENT_NAME,
+                        "refusal": REFUSAL_TEXT,
                     },
                 )
             return
@@ -195,12 +213,14 @@ class Handler(BaseHTTPRequestHandler):
                     "language": "python",
                     "status": "running",
                     "uptime_seconds": time.time() - STARTED_AT,
-                    "chat": "POST /chat (echo stub until 53.04)",
+                    "chat": "POST /chat (grounded Agent answerer)",
                     "documents": "GET/POST /documents",
                     "query": "POST /query (Models embed + Memory kNN)",
                     "embedModel": EMBEDDING_MODEL,
                     "embedDim": EMBEDDING_DIM,
                     "collection": MEMORY_COLLECTION,
+                    "agent": AGENT_NAME,
+                    "refusal": REFUSAL_TEXT,
                 },
             )
             return
@@ -258,7 +278,14 @@ class Handler(BaseHTTPRequestHandler):
                 body.get("sessionId") or body.get("session_id") or DEFAULT_SESSION
             )
             try:
-                result = get_store().echo_chat(session_id, text)
+                result = grounded_chat(
+                    get_store(),
+                    get_models(),
+                    get_memory(),
+                    get_agents(),
+                    session_id,
+                    text,
+                )
                 self._write_json(201, result)
             except EmptyTextError:
                 self._write_json(400, {"error": "text is required"})
@@ -384,13 +411,14 @@ def _form_str(form: cgi.FieldStorage, key: str) -> str:
 
 
 def main() -> None:
-    global _STORE, _STORAGE, _EVENTS, _MODELS, _MEMORY
+    global _STORE, _STORAGE, _EVENTS, _MODELS, _MEMORY, _AGENTS
     store = open_store_with_retry()
     store.migrate()
     storage = StorageClient()
     events = EventsClient()
     models = ModelsClient()
     memory = MemoryClient()
+    agents = AgentsClient()
     try:
         storage.ensure_bucket()
     except Exception as exc:  # noqa: BLE001
@@ -399,17 +427,24 @@ def main() -> None:
         memory.ensure_collection()
     except Exception as exc:  # noqa: BLE001
         print(f"askdocs-api warn: ensure_collection: {exc}", flush=True)
+    try:
+        agents.ping()
+        agents.ensure_agent()
+    except Exception as exc:  # noqa: BLE001
+        print(f"askdocs-api warn: agents: {exc}", flush=True)
     _STORE = store
     _STORAGE = storage
     _EVENTS = events
     _MODELS = models
     _MEMORY = memory
+    _AGENTS = agents
     print(f"askdocs-api migrations applied from {store.migrations_dir}", flush=True)
     print(
         f"askdocs-api listening on :{PORT} storage={storage.cfg.base_url} "
         f"bucket={storage.cfg.bucket} events={events.cfg.base_url} "
         f"models={models.cfg.base_url} memory={memory.cfg.base_url} "
-        f"collection={memory.cfg.collection} dim={models.cfg.expected_dim}",
+        f"collection={memory.cfg.collection} dim={models.cfg.expected_dim} "
+        f"agents={agents.cfg.base_url} agent={agents.cfg.agent_name}",
         flush=True,
     )
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

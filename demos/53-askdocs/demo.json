@@ -34,7 +34,8 @@
     "storage",
     "events",
     "models",
-    "memory"
+    "memory",
+    "agents"
   ],
   "teardown": "demos/53-askdocs/run.sh --down"
 }

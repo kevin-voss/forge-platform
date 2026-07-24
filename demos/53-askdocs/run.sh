@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Demo 53: AskDocs + Models embeddings + Memory retrieval (epic 53.03).
+# Demo 53: AskDocs + grounded Agent answerer (epic 53.04).
 # Usage:
 #   demos/53-askdocs/run.sh          # build → apply → DB → Ready → seed → proofs
 #   demos/53-askdocs/run.sh --down   # tear down product resources only
@@ -31,6 +31,7 @@ export FORGE_EVENTS_STREAMS="${FORGE_EVENTS_STREAMS:-build,deployment,runtime,ap
 export FORGE_EVENTS_AUTH_MODE="${FORGE_EVENTS_AUTH_MODE:-dev}"
 export FORGE_MODELS_BACKEND="${FORGE_MODELS_BACKEND:-fake}"
 export FORGE_MEMORY_DEFAULT_MODEL="${FORGE_MEMORY_DEFAULT_MODEL:-local-embed-small}"
+export FORGE_AGENTS_TOOLS_MODE="${FORGE_AGENTS_TOOLS_MODE:-fake}"
 export DOCKER_GID="${DOCKER_GID:-$(stat -f '%g' /var/run/docker.sock 2>/dev/null || stat -c '%g' /var/run/docker.sock 2>/dev/null || echo 0)}"
 export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"
 
@@ -48,6 +49,7 @@ STORAGE_URL="${FORGE_STORAGE_HOST_URL:-http://127.0.0.1:4107}"
 EVENTS_URL="${FORGE_EVENTS_HOST_URL:-http://127.0.0.1:4105}"
 MODELS_URL="${FORGE_MODELS_HOST_URL:-http://127.0.0.1:4300}"
 MEMORY_URL="${FORGE_MEMORY_HOST_URL:-http://127.0.0.1:4303}"
+AGENTS_URL="${FORGE_AGENTS_HOST_URL:-http://127.0.0.1:4301}"
 CONTROL_SERVICE="forge-control"
 RUNTIME_SERVICE="forge-runtime"
 GATEWAY_SERVICE="forge-gateway"
@@ -56,6 +58,7 @@ STORAGE_SERVICE="forge-storage"
 EVENTS_SERVICE="forge-events"
 MODELS_SERVICE="forge-models"
 MEMORY_SERVICE="forge-memory"
+AGENTS_SERVICE="forge-agents"
 POSTGRES_SERVICE="postgres"
 REGISTRY_SERVICE="registry"
 NATS_SERVICE="nats"
@@ -63,7 +66,10 @@ MEMORY_COLLECTION="${FORGE_MEMORY_COLLECTION:-askdocs-chunks}"
 MEMORY_PROJECT="${FORGE_MEMORY_PROJECT:-askdocs}"
 EMBED_MODEL="${FORGE_MODELS_EMBED_MODEL:-local-embed-small}"
 EMBED_DIM="${FORGE_MODELS_EMBED_DIM:-384}"
+AGENT_NAME="${ASKDOCS_AGENT_NAME:-askdocs-answerer}"
 RETRIEVAL_QUESTION="${ASKDOCS_RETRIEVAL_QUESTION:-When is the office closed?}"
+OUT_OF_CORPUS_QUESTION="${ASKDOCS_OUT_OF_CORPUS_QUESTION:-What is the CEO home address?}"
+REFUSAL_SNIPPET="${ASKDOCS_REFUSAL_SNIPPET:-not in the documents}"
 CLI_DIR="${ROOT_DIR}/tools/forge-cli"
 FORGE_BIN="${CLI_DIR}/forge"
 REGISTRY="${FORGE_REGISTRY:-localhost:5000}"
@@ -107,6 +113,8 @@ fail() {
   "${COMPOSE[@]}" logs --tail=40 "${MODELS_SERVICE}" >&2 || true
   echo "--- ${MEMORY_SERVICE} logs (tail) ---" >&2
   "${COMPOSE[@]}" logs --tail=40 "${MEMORY_SERVICE}" >&2 || true
+  echo "--- ${AGENTS_SERVICE} logs (tail) ---" >&2
+  "${COMPOSE[@]}" logs --tail=40 "${AGENTS_SERVICE}" >&2 || true
   echo "--- managed db containers ---" >&2
   docker ps --filter "label=forge.managed_db=true" --format '{{.Names}} {{.Status}}' >&2 || true
   exit 1
@@ -210,7 +218,7 @@ ensure_storage_bucket() {
 }
 
 ensure_platform() {
-  echo "Ensuring Postgres, registry, NATS, Events, Storage, Models, Memory, Control, Runtime, Gateway, Build..."
+  echo "Ensuring Postgres, registry, NATS, Events, Storage, Models, Memory, Agents, Control, Runtime, Gateway, Build..."
   "${COMPOSE[@]}" up -d "${POSTGRES_SERVICE}" "${REGISTRY_SERVICE}" "${NATS_SERVICE}"
   for _ in $(seq 1 60); do
     if "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" pg_isready -U forge >/dev/null 2>&1; then
@@ -267,6 +275,9 @@ ensure_platform() {
   echo "Starting forge-models + forge-memory (FORGE_MODELS_BACKEND=${FORGE_MODELS_BACKEND})..."
   "${COMPOSE[@]}" up -d "${MODELS_SERVICE}" "${MEMORY_SERVICE}" ||
     fail "compose up models/memory failed"
+  echo "Starting forge-agents (FORGE_AGENTS_TOOLS_MODE=${FORGE_AGENTS_TOOLS_MODE}, agent=${AGENT_NAME})..."
+  "${COMPOSE[@]}" up -d --force-recreate "${AGENTS_SERVICE}" ||
+    fail "compose up ${AGENTS_SERVICE} failed"
 
   wait_http "${CONTROL_URL}/health/ready" "Control"
   wait_http "${RUNTIME_URL}/health/ready" "Runtime"
@@ -276,6 +287,7 @@ ensure_platform() {
   wait_http "${EVENTS_URL}/health/ready" "Events" 90
   wait_http "${MODELS_URL}/health/ready" "Models" 120
   wait_http "${MEMORY_URL}/health/ready" "Memory" 120
+  wait_http "${AGENTS_URL}/health/ready" "Agents" 120
 
   pattern="$(docker exec "${GATEWAY_SERVICE}" printenv FORGE_HOST_PATTERN 2>/dev/null || true)"
   [[ "${pattern}" == *'{service}.askdocs.localhost'* ]] ||
@@ -319,6 +331,17 @@ dim = body.get("embedding_dim")
 want = int(os.environ["EMBED_DIM"])
 assert dim == want, (body, want)
 print(f"  models {os.environ['EMBED_MODEL']} embedding_dim={dim}")
+PY
+
+  curl --fail --silent --show-error "${AGENTS_URL}/v1/agents" >"${TMP_DIR}/agents.json" ||
+    fail "GET /v1/agents failed"
+  AGENT_NAME="${AGENT_NAME}" python3 - <<'PY' "${TMP_DIR}/agents.json" || fail "askdocs-answerer agent not registered"
+import json, os, sys
+body = json.load(open(sys.argv[1]))
+names = {a.get("name") for a in body.get("agents") or []}
+want = os.environ["AGENT_NAME"]
+assert want in names, names
+print(f"  agent {want} registered")
 PY
 
   ensure_storage_bucket
@@ -618,6 +641,14 @@ prove_persistence() {
   [[ "${code}" == "201" ]] || fail "chat HTTP ${code}: $(cat "${TMP_DIR}/create-chat.json")"
   user_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["user"]["id"])' "${TMP_DIR}/create-chat.json")"
   [[ -n "${user_id}" ]] || fail "chat response missing user.id"
+  REFUSAL_SNIPPET="${REFUSAL_SNIPPET}" python3 - <<'PY' "${TMP_DIR}/create-chat.json" || fail "persist chat should refuse out-of-corpus text"
+import json, os, sys
+body = json.load(open(sys.argv[1]))
+asst = body.get("assistant") or {}
+assert body.get("refused") is True, body
+assert os.environ["REFUSAL_SNIPPET"] in (asst.get("text") or ""), asst
+print("  out-of-corpus persist turn refused as expected")
+PY
 
   cid="$(api_container_id)"
   [[ -n "${cid}" ]] || fail "API container missing before restart"
@@ -637,7 +668,7 @@ prove_persistence() {
     sleep 1
   done
   [[ "${code}" == "200" ]] || fail "list messages after restart HTTP ${code}: $(cat "${TMP_DIR}/list-messages.json" 2>/dev/null || true)"
-  TEXT="${text}" USER_ID="${user_id}" SESSION="${session}" python3 - <<'PY' "${TMP_DIR}/list-messages.json" || fail "chat history missing after restart"
+  TEXT="${text}" USER_ID="${user_id}" SESSION="${session}" REFUSAL_SNIPPET="${REFUSAL_SNIPPET}" python3 - <<'PY' "${TMP_DIR}/list-messages.json" || fail "chat history missing after restart"
 import json, os, sys
 body = json.load(open(sys.argv[1]))
 msgs = body.get("messages") or []
@@ -646,8 +677,8 @@ want_text = os.environ["TEXT"]
 match = [m for m in msgs if m.get("id") == want_id]
 assert match, {"want": want_id, "messages": msgs}
 assert match[0].get("text") == want_text, match[0]
-echo = [m for m in msgs if m.get("role") == "assistant" and want_text in (m.get("text") or "")]
-assert echo, msgs
+asst = [m for m in msgs if m.get("role") == "assistant" and os.environ["REFUSAL_SNIPPET"] in (m.get("text") or "")]
+assert asst, msgs
 print(f"  persisted chat session={os.environ['SESSION']} user={want_id}")
 PY
 }
@@ -751,6 +782,76 @@ print(f"  retrieval ok topK={len(results)} planted in results citation={cite.get
 PY
 }
 
+prove_grounded_answer() {
+  local session="grounded-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:8])')"
+  local code run_id
+  echo "Proving grounded Agent answer for: ${RETRIEVAL_QUESTION}"
+  code="$(curl --silent --show-error -o "${TMP_DIR}/grounded-chat.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" -H 'content-type: application/json' \
+    -d "$(SESSION="${session}" QUESTION="${RETRIEVAL_QUESTION}" python3 -c 'import json,os; print(json.dumps({"sessionId":os.environ["SESSION"],"text":os.environ["QUESTION"]}))')" \
+    "${GATEWAY_URL}/chat" || echo "000")"
+  [[ "${code}" == "201" ]] || fail "grounded chat HTTP ${code}: $(cat "${TMP_DIR}/grounded-chat.json" 2>/dev/null || true)"
+  PLANTED_FACT="${PLANTED_FACT}" python3 - <<'PY' "${TMP_DIR}/grounded-chat.json" || fail "grounded answer missing planted fact / citation"
+import json, os, sys
+body = json.load(open(sys.argv[1]))
+assert body.get("refused") is False, body
+asst = body.get("assistant") or {}
+text = asst.get("text") or ""
+fact = os.environ["PLANTED_FACT"]
+assert fact in text, {"text": text, "fact": fact}
+cites = asst.get("citations") or []
+assert cites, asst
+assert cites[0].get("chunkId"), cites[0]
+assert cites[0].get("documentId"), cites[0]
+assert cites[0].get("title"), cites[0]
+assert body.get("agentTool") == "memory.search", body
+assert body.get("runId"), body
+print(f"  grounded answer ok runId={body.get('runId')} citation={cites[0].get('title')}")
+PY
+  run_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("runId") or "")' "${TMP_DIR}/grounded-chat.json")"
+  [[ -n "${run_id}" ]] || fail "grounded chat missing runId"
+  code="$(curl --silent --show-error -o "${TMP_DIR}/agent-run.json" -w '%{http_code}' \
+    -H "X-Forge-Project: ${MEMORY_PROJECT}" \
+    "${AGENTS_URL}/v1/runs/${run_id}" || echo "000")"
+  [[ "${code}" == "200" ]] || fail "GET agent run HTTP ${code}: $(cat "${TMP_DIR}/agent-run.json" 2>/dev/null || true)"
+  PLANTED_FACT="${PLANTED_FACT}" python3 - <<'PY' "${TMP_DIR}/agent-run.json" || fail "agent run missing memory.search / grounded final"
+import json, os, sys
+body = json.load(open(sys.argv[1]))
+assert body.get("status") == "succeeded", body.get("status")
+steps = body.get("steps") or []
+tools = [s for s in steps if s.get("type") == "tool"]
+assert tools, steps
+assert tools[0].get("tool") == "memory.search", tools[0]
+finals = [s for s in steps if s.get("type") == "final"]
+assert finals, steps
+blob = json.dumps(body)
+assert os.environ["PLANTED_FACT"] in blob, blob[:800]
+print("  agent run recorded memory.search + grounded final")
+PY
+}
+
+prove_refusal() {
+  local session="refuse-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:8])')"
+  local code
+  echo "Proving out-of-corpus refusal for: ${OUT_OF_CORPUS_QUESTION}"
+  code="$(curl --silent --show-error -o "${TMP_DIR}/refuse-chat.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" -H 'content-type: application/json' \
+    -d "$(SESSION="${session}" QUESTION="${OUT_OF_CORPUS_QUESTION}" python3 -c 'import json,os; print(json.dumps({"sessionId":os.environ["SESSION"],"text":os.environ["QUESTION"]}))')" \
+    "${GATEWAY_URL}/chat" || echo "000")"
+  [[ "${code}" == "201" ]] || fail "refusal chat HTTP ${code}: $(cat "${TMP_DIR}/refuse-chat.json" 2>/dev/null || true)"
+  REFUSAL_SNIPPET="${REFUSAL_SNIPPET}" PLANTED_FACT="${PLANTED_FACT}" python3 - <<'PY' "${TMP_DIR}/refuse-chat.json" || fail "refusal guardrail failed"
+import json, os, sys
+body = json.load(open(sys.argv[1]))
+assert body.get("refused") is True, body
+asst = body.get("assistant") or {}
+text = asst.get("text") or ""
+assert os.environ["REFUSAL_SNIPPET"] in text, text
+assert os.environ["PLANTED_FACT"] not in text, text
+assert (asst.get("citations") or []) == [], asst
+print(f"  refusal ok: {text}")
+PY
+}
+
 deploy() {
   if [[ -f "${STATE_FILE}" ]]; then
     teardown
@@ -829,12 +930,15 @@ for p in json.load(sys.stdin):
   PROOF_DOC_ID=""
   prove_upload_and_ingest
   prove_retrieval
+  prove_grounded_answer
+  prove_refusal
 
   echo
-  echo "demo 53 deploy READY (Models embeddings + Memory retrieval)"
+  echo "demo 53 deploy READY (grounded Agent answerer)"
   echo "  App:          http://${APP_HOST}:4000/"
   echo "  API:          http://${API_HOST}:4000/health/ready"
   echo "  Worker:       http://${WORKER_HOST}:4000/health/ready"
+  echo "  Chat:         POST http://${API_HOST}:4000/chat"
   echo "  Query:        POST http://${API_HOST}:4000/query"
   echo "  API image:    ${API_IMAGE}"
   echo "  Worker image: ${WORKER_IMAGE}"
@@ -843,6 +947,7 @@ for p in json.load(sys.stdin):
   echo "  Events:       document.uploaded @ ${EVENTS_URL}"
   echo "  Models:       ${EMBED_MODEL} dim=${EMBED_DIM} @ ${MODELS_URL}"
   echo "  Memory:       ${MEMORY_COLLECTION} @ ${MEMORY_URL}"
+  echo "  Agents:       ${AGENT_NAME} @ ${AGENTS_URL} (tools=${FORGE_AGENTS_TOOLS_MODE})"
   echo "  Database:     ${DB_NAME} (Ready)"
   echo "  Deployments:  api=${API_DEPLOYMENT_ID} worker=${WORKER_DEPLOYMENT_ID} web=${WEB_DEPLOYMENT_ID}"
   echo "  Project:      ${PROJECT_SLUG} (${PROJECT_ID})"

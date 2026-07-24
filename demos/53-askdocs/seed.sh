@@ -56,7 +56,7 @@ seed_sql() {
 INSERT INTO messages (id, session_id, role, text, citations)
 VALUES
   ('msg-seed-user', '${SESSION_ID}', 'user', 'Hello AskDocs', '[]'::jsonb),
-  ('msg-seed-assistant', '${SESSION_ID}', 'assistant', 'Echo: Hello AskDocs', '[]'::jsonb)
+  ('msg-seed-assistant', '${SESSION_ID}', 'assistant', 'Welcome to AskDocs — upload a handbook, then ask a question.', '[]'::jsonb)
 ON CONFLICT (id) DO UPDATE
 SET session_id = EXCLUDED.session_id,
     role = EXCLUDED.role,

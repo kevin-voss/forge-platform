@@ -1,0 +1,12 @@
+# forge-agents definition for AskDocs grounded Q&A (epic 53.04).
+# Product design names the tool `retrieve`; the platform tool is `memory.search`
+# (see PLATFORM_FINDINGS F-006). Collection is passed at call time.
+name: askdocs-answerer
+model: local-general
+tools:
+  - memory.search
+permissions:
+  - memory:read
+limits:
+  max_steps: 6
+  timeout_seconds: 60

@@ -59,6 +59,18 @@
       text.textContent = msg.text;
       li.appendChild(role);
       li.appendChild(text);
+      if (msg.role === 'assistant' && Array.isArray(msg.citations) && msg.citations.length) {
+        const cites = document.createElement('ul');
+        cites.className = 'citations';
+        for (const c of msg.citations) {
+          const item = document.createElement('li');
+          const title = c.title || c.documentId || 'document';
+          const ordinal = typeof c.ordinal === 'number' ? ` #${c.ordinal}` : '';
+          item.textContent = `Source: ${title}${ordinal}`;
+          cites.appendChild(item);
+        }
+        li.appendChild(cites);
+      }
       list.appendChild(li);
     }
   }

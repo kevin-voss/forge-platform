@@ -1,0 +1,28 @@
+# Portable Agent resource doc for AskDocs (epic 53.04).
+# Control does not yet apply kind: Agent (F-006); runtime registration is via
+# forge-agents FORGE_AGENTS_DEFS_DIR mount of askdocs-answerer.yaml.
+#
+# Product intent: tool `retrieve` bound to Memory collection askdocs-chunks.
+# Platform tool id today: memory.search (collection arg, not tool binding).
+
+apiVersion: forge.dev/v1
+kind: Agent
+metadata:
+  name: askdocs-answerer
+  project: ${PROJECT_SLUG}
+  labels:
+    app: askdocs-answerer
+    demo: "53"
+spec:
+  model:
+    name: local-general
+    backend: fake
+  tools:
+    - name: retrieve
+      memory: askdocs-chunks
+  # Runtime (forge-agents) equivalent:
+  #   tools: [memory.search]
+  #   permissions: [memory:read]
+  limits:
+    maxSteps: 6
+    timeoutSeconds: 60
