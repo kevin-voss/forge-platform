@@ -15,6 +15,11 @@
       "host": "api.askdocs.localhost",
       "path": "/health/ready",
       "expect": 200
+    },
+    {
+      "host": "worker.askdocs.localhost",
+      "path": "/health/ready",
+      "expect": 200
     }
   ],
   "baseURL": "http://app.askdocs.localhost:4000",
@@ -25,7 +30,9 @@
     "runtime",
     "gateway",
     "build",
-    "managed-postgresql"
+    "managed-postgresql",
+    "storage",
+    "events"
   ],
   "teardown": "demos/53-askdocs/run.sh --down"
 }

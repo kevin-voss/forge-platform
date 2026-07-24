@@ -1,7 +1,8 @@
-# AskDocs build manifests + portable resource docs (epic 53.01).
+# AskDocs build manifests + portable resource docs (epic 53.02).
 #
 # Build (read by `forge build` when available; run.sh also docker-builds locally):
 #   api/forge.yaml  → askdocs-api
+#   worker/forge.yaml → askdocs-worker
 #   web build uses Dockerfile.web at repo root of this demo
 #
 # Applied by run.sh via `forge apply -f` (placeholders filled at deploy time).
@@ -37,15 +38,17 @@ spec:
   scaling:
     minReplicas: 1
     maxReplicas: 1
-  # Typed managed Postgres dependency (materialized by run.sh via forge database).
-  # DATABASE_URL is injected as plaintext env from the in-memory secrets client
-  # when FORGE_SECRETS_URL=disabled (Secrets product path is TaskFlow's job).
-  # Storage / Models / Memory / Agents land in 53.02–53.04.
   dependencies:
     database:
       type: postgres
       plan: standard
       name: askdocs-db
+    storage:
+      type: object
+      bucket: askdocs-corpus
+    queue:
+      type: durable
+      name: askdocs-documents
 ---
 apiVersion: forge.dev/v1
 kind: Service
@@ -71,6 +74,64 @@ metadata:
 spec:
   service: api
   image: ${API_IMAGE}
+  replicas: 1
+---
+# askdocs-worker — Application/Service/Deployment stand-in for kind: Worker
+# (see worker/worker.yaml). Consumes document.uploaded via forge-events.
+apiVersion: forge.dev/v1
+kind: Application
+metadata:
+  name: askdocs-worker
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    app: askdocs-worker
+    demo: "53"
+spec:
+  image: ${WORKER_IMAGE}
+  resources:
+    cpu: 50m
+    memory: 128Mi
+  scaling:
+    minReplicas: 1
+    maxReplicas: 1
+    desiredReplicas: 1
+  dependencies:
+    database:
+      type: postgres
+      plan: standard
+      name: askdocs-db
+    storage:
+      type: object
+      bucket: askdocs-corpus
+    queue:
+      type: durable
+      name: askdocs-documents
+---
+apiVersion: forge.dev/v1
+kind: Service
+metadata:
+  name: worker
+  project: ${PROJECT_SLUG}
+  annotations:
+    forge.dev/parent: askdocs-worker
+spec:
+  port: 8080
+---
+apiVersion: forge.dev/v1
+kind: Deployment
+metadata:
+  name: askdocs-worker
+  project: ${PROJECT_SLUG}
+  environment: local
+  annotations:
+    forge.dev/parent: askdocs-worker
+  labels:
+    app: askdocs-worker
+    demo: "53"
+spec:
+  service: worker
+  image: ${WORKER_IMAGE}
   replicas: 1
 ---
 apiVersion: forge.dev/v1

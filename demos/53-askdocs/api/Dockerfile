@@ -6,13 +6,19 @@ WORKDIR /app
 RUN apk add --no-cache libpq
 COPY api/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
-COPY api/store.py api/server.py api/test_store.py /app/
+COPY api/store.py api/server.py api/chunking.py api/storage.py api/events.py \
+	api/test_store.py api/test_chunking.py /app/
 COPY migrations /migrations
 ENV MIGRATIONS_DIR=/migrations \
 	PORT=8080 \
 	FORGE_SERVICE_NAME=askdocs-api \
-	PYTHONUNBUFFERED=1
+	PYTHONUNBUFFERED=1 \
+	FORGE_STORAGE_URL=http://host.docker.internal:4107 \
+	FORGE_STORAGE_BUCKET=askdocs-corpus \
+	FORGE_STORAGE_PROJECT=askdocs \
+	FORGE_EVENTS_URL=http://host.docker.internal:4105 \
+	FORGE_EVENTS_SUBJECT=document.uploaded
 # Import check only — Postgres-backed unittest needs a live DB (run on host/CI).
-RUN python -c "import store, server; print('imports ok')"
+RUN python -c "import store, server, chunking, storage, events; print('imports ok')"
 EXPOSE 8080
 CMD ["python", "/app/server.py"]

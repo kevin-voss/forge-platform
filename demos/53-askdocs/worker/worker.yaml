@@ -1,0 +1,33 @@
+# Portable Worker resource doc for AskDocs (epic 53.02).
+# Logical queue name askdocs-documents maps to forge-events:
+#   subject:  document.uploaded
+#   consumer: askdocs-documents
+
+apiVersion: forge.dev/v1
+kind: Worker
+metadata:
+  name: askdocs-worker
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    app: askdocs-worker
+    demo: "53"
+spec:
+  image: ${WORKER_IMAGE}
+  consumes:
+    queue: askdocs-documents
+  scaling:
+    minReplicas: 1
+    maxReplicas: 1
+    desiredReplicas: 1
+  dependencies:
+    database:
+      type: postgres
+      plan: standard
+      name: askdocs-db
+    storage:
+      type: object
+      bucket: askdocs-corpus
+    queue:
+      type: durable
+      name: askdocs-documents

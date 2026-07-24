@@ -46,7 +46,8 @@ h1 {
 }
 
 .lede,
-#chat-status {
+#chat-status,
+#upload-status {
   margin: 0 0 1.5rem;
   color: var(--muted);
   line-height: 1.5;
@@ -58,6 +59,7 @@ section {
   border-radius: 0.75rem;
   padding: 1.1rem 1.15rem;
   backdrop-filter: blur(6px);
+  margin-bottom: 1rem;
 }
 
 h2 {
@@ -65,17 +67,19 @@ h2 {
   font-size: 1.05rem;
 }
 
-#message-list {
+#message-list,
+#document-list {
   list-style: none;
   margin: 0 0 1rem;
   padding: 0;
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
-  min-height: 8rem;
+  min-height: 4rem;
 }
 
-.msg {
+.msg,
+.doc {
   border: 1px solid var(--border);
   border-radius: 0.55rem;
   padding: 0.7rem 0.8rem;
@@ -113,7 +117,7 @@ h2 {
 
 form label {
   display: block;
-  margin-bottom: 0.35rem;
+  margin: 0.65rem 0 0.35rem;
   font-size: 0.9rem;
   font-weight: 600;
 }
@@ -123,8 +127,10 @@ form label {
   gap: 0.5rem;
 }
 
-input[type="text"] {
-  flex: 1;
+input[type="text"],
+input[type="file"],
+textarea {
+  width: 100%;
   border: 1px solid var(--border);
   border-radius: 0.45rem;
   padding: 0.65rem 0.75rem;
@@ -132,15 +138,29 @@ input[type="text"] {
   background: #fff;
 }
 
+.row input[type="text"] {
+  flex: 1;
+  width: auto;
+}
+
+textarea {
+  resize: vertical;
+}
+
 button {
   border: 0;
   border-radius: 0.45rem;
   padding: 0.65rem 1rem;
+  margin-top: 0.75rem;
   font: inherit;
   font-weight: 600;
   color: #fff;
   background: var(--accent);
   cursor: pointer;
+}
+
+.row button {
+  margin-top: 0;
 }
 
 button:hover {

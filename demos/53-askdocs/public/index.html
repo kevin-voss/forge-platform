@@ -12,10 +12,25 @@
         <p class="brand">AskDocs</p>
         <h1>Document Q&amp;A</h1>
         <p class="lede">
-          Ask questions about your uploaded documents. Chat history persists in managed Postgres.
-          Grounded answers arrive in a later step — for now the API echoes your message.
+          Upload a handbook, wait for ingest chunks, then ask questions. Chat still echoes until
+          the grounded answerer lands — uploads already hit Storage + Events.
         </p>
       </header>
+
+      <section aria-labelledby="upload-heading">
+        <h2 id="upload-heading">Documents</h2>
+        <p id="upload-status" role="status"></p>
+        <form id="upload-form" aria-label="Upload document">
+          <label for="doc-title">Title</label>
+          <input id="doc-title" name="title" type="text" placeholder="Company Handbook" />
+          <label for="doc-file">File</label>
+          <input id="doc-file" name="file" type="file" accept=".txt,text/plain" />
+          <label for="doc-text">Or paste text</label>
+          <textarea id="doc-text" name="text" rows="4" placeholder="Paste document text…"></textarea>
+          <button type="submit">Upload</button>
+        </form>
+        <ul id="document-list" aria-live="polite"></ul>
+      </section>
 
       <section aria-labelledby="chat-heading">
         <h2 id="chat-heading">Chat</h2>

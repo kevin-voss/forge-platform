@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/contracts/events/document.uploaded/v1",
+  "title": "document.uploaded",
+  "description": "Emitted by AskDocs when a document has been uploaded to object storage and is ready for async ingest (chunking).",
+  "x-forge-subject": "document.uploaded",
+  "x-forge-schema-version": 1,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["document_id", "object_key", "content_type", "uploaded_at"],
+  "properties": {
+    "document_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque document identifier (also used as publish Idempotency-Key)"
+    },
+    "object_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Object key in the askdocs-corpus bucket"
+    },
+    "content_type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "MIME type of the uploaded object"
+    },
+    "title": {
+      "type": "string",
+      "description": "Human-readable document title"
+    },
+    "uploaded_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the upload was confirmed (RFC 3339)"
+    },
+    "source": {
+      "type": "string",
+      "description": "Producing service name"
+    }
+  }
+}

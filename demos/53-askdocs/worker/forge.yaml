@@ -1,0 +1,8 @@
+# Build manifest for askdocs-worker (`forge build --source` reads this).
+# Paths are relative to this file's directory (worker/); context is demo root.
+service:
+  name: worker
+  port: 8080
+build:
+  dockerfile: Dockerfile
+  context: ..

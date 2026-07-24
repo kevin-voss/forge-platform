@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Demo 53: AskDocs + managed Postgres (epic 53.01).
+# Demo 53: AskDocs + managed Postgres + Storage/Events ingest (epic 53.02).
 # Usage:
-#   demos/53-askdocs/run.sh          # build → apply → DB → Ready → seed → persist check
+#   demos/53-askdocs/run.sh          # build → apply → DB → Ready → seed → proofs
 #   demos/53-askdocs/run.sh --down   # tear down product resources only
 set -euo pipefail
 
@@ -27,6 +27,8 @@ export FORGE_DB_PROVISIONER="${FORGE_DB_PROVISIONER:-local}"
 export FORGE_DB_ENDPOINT_HOST="${FORGE_DB_ENDPOINT_HOST:-host.docker.internal}"
 export FORGE_DB_MANAGED_NETWORK="${FORGE_DB_MANAGED_NETWORK:-forge-net}"
 export FORGE_INJECT_MASK_IN_LOGS="${FORGE_INJECT_MASK_IN_LOGS:-true}"
+export FORGE_EVENTS_STREAMS="${FORGE_EVENTS_STREAMS:-build,deployment,runtime,application,agent,document}"
+export FORGE_EVENTS_AUTH_MODE="${FORGE_EVENTS_AUTH_MODE:-dev}"
 export DOCKER_GID="${DOCKER_GID:-$(stat -f '%g' /var/run/docker.sock 2>/dev/null || stat -c '%g' /var/run/docker.sock 2>/dev/null || echo 0)}"
 export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"
 
@@ -40,19 +42,30 @@ CONTROL_URL="${FORGE_CONTROL_URL:-http://127.0.0.1:4001}"
 RUNTIME_URL="${FORGE_RUNTIME_URL:-http://127.0.0.1:4102}"
 GATEWAY_URL="${FORGE_GATEWAY_URL:-http://127.0.0.1:4000}"
 BUILD_URL="${FORGE_BUILD_URL:-http://127.0.0.1:4103}"
+STORAGE_URL="${FORGE_STORAGE_HOST_URL:-http://127.0.0.1:4107}"
+EVENTS_URL="${FORGE_EVENTS_HOST_URL:-http://127.0.0.1:4105}"
 CONTROL_SERVICE="forge-control"
 RUNTIME_SERVICE="forge-runtime"
 GATEWAY_SERVICE="forge-gateway"
 BUILD_SERVICE="forge-build"
+STORAGE_SERVICE="forge-storage"
+EVENTS_SERVICE="forge-events"
 POSTGRES_SERVICE="postgres"
 REGISTRY_SERVICE="registry"
+NATS_SERVICE="nats"
 CLI_DIR="${ROOT_DIR}/tools/forge-cli"
 FORGE_BIN="${CLI_DIR}/forge"
 REGISTRY="${FORGE_REGISTRY:-localhost:5000}"
 API_IMAGE="${DEMO_API_IMAGE:-${REGISTRY}/askdocs/askdocs-api:v1}"
 WEB_IMAGE="${DEMO_WEB_IMAGE:-${REGISTRY}/askdocs/askdocs-web:v1}"
+WORKER_IMAGE="${DEMO_WORKER_IMAGE:-${REGISTRY}/askdocs/askdocs-worker:v1}"
 API_HOST="api.askdocs.localhost"
 APP_HOST="app.askdocs.localhost"
+WORKER_HOST="worker.askdocs.localhost"
+STORAGE_BUCKET="${FORGE_STORAGE_BUCKET:-askdocs-corpus}"
+STORAGE_PROJECT="${FORGE_STORAGE_PROJECT:-askdocs}"
+FIXTURE_DOC="${DEMO_DIR}/fixtures/company-handbook.txt"
+PLANTED_FACT="The office is closed on the first Monday of each month."
 DB_NAME="askdocs-db"          # instance / dependency name (may contain '-')
 DB_LOGICAL_NAME="askdocs_db"  # Postgres DB name ([a-z_][a-z0-9_]*)
 
@@ -75,6 +88,10 @@ fail() {
   "${COMPOSE[@]}" logs --tail=60 "${RUNTIME_SERVICE}" >&2 || true
   echo "--- ${GATEWAY_SERVICE} logs (tail) ---" >&2
   "${COMPOSE[@]}" logs --tail=60 "${GATEWAY_SERVICE}" >&2 || true
+  echo "--- ${EVENTS_SERVICE} logs (tail) ---" >&2
+  "${COMPOSE[@]}" logs --tail=60 "${EVENTS_SERVICE}" >&2 || true
+  echo "--- ${STORAGE_SERVICE} logs (tail) ---" >&2
+  "${COMPOSE[@]}" logs --tail=60 "${STORAGE_SERVICE}" >&2 || true
   echo "--- managed db containers ---" >&2
   docker ps --filter "label=forge.managed_db=true" --format '{{.Names}} {{.Status}}' >&2 || true
   exit 1
@@ -118,8 +135,10 @@ PROJECT_SLUG=${PROJECT_SLUG}
 PROJECT_ID=${PROJECT_ID}
 API_DEPLOYMENT_ID=${API_DEPLOYMENT_ID}
 WEB_DEPLOYMENT_ID=${WEB_DEPLOYMENT_ID}
+WORKER_DEPLOYMENT_ID=${WORKER_DEPLOYMENT_ID}
 API_IMAGE=${API_IMAGE}
 WEB_IMAGE=${WEB_IMAGE}
+WORKER_IMAGE=${WORKER_IMAGE}
 DB_NAME=${DB_NAME}
 EOF
 }
@@ -148,6 +167,7 @@ teardown() {
   if read_state; then
     delete_deployment "${API_DEPLOYMENT_ID:-}"
     delete_deployment "${WEB_DEPLOYMENT_ID:-}"
+    delete_deployment "${WORKER_DEPLOYMENT_ID:-}"
     rm -f "${STATE_FILE}"
   else
     echo "  no .demo-state; best-effort cleanup of demo=53 containers"
@@ -160,9 +180,23 @@ teardown() {
   echo "Teardown complete."
 }
 
+ensure_storage_bucket() {
+  echo "Ensuring storage bucket ${STORAGE_BUCKET} (project=${STORAGE_PROJECT})..."
+  local code
+  code="$(curl --silent --show-error -o "${TMP_DIR}/bucket.json" -w '%{http_code}' \
+    -H "X-Forge-Project: ${STORAGE_PROJECT}" \
+    -H 'content-type: application/json' \
+    -d "{\"name\":\"${STORAGE_BUCKET}\"}" \
+    "${STORAGE_URL}/v1/buckets" || echo "000")"
+  if [[ "${code}" != "201" && "${code}" != "200" && "${code}" != "409" ]]; then
+    fail "create bucket HTTP ${code}: $(cat "${TMP_DIR}/bucket.json" 2>/dev/null || true)"
+  fi
+  echo "  bucket ${STORAGE_BUCKET} ready (HTTP ${code})"
+}
+
 ensure_platform() {
-  echo "Ensuring Postgres, registry, Control, Runtime, Gateway, Build..."
-  "${COMPOSE[@]}" up -d "${POSTGRES_SERVICE}" "${REGISTRY_SERVICE}"
+  echo "Ensuring Postgres, registry, NATS, Events, Storage, Control, Runtime, Gateway, Build..."
+  "${COMPOSE[@]}" up -d "${POSTGRES_SERVICE}" "${REGISTRY_SERVICE}" "${NATS_SERVICE}"
   for _ in $(seq 1 60); do
     if "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" pg_isready -U forge >/dev/null 2>&1; then
       break
@@ -173,12 +207,13 @@ ensure_platform() {
     fail "Postgres not ready"
 
   local need_recreate=0
-  local auth_mode pattern strategy provisioner secrets_url
+  local auth_mode pattern strategy provisioner secrets_url streams
   auth_mode="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_AUTH_MODE 2>/dev/null || true)"
   pattern="$(docker exec "${GATEWAY_SERVICE}" printenv FORGE_HOST_PATTERN 2>/dev/null || true)"
   strategy="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_SCHEDULER_STRATEGY 2>/dev/null || true)"
   provisioner="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_DB_PROVISIONER 2>/dev/null || true)"
   secrets_url="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_SECRETS_URL 2>/dev/null || true)"
+  streams="$(docker exec "${EVENTS_SERVICE}" printenv FORGE_EVENTS_STREAMS 2>/dev/null || true)"
   if [[ "${auth_mode}" != "dev" ]]; then
     need_recreate=1
   fi
@@ -194,24 +229,33 @@ ensure_platform() {
   if [[ "${secrets_url}" != "disabled" ]]; then
     need_recreate=1
   fi
+  if [[ "${streams}" != *document* ]]; then
+    need_recreate=1
+  fi
   if ! docker exec "${CONTROL_SERVICE}" test -S /var/run/docker.sock 2>/dev/null; then
     need_recreate=1
   fi
 
   if [[ "${need_recreate}" -eq 1 ]]; then
-    echo "Recreating Control/Runtime/Gateway with demo 53 managed-DB overlay..."
+    echo "Recreating Control/Runtime/Gateway with demo 53 overlay..."
     "${COMPOSE[@]}" up -d --force-recreate \
       "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}"
   else
     echo "Control/Gateway already configured for demo 53; ensuring they are up..."
     "${COMPOSE[@]}" up -d "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}"
   fi
-  "${COMPOSE[@]}" up -d "${BUILD_SERVICE}"
+
+  echo "Rebuilding forge-events with document stream..."
+  "${COMPOSE[@]}" up -d --build --force-recreate "${EVENTS_SERVICE}" ||
+    fail "compose up ${EVENTS_SERVICE} failed"
+  "${COMPOSE[@]}" up -d "${BUILD_SERVICE}" "${STORAGE_SERVICE}"
 
   wait_http "${CONTROL_URL}/health/ready" "Control"
   wait_http "${RUNTIME_URL}/health/ready" "Runtime"
   wait_http "${GATEWAY_URL}/health/ready" "Gateway"
   wait_http "${BUILD_URL}/health/ready" "Build" 60 || true
+  wait_http "${STORAGE_URL}/health/ready" "Storage" 90
+  wait_http "${EVENTS_URL}/health/ready" "Events" 90
 
   pattern="$(docker exec "${GATEWAY_SERVICE}" printenv FORGE_HOST_PATTERN 2>/dev/null || true)"
   [[ "${pattern}" == *'{service}.askdocs.localhost'* ]] ||
@@ -219,6 +263,32 @@ ensure_platform() {
   provisioner="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_DB_PROVISIONER 2>/dev/null || true)"
   [[ "${provisioner}" == "local" ]] ||
     fail "control FORGE_DB_PROVISIONER must be local (got: ${provisioner})"
+  streams="$(docker exec "${EVENTS_SERVICE}" printenv FORGE_EVENTS_STREAMS 2>/dev/null || true)"
+  [[ "${streams}" == *document* ]] ||
+    fail "events FORGE_EVENTS_STREAMS must include document (got: ${streams})"
+
+  curl --fail --silent --show-error "${EVENTS_URL}/v1/schemas" >"${TMP_DIR}/schemas.json" ||
+    fail "GET /v1/schemas failed"
+  python3 - <<'PY' "${TMP_DIR}/schemas.json" || fail "document.uploaded schema missing"
+import json, sys
+raw = json.load(open(sys.argv[1]))
+flat = []
+if isinstance(raw, list):
+    for item in raw:
+        if isinstance(item, str):
+            flat.append(item)
+        elif isinstance(item, dict):
+            flat.append(item.get("subject") or item.get("name") or "")
+elif isinstance(raw, dict):
+    for k, v in raw.items():
+        flat.append(k)
+        if isinstance(v, list):
+            flat.extend(str(x) for x in v)
+assert any("document.uploaded" in str(x) for x in flat), raw
+print("  schema document.uploaded registered")
+PY
+
+  ensure_storage_bucket
 }
 
 ensure_images() {
@@ -230,6 +300,10 @@ ensure_images() {
     ) || fail "forge build api failed"
     (
       cd "${DEMO_DIR}"
+      forge build --source . --forge-yaml worker/forge.yaml --tag "${WORKER_IMAGE}"
+    ) || fail "forge build worker failed"
+    (
+      cd "${DEMO_DIR}"
       forge build --source . --forge-yaml web.forge.yaml --tag "${WEB_IMAGE}"
     ) || fail "forge build web failed"
     return 0
@@ -239,6 +313,9 @@ ensure_images() {
   docker build -f "${DEMO_DIR}/api/Dockerfile" -t "${API_IMAGE}" "${DEMO_DIR}" ||
     fail "docker build api failed"
   docker push "${API_IMAGE}" || fail "docker push api failed"
+  docker build -f "${DEMO_DIR}/worker/Dockerfile" -t "${WORKER_IMAGE}" "${DEMO_DIR}" ||
+    fail "docker build worker failed"
+  docker push "${WORKER_IMAGE}" || fail "docker push worker failed"
   docker build -f "${DEMO_DIR}/Dockerfile.web" -t "${WEB_IMAGE}" "${DEMO_DIR}" ||
     fail "docker build web failed"
   docker push "${WEB_IMAGE}" || fail "docker push web failed"
@@ -355,6 +432,7 @@ PY
 assert_applications_ready() {
   echo "Checking applications/deployments Ready..."
   wait_deployment_status "${API_DEPLOYMENT_ID}" "deployed" 180
+  wait_deployment_status "${WORKER_DEPLOYMENT_ID}" "deployed" 180
   wait_deployment_status "${WEB_DEPLOYMENT_ID}" "deployed" 120
   echo "  applications Ready (deployments active)"
 }
@@ -384,7 +462,17 @@ body = json.load(open(sys.argv[1]))
 ref = body.get("secretRef") or body.get("secret_ref") or ""
 assert ref, body
 assert "://" not in ref, body
-print(f"  attached DATABASE_URL secretRef={ref}")
+print(f"  attached DATABASE_URL secretRef={ref} (askdocs-api)")
+PY
+
+  forge_json "${TMP_DIR}/db-attach-worker.json" --project "${PROJECT_ID}"     database attach "${DB_NAME}" --app askdocs-worker --env-var DATABASE_URL
+  python3 - <<'PY' "${TMP_DIR}/db-attach-worker.json" || fail "worker attach missing secretRef"
+import json, sys
+body = json.load(open(sys.argv[1]))
+ref = body.get("secretRef") or body.get("secret_ref") or ""
+assert ref, body
+assert "://" not in ref, body
+print(f"  attached DATABASE_URL secretRef={ref} (askdocs-worker)")
 PY
 }
 
@@ -423,6 +511,37 @@ wait_database_url_injected() {
     sleep 1
   done
   fail "DATABASE_URL never appeared on API container"
+}
+
+worker_container_id() {
+  local cid
+  cid="$(docker ps -q \
+    --filter "label=forge.deployment_id=${WORKER_DEPLOYMENT_ID}" \
+    --filter "label=forge.managed=true" | head -n1)"
+  if [[ -n "${cid}" ]]; then
+    echo "${cid}"
+    return 0
+  fi
+  local short
+  short="$(python3 -c 'import sys; print(sys.argv[1].replace("-", "")[:8])' "${WORKER_DEPLOYMENT_ID}")"
+  docker ps -q --filter "label=forge.managed=true" --filter "name=forge-worker-${short}-" | head -n1
+}
+
+wait_database_url_injected_worker() {
+  local cid="" url="" i
+  echo "Waiting for DATABASE_URL injection into worker container..."
+  for i in $(seq 1 120); do
+    cid="$(worker_container_id)"
+    if [[ -n "${cid}" ]]; then
+      url="$(container_env "${cid}" DATABASE_URL)"
+      if [[ -n "${url}" ]]; then
+        echo "  DATABASE_URL present on worker container ${cid:0:12}"
+        return 0
+      fi
+    fi
+    sleep 1
+  done
+  fail "DATABASE_URL never appeared on worker container"
 }
 
 prove_persistence() {
@@ -471,6 +590,66 @@ print(f"  persisted chat session={os.environ['SESSION']} user={want_id}")
 PY
 }
 
+prove_upload_and_ingest() {
+  local title="handbook-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:8])')"
+  local doc_id object_key code text body
+  echo "Proving document upload → storage object → ingest chunks..."
+  [[ -f "${FIXTURE_DOC}" ]] || fail "fixture missing: ${FIXTURE_DOC}"
+  text="$(cat "${FIXTURE_DOC}")"
+  body="$(TITLE="${title}" TEXT="${text}" python3 - <<'PY'
+import json, os
+print(json.dumps({
+    "title": os.environ["TITLE"],
+    "text": os.environ["TEXT"],
+    "filename": "company-handbook.txt",
+    "contentType": "text/plain",
+}))
+PY
+)"
+  code="$(curl --silent --show-error -o "${TMP_DIR}/upload-doc.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" -H 'content-type: application/json' \
+    -d "${body}" "${GATEWAY_URL}/documents" || echo "000")"
+  [[ "${code}" == "201" ]] || fail "upload document HTTP ${code}: $(cat "${TMP_DIR}/upload-doc.json")"
+  doc_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "${TMP_DIR}/upload-doc.json")"
+  object_key="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["objectKey"])' "${TMP_DIR}/upload-doc.json")"
+  [[ -n "${doc_id}" && -n "${object_key}" ]] || fail "upload response incomplete"
+  echo "  document id=${doc_id} objectKey=${object_key}"
+
+  code="$(curl --silent --show-error -o "${TMP_DIR}/storage-obj.bin" -w '%{http_code}' \
+    -H "X-Forge-Project: ${STORAGE_PROJECT}" \
+    "${STORAGE_URL}/v1/buckets/${STORAGE_BUCKET}/objects/$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe="/"))' "${object_key}")" || echo "000")"
+  [[ "${code}" == "200" ]] || fail "storage GET object HTTP ${code}"
+  PLANTED_FACT="${PLANTED_FACT}" python3 - <<'PY' "${TMP_DIR}/storage-obj.bin" || fail "storage object missing planted fact"
+import os, sys
+raw = open(sys.argv[1], "rb").read().decode("utf-8", errors="replace")
+assert os.environ["PLANTED_FACT"] in raw, raw[:500]
+print("  storage object contains planted fact")
+PY
+
+  echo "  waiting for ingest chunks..."
+  code="000"
+  for _ in $(seq 1 90); do
+    code="$(curl --silent --show-error -o "${TMP_DIR}/chunks.json" -w '%{http_code}' \
+      -H "Host: ${API_HOST}" \
+      "${GATEWAY_URL}/documents/${doc_id}/chunks" || echo "000")"
+    if [[ "${code}" == "200" ]]; then
+      if python3 -c 'import json,sys; raise SystemExit(0 if json.load(open(sys.argv[1])).get("chunks") else 1)' "${TMP_DIR}/chunks.json"; then
+        break
+      fi
+    fi
+    sleep 1
+  done
+  [[ "${code}" == "200" ]] || fail "list chunks HTTP ${code}: $(cat "${TMP_DIR}/chunks.json" 2>/dev/null || true)"
+  DOC_ID="${doc_id}" PLANTED_FACT="${PLANTED_FACT}" python3 - <<'PY' "${TMP_DIR}/chunks.json" || fail "chunks missing planted fact"
+import json, os, sys
+body = json.load(open(sys.argv[1]))
+chunks = body.get("chunks") or []
+assert chunks, body
+assert any(os.environ["PLANTED_FACT"] in (c.get("text") or "") for c in chunks), chunks
+print(f"  ingest ok document={os.environ['DOC_ID']} chunks={len(chunks)}")
+PY
+}
+
 deploy() {
   if [[ -f "${STATE_FILE}" ]]; then
     teardown
@@ -487,8 +666,8 @@ deploy() {
 
   echo "Rendering forge.yaml → apply (project=${PROJECT_SLUG})..."
   PROJECT_NAME="${PROJECT_NAME}" PROJECT_SLUG="${PROJECT_SLUG}" \
-    API_IMAGE="${API_IMAGE}" WEB_IMAGE="${WEB_IMAGE}" \
-    envsubst '${PROJECT_NAME} ${PROJECT_SLUG} ${API_IMAGE} ${WEB_IMAGE}' \
+    API_IMAGE="${API_IMAGE}" WEB_IMAGE="${WEB_IMAGE}" WORKER_IMAGE="${WORKER_IMAGE}" \
+    envsubst '${PROJECT_NAME} ${PROJECT_SLUG} ${API_IMAGE} ${WEB_IMAGE} ${WORKER_IMAGE}' \
     <"${DEMO_DIR}/forge.yaml" >"${TMP_DIR}/forge.yaml"
 
   forge_json "${TMP_DIR}/apply.json" apply -f "${TMP_DIR}/forge.yaml"
@@ -496,16 +675,19 @@ deploy() {
   PROJECT_ID=""
   API_DEPLOYMENT_ID=""
   WEB_DEPLOYMENT_ID=""
+  WORKER_DEPLOYMENT_ID=""
   while IFS= read -r line; do
     case "${line}" in
       PROJECT_ID=*) PROJECT_ID="${line#PROJECT_ID=}" ;;
       DEPLOYMENT:askdocs-api=*) API_DEPLOYMENT_ID="${line#DEPLOYMENT:askdocs-api=}" ;;
       DEPLOYMENT:askdocs-web=*) WEB_DEPLOYMENT_ID="${line#DEPLOYMENT:askdocs-web=}" ;;
+      DEPLOYMENT:askdocs-worker=*) WORKER_DEPLOYMENT_ID="${line#DEPLOYMENT:askdocs-worker=}" ;;
     esac
   done < <(extract_apply_ids)
 
   [[ -n "${API_DEPLOYMENT_ID}" ]] || fail "askdocs-api Deployment id missing from apply"
   [[ -n "${WEB_DEPLOYMENT_ID}" ]] || fail "askdocs-web Deployment id missing from apply"
+  [[ -n "${WORKER_DEPLOYMENT_ID}" ]] || fail "askdocs-worker Deployment id missing from apply"
 
   if [[ -z "${PROJECT_ID}" ]]; then
     PROJECT_ID="$(curl --fail --silent --show-error "${CONTROL_URL}/v1/projects" |
@@ -518,19 +700,24 @@ for p in json.load(sys.stdin):
 ')" || true
   fi
   [[ -n "${PROJECT_ID}" ]] || fail "PROJECT_ID missing from apply/list"
-  echo "Deployments api=${API_DEPLOYMENT_ID} web=${WEB_DEPLOYMENT_ID} project=${PROJECT_ID}"
+  echo "Deployments api=${API_DEPLOYMENT_ID} worker=${WORKER_DEPLOYMENT_ID} web=${WEB_DEPLOYMENT_ID} project=${PROJECT_ID}"
 
   provision_managed_db
   wait_database_url_injected
+  wait_database_url_injected_worker
   assert_applications_ready
   wait_route_host "${API_HOST}" 90
   wait_route_host "${APP_HOST}" 90
+  wait_route_host "${WORKER_HOST}" 90
   wait_host_http "${API_HOST}" "/health/ready" 200 90
+  wait_host_http "${WORKER_HOST}" "/health/ready" 200 90
   wait_host_http "${APP_HOST}" "/" 200 60
 
   if "${FORGE_BIN}" wait --help >/dev/null 2>&1; then
     forge wait "application/askdocs-api" --for=condition=Ready --timeout=2m ||
       fail "forge wait askdocs-api failed"
+    forge wait "application/askdocs-worker" --for=condition=Ready --timeout=2m ||
+      fail "forge wait askdocs-worker failed"
     forge wait "application/askdocs-web" --for=condition=Ready --timeout=2m ||
       fail "forge wait askdocs-web failed"
   fi
@@ -538,15 +725,20 @@ for p in json.load(sys.stdin):
   write_state
   bash "${DEMO_DIR}/seed.sh" || fail "seed.sh failed"
   prove_persistence
+  prove_upload_and_ingest
 
   echo
-  echo "demo 53 deploy READY (managed Postgres + chat schema)"
+  echo "demo 53 deploy READY (storage upload + ingest pipeline)"
   echo "  App:          http://${APP_HOST}:4000/"
   echo "  API:          http://${API_HOST}:4000/health/ready"
+  echo "  Worker:       http://${WORKER_HOST}:4000/health/ready"
   echo "  API image:    ${API_IMAGE}"
+  echo "  Worker image: ${WORKER_IMAGE}"
   echo "  Web image:    ${WEB_IMAGE}"
+  echo "  Storage:      ${STORAGE_BUCKET} @ ${STORAGE_URL}"
+  echo "  Events:       document.uploaded @ ${EVENTS_URL}"
   echo "  Database:     ${DB_NAME} (Ready)"
-  echo "  Deployments:  api=${API_DEPLOYMENT_ID} web=${WEB_DEPLOYMENT_ID}"
+  echo "  Deployments:  api=${API_DEPLOYMENT_ID} worker=${WORKER_DEPLOYMENT_ID} web=${WEB_DEPLOYMENT_ID}"
   echo "  Project:      ${PROJECT_SLUG} (${PROJECT_ID})"
 }
 

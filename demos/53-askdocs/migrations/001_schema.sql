@@ -1,5 +1,6 @@
--- AskDocs schema (epic 53.01). Idempotent — safe to re-run on boot.
--- documents/chunks are stubbed for later ingest (53.02+); messages back chat history.
+-- AskDocs schema (epic 53.01+). Idempotent — safe to re-run on boot.
+-- documents/chunks back storage ingest (53.02); messages back chat history.
+-- status stays ingesting until embeddings mark ready (53.03).
 
 CREATE TABLE IF NOT EXISTS documents (
     id         TEXT PRIMARY KEY,

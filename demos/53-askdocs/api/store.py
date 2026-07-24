@@ -1,4 +1,4 @@
-"""Postgres repository for AskDocs messages (and schema migrations)."""
+"""Postgres repository for AskDocs messages, documents, and chunks."""
 
 from __future__ import annotations
 
@@ -23,6 +23,10 @@ class EmptyTextError(StoreError):
     """Raised when a message text is empty."""
 
 
+class EmptyDocumentError(StoreError):
+    """Raised when document text is empty."""
+
+
 @dataclass
 class Message:
     id: str
@@ -39,6 +43,48 @@ class Message:
             "role": self.role,
             "text": self.text,
             "citations": list(self.citations),
+            "createdAt": self.created_at.astimezone(timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z"),
+        }
+
+
+@dataclass
+class Document:
+    id: str
+    title: str
+    object_key: str
+    status: str
+    created_at: datetime
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "objectKey": self.object_key,
+            "status": self.status,
+            "createdAt": self.created_at.astimezone(timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z"),
+        }
+
+
+@dataclass
+class Chunk:
+    id: str
+    document_id: str
+    ordinal: int
+    text: str
+    memory_id: str | None
+    created_at: datetime
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "documentId": self.document_id,
+            "ordinal": self.ordinal,
+            "text": self.text,
+            "memoryId": self.memory_id,
             "createdAt": self.created_at.astimezone(timezone.utc)
             .isoformat()
             .replace("+00:00", "Z"),
@@ -169,6 +215,122 @@ class MessageStore:
             "assistant": assistant.to_json(),
         }
 
+    def create_document(
+        self,
+        title: str,
+        object_key: str,
+        status: str = "ingesting",
+        document_id: str | None = None,
+    ) -> Document:
+        title = (title or "").strip() or "Untitled"
+        object_key = (object_key or "").strip()
+        if not object_key:
+            raise StoreError("object_key is required")
+        if status not in ("ingesting", "ready"):
+            raise StoreError(f"invalid status: {status}")
+        doc = Document(
+            id=(document_id or "").strip() or uuid.uuid4().hex,
+            title=title,
+            object_key=object_key,
+            status=status,
+            created_at=datetime.now(timezone.utc),
+        )
+        self.connect()
+        assert self._conn is not None
+        self._conn.execute(
+            """
+            INSERT INTO documents (id, title, object_key, status, created_at)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (doc.id, doc.title, doc.object_key, doc.status, doc.created_at),
+        )
+        self._conn.commit()
+        return doc
+
+    def get_document(self, document_id: str) -> Document | None:
+        self.connect()
+        assert self._conn is not None
+        row = self._conn.execute(
+            """
+            SELECT id, title, object_key, status, created_at
+            FROM documents
+            WHERE id = %s
+            """,
+            (document_id,),
+        ).fetchone()
+        return self._row_to_document(row) if row else None
+
+    def list_documents(self) -> list[Document]:
+        self.connect()
+        assert self._conn is not None
+        rows = self._conn.execute(
+            """
+            SELECT id, title, object_key, status, created_at
+            FROM documents
+            ORDER BY created_at DESC, id ASC
+            """
+        ).fetchall()
+        return [self._row_to_document(r) for r in rows]
+
+    def replace_chunks(self, document_id: str, texts: list[str]) -> list[Chunk]:
+        """Replace all chunks for a document. Leaves status=ingesting (ready is 53.03)."""
+        document_id = (document_id or "").strip()
+        if not document_id:
+            raise StoreError("document_id is required")
+        self.connect()
+        assert self._conn is not None
+        doc = self.get_document(document_id)
+        if doc is None:
+            raise StoreError(f"document not found: {document_id}")
+        self._conn.execute("DELETE FROM chunks WHERE document_id = %s", (document_id,))
+        now = datetime.now(timezone.utc)
+        chunks: list[Chunk] = []
+        for ordinal, text in enumerate(texts):
+            chunk = Chunk(
+                id=uuid.uuid4().hex,
+                document_id=document_id,
+                ordinal=ordinal,
+                text=text,
+                memory_id=None,
+                created_at=now,
+            )
+            self._conn.execute(
+                """
+                INSERT INTO chunks (id, document_id, ordinal, text, memory_id, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    chunk.id,
+                    chunk.document_id,
+                    chunk.ordinal,
+                    chunk.text,
+                    chunk.memory_id,
+                    chunk.created_at,
+                ),
+            )
+            chunks.append(chunk)
+        # Keep status=ingesting until embeddings land in 53.03.
+        self._conn.execute(
+            "UPDATE documents SET status = 'ingesting' WHERE id = %s",
+            (document_id,),
+        )
+        self._conn.commit()
+        return chunks
+
+    def list_chunks(self, document_id: str) -> list[Chunk]:
+        self.connect()
+        assert self._conn is not None
+        rows = self._conn.execute(
+            """
+            SELECT id, document_id, ordinal, text, memory_id, created_at
+            FROM chunks
+            WHERE document_id = %s
+            ORDER BY ordinal ASC, id ASC
+            """,
+            (document_id,),
+        ).fetchall()
+        return [self._row_to_chunk(r) for r in rows]
+
     @staticmethod
     def _row_to_message(row: dict[str, Any]) -> Message:
         citations = row.get("citations") or []
@@ -183,6 +345,34 @@ class MessageStore:
             role=str(row["role"]),
             text=str(row["text"]),
             citations=list(citations),
+            created_at=created,
+        )
+
+    @staticmethod
+    def _row_to_document(row: dict[str, Any]) -> Document:
+        created = row["created_at"]
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        return Document(
+            id=str(row["id"]),
+            title=str(row["title"]),
+            object_key=str(row["object_key"]),
+            status=str(row["status"]),
+            created_at=created,
+        )
+
+    @staticmethod
+    def _row_to_chunk(row: dict[str, Any]) -> Chunk:
+        created = row["created_at"]
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        memory_id = row.get("memory_id")
+        return Chunk(
+            id=str(row["id"]),
+            document_id=str(row["document_id"]),
+            ordinal=int(row["ordinal"]),
+            text=str(row["text"]),
+            memory_id=str(memory_id) if memory_id is not None else None,
             created_at=created,
         )
 

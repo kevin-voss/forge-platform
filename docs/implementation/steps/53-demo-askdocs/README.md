@@ -8,7 +8,7 @@ Atomic steps for [Demo 3 — AskDocs](../../epics/53-demo-askdocs.md). Product d
 | N | Step | File | Status |
 |---:|---|---|---|
 | **193** | `53.01` | [53.01-scaffold-and-postgres.md](53.01-scaffold-and-postgres.md) | Complete |
-| **194** | `53.02` | [53.02-storage-upload-and-ingest.md](53.02-storage-upload-and-ingest.md) | Not started |
+| **194** | `53.02` | [53.02-storage-upload-and-ingest.md](53.02-storage-upload-and-ingest.md) | Complete |
 | **195** | `53.03` | [53.03-embeddings-and-memory.md](53.03-embeddings-and-memory.md) | Not started |
 | **196** | `53.04` | [53.04-agent-grounded-answerer.md](53.04-agent-grounded-answerer.md) | Not started |
 | **197** | `53.05` | [53.05-e2e-browser-spec.md](53.05-e2e-browser-spec.md) | Not started |

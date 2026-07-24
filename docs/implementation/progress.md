@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 194`** (verification track; epic 53 AskDocs).
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 195`** (verification track; epic 53 AskDocs).
 
 ## Epics
 
@@ -311,7 +311,7 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 | **191** | E2E browser spec | 52 | Complete |
 | **192** | Demo + epic gate | 52 | Complete |
 | **193** | Product scaffold + Postgres | 53 | Complete |
-| **194** | Storage upload + ingest pipeline | 53 | Not started |
+| **194** | Storage upload + ingest pipeline | 53 | Complete |
 | **195** | Embeddings (Models) + Memory upsert/query | 53 | Not started |
 | **196** | Agent grounded answerer | 53 | Not started |
 | **197** | E2E browser spec | 53 | Not started |

@@ -8,8 +8,12 @@
   const input = document.getElementById('chat-input');
   const list = document.getElementById('message-list');
   const status = document.getElementById('chat-status');
-
-  if (!form || !input || !list || !status) return;
+  const uploadForm = document.getElementById('upload-form');
+  const uploadStatus = document.getElementById('upload-status');
+  const docList = document.getElementById('document-list');
+  const titleInput = document.getElementById('doc-title');
+  const fileInput = document.getElementById('doc-file');
+  const textInput = document.getElementById('doc-text');
 
   function sessionId() {
     let id = localStorage.getItem(SESSION_KEY);
@@ -22,7 +26,7 @@
 
   async function api(path, options = {}) {
     const headers = { ...(options.headers || {}) };
-    if (options.body && !headers['Content-Type']) {
+    if (options.body && !(options.body instanceof FormData) && !headers['Content-Type']) {
       headers['Content-Type'] = 'application/json';
     }
     const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
@@ -35,6 +39,7 @@
   }
 
   function renderMessages(messages) {
+    if (!list) return;
     list.replaceChildren();
     if (!messages.length) {
       const empty = document.createElement('p');
@@ -58,7 +63,26 @@
     }
   }
 
-  async function refresh() {
+  function renderDocuments(documents) {
+    if (!docList) return;
+    docList.replaceChildren();
+    if (!documents.length) {
+      const empty = document.createElement('p');
+      empty.className = 'empty';
+      empty.textContent = 'No documents yet. Upload a handbook to start ingest.';
+      docList.appendChild(empty);
+      return;
+    }
+    for (const doc of documents) {
+      const li = document.createElement('li');
+      li.className = 'doc';
+      li.textContent = `${doc.title} — ${doc.status} (${doc.id.slice(0, 8)}…)`;
+      docList.appendChild(li);
+    }
+  }
+
+  async function refreshChat() {
+    if (!status) return;
     status.textContent = 'Loading chat history…';
     try {
       const body = await api(`/messages?sessionId=${encodeURIComponent(sessionId())}`);
@@ -69,22 +93,70 @@
     }
   }
 
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const text = input.value.trim();
-    if (!text) return;
-    status.textContent = 'Sending…';
+  async function refreshDocuments() {
+    if (!uploadStatus) return;
     try {
-      await api('/chat', {
-        method: 'POST',
-        body: JSON.stringify({ sessionId: sessionId(), text }),
-      });
-      input.value = '';
-      await refresh();
+      const body = await api('/documents');
+      renderDocuments(body.documents || []);
     } catch (err) {
-      status.textContent = `Chat failed: ${err.message}`;
+      uploadStatus.textContent = `Failed to list documents: ${err.message}`;
     }
-  });
+  }
 
-  refresh();
+  if (form && input && list && status) {
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+      status.textContent = 'Sending…';
+      try {
+        await api('/chat', {
+          method: 'POST',
+          body: JSON.stringify({ sessionId: sessionId(), text }),
+        });
+        input.value = '';
+        await refreshChat();
+      } catch (err) {
+        status.textContent = `Chat failed: ${err.message}`;
+      }
+    });
+    refreshChat();
+  }
+
+  if (uploadForm && uploadStatus) {
+    uploadForm.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      uploadStatus.textContent = 'Uploading…';
+      try {
+        const title = (titleInput && titleInput.value.trim()) || '';
+        const pasted = (textInput && textInput.value.trim()) || '';
+        const file = fileInput && fileInput.files && fileInput.files[0];
+        if (file) {
+          const fd = new FormData();
+          if (title) fd.append('title', title);
+          fd.append('file', file, file.name);
+          await api('/documents', { method: 'POST', body: fd });
+        } else if (pasted) {
+          await api('/documents', {
+            method: 'POST',
+            body: JSON.stringify({
+              title: title || 'Pasted document',
+              text: pasted,
+              filename: 'pasted.txt',
+            }),
+          });
+        } else {
+          throw new Error('Choose a file or paste text');
+        }
+        if (textInput) textInput.value = '';
+        if (fileInput) fileInput.value = '';
+        uploadStatus.textContent = 'Uploaded — ingest running…';
+        await refreshDocuments();
+      } catch (err) {
+        uploadStatus.textContent = `Upload failed: ${err.message}`;
+      }
+    });
+    refreshDocuments();
+    setInterval(refreshDocuments, 4000);
+  }
 })();
