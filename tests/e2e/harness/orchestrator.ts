@@ -11,6 +11,7 @@ import {
   ScriptExecutionError,
 } from './demo';
 import {
+  consolidate,
   loadFindings,
   record,
   type FindingsDocument,
@@ -516,7 +517,8 @@ export async function runOrchestrator(
       );
     }
 
-    const findings = loadFindings(options.findingsPaths ?? {});
+    // 56.03: consolidate even on preflight failure so tables/triage stay accurate.
+    const findings = consolidate(options.findingsPaths ?? {}).document;
     const result: OrchestratorResult = {
       env,
       products: [],
@@ -553,7 +555,8 @@ export async function runOrchestrator(
     // or blocker findings remain.
   }
 
-  const findings = loadFindings(options.findingsPaths ?? {});
+  // 56.03: dedupe/rank/group, refresh PLATFORM_FINDINGS.md tables + triage list.
+  const findings = consolidate(options.findingsPaths ?? {}).document;
   // Non-blocker findings mark a product degraded but must not fail the suite
   // (e2e-harness.md §3). Only failed outcomes / blocker findings exit non-zero.
   const productsSucceeded = products.every(

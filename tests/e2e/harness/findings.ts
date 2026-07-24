@@ -102,6 +102,26 @@ export interface PlatformExpectResult {
   error?: Error;
 }
 
+/** One row in the PLATFORM_FINDINGS.md triage list (56.03). */
+export interface TriageEntry {
+  id: string;
+  severity: Severity;
+  service: string;
+  title: string;
+  demo: string;
+  /** Service owner / area / notes used for hand-off. */
+  suspectedComponent: string;
+  missingEvidence: boolean;
+}
+
+export interface ConsolidateResult {
+  document: FindingsDocument;
+  triage: TriageEntry[];
+  missingEvidenceIds: string[];
+  markdownPath: string;
+  jsonPath: string;
+}
+
 const DEFAULT_DEMOS = [
   '01-taskflow',
   '02-snapnote',
@@ -112,6 +132,13 @@ const DEFAULT_DEMOS = [
 
 const EMPTY_PLACEHOLDER =
   '_No findings recorded yet. The first demo run appends entries below._';
+
+/** Lower rank = higher priority (blocker first). */
+export const SEVERITY_RANK: Record<Severity, number> = {
+  blocker: 0,
+  major: 1,
+  minor: 2,
+};
 
 function e2eRoot(): string {
   return path.resolve(__dirname, '..');
@@ -158,6 +185,35 @@ function dedupeKey(service: string, title: string): string {
   return `${service}\0${title}`;
 }
 
+/** Map severity to sort rank (blocker=0 … minor=2). */
+export function severityRank(severity: Severity): number {
+  return SEVERITY_RANK[severity] ?? 99;
+}
+
+/**
+ * Normalize "Found by demo" cell values like `01-taskflow (step 51.03)` → `01-taskflow`.
+ */
+export function normalizeDemo(demo: string): string {
+  const trimmed = demo.trim();
+  if (!trimmed) return trimmed;
+  const known = trimmed.match(/^(0[1-5]-[a-z0-9-]+)/i);
+  if (known) return known[1];
+  return trimmed;
+}
+
+/** True when the finding carries at least one machine-verifiable evidence artifact. */
+export function hasEvidence(finding: FindingRecord): boolean {
+  const e = finding.evidence;
+  if (!e) return false;
+  if (e.httpStatus !== undefined) return true;
+  if (e.traceId?.trim()) return true;
+  if (e.screenshot?.trim()) return true;
+  if (e.logs?.trim() && e.logs.trim() !== '_(none captured)_') return true;
+  if (e.body?.trim()) return true;
+  if (e.method?.trim() || e.url?.trim()) return true;
+  return false;
+}
+
 function emptyDocument(): FindingsDocument {
   const byDemo: Record<string, number> = {};
   for (const demo of DEFAULT_DEMOS) {
@@ -196,42 +252,154 @@ function stripHtmlComments(markdown: string): string {
   return markdown.replace(/<!--[\s\S]*?-->/g, '');
 }
 
-/** Parse existing F-NNN ids and service+title pairs from markdown. */
-function parseMarkdownIndex(markdown: string): {
+interface MarkdownFindingIndex {
   maxId: number;
   keys: Set<string>;
-  records: Array<{ id: string; service: string; title: string; severity: Severity }>;
-} {
+  records: FindingRecord[];
+  /** Raw `### F-NNN — …` blocks keyed by id (preserves human prose on consolidate). */
+  blocks: Map<string, string>;
+}
+
+function fieldFromTable(slice: string, field: string): string {
+  const re = new RegExp(
+    `\\|\\s*${escapeRegExp(field)}\\s*\\|\\s*([^|\\n]+)\\|`,
+    'i',
+  );
+  return (slice.match(re)?.[1] ?? '').trim();
+}
+
+function sectionBody(slice: string, heading: string): string {
+  const re = new RegExp(
+    `\\*\\*${escapeRegExp(heading)}\\*\\*\\n([\\s\\S]*?)(?=\\n\\*\\*|\\n### |$)`,
+  );
+  return (slice.match(re)?.[1] ?? '').trim();
+}
+
+function expectedFromMarkdown(slice: string): string | undefined {
+  const match = slice.match(
+    /\*\*Expected[^*]*\*\*\n([\s\S]*?)(?=\n\*\*|\n### |$)/,
+  );
+  const body = match?.[1]?.trim();
+  return body || undefined;
+}
+
+function evidenceFromMarkdown(evidenceBody: string): FindingEvidence | undefined {
+  const body = evidenceBody.trim();
+  if (
+    !body ||
+    body === '- _(none captured)_' ||
+    body === '_(none captured)_' ||
+    body === '- _(none)_'
+  ) {
+    return undefined;
+  }
+
+  const evidence: FindingEvidence = {};
+  const http = body.match(
+    /HTTP:\s*`([^`]+)`\s*→\s*`([^`]+)`(?:\s*body:\s*`([^`]*)`)?/i,
+  );
+  if (http) {
+    const left = http[1].trim();
+    const status = http[2].trim();
+    const space = left.indexOf(' ');
+    if (space > 0) {
+      evidence.method = left.slice(0, space);
+      evidence.url = left.slice(space + 1);
+    } else {
+      evidence.url = left;
+    }
+    const n = Number(status);
+    if (!Number.isNaN(n)) evidence.httpStatus = n;
+    if (http[3] !== undefined) evidence.body = http[3];
+  }
+  const logs = body.match(/Logs:\s*`([^`]+)`/i);
+  if (logs) evidence.logs = logs[1];
+  const trace = body.match(/Trace id:\s*`([^`]+)`/i);
+  if (trace) evidence.traceId = trace[1];
+  const artifact = body.match(/Artifact:\s*`([^`]+)`/i);
+  if (artifact) evidence.screenshot = artifact[1];
+
+  // Free-form evidence bullets (path citations, OpenAPI refs) still count.
+  if (!hasEvidence({ evidence } as FindingRecord)) {
+    evidence.logs = body.replace(/\n+/g, ' ').slice(0, 500);
+  }
+  return evidence;
+}
+
+/** Parse existing F-NNN blocks, counters fields, and raw markdown bodies. */
+function parseMarkdownIndex(markdown: string): MarkdownFindingIndex {
   const keys = new Set<string>();
-  const records: Array<{
-    id: string;
-    service: string;
-    title: string;
-    severity: Severity;
-  }> = [];
+  const records: FindingRecord[] = [];
+  const blocks = new Map<string, string>();
   let maxId = 0;
 
   const searchable = stripHtmlComments(markdown);
   const headingRe = /^### (F-(\d+)) — (.+)\s*$/gm;
+  const matches: Array<{
+    id: string;
+    num: number;
+    title: string;
+    index: number;
+  }> = [];
   let match: RegExpExecArray | null;
   while ((match = headingRe.exec(searchable)) !== null) {
-    const id = match[1];
-    const num = Number(match[2]);
-    const title = match[3].trim();
-    if (num > maxId) maxId = num;
+    matches.push({
+      id: match[1],
+      num: Number(match[2]),
+      title: match[3].trim(),
+      index: match.index,
+    });
+  }
 
-    const slice = searchable.slice(match.index, match.index + 2000);
-    const serviceMatch = slice.match(/\|\s*Service\s*\|\s*([^|\n]+)\|/);
-    const severityMatch = slice.match(/\|\s*Severity\s*\|\s*(blocker|major|minor)\s*\|/i);
-    const service = (serviceMatch?.[1] ?? '').trim();
-    const severity = (severityMatch?.[1]?.toLowerCase() ?? 'minor') as Severity;
-    if (service && title) {
-      keys.add(dedupeKey(service, title));
-      records.push({ id, service, title, severity });
+  for (let i = 0; i < matches.length; i += 1) {
+    const current = matches[i];
+    if (current.num > maxId) maxId = current.num;
+    const end = i + 1 < matches.length ? matches[i + 1].index : searchable.length;
+    const rawBlock = searchable.slice(current.index, end).replace(/\s*$/, '');
+    blocks.set(current.id, rawBlock);
+
+    const slice = rawBlock;
+    const service = fieldFromTable(slice, 'Service');
+    const severityRaw = fieldFromTable(slice, 'Severity').toLowerCase();
+    const severity = (
+      severityRaw === 'blocker' || severityRaw === 'major' || severityRaw === 'minor'
+        ? severityRaw
+        : 'minor'
+    ) as Severity;
+    const statusRaw = fieldFromTable(slice, 'Status');
+    const demoRaw = fieldFromTable(slice, 'Found by demo');
+    const area = fieldFromTable(slice, 'Area / contract');
+    const firstSeen = fieldFromTable(slice, 'First seen') || todayIso();
+    const reproducible = fieldFromTable(slice, 'Reproducible') || undefined;
+    const evidenceBody = sectionBody(slice, 'Evidence');
+    const notes =
+      sectionBody(slice, 'Suspected component / notes') ||
+      sectionBody(slice, 'Suggested platform fix') ||
+      undefined;
+
+    if (service && current.title) {
+      keys.add(dedupeKey(service, current.title));
+      records.push({
+        id: current.id,
+        status: statusRaw.toLowerCase() === 'open' || !statusRaw ? 'Open' : 'Open',
+        service,
+        demo: normalizeDemo(demoRaw || 'unknown'),
+        severity,
+        title: current.title,
+        firstSeen,
+        area: area || undefined,
+        tested: sectionBody(slice, 'What we tested') || undefined,
+        expected: expectedFromMarkdown(slice),
+        actual: sectionBody(slice, 'Actual') || undefined,
+        evidence: evidenceFromMarkdown(evidenceBody),
+        impact: sectionBody(slice, 'Impact on demo') || sectionBody(slice, 'Impact') || undefined,
+        notes,
+        reproducible,
+      });
     }
   }
 
-  return { maxId, keys, records };
+  return { maxId, keys, records, blocks };
 }
 
 function recomputeCounters(findings: FindingRecord[]): Omit<FindingsDocument, 'findings'> {
@@ -257,7 +425,8 @@ function recomputeCounters(findings: FindingRecord[]): Omit<FindingsDocument, 'f
     svc[f.severity] += 1;
     byService[f.service] = svc;
 
-    byDemo[f.demo] = (byDemo[f.demo] ?? 0) + 1;
+    const demo = normalizeDemo(f.demo);
+    byDemo[demo] = (byDemo[demo] ?? 0) + 1;
   }
 
   return { summary, byService, byDemo };
@@ -285,18 +454,22 @@ function loadDocument(paths: FindingsPaths): {
 
   let findings: FindingRecord[];
   if (fromJson && fromJson.findings.length > 0) {
-    findings = fromJson.findings;
+    // Prefer JSON records; enrich missing demo/notes/evidence from markdown parse.
+    const byId = new Map(index.records.map((r) => [r.id, r]));
+    findings = fromJson.findings.map((f) => {
+      const md = byId.get(f.id);
+      if (!md) return { ...f, demo: normalizeDemo(f.demo) };
+      return {
+        ...md,
+        ...f,
+        demo: normalizeDemo(f.demo || md.demo),
+        evidence: hasEvidence(f) ? f.evidence : md.evidence,
+        notes: f.notes ?? md.notes,
+        area: f.area ?? md.area,
+      };
+    });
   } else if (index.records.length > 0) {
-    // Reconstruct minimal records from markdown when JSON is missing.
-    findings = index.records.map((r) => ({
-      id: r.id,
-      status: 'Open' as const,
-      service: r.service,
-      demo: 'unknown',
-      severity: r.severity,
-      title: r.title,
-      firstSeen: todayIso(paths),
-    }));
+    findings = index.records;
   } else {
     findings = [];
   }
@@ -525,6 +698,208 @@ function nextFindingId(maxId: number): string {
   return `F-${String(maxId + 1).padStart(3, '0')}`;
 }
 
+function findingIdNumber(id: string): number {
+  return Number(id.replace(/^F-/, '')) || 0;
+}
+
+/**
+ * Keep one finding per `service+title`. Prefer higher severity, then evidence,
+ * then lower id (earlier first-seen).
+ */
+export function dedupeFindings(findings: FindingRecord[]): FindingRecord[] {
+  const best = new Map<string, FindingRecord>();
+  for (const raw of findings) {
+    const finding: FindingRecord = {
+      ...raw,
+      demo: normalizeDemo(raw.demo),
+      service: raw.service.trim(),
+      title: raw.title.trim(),
+    };
+    const key = dedupeKey(finding.service, finding.title);
+    const prev = best.get(key);
+    if (!prev) {
+      best.set(key, finding);
+      continue;
+    }
+    const rankDiff = severityRank(finding.severity) - severityRank(prev.severity);
+    if (rankDiff < 0) {
+      best.set(key, finding);
+      continue;
+    }
+    if (rankDiff > 0) continue;
+    if (hasEvidence(finding) && !hasEvidence(prev)) {
+      best.set(key, finding);
+      continue;
+    }
+    if (!hasEvidence(finding) && hasEvidence(prev)) continue;
+    if (findingIdNumber(finding.id) < findingIdNumber(prev.id)) {
+      best.set(key, finding);
+    }
+  }
+  return [...best.values()];
+}
+
+/** Rank findings: blocker → major → minor, then by id. */
+export function rankFindings(findings: FindingRecord[]): FindingRecord[] {
+  return [...findings].sort((a, b) => {
+    const bySev = severityRank(a.severity) - severityRank(b.severity);
+    if (bySev !== 0) return bySev;
+    return findingIdNumber(a.id) - findingIdNumber(b.id);
+  });
+}
+
+/** Build triage rows (blocker first) with evidence-gap flags. */
+export function buildTriage(findings: FindingRecord[]): TriageEntry[] {
+  return rankFindings(findings).map((f) => ({
+    id: f.id,
+    severity: f.severity,
+    service: f.service,
+    title: f.title,
+    demo: normalizeDemo(f.demo),
+    suspectedComponent: (f.notes?.trim() || f.area?.trim() || f.service).replace(
+      /\n+/g,
+      ' ',
+    ),
+    missingEvidence: !hasEvidence(f),
+  }));
+}
+
+function renderTriageSection(triage: TriageEntry[]): string {
+  const header = [
+    '## Triage',
+    '',
+    'Ranked hand-off list: **blocker** findings first, then major, then minor.',
+    'Service owner is the primary fix target; suspected component carries area/notes.',
+    '',
+    '| # | ID | Severity | Service owner | Suspected component | Demo | Evidence | Title |',
+    '|--:|---|---|---|---|---|---|---|',
+  ];
+  if (triage.length === 0) {
+    return [...header, '| — | — | — | — | — | — | — | _(none)_ |'].join('\n');
+  }
+  const cell = (value: string, max: number): string => {
+    const flat = value.replace(/\|/g, '/').replace(/\s+/g, ' ').trim();
+    return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+  };
+  const rows = triage.map((t, i) => {
+    const evidence = t.missingEvidence ? '⚠ missing' : 'ok';
+    return (
+      `| ${i + 1} | ${t.id} | ${t.severity} | ${cell(t.service, 40)} | ` +
+      `${cell(t.suspectedComponent, 80)} | ${cell(t.demo, 24)} | ${evidence} | ` +
+      `${cell(t.title, 60)} |`
+    );
+  });
+  const missing = triage.filter((t) => t.missingEvidence).map((t) => t.id);
+  const gaps =
+    missing.length > 0
+      ? [
+          '',
+          '### Evidence gaps',
+          '',
+          'Findings missing machine-verifiable evidence (template requirement): ' +
+            missing.map((id) => `\`${id}\``).join(', ') +
+            '.',
+        ]
+      : ['', '### Evidence gaps', '', '_All findings include evidence._'];
+  return [...header, ...rows, ...gaps].join('\n');
+}
+
+function renderFindingsSection(
+  ranked: FindingRecord[],
+  blocks: Map<string, string>,
+): string {
+  if (ranked.length === 0) {
+    return EMPTY_PLACEHOLDER;
+  }
+  return ranked
+    .map((f) => blocks.get(f.id) ?? formatFindingBlock(f))
+    .join('\n\n');
+}
+
+function replaceOrInsertTriage(markdown: string, triageMd: string): string {
+  if (/^## Triage\s*$/m.test(markdown)) {
+    return markdown.replace(
+      /## Triage\n[\s\S]*?(?=\n## Findings\n)/,
+      `${triageMd}\n\n`,
+    );
+  }
+  // Insert triage immediately before ## Findings.
+  if (!/^## Findings\s*$/m.test(markdown)) {
+    throw new Error('PLATFORM_FINDINGS.md missing ## Findings section');
+  }
+  return markdown.replace(/\n## Findings\n/, `\n${triageMd}\n\n## Findings\n`);
+}
+
+function replaceFindingsSection(markdown: string, body: string): string {
+  const re = /(## Findings\n\n)([\s\S]*)$/;
+  if (!re.test(markdown)) {
+    throw new Error('PLATFORM_FINDINGS.md missing ## Findings section');
+  }
+  const trimmedBody = body.replace(/\s*$/, '');
+  return markdown.replace(re, `$1${trimmedBody}\n`);
+}
+
+function writeConsolidatedMarkdown(
+  markdown: string,
+  document: FindingsDocument,
+  triage: TriageEntry[],
+  blocks: Map<string, string>,
+): string {
+  let next = replaceSection(markdown, 'Summary', renderSummaryTable(document.summary));
+  next = replaceSection(next, 'By service', renderByServiceTable(document.byService));
+  next = replaceSection(next, 'By demo', renderByDemoTable(document.byDemo));
+  next = replaceOrInsertTriage(next, renderTriageSection(triage));
+  next = replaceFindingsSection(next, renderFindingsSection(document.findings, blocks));
+  return next;
+}
+
+/**
+ * Consolidation mode (56.03): dedupe by service+title, rank by severity,
+ * refresh summary tables, emit triage list, flag evidence-less entries.
+ * Rewrites PLATFORM_FINDINGS.md + findings.json.
+ */
+export function consolidate(paths: FindingsPaths = {}): ConsolidateResult {
+  const loaded = loadDocument(paths);
+  const deduped = dedupeFindings(loaded.document.findings);
+  const ranked = rankFindings(deduped);
+  const counters = recomputeCounters(ranked);
+  const document: FindingsDocument = { findings: ranked, ...counters };
+  const triage = buildTriage(ranked);
+  const missingEvidenceIds = triage
+    .filter((t) => t.missingEvidence)
+    .map((t) => t.id);
+
+  // Preserve human-authored bodies; synthesize blocks for JSON-only findings.
+  const blocks = new Map(loaded.index.blocks);
+  for (const f of ranked) {
+    if (!blocks.has(f.id)) {
+      blocks.set(f.id, formatFindingBlock(f));
+    }
+  }
+
+  const markdown = writeConsolidatedMarkdown(
+    loaded.markdown.includes('## Summary')
+      ? loaded.markdown
+      : seedMarkdown(),
+    document,
+    triage,
+    blocks,
+  );
+
+  fs.mkdirSync(path.dirname(loaded.markdownPath), { recursive: true });
+  fs.writeFileSync(loaded.markdownPath, markdown, 'utf8');
+  ensureArtifactsDir(loaded.jsonPath);
+  fs.writeFileSync(loaded.jsonPath, `${JSON.stringify(document, null, 2)}\n`, 'utf8');
+
+  return {
+    document,
+    triage,
+    missingEvidenceIds,
+    markdownPath: loaded.markdownPath,
+    jsonPath: loaded.jsonPath,
+  };
+}
+
 /**
  * Append a finding to PLATFORM_FINDINGS.md and merge into findings.json.
  * Dedupes by `service+title` (no double-append).
@@ -669,4 +1044,36 @@ export const platform = {
 /** Test helper: load the current findings document from disk. */
 export function loadFindings(paths: FindingsPaths = {}): FindingsDocument {
   return loadDocument(paths).document;
+}
+
+/** CLI: `node harness/findings.js --consolidate` regenerates PLATFORM_FINDINGS.md. */
+function main(argv: string[] = process.argv.slice(2)): void {
+  if (!argv.includes('--consolidate')) {
+    process.stderr.write(
+      'usage: node harness/findings.js --consolidate\n',
+    );
+    process.exitCode = 2;
+    return;
+  }
+  const result = consolidate();
+  process.stdout.write(
+    `[findings] consolidated ${result.document.summary.total} findings` +
+      ` (blocker=${result.document.summary.blocker}` +
+      ` major=${result.document.summary.major}` +
+      ` minor=${result.document.summary.minor})` +
+      ` missingEvidence=${result.missingEvidenceIds.length}` +
+      `\n[findings] wrote ${result.markdownPath}\n` +
+      `[findings] wrote ${result.jsonPath}\n`,
+  );
+}
+
+if (require.main === module) {
+  try {
+    main();
+  } catch (err) {
+    process.stderr.write(
+      `[findings] fatal: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`,
+    );
+    process.exitCode = 1;
+  }
 }

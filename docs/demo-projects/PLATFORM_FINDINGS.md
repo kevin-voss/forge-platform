@@ -29,11 +29,11 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 | Service | Open | Blocker | Major | Minor |
 |---|--:|--:|--:|--:|
 | forge-agents / forge-control | 1 | 0 | 0 | 1 |
+| forge-autoscaler | 1 | 0 | 0 | 1 |
 | forge-events | 1 | 0 | 0 | 1 |
 | forge-identity | 1 | 0 | 0 | 1 |
 | forge-observe | 2 | 0 | 2 | 0 |
 | forge-secrets / forge-control | 1 | 0 | 0 | 1 |
-| forge-autoscaler | 1 | 0 | 0 | 1 |
 | forge-workflows | 1 | 0 | 1 | 0 |
 | platform | 1 | 0 | 1 | 0 |
 
@@ -49,7 +49,192 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 
 ---
 
+## Triage
+
+Ranked hand-off list: **blocker** findings first, then major, then minor.
+Service owner is the primary fix target; suspected component carries area/notes.
+
+| # | ID | Severity | Service owner | Suspected component | Demo | Evidence | Title |
+|--:|---|---|---|---|---|---|---|
+| 1 | F-003 | major | forge-observe | forge-observe / product OTEL export (51.05) | 01-taskflow | ⚠ missing | Observe should record at least one trace for POST /tasks |
+| 2 | F-004 | major | platform | managed PostgreSQL durability (51.02/51.05) | 01-taskflow | ⚠ missing | Managed Postgres task data must survive API container resta… |
+| 3 | F-007 | major | forge-observe | forge-observe cross-service telemetry (53.05) | 03-askdocs | ⚠ missing | Observe should show connected evidence spanning AskDocs → M… |
+| 4 | F-008 | major | forge-workflows | Add an `http.request` (or `service.call`) task action with URL/body/header temp… | 04-orderpipe | ok | No HTTP/service workflow actions for product saga steps |
+| 5 | F-001 | minor | forge-identity | Document the recommended product auth pattern (PAT-as-Bearer vs app JWT) in Ide… | 01-taskflow | ok | No prescribed app JWT-over-PAT product session pattern |
+| 6 | F-002 | minor | forge-secrets / forge-control | Either wire apply/`valueFrom.secret` → Secrets bindings, or document that bindi… | 01-taskflow | ok | Application `valueFrom.secret` is documentation-only; slash… |
+| 7 | F-005 | minor | forge-events | Related to epic 28 (forge-queue). Workaround is intentional for the verificatio… | 02-snapnote | ok | forge-events has no queueDepth admin metrics for autoscaler |
+| 8 | F-006 | minor | forge-agents / forge-control | Add a `retrieve` alias (or collection-bound tool binding in Agent YAML) and/or … | 03-askdocs | ok | No `retrieve` tool alias or Control-applied `kind: Agent` |
+| 9 | F-009 | minor | forge-autoscaler | Document that `<=0` means “use default”, or treat `0` as disabled and use a neg… | 05-pulseboard | ok | Node scale cooldown `0` means built-in default, not “disabl… |
+
+### Evidence gaps
+
+Findings missing machine-verifiable evidence (template requirement): `F-003`, `F-004`, `F-007`.
+
 ## Findings
+
+### F-003 — Observe should record at least one trace for POST /tasks
+
+| Field | Value |
+|---|---|
+| Status | Open |
+| Severity | major |
+| Service | forge-observe |
+| Area / contract | forge-observe / product OTEL export (51.05) |
+| Found by demo | 01-taskflow |
+| First seen | 2026-07-24 |
+| Reproducible | always |
+
+**What we tested**
+POST /tasks then query Tempo /api/search and Observe /v1/logs
+
+**Expected (per spec/contract)**
+≥1 OTEL trace (or observe log evidence) for POST /tasks
+
+**Actual**
+no OTEL trace evidence for POST /tasks (tempo search returned zero traces; observe HTTP 400)
+
+**Evidence**
+- _(none captured)_
+
+**Reproduce**
+```bash
+make demo DEMO=51 KEEP=1
+curl -s "http://127.0.0.1:3002/api/search?limit=20"
+curl -s "http://127.0.0.1:4106/v1/logs?limit=50"
+```
+
+**Impact on demo**
+Demo marked **degraded**; run continues.
+
+### F-004 — Managed Postgres task data must survive API container restart
+
+| Field | Value |
+|---|---|
+| Status | Open |
+| Severity | major |
+| Service | platform |
+| Area / contract | managed PostgreSQL durability (51.02/51.05) |
+| Found by demo | 01-taskflow |
+| First seen | 2026-07-24 |
+| Reproducible | intermittent |
+
+**What we tested**
+create+complete Buy milk, docker restart API container, GET /tasks
+
+**Expected (per spec/contract)**
+same task id/title/done=true still present via managed Database
+
+**Actual**
+After `docker restart` of the API container, Gateway sometimes returns HTTP 502
+`upstream connection error` on member login / `/tasks` before the upstream is healthy
+again (race vs readiness). Example:
+`{"error":{"code":"bad_gateway","message":"upstream connection error","requestId":"req_2cdbb3ecb61d0ad1327439d1b5980273"}}`
+
+**Evidence**
+- _(none captured)_
+
+**Reproduce**
+```bash
+make demo DEMO=51 KEEP=1
+docker restart $(docker ps -q --filter label=forge.managed=true | head -1)
+curl -H Host:api.taskflow.localhost -H "Authorization: Bearer $PAT" http://127.0.0.1:4000/tasks
+```
+
+**Impact on demo**
+Demo marked **degraded**; run continues.
+
+### F-007 — Observe should show connected evidence spanning AskDocs → Models/Memory/Agents
+
+| Field | Value |
+|---|---|
+| Status | Open |
+| Severity | major |
+| Service | forge-observe |
+| Area / contract | forge-observe cross-service telemetry (53.05) |
+| Found by demo | 03-askdocs |
+| First seen | 2026-07-24 |
+| Reproducible | always |
+
+**What we tested**
+POST /chat then Tempo /api/search + Observe /v1/logs?service=…
+
+**Expected (per spec/contract)**
+≥1 Tempo trace or observe log evidence for AskDocs/AI stack path
+
+**Actual**
+no connected Observe/Tempo evidence for AskDocs query path (tempo search returned zero traces; http://127.0.0.1:4106/v1/logs?service=askdocs-api&limit=80: no AI-stack match; http://127.0.0.1:4106/v1/logs?service=forge-models&limit=40: no AI-stack match; http://127.0.0.1:4106/v1/logs?service=forge-memory&limit=40: no AI-stack match; http://127.0.0.1:4106/v1/logs?service=forge-agents&limit=40: no AI-stack match; http://127.0.0.1:4106/v1/logs?project=askdocs&limit=80: no AI-stack match)
+
+**Evidence**
+- _(none captured)_
+
+**Reproduce**
+```bash
+make demo DEMO=53 KEEP=1
+curl -s "http://127.0.0.1:3002/api/search?limit=20"
+curl -s "http://127.0.0.1:4106/v1/logs?service=askdocs-api&limit=50"
+```
+
+**Impact on demo**
+Demo marked **degraded**; run continues.
+
+### F-008 — No HTTP/service workflow actions for product saga steps
+
+| Field | Value |
+|---|---|
+| Status | Open |
+| Severity | major |
+| Service | forge-workflows |
+| Area / contract | StepExecutor action allowlist / Workflow YAML (`action`, `retry`, `compensate`) |
+| Found by demo | 04-orderpipe (step 54.05) |
+| First seen | 2026-07-24 |
+| Reproducible | always |
+
+**What we tested**
+OrderPipe needs forge-workflows to drive `validate → charge → fulfill → notify` by
+invoking product services (order-api / fulfillment / notify), with charge retries and
+`orderpipe.refund` compensation, as described in the product design and
+`demos/54-orderpipe/definitions/order-saga.yaml`.
+
+**Expected (per product design / epic 16 saga contract)**
+A Workflow step can call an external HTTP/service action (or declare `service:`) so the
+engine owns orchestration, durable `retry`, and reverse-order `compensate` across product
+handlers. Compensator args should carry order identifiers from run input / forward output.
+
+**Actual**
+`ForgeWorkflows.Engine.StepExecutor` only allows built-in actions (`noop`, `fail`,
+`fail_until`, `sleep`, `control.apply`, `control.rollback_deployment`, `rollback`,
+`report.store`). Any other action (including `orderpipe.*`) returns
+`unsupported action`. There is no generic HTTP client action. Compensator args are
+centered on `deployment_id` for Control rollbacks.
+
+**Evidence**
+- `services/forge-workflows/lib/forge_workflows/engine/step_executor.ex` (`execute_action/4`)
+- `services/forge-workflows/lib/forge_workflows/saga/compensator.ex` (`execute_action/4`)
+- Mounted def lists successfully: `GET http://127.0.0.1:4302/v1/workflows` includes `order-saga`
+- Starting `POST /v1/workflows/order-saga/runs` would fail at first `orderpipe.validate` step
+
+**Reproduce**
+```bash
+make demo DEMO=54 KEEP=1
+curl -s http://127.0.0.1:4302/v1/workflows | python3 -c 'import json,sys; print([w["name"] for w in json.load(sys.stdin)["workflows"]])'
+# includes order-saga
+curl -s -X POST http://127.0.0.1:4302/v1/workflows/order-saga/runs \
+  -H 'content-type: application/json' -H 'X-Forge-Project: orderpipe' \
+  -d '{"input":{"order_id":"ord_demo"}}'
+# run fails: unsupported action "orderpipe.validate"
+```
+
+**Impact on demo**
+Demo continues with an in-process saga driver in `orderpipe-api` (`api/saga.go` +
+`POST /saga/*` step handlers) that mirrors retry/compensation semantics and emits
+`order.charged` for the existing event choreography. Workflow definition is mounted for
+listing only (`FORGE_WORKFLOWS_EVENTS_ENABLED=false`). Marked **degraded** if counted as a
+platform assertion; product happy/failure paths still pass via the workaround.
+
+**Suggested platform fix**
+Add an `http.request` (or `service.call`) task action with URL/body/header templating from
+run input, record compensators with full forward args (not only `deployment_id`), and
+document the product-saga pattern in forge-workflows README / OpenAPI.
 
 ### F-001 — No prescribed app JWT-over-PAT product session pattern
 
@@ -138,77 +323,6 @@ service `api`, and relies on managed-db attach for `DATABASE_URL`.
 **Suggested platform fix**
 Either wire apply/`valueFrom.secret` → Secrets bindings, or document that bindings are
 mandatory and restrict product design to valid secret name grammar (no `/`).
-
-### F-003 — Observe should record at least one trace for POST /tasks
-
-| Field | Value |
-|---|---|
-| Status | Open |
-| Severity | major |
-| Service | forge-observe |
-| Area / contract | forge-observe / product OTEL export (51.05) |
-| Found by demo | 01-taskflow |
-| First seen | 2026-07-24 |
-| Reproducible | always |
-
-**What we tested**
-POST /tasks then query Tempo /api/search and Observe /v1/logs
-
-**Expected (per spec/contract)**
-≥1 OTEL trace (or observe log evidence) for POST /tasks
-
-**Actual**
-no OTEL trace evidence for POST /tasks (tempo search returned zero traces; observe HTTP 400)
-
-**Evidence**
-- _(none captured)_
-
-**Reproduce**
-```bash
-make demo DEMO=51 KEEP=1
-curl -s "http://127.0.0.1:3002/api/search?limit=20"
-curl -s "http://127.0.0.1:4106/v1/logs?limit=50"
-```
-
-**Impact on demo**
-Demo marked **degraded**; run continues.
-
-### F-004 — Managed Postgres task data must survive API container restart
-
-| Field | Value |
-|---|---|
-| Status | Open |
-| Severity | major |
-| Service | platform |
-| Area / contract | managed PostgreSQL durability (51.02/51.05) |
-| Found by demo | 01-taskflow |
-| First seen | 2026-07-24 |
-| Reproducible | intermittent |
-
-**What we tested**
-create+complete Buy milk, docker restart API container, GET /tasks
-
-**Expected (per spec/contract)**
-same task id/title/done=true still present via managed Database
-
-**Actual**
-After `docker restart` of the API container, Gateway sometimes returns HTTP 502
-`upstream connection error` on member login / `/tasks` before the upstream is healthy
-again (race vs readiness). Example:
-`{"error":{"code":"bad_gateway","message":"upstream connection error","requestId":"req_2cdbb3ecb61d0ad1327439d1b5980273"}}`
-
-**Evidence**
-- _(none captured)_
-
-**Reproduce**
-```bash
-make demo DEMO=51 KEEP=1
-docker restart $(docker ps -q --filter label=forge.managed=true | head -1)
-curl -H Host:api.taskflow.localhost -H "Authorization: Bearer $PAT" http://127.0.0.1:4000/tasks
-```
-
-**Impact on demo**
-Demo marked **degraded**; run continues.
 
 ### F-005 — forge-events has no queueDepth admin metrics for autoscaler
 
@@ -305,99 +419,6 @@ embeddings) with a refusal guardrail when retrieval is weak.
 Add a `retrieve` alias (or collection-bound tool binding in Agent YAML) and/or
 wire Control `kind: Agent` apply → forge-agents registry; optionally make fake
 `memory.search` proxy live Memory when available.
-
-### F-007 — Observe should show connected evidence spanning AskDocs → Models/Memory/Agents
-
-| Field | Value |
-|---|---|
-| Status | Open |
-| Severity | major |
-| Service | forge-observe |
-| Area / contract | forge-observe cross-service telemetry (53.05) |
-| Found by demo | 03-askdocs |
-| First seen | 2026-07-24 |
-| Reproducible | always |
-
-**What we tested**
-POST /chat then Tempo /api/search + Observe /v1/logs?service=…
-
-**Expected (per spec/contract)**
-≥1 Tempo trace or observe log evidence for AskDocs/AI stack path
-
-**Actual**
-no connected Observe/Tempo evidence for AskDocs query path (tempo search returned zero traces; http://127.0.0.1:4106/v1/logs?service=askdocs-api&limit=80: no AI-stack match; http://127.0.0.1:4106/v1/logs?service=forge-models&limit=40: no AI-stack match; http://127.0.0.1:4106/v1/logs?service=forge-memory&limit=40: no AI-stack match; http://127.0.0.1:4106/v1/logs?service=forge-agents&limit=40: no AI-stack match; http://127.0.0.1:4106/v1/logs?project=askdocs&limit=80: no AI-stack match)
-
-**Evidence**
-- _(none captured)_
-
-**Reproduce**
-```bash
-make demo DEMO=53 KEEP=1
-curl -s "http://127.0.0.1:3002/api/search?limit=20"
-curl -s "http://127.0.0.1:4106/v1/logs?service=askdocs-api&limit=50"
-```
-
-**Impact on demo**
-Demo marked **degraded**; run continues.
-
-### F-008 — No HTTP/service workflow actions for product saga steps
-
-| Field | Value |
-|---|---|
-| Status | Open |
-| Severity | major |
-| Service | forge-workflows |
-| Area / contract | StepExecutor action allowlist / Workflow YAML (`action`, `retry`, `compensate`) |
-| Found by demo | 04-orderpipe (step 54.05) |
-| First seen | 2026-07-24 |
-| Reproducible | always |
-
-**What we tested**
-OrderPipe needs forge-workflows to drive `validate → charge → fulfill → notify` by
-invoking product services (order-api / fulfillment / notify), with charge retries and
-`orderpipe.refund` compensation, as described in the product design and
-`demos/54-orderpipe/definitions/order-saga.yaml`.
-
-**Expected (per product design / epic 16 saga contract)**
-A Workflow step can call an external HTTP/service action (or declare `service:`) so the
-engine owns orchestration, durable `retry`, and reverse-order `compensate` across product
-handlers. Compensator args should carry order identifiers from run input / forward output.
-
-**Actual**
-`ForgeWorkflows.Engine.StepExecutor` only allows built-in actions (`noop`, `fail`,
-`fail_until`, `sleep`, `control.apply`, `control.rollback_deployment`, `rollback`,
-`report.store`). Any other action (including `orderpipe.*`) returns
-`unsupported action`. There is no generic HTTP client action. Compensator args are
-centered on `deployment_id` for Control rollbacks.
-
-**Evidence**
-- `services/forge-workflows/lib/forge_workflows/engine/step_executor.ex` (`execute_action/4`)
-- `services/forge-workflows/lib/forge_workflows/saga/compensator.ex` (`execute_action/4`)
-- Mounted def lists successfully: `GET http://127.0.0.1:4302/v1/workflows` includes `order-saga`
-- Starting `POST /v1/workflows/order-saga/runs` would fail at first `orderpipe.validate` step
-
-**Reproduce**
-```bash
-make demo DEMO=54 KEEP=1
-curl -s http://127.0.0.1:4302/v1/workflows | python3 -c 'import json,sys; print([w["name"] for w in json.load(sys.stdin)["workflows"]])'
-# includes order-saga
-curl -s -X POST http://127.0.0.1:4302/v1/workflows/order-saga/runs \
-  -H 'content-type: application/json' -H 'X-Forge-Project: orderpipe' \
-  -d '{"input":{"order_id":"ord_demo"}}'
-# run fails: unsupported action "orderpipe.validate"
-```
-
-**Impact on demo**
-Demo continues with an in-process saga driver in `orderpipe-api` (`api/saga.go` +
-`POST /saga/*` step handlers) that mirrors retry/compensation semantics and emits
-`order.charged` for the existing event choreography. Workflow definition is mounted for
-listing only (`FORGE_WORKFLOWS_EVENTS_ENABLED=false`). Marked **degraded** if counted as a
-platform assertion; product happy/failure paths still pass via the workaround.
-
-**Suggested platform fix**
-Add an `http.request` (or `service.call`) task action with URL/body/header templating from
-run input, record compensators with full forward args (not only `deployment_id`), and
-document the product-saga pattern in forge-workflows README / OpenAPI.
 
 ### F-009 — Node scale cooldown `0` means built-in default, not “disabled”
 

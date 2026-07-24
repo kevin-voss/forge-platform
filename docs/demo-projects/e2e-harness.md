@@ -223,6 +223,14 @@ unions each product’s `demo.json.services`, prints `coverage: N/N services` pl
 table into the run report, and exits non-zero if any service is uncovered (message names each
 gap). Subset `PROJECTS` skips the gate.
 
+### 56.03 outcome — findings consolidation + triage
+
+**Landed:** `findings.consolidate()` (also `node harness/findings.js --consolidate`) dedupes by
+`service+title`, ranks blocker → major → minor, refreshes Summary / By service / By demo tables,
+emits a **Triage** hand-off table (service owner + suspected component), and flags evidence-less
+entries under **Evidence gaps**. The orchestrator runs consolidation at the end of every suite so
+[`PLATFORM_FINDINGS.md`](PLATFORM_FINDINGS.md) stays the single ranked artifact.
+
 ```make
 test-platform-e2e:
 	@cd tests/e2e && npm ci --no-audit --no-fund
