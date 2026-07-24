@@ -12,8 +12,8 @@
         <p class="brand">PulseBoard</p>
         <h1>Live metrics</h1>
         <p class="lede">
-          Baseline dashboard: replica count and request counter. Autoscaling and
-          Observe wiring arrive in later steps.
+          Live platform pulse from Forge Observe — replica count, RPS, and p95
+          match Grafana’s Prometheus series.
         </p>
       </header>
 
@@ -38,7 +38,10 @@
             <dd id="p95">—</dd>
           </div>
         </dl>
-        <p class="meta">Instance <span id="instance">—</span></p>
+        <p class="meta">
+          Instance <span id="instance">—</span>
+          · source <span id="source">—</span>
+        </p>
       </section>
     </main>
     <script src="/app.js"></script>

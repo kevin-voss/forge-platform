@@ -11,6 +11,7 @@
   const rpsEl = document.getElementById('rps');
   const p95El = document.getElementById('p95');
   const instanceEl = document.getElementById('instance');
+  const sourceEl = document.getElementById('source');
 
   if (!statusEl || !replicasEl || !counterEl || !rpsEl || !p95El || !instanceEl) {
     return;
@@ -30,7 +31,10 @@
       rpsEl.textContent = Number(stats.rps ?? 0).toFixed(1);
       p95El.textContent = Number(stats.p95Ms ?? 0).toFixed(0);
       instanceEl.textContent = stats.instance || '—';
-      statusEl.textContent = `Updated ${stats.updatedAt || 'just now'}`;
+      if (sourceEl) {
+        sourceEl.textContent = stats.source || '—';
+      }
+      statusEl.textContent = `Observe live · updated ${stats.updatedAt || 'just now'}`;
     } catch (err) {
       statusEl.textContent = `API unavailable: ${err.message}`;
     }

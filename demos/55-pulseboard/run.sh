@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Demo 55: PulseBoard + HTTP + node autoscaling (epic 55.03).
+# Demo 55: PulseBoard + HTTP/node autoscaling + Observe surfacing (epic 55.04).
 # Usage:
-#   demos/55-pulseboard/run.sh          # build → apply → NodePool → load up/down + node proof
+#   demos/55-pulseboard/run.sh          # build → apply → NodePool → load up/down + Observe proof
 #   demos/55-pulseboard/run.sh --down   # tear down product resources + NodePool
 set -euo pipefail
 
@@ -52,6 +52,9 @@ AUTOSCALER_URL="${FORGE_AUTOSCALER_URL:-http://127.0.0.1:4112}"
 INFRA_URL="${FORGE_INFRA_URL:-http://127.0.0.1:4111}"
 NETWORK_URL="${FORGE_NETWORK_URL:-http://127.0.0.1:4110}"
 METRICS_URL="${FORGE_DEMO55_METRICS_URL:-http://127.0.0.1:4197}"
+OBSERVE_URL="${FORGE_OBSERVE_URL:-http://127.0.0.1:4106}"
+PROMETHEUS_URL="${FORGE_PROMETHEUS_URL:-http://127.0.0.1:3001}"
+GRAFANA_URL="${FORGE_GRAFANA_URL:-http://127.0.0.1:3000}"
 NETWORK_NAME="${FORGE_NETWORK_NAME:-cluster-overlay}"
 CONTROL_SERVICE="forge-control"
 RUNTIME_SERVICE="forge-runtime"
@@ -61,6 +64,11 @@ AUTOSCALER_SERVICE="forge-autoscaler"
 INFRA_SERVICE="forge-infrastructure"
 NETWORK_SERVICE="forge-network"
 METRICS_SERVICE="demo55-metrics"
+OBSERVE_SERVICE="forge-observe"
+PROMETHEUS_SERVICE="prometheus"
+GRAFANA_SERVICE="grafana"
+# Dashboard vs Observe/Grafana replica tolerance (same PromQL series).
+OBSERVE_REPLICA_TOLERANCE="${OBSERVE_REPLICA_TOLERANCE:-0.5}"
 POSTGRES_SERVICE="postgres"
 REGISTRY_SERVICE="registry"
 CLI_DIR="${ROOT_DIR}/tools/forge-cli"
@@ -111,6 +119,11 @@ fail() {
   echo >&2
   echo "--- demo55-metrics application ---" >&2
   curl --silent --show-error "${METRICS_URL}/admin/metrics?application=${API_NAME}" >&2 || true
+  echo >&2
+  echo "--- Observe PromQL replicas ---" >&2
+  curl --silent --show-error \
+    --get "${METRICS_URL}/api/v1/query" \
+    --data-urlencode "query=sum(forge_replicas_ready{application=\"${API_NAME}\"})" >&2 || true
   echo >&2
   echo "--- ${CONTROL_SERVICE} logs (tail) ---" >&2
   "${COMPOSE[@]}" logs --tail=80 "${CONTROL_SERVICE}" >&2 || true
@@ -445,8 +458,20 @@ apply_nodepool() {
   echo "  NodePool ${POOL_NAME} ready (minNodes=${MIN_NODES} maxNodes=${MAX_NODES})"
 }
 
+seed_observe_metrics() {
+  local replicas="${1:-${MIN_REPLICAS}}"
+  local rps="${2:-0}"
+  local p95="${3:-0.01}"
+  curl --fail --silent --show-error -X PUT \
+    "${METRICS_URL}/demo/application/${API_NAME}" \
+    -H 'content-type: application/json' \
+    -d "{\"requestsPerSecond\":${rps},\"activeConnections\":${rps},\"sampleCount\":100,\"p95LatencySeconds\":${p95},\"replicas\":${replicas}}" \
+    >/dev/null || fail "seed Observe metrics failed"
+  echo "  Observe metrics seeded application=${API_NAME} replicas=${replicas} rps=${rps}"
+}
+
 ensure_platform() {
-  echo "Ensuring Postgres, registry, Network, Infrastructure, Autoscaler, Control, Runtime, Gateway, Build..."
+  echo "Ensuring Postgres, registry, Observe stack, Network, Infrastructure, Autoscaler, Control, Runtime, Gateway, Build..."
   "${COMPOSE[@]}" up -d "${POSTGRES_SERVICE}" "${REGISTRY_SERVICE}"
   for _ in $(seq 1 60); do
     if "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" pg_isready -U forge >/dev/null 2>&1; then
@@ -457,11 +482,24 @@ ensure_platform() {
   "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" pg_isready -U forge >/dev/null 2>&1 ||
     fail "Postgres not ready"
 
-  echo "Starting demo55-metrics sidecar..."
+  echo "Starting demo55-metrics (Observe metrics backend)..."
   docker rm -f demo55-metrics >/dev/null 2>&1 || true
   "${COMPOSE[@]}" up -d --build --force-recreate "${METRICS_SERVICE}" ||
     fail "compose up ${METRICS_SERVICE} failed"
   wait_http "${METRICS_URL}/health/live" "demo55-metrics" 60
+  seed_observe_metrics "${MIN_REPLICAS}" 0 0.01
+
+  echo "Starting Prometheus + Grafana + forge-observe (Observe stack)..."
+  # Prometheus depends_on alertmanager → webhook sink; pull those too.
+  compose_up_retry alert-webhook-sink alertmanager "${PROMETHEUS_SERVICE}" ||
+    fail "compose up prometheus failed"
+  wait_http "${PROMETHEUS_URL}/-/healthy" "prometheus" 90
+  # Base Grafana depends_on tempo/loki; start without them for this product gate.
+  compose_up_retry --no-deps "${GRAFANA_SERVICE}" || fail "compose up grafana failed"
+  wait_http "${GRAFANA_URL}/api/health" "grafana" 120
+  # forge-observe is best-effort for this gate; /stats uses demo55-metrics PromQL.
+  compose_up_retry --no-deps "${OBSERVE_SERVICE}" || true
+  wait_http "${OBSERVE_URL}/health/live" "forge-observe" 60 || true
 
   echo "Stopping control/infra/runtime/autoscaler for clean ledger reset..."
   docker rm -f forge-control forge-infrastructure forge-runtime forge-autoscaler >/dev/null 2>&1 || true
@@ -500,7 +538,7 @@ ensure_platform() {
   wait_http "${GATEWAY_URL}/health/ready" "Gateway"
   wait_http "${BUILD_URL}/health/ready" "Build" 60 || true
 
-  local pattern strategy node_up gateway_admin
+  local pattern strategy
   pattern="$(docker exec "${GATEWAY_SERVICE}" printenv FORGE_HOST_PATTERN 2>/dev/null || true)"
   [[ "${pattern}" == *'{service}.pulseboard.localhost'* ]] ||
     fail "gateway FORGE_HOST_PATTERN must be '{service}.pulseboard.localhost' (got: ${pattern})"
@@ -628,7 +666,8 @@ assert_applications_ready() {
 
 assert_baseline_stats() {
   local code
-  echo "Checking /stats baseline replicas=1 ..."
+  echo "Checking /stats baseline Observe-sourced replicas=1 ..."
+  seed_observe_metrics "${MIN_REPLICAS}" 0 0.01
   # Routes can briefly flap while Control recreates placements; retry with refresh.
   for _ in $(seq 1 60); do
     refresh_routes
@@ -639,7 +678,9 @@ import json, sys
 stats = json.load(open(sys.argv[1]))
 assert stats.get("replicas") == 1, stats
 assert "counter" in stats, stats
-print(f"  /stats replicas={stats['replicas']} counter={stats.get('counter')}")
+assert stats.get("source") == "observe", stats
+assert "rps" in stats and "p95Ms" in stats, stats
+print(f"  /stats replicas={stats['replicas']} rps={stats.get('rps')} p95Ms={stats.get('p95Ms')} source={stats.get('source')}")
 PY
     then
       return 0
@@ -647,6 +688,63 @@ PY
     sleep 1
   done
   fail "GET /stats baseline failed (last HTTP ${code:-000}; body=$(cat "${TMP_DIR}/stats.json" 2>/dev/null || true))"
+}
+
+assert_observe_grafana_consistency() {
+  local tol="${OBSERVE_REPLICA_TOLERANCE}"
+  echo "Checking dashboard /stats vs Observe/Grafana PromQL (tolerance=${tol})..."
+  python3 "${DEMO_DIR}/scripts/test_observe_surfacing.py" ||
+    fail "observe surfacing unit tests failed"
+
+  local code
+  code="$(curl --silent --show-error -o "${TMP_DIR}/stats.json" -w '%{http_code}' \
+    -H "Host: ${API_HOST}" "${GATEWAY_URL}/stats" || echo "000")"
+  [[ "${code}" == "200" ]] || fail "GET /stats for consistency failed HTTP ${code}"
+
+  curl --fail --silent --show-error \
+    --get "${METRICS_URL}/api/v1/query" \
+    --data-urlencode "query=sum(forge_replicas_ready{application=\"${API_NAME}\"})" \
+    >"${TMP_DIR}/observe-replicas.json" || fail "Observe replica query failed"
+
+  # Grafana uses the same Prometheus scrape of demo55-metrics; query Prometheus when healthy.
+  if curl --fail --silent --show-error "${PROMETHEUS_URL}/-/healthy" >/dev/null 2>&1; then
+    curl --fail --silent --show-error \
+      --get "${PROMETHEUS_URL}/api/v1/query" \
+      --data-urlencode "query=sum(forge_replicas_ready{application=\"${API_NAME}\"})" \
+      >"${TMP_DIR}/prom-replicas.json" || true
+  fi
+
+  python3 - "${TMP_DIR}/stats.json" "${TMP_DIR}/observe-replicas.json" \
+    "${TMP_DIR}/prom-replicas.json" "${tol}" "${GRAFANA_URL}" <<'PY'
+import json, sys, urllib.request
+
+stats = json.load(open(sys.argv[1]))
+observe = json.load(open(sys.argv[2]))
+prom_path = sys.argv[3]
+tol = float(sys.argv[4])
+grafana_url = sys.argv[5].rstrip("/")
+
+dash = float(stats.get("replicas") or 0)
+obs = float(observe["data"]["result"][0]["value"][1])
+assert stats.get("source") == "observe", stats
+assert abs(dash - obs) <= tol, (dash, obs, tol)
+
+prom = None
+try:
+    prom_body = json.load(open(prom_path))
+    if prom_body.get("data", {}).get("result"):
+        prom = float(prom_body["data"]["result"][0]["value"][1])
+except Exception:
+    prom = None
+if prom is not None:
+    assert abs(dash - prom) <= max(tol, 1.0), (dash, prom, "prometheus/grafana lag")
+
+# Grafana health confirms the UI datasource stack is up for manual cross-check.
+with urllib.request.urlopen(f"{grafana_url}/api/health", timeout=5) as resp:
+    assert resp.status == 200
+
+print(f"  consistency ok dashboard={dash} observe={obs} prometheus={prom} grafana={grafana_url}")
+PY
 }
 
 ensure_application_resource() {
@@ -792,23 +890,28 @@ assert_replicas_in_bounds() {
 
 set_idle_metrics() {
   local rps="${1:-${IDLE_RPS}}"
+  local replicas
+  replicas="$(policy_desired 2>/dev/null || echo "${MIN_REPLICAS}")"
   curl --fail --silent --show-error -X PUT \
     "${METRICS_URL}/demo/application/${API_NAME}" \
     -H 'content-type: application/json' \
-    -d "{\"requestsPerSecond\":${rps},\"activeConnections\":${rps},\"sampleCount\":2000}" \
+    -d "{\"requestsPerSecond\":${rps},\"activeConnections\":${rps},\"sampleCount\":2000,\"p95LatencySeconds\":0.02,\"replicas\":${replicas}}" \
     >/dev/null || fail "set idle metrics failed"
-  echo "  metrics: application=${API_NAME} rps=${rps}"
+  echo "  metrics: application=${API_NAME} rps=${rps} replicas=${replicas}"
 }
 
 sync_application_to_deployment() {
   # Bridge Application.spec.scaling.desiredReplicas → Deployment desiredReplicas
-  # (autoscaler actuates Application; reconciler reads Deployment).
+  # (autoscaler actuates Application; reconciler reads Deployment) and publish
+  # replica count into the Observe metrics sidecar for /stats + Grafana.
   [[ -n "${API_DEPLOYMENT_ID}" ]] || fail "API_DEPLOYMENT_ID required before sync loop"
-  python3 - "${CONTROL_URL}" "${PROJECT_SLUG}" "${ENV_NAME}" "${API_NAME}" "${API_DEPLOYMENT_ID}" <<'PY' &
+  python3 - "${CONTROL_URL}" "${PROJECT_SLUG}" "${ENV_NAME}" "${API_NAME}" \
+    "${API_DEPLOYMENT_ID}" "${METRICS_URL}" <<'PY' &
 import json, time, urllib.request, sys
-base, project, env, app, dep_id = sys.argv[1:6]
+base, project, env, app, dep_id, metrics = sys.argv[1:7]
 app_url = f"{base}/v1/projects/{project}/environments/{env}/applications/{app}"
 dep_url = f"{base}/v1/deployments/{dep_id}"
+metrics_url = f"{metrics.rstrip('/')}/demo/application/{app}"
 
 def get(url):
     with urllib.request.urlopen(url, timeout=5) as r:
@@ -817,6 +920,13 @@ def get(url):
 def patch(url, body):
     data = json.dumps(body).encode()
     req = urllib.request.Request(url, data=data, method="PATCH",
+                                 headers={"content-type": "application/json"})
+    with urllib.request.urlopen(req, timeout=5) as r:
+        return r.status
+
+def put_metrics(replicas):
+    data = json.dumps({"replicas": int(replicas)}).encode()
+    req = urllib.request.Request(metrics_url, data=data, method="PUT",
                                  headers={"content-type": "application/json"})
     with urllib.request.urlopen(req, timeout=5) as r:
         return r.status
@@ -837,12 +947,13 @@ while True:
             if desired != last:
                 print(f"sync: api deployment {dep_id} desiredReplicas {cur} -> {desired}", flush=True)
             last = desired
+        put_metrics(desired)
     except Exception as exc:
         print(f"sync: {exc}", flush=True)
     time.sleep(1)
 PY
   SYNC_PID=$!
-  echo "  started Application→Deployment sync pid=${SYNC_PID}"
+  echo "  started Application→Deployment+Observe sync pid=${SYNC_PID}"
 }
 
 start_autoscaler() {
@@ -1029,16 +1140,19 @@ deploy() {
 
   start_autoscaler
   prove_http_and_node_autoscaling
+  assert_observe_grafana_consistency
 
   write_state
   echo
   echo "demo 55 deploy READY"
   echo "  Board:        http://${BOARD_HOST}:4000/"
   echo "  API:          http://${API_HOST}:4000/health/ready"
-  echo "  Stats:        http://${API_HOST}:4000/stats"
+  echo "  Stats:        http://${API_HOST}:4000/stats  (Observe-sourced replicas/RPS/p95)"
   echo "  Autoscaler:   ${AUTOSCALER_URL} policy=${API_POLICY} bounds=[${MIN_REPLICAS},${MAX_REPLICAS}] targetRPS=${TARGET_RPS}"
   echo "  NodePool:     ${POOL_NAME} bounds=[${MIN_NODES},${MAX_NODES}] provider=docker"
   echo "  Loadgen:      ${LOADGEN_SCRIPT} start|stop (against ${API_HOST})"
+  echo "  Observe:      ${METRICS_URL}/api/v1/query  (metrics backend)"
+  echo "  Grafana:      ${GRAFANA_URL}  (Prometheus scrape of demo55-metrics)"
   echo "  Metrics:      ${METRICS_URL}"
   echo "  API image:    ${API_IMAGE}"
   echo "  Web image:    ${WEB_IMAGE}"

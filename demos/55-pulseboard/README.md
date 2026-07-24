@@ -1,16 +1,17 @@
 # Demo 55 — PulseBoard
 
 Epic **55** product: a live metrics dashboard that proves autoscaling under load
-and observability surfacing. Step **55.03** adds operator-owned Docker
-`NodePool` capacity so Infrastructure provisions a node when HTTP scale-out
-exceeds cluster slots, then drains it after load stops.
+and observability surfacing. Step **55.04** wires the dashboard to Forge Observe
+so replica count, RPS, and p95 match Grafana’s Prometheus series.
 
 ## Layout
 
 | Path | Role |
 |---|---|
-| `api/` | Go API (`/health/ready`, `/stats`, counter `/hit`) — stateless |
+| `api/` | Go API (`/health/ready`, Observe-backed `/stats`, counter `/hit`) + OTEL emit |
 | `public/` | Live dashboard SPA (HTML/CSS/vanilla JS) |
+| `metrics/` | Observe metrics sidecar (`/api/v1/query`, `/metrics`, Gateway admin) |
+| `prometheus/prometheus.yml` | Scrapes demo55-metrics for Grafana parity |
 | `Dockerfile.web` + `nginx.conf` | Static nginx image on port `8080` |
 | `forge.yaml` | Portable Project / Applications / Services / Deployments |
 | `api/forge.yaml`, `web.forge.yaml` | Build manifests for `forge build` |
@@ -19,9 +20,10 @@ exceeds cluster slots, then drains it after load stops.
 | `scripts/loadgen.sh` | Start/stop load against `api.pulseboard.localhost` |
 | `scripts/test_http_scaling.py` | Unit tests for RPS → replica math + fixture shape |
 | `scripts/test_node_scaling.py` | Unit tests for slot → node math + NodePool fixture |
-| `run.sh` | Deploy (`up`) / teardown (`--down`) + HTTP/node scale proof |
-| `demo.json` | Harness contract (`services` includes autoscaler + infrastructure) |
-| `docker-compose.yml` | Overlay: least-allocated Control, Gateway hosts, Infra, Autoscaler node path, demo55-metrics |
+| `scripts/test_observe_surfacing.py` | Unit tests for Observe PromQL sidecar |
+| `run.sh` | Deploy (`up`) / teardown (`--down`) + scale + Observe proof |
+| `demo.json` | Harness contract (`services` includes observe) |
+| `docker-compose.yml` | Overlay: autoscaler, infra, Observe metrics, Prometheus scrape |
 
 ## Commands
 
@@ -30,7 +32,7 @@ exceeds cluster slots, then drains it after load stops.
 make demo DEMO=55
 make demo DEMO=55 HEADLESS=1
 
-# Manual product deploy (includes httpRequests + node scale-up/down proof)
+# Manual product deploy (includes http/node scale + Observe consistency)
 ./demos/55-pulseboard/run.sh
 curl -fsS -H 'Host: api.pulseboard.localhost' http://127.0.0.1:4000/health/ready
 curl -fsS -H 'Host: api.pulseboard.localhost' http://127.0.0.1:4000/stats
@@ -47,7 +49,20 @@ curl -fsS -H 'Host: board.pulseboard.localhost' http://127.0.0.1:4000/
 cd demos/55-pulseboard/api && go test ./...
 python3 demos/55-pulseboard/scripts/test_http_scaling.py
 python3 demos/55-pulseboard/scripts/test_node_scaling.py
+python3 demos/55-pulseboard/scripts/test_observe_surfacing.py
 ```
+
+## Observe surfacing (55.04)
+
+* API emits OTEL traces/metrics when `FORGE_OTEL_ENABLED=true` and always queries
+  `FORGE_OBSERVE_URL` for `/stats` (replicas / RPS / p95).
+* `demo55-metrics` is the Prometheus-compatible Observe metrics backend
+  (`/api/v1/query`, `/v1/metrics/query`, `/metrics`) — same pattern autoscaler
+  uses when `FORGE_OBSERVE_URL` points at a PromQL endpoint.
+* Control→Deployment sync publishes `replicas` into the sidecar; loadgen publishes
+  RPS/p95; Prometheus scrapes `/metrics` for Grafana at `http://127.0.0.1:3000`.
+* `run.sh` asserts dashboard `/stats` matches Observe (and Prometheus when ready)
+  within tolerance.
 
 ## Autoscaling (55.02 + 55.03)
 
@@ -80,5 +95,4 @@ are named `api` and `board`, so the product is reachable at:
 deployments are active (Ready). No database is provisioned — PulseBoard is
 intentionally stateless.
 
-Later steps add Observe surfacing (55.04), full browser E2E (55.05), and the
-epic gate (55.06).
+Later steps add full browser E2E (55.05) and the epic gate (55.06).

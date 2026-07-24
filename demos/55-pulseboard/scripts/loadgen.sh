@@ -39,17 +39,23 @@ usage() {
 publish_rps() {
   local rps="$1"
   [[ "${PUBLISH_METRICS}" == "1" ]] || return 0
+  # p95LatencySeconds stays informative under load for Observe / Grafana panels.
   curl --fail --silent --show-error -X PUT \
     "${METRICS_URL}/demo/application/${APPLICATION}" \
     -H 'content-type: application/json' \
-    -d "{\"requestsPerSecond\":${rps},\"activeConnections\":${rps},\"sampleCount\":2000}" \
+    -d "{\"requestsPerSecond\":${rps},\"activeConnections\":${rps},\"sampleCount\":2000,\"p95LatencySeconds\":0.08}" \
     >/dev/null
 }
 
 clear_metrics() {
   [[ "${PUBLISH_METRICS}" == "1" ]] || return 0
-  curl --silent --show-error -X DELETE \
-    "${METRICS_URL}/demo/application/${APPLICATION}" >/dev/null 2>&1 || true
+  # Keep Observe series present (replicas preserved via merge) so /stats + Grafana
+  # stay consistent after load stops — reset RPS/p95 rather than deleting the row.
+  curl --silent --show-error -X PUT \
+    "${METRICS_URL}/demo/application/${APPLICATION}" \
+    -H 'content-type: application/json' \
+    -d '{"requestsPerSecond":0,"activeConnections":0,"p95LatencySeconds":0.01,"sampleCount":100}' \
+    >/dev/null 2>&1 || true
 }
 
 is_running() {

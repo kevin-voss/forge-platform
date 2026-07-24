@@ -1,13 +1,14 @@
-# Demo 55 overlay — PulseBoard + HTTP + node autoscaling (epic 55.03).
+# Demo 55 overlay — PulseBoard + HTTP/node autoscaling + Observe (epic 55.04).
 # Used with the root compose file:
 #   docker compose -f compose.yaml -f demos/55-pulseboard/docker-compose.yml up -d ...
 #
 # Host pattern yields api.pulseboard.localhost / board.pulseboard.localhost for
 # services named `api` and `board`. No managed database — product is stateless.
 #
-# httpRequests metrics for forge-autoscaler are served by demo55-metrics (same
-# shape as demo 24's sidecar) because forge-gateway does not yet expose
-# /admin/metrics?application=.
+# httpRequests metrics for forge-autoscaler + Observe PromQL for /stats are
+# served by demo55-metrics (Gateway has no /admin/metrics yet; forge-observe
+# does not proxy PromQL — same FORGE_OBSERVE_URL → Prometheus-compatible pattern
+# as forge-autoscaler).
 #
 # Node path: least-allocated scheduler + Docker NodePool (pulseboard-pool).
 # forge-runtime is observe-only (no Control registration); Infrastructure
@@ -16,8 +17,8 @@
 services:
   demo55-metrics:
     build:
-      context: ./demos/24-autoscaling/metrics
-    image: forge/demo24-metrics:local
+      context: ./demos/55-pulseboard/metrics
+    image: forge/demo55-metrics:local
     container_name: demo55-metrics
     ports:
       - "4197:8080"
@@ -27,6 +28,31 @@ services:
       timeout: 3s
       retries: 10
       start_period: 5s
+
+  # Grafana datasource scrapes the Observe metrics sidecar so panel values
+  # match dashboard /stats (same series the API queries).
+  prometheus:
+    volumes:
+      - ./demos/55-pulseboard/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      demo55-metrics:
+        condition: service_healthy
+
+  grafana:
+    depends_on:
+      prometheus:
+        condition: service_healthy
+
+  # Metrics for /stats go through demo55-metrics (Prometheus-compatible Observe
+  # backend). forge-observe is still brought up for the demo service list; ready
+  # check only needs Prometheus in this product gate.
+  forge-observe:
+    environment:
+      FORGE_OBSERVE_READY_REQUIRE_BACKENDS: prometheus
+      FORGE_PROMETHEUS_URL: http://prometheus:9090
+    depends_on:
+      prometheus:
+        condition: service_healthy
 
   forge-control:
     environment:

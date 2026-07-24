@@ -8,7 +8,7 @@ import (
 )
 
 func TestHealthReady(t *testing.T) {
-	srv := newServer()
+	srv := newServer(nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
 	rec := httptest.NewRecorder()
 	srv.routes().ServeHTTP(rec, req)
@@ -27,7 +27,7 @@ func TestHealthReady(t *testing.T) {
 func TestStatsBaselineReplicas(t *testing.T) {
 	t.Setenv("PULSEBOARD_REPLICAS", "1")
 	t.Setenv("HOSTNAME", "pulse-unit")
-	srv := newServer()
+	srv := newServer(nil, nil, nil)
 	handler := srv.routes()
 
 	hitReq := httptest.NewRequest(http.MethodPost, "/hit", nil)
@@ -58,5 +58,8 @@ func TestStatsBaselineReplicas(t *testing.T) {
 	}
 	if stats.UpdatedAt == "" {
 		t.Fatal("updatedAt empty")
+	}
+	if stats.Source != "local" {
+		t.Fatalf("source = %q, want local when Observe unset", stats.Source)
 	}
 }

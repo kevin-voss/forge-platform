@@ -40,6 +40,19 @@ spec:
     minReplicas: 1
     maxReplicas: 10
     desiredReplicas: 1
+  # Observe metrics backend = demo55-metrics Prometheus-compatible API (55.04).
+  # OTEL export is optional; dashboard /stats always queries FORGE_OBSERVE_URL.
+  env:
+    - name: FORGE_OBSERVE_URL
+      value: http://demo55-metrics:8080
+    - name: PULSEBOARD_APPLICATION
+      value: pulseboard-api
+    - name: FORGE_SERVICE_NAME
+      value: pulseboard-api
+    - name: FORGE_OTEL_ENABLED
+      value: "false"
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: http://otel-collector:4317
 ---
 apiVersion: forge.dev/v1
 kind: Service

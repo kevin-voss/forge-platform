@@ -327,7 +327,7 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 | **206** | Product scaffold + baseline deploy | 55 | Complete |
 | **207** | HTTP request-rate autoscaling + load gen | 55 | Complete |
 | **208** | Node autoscaling (Infrastructure) | 55 | Complete |
-| **209** | Observe surfacing | 55 | Not started |
+| **209** | Observe surfacing | 55 | Complete |
 | **210** | E2E browser spec | 55 | Not started |
 | **211** | Demo + epic gate | 55 | Not started |
 | **212** | Full-suite orchestration | 56 | Not started |

@@ -18,6 +18,6 @@
   ],
   "baseURL": "http://board.pulseboard.localhost:4000",
   "spec": "tests/e2e/projects/05-pulseboard/spec.ts",
-  "services": ["control", "cli", "runtime", "gateway", "build", "autoscaler", "infrastructure"],
+  "services": ["control", "cli", "runtime", "gateway", "build", "autoscaler", "infrastructure", "observe"],
   "teardown": "demos/55-pulseboard/run.sh --down"
 }
