@@ -268,6 +268,19 @@ order→compensated `refunded`, and NetworkPolicy allow/deny proof, plus soft pl
 Secrets `PSP_API_KEY` metadata). Non-blocker finding `F-008` (no HTTP/service workflow
 actions; in-process saga driver) does not fail the gate. Epic 54 marked Complete.
 
+### 55.06 outcome — PulseBoard demo + epic gate
+
+**Landed:** `demos/55-pulseboard/demo.json` (`id: 05-pulseboard`) wires deploy/hosts/spec/services/
+teardown into the orchestrator. `make demo DEMO=55` (and `HEADLESS=1`) plus
+`make test-platform-e2e PROJECTS=05` run the full lifecycle (deploy timeout defaults to 900s for
+PulseBoard scale legs); Playwright `tests/e2e/projects/05-pulseboard/spec.ts` covers baseline
+replicas → load → UI+Observe/Grafana replica climb within bounds → scale down, with optional
+soft platform asserts (autoscaler httpRequests status, Control Application→Deployment
+actuation, Observe/Grafana consistency). NodePool scale-up/drain is hard-proven in
+`demos/55-pulseboard/run.sh`; optional browser leg via `PULSEBOARD_E2E_NODE_LEG=1`.
+Non-blocker finding `F-009` (node cooldown `0` means built-in 5m/60s defaults, not disabled;
+demo uses `1`s) does not fail the gate. Epic 55 marked Complete.
+
 ## 9. Determinism
 
 * AI backends use fakes: `FORGE_MODELS_BACKEND=fake`, `FORGE_AGENTS_TOOLS_MODE=fake` (same knobs the

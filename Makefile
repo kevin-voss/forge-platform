@@ -58,7 +58,7 @@ help:
 	@echo "  make demo DEMO=52          SnapNote product demo gate (epic 52)"
 	@echo "  make demo DEMO=53          AskDocs product demo gate (epic 53)"
 	@echo "  make demo DEMO=54          OrderPipe product demo gate (epic 54)"
-	@echo "  make demo DEMO=55          PulseBoard product scaffold (epic 55)"
+	@echo "  make demo DEMO=55          PulseBoard product demo gate (epic 55)"
 	@echo "  make demo DEMO=09-full-platform  Start capstone (start.sh)"
 	@echo "  make demo-accept DEMO=...  Run demo acceptance suite (capstone accept.sh)"
 	@echo "  make demo-full             Alias: demo DEMO=09-full-platform"
@@ -156,11 +156,15 @@ e2e-install:
 	@cd tests/e2e && npx playwright install --with-deps
 
 # Headed by default; HEADLESS=1 (or CI=1) for CI. PROJECTS=01,50 subsets; KEEP=1 skips teardown.
+# PulseBoard (PROJECTS=05 / 55) needs a longer deploy timeout for HTTP+node scale legs.
 test-platform-e2e:
-	@cd tests/e2e && npm ci --no-audit --no-fund
-	@cd tests/e2e && npm run build
-	@cd tests/e2e && HEADLESS="$(HEADLESS)" PROJECTS="$(PROJECTS)" KEEP="$(KEEP)" FINDINGS_ONLY="$(FINDINGS_ONLY)" \
-		DEMO_TIMEOUT_MS="$(DEMO_TIMEOUT_MS)" \
+	@demo_timeout="$(DEMO_TIMEOUT_MS)"; \
+	if [[ -z "$${demo_timeout}" ]] && echo ",$(PROJECTS)," | grep -Eq ',0?5,|,55,'; then \
+		demo_timeout=900000; \
+	fi; \
+	cd tests/e2e && npm ci --no-audit --no-fund && npm run build && \
+		HEADLESS="$(HEADLESS)" PROJECTS="$(PROJECTS)" KEEP="$(KEEP)" FINDINGS_ONLY="$(FINDINGS_ONLY)" \
+		DEMO_TIMEOUT_MS="$${demo_timeout}" \
 		node harness/orchestrator.js
 
 # Open artifacts/report.html from the last orchestrator run (written by report.ts).

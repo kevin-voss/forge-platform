@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Demo 55: PulseBoard + HTTP/node autoscaling + Observe surfacing (epic 55.04).
+# Demo 55: PulseBoard epic gate (55.06) — HTTP/node autoscaling + Observe surfacing.
 # Usage:
 #   demos/55-pulseboard/run.sh          # build → apply → NodePool → load up/down + Observe proof
 #   demos/55-pulseboard/run.sh --down   # tear down product resources + NodePool
@@ -30,8 +30,10 @@ export FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS="${FORGE_UPSTREAM_PROBE_INTERVAL_SE
 export FORGE_UPSTREAM_FAILURE_THRESHOLD="${FORGE_UPSTREAM_FAILURE_THRESHOLD:-1}"
 export FORGE_UPSTREAM_SUCCESS_THRESHOLD="${FORGE_UPSTREAM_SUCCESS_THRESHOLD:-1}"
 export FORGE_AUTOSCALER_EVAL_INTERVAL_MS="${FORGE_AUTOSCALER_EVAL_INTERVAL_MS:-1000}"
-export FORGE_AUTOSCALER_NODE_SCALE_UP_COOLDOWN_SECONDS="${FORGE_AUTOSCALER_NODE_SCALE_UP_COOLDOWN_SECONDS:-0}"
-export FORGE_AUTOSCALER_NODE_SCALE_DOWN_COOLDOWN_SECONDS="${FORGE_AUTOSCALER_NODE_SCALE_DOWN_COOLDOWN_SECONDS:-0}"
+# Autoscaler EvaluateScaleUp/Down treat cooldown<=0 as built-in defaults (60s/5m),
+# so use 1s — not 0 — when the gate needs near-immediate re-drain after run.sh.
+export FORGE_AUTOSCALER_NODE_SCALE_UP_COOLDOWN_SECONDS="${FORGE_AUTOSCALER_NODE_SCALE_UP_COOLDOWN_SECONDS:-1}"
+export FORGE_AUTOSCALER_NODE_SCALE_DOWN_COOLDOWN_SECONDS="${FORGE_AUTOSCALER_NODE_SCALE_DOWN_COOLDOWN_SECONDS:-1}"
 # Keep long enough that a just-provisioned node is not drained during capacity absorb.
 # 20s is enough to avoid drain-during-absorb races while keeping the gate under
 # the harness lifecycle timeout (300s default; override via DEMO_TIMEOUT_MS).
@@ -1065,13 +1067,17 @@ print('  policy status reflects RPS metricValue=%s type=%s' % (v, '${metric_type
     fail "scale-down did not decrease (up=${up_desired} down=${down_desired})"
   echo "  HTTP scale-down ok desiredReplicas=${down_desired}"
 
-  # Let reconcile drop replicas before the node autoscaler scores underutilized nodes.
-  for _ in $(seq 1 60); do
+  # Let reconcile drop pods before the node autoscaler scores underutilized nodes.
+  # ReconcileStatus exposes actual.replicas[] (updatedReplicas is "ready/total").
+  for _ in $(seq 1 120); do
     actual="$(curl --fail --silent --show-error \
       "${CONTROL_URL}/v1/deployments/${API_DEPLOYMENT_ID}/reconcile" |
-      python3 -c 'import json,sys; d=json.load(sys.stdin); print(int(d.get("actualReplicas") or d.get("updatedReplicas") or 0))' 2>/dev/null || echo 99)"
-    if [[ "${actual}" -le "${MIN_REPLICAS}" ]]; then
-      echo "  deployment actualReplicas=${actual}"
+      python3 -c 'import json,sys; d=json.load(sys.stdin); print(len((d.get("actual") or {}).get("replicas") or []))' 2>/dev/null || echo 99)"
+    status="$(curl --fail --silent --show-error \
+      "${CONTROL_URL}/v1/deployments/${API_DEPLOYMENT_ID}" |
+      python3 -c 'import json,sys; print(json.load(sys.stdin).get("status") or "")' 2>/dev/null || echo "")"
+    if [[ "${actual}" -le "${MIN_REPLICAS}" && ( "${status}" == "deployed" || "${status}" == "active" ) ]]; then
+      echo "  deployment actualReplicas=${actual} status=${status}"
       break
     fi
     sleep 1
@@ -1144,7 +1150,7 @@ deploy() {
 
   write_state
   echo
-  echo "demo 55 deploy READY"
+  echo "demo 55 deploy READY (PulseBoard epic gate)"
   echo "  Board:        http://${BOARD_HOST}:4000/"
   echo "  API:          http://${API_HOST}:4000/health/ready"
   echo "  Stats:        http://${API_HOST}:4000/stats  (Observe-sourced replicas/RPS/p95)"

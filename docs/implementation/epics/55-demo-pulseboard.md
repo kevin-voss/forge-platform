@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Goal
 
@@ -59,11 +59,14 @@ added node scale back down.
 | 55.03 | Node autoscaling (Infrastructure) | Complete | exceed capacity → Docker node provisioned → replicas Running; drain after |
 | 55.04 | Observe surfacing | Complete | dashboard reads replica count/RPS/p95 from Observe; matches Grafana |
 | 55.05 | E2E browser spec | Complete | watch replicas up under load (UI+Grafana), optional node leg, scale down after stop |
-| 55.06 | Demo + epic gate | Not started | `demos/55-pulseboard`; `make demo DEMO=55`; wired into test-platform-e2e |
+| 55.06 | Demo + epic gate | Complete | `demos/55-pulseboard`; `make demo DEMO=55`; wired into test-platform-e2e |
 
 Ordering + `N`: [`../steps/55-demo-pulseboard/README.md`](../steps/55-demo-pulseboard/README.md).
 
 ## Open questions
 
 * If epic 25 (scheduling enhancements) ships user-visible behaviour, add a scheduled-scaling panel
-  here instead of a sixth demo (see project plan §9).
+  here instead of a sixth demo (see project plan §9). **Confirmed in 55.06:** headed +
+  headless `make demo DEMO=55` / `make test-platform-e2e PROJECTS=05` pass with zero blockers;
+  non-blocker `F-009` (node cooldown `0` ⇒ 5m default) remains open in
+  [`PLATFORM_FINDINGS.md`](../../demo-projects/PLATFORM_FINDINGS.md).

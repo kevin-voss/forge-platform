@@ -1,8 +1,28 @@
 # Demo 55 — PulseBoard
 
-Epic **55** product: a live metrics dashboard that proves autoscaling under load
-and observability surfacing. Step **55.05** adds the headed/headless browser E2E
-that watches replicas climb under load (UI + Observe/Grafana) and scale back down.
+Epic **55** gate: a live metrics dashboard that proves autoscaling under load and
+observability surfacing — HTTP request-rate replicas, Docker NodePool capacity,
+and Observe/Grafana parity — verified end-to-end via the platform E2E harness.
+
+`make demo DEMO=55` (and `HEADLESS=1`) is the epic 55 acceptance gate. Product
+browser E2E lives at `tests/e2e/projects/05-pulseboard/spec.ts`.
+
+## What it proves
+
+1. Deploy dashboard SPA + API onto Forge (`forge build` / docker build + `forge apply`).
+2. Gateway hosts `board` / `api.pulseboard.localhost` return 200; `/stats` is Observe-sourced.
+3. `ScalingPolicy` `{ type: httpRequests, targetValue: 50 }` grows `pulseboard-api` replicas
+   within `[1, 10]` under load and drains back to `minReplicas` when load stops.
+4. Operator `NodePool pulseboard-pool` (`minNodes: 2`, `maxNodes: 3`) provisions a Docker
+   node when replicas exceed capacity, then drains back to `minNodes`.
+5. Dashboard `/stats` replicas/RPS/p95 match Observe PromQL (and Prometheus/Grafana when ready).
+6. Playwright E2E (`tests/e2e/projects/05-pulseboard`): headed + headless browser path for
+   baseline → load → UI+Grafana replica climb → scale down. Soft platform asserts cover
+   autoscaler httpRequests status, Control Application→Deployment actuation, and
+   Observe/Grafana consistency. Opt-in NodePool browser leg:
+   `PULSEBOARD_E2E_NODE_LEG=1` (default off — `run.sh` hard-proves scale-up/drain during
+   deploy; see `F-009` for cooldown `0` semantics).
+7. Tear down product resources + NodePool (unless `KEEP=1`).
 
 ## Layout
 
@@ -21,18 +41,23 @@ that watches replicas climb under load (UI + Observe/Grafana) and scale back dow
 | `scripts/test_http_scaling.py` | Unit tests for RPS → replica math + fixture shape |
 | `scripts/test_node_scaling.py` | Unit tests for slot → node math + NodePool fixture |
 | `scripts/test_observe_surfacing.py` | Unit tests for Observe PromQL sidecar |
-| `run.sh` | Deploy (`up`) / teardown (`--down`) + scale + Observe proof |
-| `demo.json` | Harness contract (`services` includes observe) |
+| `run.sh` | Deploy / teardown; HTTP + node scale + Observe proofs |
+| `demo.json` | Harness contract (`id: 05-pulseboard`, `services` incl. autoscaler/infra/observe/apply) |
 | `docker-compose.yml` | Overlay: autoscaler, infra, Observe metrics, Prometheus scrape |
+| `../../tests/e2e/projects/05-pulseboard/` | Browser E2E spec |
 
 ## Commands
 
 ```bash
-# Full lifecycle via orchestrator (preferred)
+# Full lifecycle via orchestrator (preferred / epic gate)
 make demo DEMO=55
 make demo DEMO=55 HEADLESS=1
 
-# Manual product deploy (includes http/node scale + Observe consistency)
+# Same product via PROJECTS filter (demo.json id prefix)
+make test-platform-e2e PROJECTS=05
+make test-platform-e2e HEADLESS=1 PROJECTS=05
+
+# Manual product deploy only (leave running for curl / browser checks)
 ./demos/55-pulseboard/run.sh
 curl -fsS -H 'Host: api.pulseboard.localhost' http://127.0.0.1:4000/health/ready
 curl -fsS -H 'Host: api.pulseboard.localhost' http://127.0.0.1:4000/stats
@@ -43,22 +68,22 @@ curl -fsS -H 'Host: board.pulseboard.localhost' http://127.0.0.1:4000/
 ./demos/55-pulseboard/scripts/loadgen.sh status
 ./demos/55-pulseboard/scripts/loadgen.sh stop
 
-# Browser E2E (55.05) — requires deploy above; node leg optional for CI
-cd tests/e2e && npx playwright test projects/05-pulseboard
-HEADLESS=1 npx playwright test projects/05-pulseboard
-# Optional capacity leg (Docker node add/drain):
-PULSEBOARD_E2E_NODE_LEG=1 npx playwright test projects/05-pulseboard
-
-./demos/55-pulseboard/run.sh --down
-
 # Unit tests
 cd demos/55-pulseboard/api && go test ./...
 python3 demos/55-pulseboard/scripts/test_http_scaling.py
 python3 demos/55-pulseboard/scripts/test_node_scaling.py
 python3 demos/55-pulseboard/scripts/test_observe_surfacing.py
+
+./demos/55-pulseboard/run.sh --down
+
+# Browser E2E (product must already be up via run.sh or KEEP=1)
+cd tests/e2e && npx playwright test projects/05-pulseboard
+HEADLESS=1 npx playwright test projects/05-pulseboard
+# Opt-in capacity leg (Docker node add/drain; run.sh already proves this):
+PULSEBOARD_E2E_NODE_LEG=1 npx playwright test projects/05-pulseboard
 ```
 
-## Observe surfacing (55.04)
+## Observe surfacing
 
 * API emits OTEL traces/metrics when `FORGE_OTEL_ENABLED=true` and always queries
   `FORGE_OBSERVE_URL` for `/stats` (replicas / RPS / p95).
@@ -73,7 +98,7 @@ python3 demos/55-pulseboard/scripts/test_observe_surfacing.py
 * `run.sh` asserts dashboard `/stats` matches Observe (and Prometheus when ready)
   within tolerance.
 
-## Autoscaling (55.02 + 55.03)
+## Autoscaling
 
 * `ScalingPolicy` `{ type: httpRequests, targetValue: 50 }` on `pulseboard-api`
   with bounds `[1, 10]`.
@@ -104,14 +129,13 @@ are named `api` and `board`, so the product is reachable at:
 deployments are active (Ready). No database is provisioned — PulseBoard is
 intentionally stateless.
 
-## Browser E2E (55.05)
+## Platform findings (recorded, not patched)
 
-`tests/e2e/projects/05-pulseboard/spec.ts` drives the dashboard through loadgen:
-baseline replicas=1 → start load → UI + Observe/Grafana replica climb within
-`[1,10]` → stop load → scale back to min. Soft `platform.expect` covers
-autoscaler httpRequests status, Control Application→Deployment actuation, and
-Observe/Grafana consistency. Set `PULSEBOARD_E2E_NODE_LEG=1` (default headed)
-to also assert NodePool scale-up/drain; headless/CI defaults the node leg off
-for speed.
+Epic 55 surfaces a non-blocker finding in
+[`docs/demo-projects/PLATFORM_FINDINGS.md`](../../docs/demo-projects/PLATFORM_FINDINGS.md):
 
-Next: epic gate wiring (55.06).
+* `F-009` — forge-autoscaler treats node scale cooldown `<=0` as built-in defaults
+  (60s up / 5m down), not “disabled”; PulseBoard sets cooldown to `1`s
+
+Metric freshness, replica consistency, and first-cycle node drain stayed within gate
+tolerances. The orchestrator exits 0 with zero blockers.

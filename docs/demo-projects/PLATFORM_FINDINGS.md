@@ -18,11 +18,11 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 
 | Metric | Count |
 |---|---|
-| Total findings | 8 |
-| Open | 8 |
+| Total findings | 9 |
+| Open | 9 |
 | Blocker | 0 |
 | Major | 4 |
-| Minor | 4 |
+| Minor | 5 |
 
 ## By service
 
@@ -33,6 +33,7 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 | forge-identity | 1 | 0 | 0 | 1 |
 | forge-observe | 2 | 0 | 2 | 0 |
 | forge-secrets / forge-control | 1 | 0 | 0 | 1 |
+| forge-autoscaler | 1 | 0 | 0 | 1 |
 | forge-workflows | 1 | 0 | 1 | 0 |
 | platform | 1 | 0 | 1 | 0 |
 
@@ -44,7 +45,7 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 | 02-snapnote | 1 |
 | 03-askdocs | 2 |
 | 04-orderpipe | 1 |
-| 05-pulseboard | 0 |
+| 05-pulseboard | 1 |
 
 ---
 
@@ -397,3 +398,48 @@ platform assertion; product happy/failure paths still pass via the workaround.
 Add an `http.request` (or `service.call`) task action with URL/body/header templating from
 run input, record compensators with full forward args (not only `deployment_id`), and
 document the product-saga pattern in forge-workflows README / OpenAPI.
+
+### F-009 — Node scale cooldown `0` means built-in default, not “disabled”
+
+| Field | Value |
+|---|---|
+| Status | Open |
+| Severity | minor |
+| Service | forge-autoscaler |
+| Area / contract | `FORGE_AUTOSCALER_NODE_SCALE_*_COOLDOWN_SECONDS` / `EvaluateScaleUp` / `EvaluateScaleDown` |
+| Found by demo | 05-pulseboard (step 55.06) |
+| First seen | 2026-07-24 |
+| Reproducible | always |
+
+**What we tested**
+PulseBoard `run.sh` drains the Docker NodePool to `minNodes` under load stop, then the headed
+browser E2E runs a second HTTP+node scale cycle. Compose set
+`FORGE_AUTOSCALER_NODE_SCALE_DOWN_COOLDOWN_SECONDS=0` intending “no cooldown”.
+
+**Expected (per demo/env convention)**
+`0` disables cooldown so a second drain can start immediately after a prior scale-down.
+
+**Actual**
+`EvaluateScaleDown` (and scale-up) treat `cooldown <= 0` as built-in defaults (**5m** / **60s**).
+Config accepts `0` and stores `0`, but the evaluator overrides it. The E2E second-cycle drain
+waited 240s with `readyNodes` stuck at 3 after `run.sh` had already set `lastScaleDownAt`.
+
+**Evidence**
+- `services/forge-autoscaler/internal/node/scaledown.go` (`if cooldown <= 0 { cooldown = 5 * time.Minute }`)
+- `services/forge-autoscaler/internal/node/scaleup.go` (`if cooldown <= 0 { cooldown = 60 * time.Second }`)
+- Headed gate log: `node leg drain wait incomplete readyNodes=3` after successful `run.sh` drain
+
+**Reproduce**
+```bash
+# with COOLDOWN_SECONDS=0 in demos/55-pulseboard/docker-compose.yml:
+make demo DEMO=55
+# run.sh drain ok; Playwright node leg fails to re-drain within 240s
+```
+
+**Impact on demo**
+Non-blocker. PulseBoard sets cooldown to **1** second (not 0) so headed + headless gates pass.
+Finding recorded so platform docs/env semantics can be clarified or `0` made mean “disabled”.
+
+**Suggested platform fix**
+Document that `<=0` means “use default”, or treat `0` as disabled and use a negative/omit for
+defaults; align compose examples in demos 24/55.

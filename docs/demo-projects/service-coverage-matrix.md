@@ -81,6 +81,11 @@ service misbehaves), so a red service maps to a specific demo to debug first.
   `managed-postgresql`, `discovery`, `network`, `events`, `workflows`, `secrets`).
   Non-blocker finding `F-008` remains open in
   [`PLATFORM_FINDINGS.md`](PLATFORM_FINDINGS.md); zero blockers.
+* **Epic 55 (PulseBoard) Complete:** column **5 PulseBoard** exercised end-to-end via
+  `make demo DEMO=55` / `make test-platform-e2e PROJECTS=05` (headed + headless). Coverage tokens
+  from `demos/55-pulseboard/demo.json` (`control`, `cli`, `runtime`, `gateway`, `build`,
+  `autoscaler`, `infrastructure`, `observe`, `apply`). Non-blocker finding `F-009` remains open in
+  [`PLATFORM_FINDINGS.md`](PLATFORM_FINDINGS.md); zero blockers.
 
 ## Deliberate gaps (recorded, not accidental)
 

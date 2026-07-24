@@ -33,11 +33,12 @@ const TARGET_RPS = 50;
 const LOAD_RPS = Number(process.env.PULSEBOARD_E2E_LOAD_RPS ?? 250);
 const IDLE_RPS = Number(process.env.PULSEBOARD_E2E_IDLE_RPS ?? 20);
 const OBSERVE_TOLERANCE = Number(process.env.OBSERVE_REPLICA_TOLERANCE ?? 0.5);
-/** Node capacity leg — optional/thresholded for CI speed (`0` skips). */
-const NODE_LEG =
-  (process.env.PULSEBOARD_E2E_NODE_LEG ??
-    (process.env.HEADLESS === '1' || process.env.CI === '1' ? '0' : '1')) ===
-  '1';
+/**
+ * Node capacity leg — opt-in (`PULSEBOARD_E2E_NODE_LEG=1`).
+ * Default off: `run.sh` already hard-proves NodePool scale-up/drain during deploy;
+ * a second browser-cycle drain is sensitive to autoscaler cooldown/window timing (F-009).
+ */
+const NODE_LEG = process.env.PULSEBOARD_E2E_NODE_LEG === '1';
 const DEMO_ID = '05-pulseboard';
 
 const repoRoot = path.resolve(__dirname, '../../../..');
@@ -301,6 +302,71 @@ async function deploymentDesired(deploymentId: string): Promise<number> {
   if (!res.ok) throw new Error(`GET deployment HTTP ${res.status}`);
   const body = res.body as { desiredReplicas?: number };
   return Number(body.desiredReplicas ?? 0);
+}
+
+async function deploymentActual(deploymentId: string): Promise<number> {
+  const res = await fetchJson(
+    `${CONTROL_URL}/v1/deployments/${deploymentId}/reconcile`,
+  );
+  if (!res.ok) throw new Error(`GET reconcile HTTP ${res.status}`);
+  const body = res.body as {
+    actual?: { replicas?: unknown[] };
+    desired?: { replicas?: number };
+    status?: string;
+  };
+  // ReconcileStatus exposes actual.replicas[]; updatedReplicas is "ready/total".
+  if (Array.isArray(body.actual?.replicas)) {
+    return body.actual!.replicas!.length;
+  }
+  return Number(body.desired?.replicas ?? 99);
+}
+
+async function deploymentStatus(deploymentId: string): Promise<string> {
+  const res = await fetchJson(`${CONTROL_URL}/v1/deployments/${deploymentId}`);
+  if (!res.ok) throw new Error(`GET deployment HTTP ${res.status}`);
+  const body = res.body as { status?: string };
+  return String(body.status ?? '');
+}
+
+/** Match run.sh: let reconcile drop pods before node underutilization scoring. */
+async function waitDeploymentActualLe(
+  deploymentId: string,
+  max: number,
+  timeoutMs = 120_000,
+): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  let last = 99;
+  while (Date.now() < deadline) {
+    last = await deploymentActual(deploymentId);
+    const st = await deploymentStatus(deploymentId);
+    if (
+      last <= max &&
+      (st === 'deployed' || st === 'active' || st === '')
+    ) {
+      return last;
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  throw new Error(
+    `deployment actualReplicas never <= ${max} while settled (last=${last})`,
+  );
+}
+
+async function waitPendingPlacementsEq(
+  want: number,
+  timeoutMs = 120_000,
+): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  let last = 99;
+  while (Date.now() < deadline) {
+    const res = await fetchJson(`${CONTROL_URL}/v1/placements?status=pending`);
+    if (res.ok) {
+      last = Array.isArray(res.body) ? res.body.length : 99;
+      if (last === want) return last;
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  throw new Error(`pending placements never == ${want} (last=${last})`);
 }
 
 async function setIdleMetrics(rps: number, replicas: number): Promise<void> {
@@ -578,6 +644,29 @@ test.describe('05-pulseboard', () => {
 
       await waitApiReplicasEq(MIN_REPLICAS, 120_000);
       await waitUiReplicasEq(page, MIN_REPLICAS, 60_000);
+      // Pods must actually leave before the node autoscaler scores underutilized
+      // nodes (same precondition as demos/55-pulseboard/run.sh).
+      const actualAfterDown = await waitDeploymentActualLe(
+        apiDeploymentId,
+        MIN_REPLICAS,
+        120_000,
+      );
+      logStep(`deployment actualReplicas=${actualAfterDown}`);
+      await waitPendingPlacementsEq(0, 120_000);
+
+      // Drain hard-assert only for the opt-in node leg after an observed scale-up.
+      let nodesAfterDown = await countReadyForgeNodes();
+      if (NODE_LEG && nodesAfterUp > nodesBefore) {
+        logStep('node leg: waiting for drain to minNodes');
+        nodesAfterDown = await waitReadyNodesEq(MIN_NODES, 240_000);
+        expect(nodesAfterDown).toBe(MIN_NODES);
+        expect(nodesAfterDown).toBeLessThan(nodesAfterUp);
+        logStep(`node leg down readyNodes=${nodesAfterDown}`);
+      } else if (NODE_LEG) {
+        logStep(
+          `node leg: skip hard drain wait (no scale-up this run; readyNodes=${nodesAfterDown})`,
+        );
+      }
 
       // Dashboard vs Observe consistency at idle. Prometheus scrape can lag;
       // poll briefly, then soft-check via platform.expect if still behind.
@@ -604,20 +693,6 @@ test.describe('05-pulseboard', () => {
       logStep(
         `observe consistency dash=${dashReplicas} observe=${observeReplicas} prom=${promReplicas}`,
       );
-
-      // Drain hard-assert only when this run observed a scale-up. If we started
-      // already at maxNodes (KEEP=1 residue), defer to the soft infra expect.
-      let nodesAfterDown = await countReadyForgeNodes();
-      if (NODE_LEG && nodesAfterUp > nodesBefore) {
-        logStep('node leg: waiting for drain to minNodes');
-        nodesAfterDown = await waitReadyNodesEq(MIN_NODES, 240_000);
-        expect(nodesAfterDown).toBe(MIN_NODES);
-        expect(nodesAfterDown).toBeLessThan(nodesAfterUp);
-      } else if (NODE_LEG) {
-        logStep(
-          `node leg: skip hard drain wait (no scale-up this run; readyNodes=${nodesAfterDown})`,
-        );
-      }
 
       // --- Platform assertions ---
       const scalingResult = await platform.expect(
