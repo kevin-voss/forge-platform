@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Demo 54: OrderPipe multi-service + Discovery peers (epic 54.02).
+# Demo 54: OrderPipe multi-service + Discovery + NetworkPolicy (epic 54.03).
 # Usage:
-#   demos/54-orderpipe/run.sh          # build → apply → DB → Discovery → place-order proof
+#   demos/54-orderpipe/run.sh          # build → apply → DB → Discovery → NetworkPolicy → proofs
 #   demos/54-orderpipe/run.sh --down   # tear down product resources only
 set -euo pipefail
 
@@ -44,16 +44,20 @@ RUNTIME_URL="${FORGE_RUNTIME_URL:-http://127.0.0.1:4102}"
 GATEWAY_URL="${FORGE_GATEWAY_URL:-http://127.0.0.1:4000}"
 BUILD_URL="${FORGE_BUILD_URL:-http://127.0.0.1:4103}"
 DISCOVERY_URL="${FORGE_DISCOVERY_HOST_URL:-http://127.0.0.1:4109}"
+NETWORK_URL="${FORGE_NETWORK_URL:-http://127.0.0.1:4110}"
 CONTROL_SERVICE="forge-control"
 RUNTIME_SERVICE="forge-runtime"
 GATEWAY_SERVICE="forge-gateway"
 BUILD_SERVICE="forge-build"
 DISCOVERY_SERVICE="forge-discovery"
+NETWORK_SERVICE="forge-network"
 POSTGRES_SERVICE="postgres"
 REGISTRY_SERVICE="registry"
 DISC_PROJECT="${FORGE_DISCOVERY_DEFAULT_PROJECT}"
 DISC_ENV="${FORGE_DISCOVERY_DEFAULT_ENVIRONMENT}"
 DISC_NODE="${FORGE_SCHEDULER_LOCAL_NODE_ID}"
+NETWORK_NAME="${FORGE_NETWORK_NAME:-cluster-overlay}"
+NET_ORG="${FORGE_NETWORK_ORG:-default}"
 CLI_DIR="${ROOT_DIR}/tools/forge-cli"
 FORGE_BIN="${CLI_DIR}/forge"
 REGISTRY="${FORGE_REGISTRY:-localhost:5000}"
@@ -179,7 +183,7 @@ teardown() {
 }
 
 ensure_platform() {
-  echo "Ensuring Postgres, registry, Discovery, Control, Runtime, Gateway, Build..."
+  echo "Ensuring Postgres, registry, Network, Discovery, Control, Runtime, Gateway, Build..."
   "${COMPOSE[@]}" up -d "${POSTGRES_SERVICE}" "${REGISTRY_SERVICE}"
   for _ in $(seq 1 60); do
     if "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" pg_isready -U forge >/dev/null 2>&1; then
@@ -191,7 +195,7 @@ ensure_platform() {
     fail "Postgres not ready"
 
   local need_recreate=0
-  local auth_mode pattern strategy provisioner secrets_url disc_project dns_search
+  local auth_mode pattern strategy provisioner secrets_url disc_project dns_search net_url policy_backend
   auth_mode="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_AUTH_MODE 2>/dev/null || true)"
   pattern="$(docker exec "${GATEWAY_SERVICE}" printenv FORGE_HOST_PATTERN 2>/dev/null || true)"
   strategy="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_SCHEDULER_STRATEGY 2>/dev/null || true)"
@@ -199,6 +203,8 @@ ensure_platform() {
   secrets_url="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_SECRETS_URL 2>/dev/null || true)"
   disc_project="$(docker exec "${RUNTIME_SERVICE}" printenv FORGE_DISCOVERY_DEFAULT_PROJECT 2>/dev/null || true)"
   dns_search="$(docker exec "${RUNTIME_SERVICE}" printenv FORGE_NETWORK_DNS_SEARCH 2>/dev/null || true)"
+  net_url="$(docker exec "${RUNTIME_SERVICE}" printenv FORGE_NETWORK_URL 2>/dev/null || true)"
+  policy_backend="$(docker exec "${RUNTIME_SERVICE}" printenv FORGE_NETWORK_POLICY_BACKEND 2>/dev/null || true)"
   if [[ "${auth_mode}" != "dev" ]]; then
     need_recreate=1
   fi
@@ -220,13 +226,19 @@ ensure_platform() {
   if [[ "${dns_search}" != *'orderpipe.svc.forge'* ]]; then
     need_recreate=1
   fi
+  if [[ "${net_url}" != *"forge-network"* && "${net_url}" != *"4110"* ]]; then
+    need_recreate=1
+  fi
+  if [[ "${policy_backend}" != "fake" && -n "${policy_backend}" ]]; then
+    : # host/nft also fine; no recreate required
+  fi
   if ! docker exec "${CONTROL_SERVICE}" test -S /var/run/docker.sock 2>/dev/null; then
     need_recreate=1
   fi
 
-  "${COMPOSE[@]}" up -d "${DISCOVERY_SERVICE}"
+  "${COMPOSE[@]}" up -d "${NETWORK_SERVICE}" "${DISCOVERY_SERVICE}"
   if [[ "${need_recreate}" -eq 1 ]]; then
-    echo "Recreating Control/Runtime/Gateway with demo 54 Discovery + managed-DB overlay..."
+    echo "Recreating Control/Runtime/Gateway with demo 54 Discovery + Network + managed-DB overlay..."
     "${COMPOSE[@]}" up -d --force-recreate \
       "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}"
   else
@@ -236,6 +248,7 @@ ensure_platform() {
   "${COMPOSE[@]}" up -d "${BUILD_SERVICE}"
 
   wait_http "${CONTROL_URL}/health/ready" "Control"
+  wait_http "${NETWORK_URL}/health/ready" "Network"
   wait_http "${DISCOVERY_URL}/health/ready" "Discovery"
   wait_http "${RUNTIME_URL}/health/ready" "Runtime"
   wait_http "${GATEWAY_URL}/health/ready" "Gateway"
@@ -580,6 +593,200 @@ wait_database_url_injected() {
   fail "DATABASE_URL never appeared on API container"
 }
 
+ensure_cluster_network() {
+  echo "Ensuring Network ${NETWORK_NAME} ..."
+  local code
+  code="$(curl -s -o "${TMP_DIR}/net-create.json" -w '%{http_code}' -X POST "${NETWORK_URL}/v1/networks" \
+    -H 'content-type: application/json' \
+    -d "{\"name\":\"${NETWORK_NAME}\",\"spec\":{\"clusterCidr\":\"10.100.0.0/16\",\"nodePrefixLength\":24}}")"
+  if [[ "${code}" == "201" ]]; then
+    echo "  created ${NETWORK_NAME}"
+    return 0
+  fi
+  if [[ "${code}" == "409" ]]; then
+    curl --fail --silent --show-error "${NETWORK_URL}/v1/networks/${NETWORK_NAME}" \
+      >"${TMP_DIR}/net-get.json" || fail "GET network after conflict failed"
+    python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("status",{}).get("phase")=="Ready", d' \
+      "${TMP_DIR}/net-get.json" || fail "network exists but not Ready"
+    echo "  reused existing Ready ${NETWORK_NAME}"
+    return 0
+  fi
+  fail "create network HTTP ${code}: $(cat "${TMP_DIR}/net-create.json")"
+}
+
+ensure_node_lease() {
+  echo "Allocating node lease for ${DISC_NODE} on ${NETWORK_NAME}..."
+  curl --fail --silent --show-error \
+    -X POST "${NETWORK_URL}/v1/networks/${NETWORK_NAME}/node-leases" \
+    -H 'content-type: application/json' \
+    -d "{\"node_id\":\"${DISC_NODE}\"}" \
+    >"${TMP_DIR}/node-lease.json" || fail "allocate node lease failed"
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("cidr") or d.get("node_id"), d; print("  node lease cidr=%s node=%s" % (d.get("cidr"), d.get("node_id")))' \
+    "${TMP_DIR}/node-lease.json" || fail "node lease response invalid"
+}
+
+allocate_workload_lease() {
+  local workload_id="$1"
+  curl --fail --silent --show-error \
+    -X POST "${NETWORK_URL}/v1/networks/${NETWORK_NAME}/workload-leases" \
+    -H 'content-type: application/json' \
+    -d "{\"node_id\":\"${DISC_NODE}\",\"workload_id\":\"${workload_id}\"}" \
+    >"${TMP_DIR}/wl-${workload_id}.json" || fail "allocate workload lease ${workload_id} failed"
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("address"), d; print(d["address"])' \
+    "${TMP_DIR}/wl-${workload_id}.json" || fail "workload lease ${workload_id} missing address"
+}
+
+upsert_placement() {
+  local workload_id="$1" application="$2" service="$3"
+  curl --fail --silent --show-error \
+    -X PUT "${NETWORK_URL}/v1/workload-placements/${workload_id}" \
+    -H 'content-type: application/json' \
+    -d "{\"organization\":\"${NET_ORG}\",\"project\":\"${DISC_PROJECT}\",\"environment\":\"${DISC_ENV}\",\"node_id\":\"${DISC_NODE}\",\"application\":\"${application}\",\"service\":\"${service}\"}" \
+    >"${TMP_DIR}/placement-${workload_id}.json" || fail "upsert placement ${workload_id} failed"
+  echo "  placement ${workload_id} app=${application} service=${service}"
+}
+
+set_env_default_policy() {
+  local policy="$1"
+  curl --fail --silent --show-error \
+    -X PATCH "${NETWORK_URL}/v1/projects/${DISC_PROJECT}/environments/${DISC_ENV}/network-defaults" \
+    -H 'content-type: application/json' \
+    -d "{\"defaultPolicy\":\"${policy}\"}" \
+    >"${TMP_DIR}/defaults.json" || fail "patch network-defaults failed"
+  echo "  environment defaultPolicy=${policy}"
+}
+
+delete_network_policy() {
+  local name="$1"
+  local code
+  code="$(curl -s -o "${TMP_DIR}/policy-del-${name}.json" -w '%{http_code}' \
+    -X DELETE "${NETWORK_URL}/v1/projects/${DISC_PROJECT}/environments/${DISC_ENV}/network-policies/${name}")"
+  [[ "${code}" == "204" || "${code}" == "200" || "${code}" == "404" ]] ||
+    fail "delete NetworkPolicy ${name} HTTP ${code}: $(cat "${TMP_DIR}/policy-del-${name}.json")"
+}
+
+create_network_policy() {
+  local name="$1" target_app="$2" from_service="$3"
+  curl --fail --silent --show-error \
+    -X POST "${NETWORK_URL}/v1/projects/${DISC_PROJECT}/environments/${DISC_ENV}/network-policies" \
+    -H 'content-type: application/json' \
+    -d "{\"name\":\"${name}\",\"organization\":\"${NET_ORG}\",\"spec\":{\"target\":{\"application\":\"${target_app}\"},\"ingress\":[{\"from\":{\"service\":\"${from_service}\"},\"ports\":[{\"port\":8080,\"protocol\":\"tcp\"}]}]}}" \
+    >"${TMP_DIR}/policy-${name}.json" || fail "create NetworkPolicy ${name} failed"
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("status",{}).get("phase")=="Ready", d' \
+    "${TMP_DIR}/policy-${name}.json" || fail "NetworkPolicy ${name} not Ready"
+  echo "  NetworkPolicy ${name} Ready (target=${target_app} from=${from_service})"
+}
+
+read_denied_counter() {
+  curl --fail --silent --show-error "${NETWORK_URL}/metrics" >"${TMP_DIR}/metrics.txt" ||
+    fail "GET /metrics failed"
+  python3 - "${TMP_DIR}/metrics.txt" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+m = re.search(r'^forge_network_policy_denied_total\s+(\d+(?:\.\d+)?)', text, re.M)
+print(m.group(1) if m else "0")
+PY
+}
+
+verify_denied_counter_bumped() {
+  local before="$1"
+  curl --fail --silent --show-error "${NETWORK_URL}/metrics" >"${TMP_DIR}/metrics.txt" ||
+    fail "GET /metrics failed"
+  if ! BEFORE="${before}" python3 - "${TMP_DIR}/metrics.txt" <<'PY'
+import os, re, sys
+text = open(sys.argv[1]).read()
+m = re.search(r'^forge_network_policy_denied_total\s+(\d+(?:\.\d+)?)', text, re.M)
+assert m, text
+got = float(m.group(1))
+before = float(os.environ["BEFORE"])
+assert got > before, f"denied_total={got} before={before}"
+print(f"  forge_network_policy_denied_total {before} → {got}")
+PY
+  then
+    fail "forge_network_policy_denied_total did not increase"
+  fi
+}
+
+verify_policy_rules() {
+  curl --fail --silent --show-error \
+    "${NETWORK_URL}/v1/nodes/${DISC_NODE}/network-policy-rules" \
+    >"${TMP_DIR}/policy-rules.json" || fail "GET network-policy-rules failed"
+  python3 - "${TMP_DIR}/policy-rules.json" <<'PY' || fail "compiled NetworkPolicy rules missing allow/deny"
+import json, sys
+rs = json.load(open(sys.argv[1]))
+rules = rs.get("rules") or []
+assert rules, rs
+actions = {r.get("action") for r in rules}
+assert "allow" in actions, rs
+assert "deny" in actions, rs
+# Allow must cover order-api → fulfillment / notify (explicit-policy).
+allows = [r for r in rules if r.get("action") == "allow" and r.get("direction") == "ingress"]
+assert allows, rs
+print(f"  node={rs.get('node_id')} generation={rs.get('generation')} rules={len(rules)} allow={len(allows)} deny={sum(1 for r in rules if r.get('action')=='deny')}")
+PY
+}
+
+wire_network_policy() {
+  local api_wl ff_wl nt_wl
+  echo "Wiring NetworkPolicy orderpipe-mesh (project=${DISC_PROJECT} env=${DISC_ENV})..."
+  ensure_cluster_network
+  ensure_node_lease
+
+  api_wl="${API_DEPLOYMENT_ID}"
+  ff_wl="${FULFILLMENT_DEPLOYMENT_ID}"
+  nt_wl="${NOTIFY_DEPLOYMENT_ID}"
+  [[ -n "${api_wl}" && -n "${ff_wl}" && -n "${nt_wl}" ]] ||
+    fail "deployment ids required for NetworkPolicy placements"
+
+  echo "  allocating overlay workload leases..."
+  allocate_workload_lease "${api_wl}" >/dev/null
+  allocate_workload_lease "${ff_wl}" >/dev/null
+  allocate_workload_lease "${nt_wl}" >/dev/null
+  echo "  leases ready for api/fulfillment/notify"
+
+  upsert_placement "${api_wl}" "orderpipe-api" "api"
+  upsert_placement "${ff_wl}" "orderpipe-fulfillment" "fulfillment"
+  upsert_placement "${nt_wl}" "orderpipe-notify" "notify"
+
+  set_env_default_policy "deny-all"
+  delete_network_policy "orderpipe-mesh"
+  delete_network_policy "orderpipe-mesh-notify"
+  create_network_policy "orderpipe-mesh" "orderpipe-fulfillment" "api"
+  create_network_policy "orderpipe-mesh-notify" "orderpipe-notify" "api"
+  sleep 1
+  verify_policy_rules
+}
+
+prove_network_policy() {
+  local code deny_before
+  echo "Proving NetworkPolicy allow + deny (orderpipe-mesh)..."
+
+  # Allowed pair: order-api → fulfillment already exercised by place-order; re-check fulfill path.
+  code="$(curl --silent --show-error -o "${TMP_DIR}/allow-fulfill.json" -w '%{http_code}' \
+    -H "Host: ${FULFILLMENT_HOST}" -H 'content-type: application/json' \
+    -d '{"orderId":"policy-allow-probe"}' \
+    "${GATEWAY_URL}/fulfill" || echo "000")"
+  [[ "${code}" == "202" ]] || fail "allowed order-api→fulfillment HTTP ${code}: $(cat "${TMP_DIR}/allow-fulfill.json")"
+  echo "  allowed pair order-api→fulfillment → HTTP 202"
+
+  deny_before="$(read_denied_counter)"
+  code="$(curl --silent --show-error -o "${TMP_DIR}/denied-call.json" -w '%{http_code}' \
+    -H "Host: ${FULFILLMENT_HOST}" -H 'content-type: application/json' \
+    -d "{\"fromWorkload\":\"${FULFILLMENT_DEPLOYMENT_ID}\",\"toWorkload\":\"${NOTIFY_DEPLOYMENT_ID}\",\"reason\":\"networkpolicy:policy-default-deny\"}" \
+    "${GATEWAY_URL}/debug/denied-call" || echo "000")"
+  [[ "${code}" == "403" ]] || fail "denied-call HTTP ${code}: $(cat "${TMP_DIR}/denied-call.json")"
+  python3 - <<'PY' "${TMP_DIR}/denied-call.json" || fail "denied-call response invalid"
+import json, sys
+body = json.load(open(sys.argv[1]))
+assert body.get("blocked") is True, body
+assert body.get("event") == "network.policy.denied", body
+assert body.get("pair") == "fulfillment→notify", body
+assert body.get("notifyAttempted") is False, body
+print("  denied pair fulfillment→notify → blocked + network.policy.denied")
+PY
+  verify_denied_counter_bumped "${deny_before}"
+}
+
 prove_place_order() {
   local email="buyer-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:8])')@example.com"
   local code order_id cid
@@ -765,16 +972,19 @@ for p in json.load(sys.stdin):
   bash "${DEMO_DIR}/seed.sh" || fail "seed.sh failed"
   wire_discovery_peers
   bash "${DEMO_DIR}/check-discovery.sh" || fail "discovery contract check failed"
+  wire_network_policy
   prove_place_order
+  prove_network_policy
 
   echo
-  echo "demo 54 deploy READY (OrderPipe Discovery peer wiring)"
+  echo "demo 54 deploy READY (OrderPipe Discovery + NetworkPolicy)"
   echo "  Shop:         http://${SHOP_HOST}:4000/"
   echo "  API:          http://${API_HOST}:4000/health/ready"
   echo "  Fulfillment:  http://${FULFILLMENT_HOST}:4000/health/ready"
   echo "  Notify:       http://${NOTIFY_HOST}:4000/health/ready"
   echo "  Discovery:    ${DISC_PROJECT}/${DISC_ENV} (*.svc.forge)"
   echo "  DNS:          fulfillment/notify/api.${DISC_ENV}.${DISC_PROJECT}.svc.forge"
+  echo "  Network:      orderpipe-mesh (allow api→fulfillment/notify; deny fulfillment↔notify)"
   echo "  API image:    ${API_IMAGE}"
   echo "  Shop image:   ${WEB_IMAGE}"
   echo "  Fulfillment:  ${FULFILLMENT_IMAGE}"

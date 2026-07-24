@@ -36,7 +36,8 @@
     "gateway",
     "build",
     "managed-postgresql",
-    "discovery"
+    "discovery",
+    "network"
   ],
   "teardown": "demos/54-orderpipe/run.sh --down"
 }

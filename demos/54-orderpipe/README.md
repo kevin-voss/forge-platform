@@ -1,15 +1,16 @@
 # Demo 54 — OrderPipe
 
-Epic **54** (54.02): multi-service order product with storefront SPA,
+Epic **54** (54.03): multi-service order product with storefront SPA,
 `order-api` (Go), `fulfillment` (Python), `notify` (Elixir), managed Postgres,
-and **Forge Discovery** peer wiring. `order-api` calls peers as
-`http://fulfillment.svc.forge:8080` / `http://notify.svc.forge:8080` (Ready
-endpoint selection via Discovery), never compose DNS.
+**Forge Discovery** peer wiring, and **NetworkPolicy** `orderpipe-mesh`.
+`order-api` calls peers as `http://fulfillment.svc.forge:8080` /
+`http://notify.svc.forge:8080`; the mesh allows those pairs and denies
+`fulfillment→notify` (observable via `POST /debug/denied-call`).
 
-`make demo DEMO=54` runs the platform E2E lifecycle via `demo.json`. Network
-policy, events, saga, and full browser E2E land in `54.03`–`54.07`.
+`make demo DEMO=54` runs the platform E2E lifecycle via `demo.json`. Events,
+saga, and full browser E2E land in `54.04`–`54.07`.
 
-## What it proves (54.02)
+## What it proves (54.03)
 
 1. Deploy all four services onto Forge (`forge build` / docker build + `forge apply` + managed DB).
 2. Gateway hosts `shop` / `api` / `fulfillment` / `notify.orderpipe.localhost` return 200.
@@ -17,26 +18,30 @@ policy, events, saga, and full browser E2E land in `54.03`–`54.07`.
    `orderpipe` / `local`; DNS answers `*.local.orderpipe.svc.forge`.
 4. Place-order reaches fulfillment + notify via Discovery names; contract check
    (`check-discovery.sh`) rejects hard-coded peer DNS.
-5. Order survives an API container restart (Postgres durability).
-6. Tear down product resources (unless `KEEP=1`).
+5. NetworkPolicy `orderpipe-mesh` (deny-all default + allow `api→fulfillment` /
+   `api→notify`) compiles allow/deny rules; allowed fulfill succeeds; denied
+   `fulfillment→notify` is blocked with `network.policy.denied` + metric bump.
+6. Order survives an API container restart (Postgres durability).
+7. Tear down product resources (unless `KEEP=1`).
 
 ## Layout
 
 | Path | Role |
 |---|---|
 | `api/` | Go order-api (`POST /orders` + Discovery peer client, catalog, health) |
-| `fulfillment/` | Python health + `/fulfill` stub |
+| `fulfillment/` | Python health + `/fulfill` + `/debug/denied-call` NetworkPolicy probe |
 | `notify/` | Elixir health + `/notify` stub |
 | `migrations/` | Idempotent Postgres schema |
 | `public/` | Minimal shop SPA |
 | `Dockerfile.web` + `nginx.conf` | Static nginx image on port `8080` |
 | `forge.yaml` | Portable Project / Applications / Services / Deployments + DB + peer env |
+| `network-policy.yaml` | Portable `orderpipe-mesh` NetworkPolicy docs (applied via forge-network) |
 | `*/forge.yaml`, `web.forge.yaml` | Build manifests for `forge build` |
-| `run.sh` | Deploy (`up`) / teardown (`--down`); Discovery + place-order proof |
+| `run.sh` | Deploy (`up`) / teardown (`--down`); Discovery + NetworkPolicy proofs |
 | `check-discovery.sh` | Contract: no hard-coded peer DNS; `*.svc.forge` required |
 | `seed.sh` | Idempotent catalog (`mug`, `shirt`, `sticker`) |
-| `demo.json` | Harness `DemoProject` contract (`id: 04-orderpipe`; `services` includes `discovery`) |
-| `docker-compose.yml` | Overlay: Control LocalProvisioner, Gateway hosts, Discovery defaults |
+| `demo.json` | Harness `DemoProject` (`id: 04-orderpipe`; `services` includes `discovery` + `network`) |
+| `docker-compose.yml` | Overlay: Control LocalProvisioner, Gateway hosts, Discovery + Network |
 
 ## Commands
 
@@ -58,6 +63,11 @@ cd demos/54-orderpipe/api && go test ./...
 cd demos/54-orderpipe/fulfillment && python3 -m unittest -v test_health.py
 cd demos/54-orderpipe/notify && mix test
 ./demos/54-orderpipe/check-discovery.sh
+
+# NetworkPolicy denied-pair probe (after deploy)
+curl -sS -H 'Host: fulfillment.orderpipe.localhost' -H 'content-type: application/json' \
+  -d '{"fromWorkload":"<fulfillment-deployment-id>","toWorkload":"<notify-deployment-id>"}' \
+  http://127.0.0.1:4000/debug/denied-call
 
 ./demos/54-orderpipe/seed.sh
 ./demos/54-orderpipe/run.sh --down
@@ -85,6 +95,19 @@ Product peer URLs (defaults baked into the API image):
 `order-api` resolves Ready endpoints from Discovery, then POSTs `/fulfill` and
 `/notify`. DNS FQDNs are `fulfillment.local.orderpipe.svc.forge` (and notify/api).
 
+## NetworkPolicy (`orderpipe-mesh`)
+
+Environment default `deny-all` under project `orderpipe` / `local`, plus:
+
+| Policy | Target | Allow ingress from |
+|---|---|---|
+| `orderpipe-mesh` | `orderpipe-fulfillment` | service `api` :8080/tcp |
+| `orderpipe-mesh-notify` | `orderpipe-notify` | service `api` :8080/tcp |
+
+So `order-api→fulfillment` / `order-api→notify` are allowed; `fulfillment→notify` is
+denied. Debug: `POST /debug/denied-call` on fulfillment records
+`network.policy.denied` and bumps `forge_network_policy_denied_total`.
+
 ## Dependencies
 
 ```yaml
@@ -92,4 +115,4 @@ dependencies:
   database: { type: postgres, plan: standard, name: orderpipe-db }
 ```
 
-Network policy, Events, and Workflows land in `54.03`–`54.05`.
+Events and Workflows land in `54.04`–`54.05`.

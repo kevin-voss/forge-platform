@@ -1,4 +1,4 @@
-# OrderPipe build manifests + portable resource docs (epic 54.01).
+# OrderPipe build manifests + portable resource docs (epic 54.01–54.03).
 #
 # Build (read by `forge build` when available; run.sh also docker-builds locally):
 #   api/forge.yaml           → orderpipe-api
@@ -6,6 +6,7 @@
 #   notify/forge.yaml        → orderpipe-notify
 #   web.forge.yaml           → orderpipe-shop
 #
+# NetworkPolicy docs live in network-policy.yaml (applied via forge-network HTTP API).
 # Applied by run.sh via `forge apply -f` (placeholders filled at deploy time).
 
 apiVersion: forge.dev/v1
@@ -100,6 +101,20 @@ spec:
   scaling:
     minReplicas: 1
     maxReplicas: 1
+  # NetworkPolicy debug probe (54.03): attempt denied pair fulfillment→notify.
+  env:
+    - name: NOTIFY_URL
+      value: http://notify.svc.forge:8080
+    - name: FORGE_DISCOVERY_URL
+      value: http://host.docker.internal:4109
+    - name: FORGE_DISCOVERY_PROJECT
+      value: orderpipe
+    - name: FORGE_DISCOVERY_ENVIRONMENT
+      value: local
+    - name: FORGE_NETWORK_URL
+      value: http://host.docker.internal:4110
+    - name: FORGE_NETWORK_NODE_ID
+      value: node-local
 ---
 apiVersion: forge.dev/v1
 kind: Service

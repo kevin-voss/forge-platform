@@ -1,4 +1,4 @@
-# Demo 54 overlay — OrderPipe + managed Postgres + Discovery (epic 54.02).
+# Demo 54 overlay — OrderPipe + managed Postgres + Discovery + NetworkPolicy (epic 54.03).
 # Used with the root compose file:
 #   docker compose -f compose.yaml -f demos/54-orderpipe/docker-compose.yml up -d ...
 #
@@ -10,8 +10,17 @@
 # Discovery: Runtime registers leases; run.sh also registers canonical service
 # names (fulfillment/notify/api) under project=orderpipe so peers resolve via
 # *.svc.forge (Ready-aware).
+#
+# Network: forge-network applies orderpipe-mesh NetworkPolicy (deny-all default +
+# allow order-api→fulfillment / order-api→notify). Runtime keeps the fake policy
+# backend for local compose (observable denies via /network-policy-denied).
 
 services:
+  forge-network:
+    environment:
+      FORGE_NETWORK_POLICY_DEFAULT: ${FORGE_NETWORK_POLICY_DEFAULT:-allow-within-environment}
+      FORGE_OTEL_ENABLED: ${FORGE_OTEL_ENABLED:-false}
+
   forge-control:
     environment:
       FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
@@ -61,7 +70,11 @@ services:
       FORGE_DISCOVERY_LEASE_SECONDS: ${FORGE_DISCOVERY_LEASE_SECONDS:-20}
       FORGE_DISCOVERY_DEFAULT_PROJECT: ${FORGE_DISCOVERY_DEFAULT_PROJECT:-orderpipe}
       FORGE_DISCOVERY_DEFAULT_ENVIRONMENT: ${FORGE_DISCOVERY_DEFAULT_ENVIRONMENT:-local}
+      FORGE_NETWORK_URL: ${FORGE_NETWORK_URL:-http://forge-network:8080}
+      FORGE_NETWORK_NAME: ${FORGE_NETWORK_NAME:-cluster-overlay}
       FORGE_NETWORK_DNS_SEARCH: ${FORGE_NETWORK_DNS_SEARCH:-local.orderpipe.svc.forge}
+      FORGE_NETWORK_POLICY_BACKEND: ${FORGE_NETWORK_POLICY_BACKEND:-fake}
+      FORGE_NETWORK_POLICY_POLL_INTERVAL_S: ${FORGE_NETWORK_POLICY_POLL_INTERVAL_S:-2}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     dns:

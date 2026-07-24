@@ -1,0 +1,47 @@
+# OrderPipe mesh NetworkPolicy (epic 54.03).
+#
+# Conceptual allow-list "orderpipe-mesh":
+#   allow  order-api → fulfillment
+#   allow  order-api → notify
+#   default deny  (so fulfillment ↔ notify is blocked)
+#
+# forge-network owns the NetworkPolicy kind (one target.application per resource).
+# Applied by run.sh via the HTTP API — not Control `forge apply`.
+#
+# Project/environment match Discovery defaults (orderpipe / local).
+
+apiVersion: forge.dev/v1
+kind: NetworkPolicy
+metadata:
+  name: orderpipe-mesh
+  organization: default
+  project: orderpipe
+  environment: local
+spec:
+  target:
+    application: orderpipe-fulfillment
+  ingress:
+    - from:
+        service: api
+      ports:
+        - port: 8080
+          protocol: tcp
+  egress: []
+---
+apiVersion: forge.dev/v1
+kind: NetworkPolicy
+metadata:
+  name: orderpipe-mesh-notify
+  organization: default
+  project: orderpipe
+  environment: local
+spec:
+  target:
+    application: orderpipe-notify
+  ingress:
+    - from:
+        service: api
+      ports:
+        - port: 8080
+          protocol: tcp
+  egress: []
