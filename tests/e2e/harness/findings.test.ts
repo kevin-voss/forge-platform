@@ -12,17 +12,12 @@ import {
   type FindingsPaths,
 } from './findings';
 
-const repoRoot = path.resolve(__dirname, '../../..');
-const seedMarkdownPath = path.join(
-  repoRoot,
-  'docs/demo-projects/PLATFORM_FINDINGS.md',
-);
-
 function tempPaths(label: string): FindingsPaths & { dir: string } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `forge-findings-${label}-`));
   const markdownPath = path.join(dir, 'PLATFORM_FINDINGS.md');
   const jsonPath = path.join(dir, 'findings.json');
-  fs.copyFileSync(seedMarkdownPath, markdownPath);
+  // Leave markdown absent so record() seeds an empty doc and unit tests get F-001…
+  // independently of the living docs/demo-projects/PLATFORM_FINDINGS.md counters.
   return { dir, markdownPath, jsonPath, today: '2026-07-24' };
 }
 

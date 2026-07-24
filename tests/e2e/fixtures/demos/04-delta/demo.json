@@ -1,0 +1,17 @@
+{
+  "id": "04-delta",
+  "title": "Delta Fixture",
+  "epic": "54",
+  "deploy": "tests/e2e/fixtures/demos/04-delta/deploy.sh",
+  "hosts": [
+    {
+      "host": "app.delta.localhost",
+      "path": "/",
+      "expect": 200
+    }
+  ],
+  "baseURL": "http://app.delta.localhost:4000",
+  "spec": "tests/e2e/projects/smoke/spec.ts",
+  "services": ["control", "gateway"],
+  "teardown": "tests/e2e/fixtures/demos/04-delta/teardown.sh"
+}

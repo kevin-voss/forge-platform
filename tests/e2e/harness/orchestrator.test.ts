@@ -5,10 +5,12 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  DEFAULT_SUITE_SELECTORS,
   discoverProducts,
   matchesProjectSelector,
   numericPrefix,
   parseEnv,
+  resolveProjectSelectors,
   runOrchestrator,
   selectProducts,
 } from './orchestrator';
@@ -30,12 +32,18 @@ function tempFindingsPaths(): { markdownPath: string; jsonPath: string; dir: str
   return { markdownPath, jsonPath, dir };
 }
 
-test('parseEnv defaults to headed, all projects, no keep', () => {
+test('parseEnv defaults to headed, empty PROJECTS (default suite), no keep', () => {
   const env = parseEnv({});
   assert.equal(env.headless, false);
   assert.deepEqual(env.projects, []);
   assert.equal(env.keep, false);
   assert.equal(env.findingsOnly, false);
+});
+
+test('resolveProjectSelectors empty → default suite 01–05', () => {
+  assert.deepEqual(resolveProjectSelectors([]), [...DEFAULT_SUITE_SELECTORS]);
+  assert.deepEqual(resolveProjectSelectors(['50']), ['50']);
+  assert.deepEqual(resolveProjectSelectors(['02', '01']), ['02', '01']);
 });
 
 test('parseEnv honors HEADLESS=1, PROJECTS subset, KEEP, FINDINGS_ONLY', () => {
@@ -66,7 +74,14 @@ test('discoverProducts finds fixture demos in numeric order', () => {
   const found = discoverProducts(fixturesDemos);
   assert.deepEqual(
     found.map((d) => d.project.id),
-    ['01-alpha', '02-beta', '50-e2e-harness'],
+    [
+      '01-alpha',
+      '02-beta',
+      '03-gamma',
+      '04-delta',
+      '05-epsilon',
+      '50-e2e-harness',
+    ],
   );
 });
 
@@ -83,6 +98,15 @@ test('selectProducts PROJECTS=01,02 subset and order', () => {
   assert.deepEqual(
     selected.map((d) => d.project.id),
     ['01-alpha', '02-beta'],
+  );
+});
+
+test('selectProducts empty / default suite is 01–05 excluding harness 50', () => {
+  const found = discoverProducts(fixturesDemos);
+  const selected = selectProducts(found, resolveProjectSelectors([]));
+  assert.deepEqual(
+    selected.map((d) => d.project.id),
+    ['01-alpha', '02-beta', '03-gamma', '04-delta', '05-epsilon'],
   );
 });
 
@@ -308,6 +332,86 @@ test('orchestrator exits 0 when product is degraded by non-blocker findings', as
     assert.equal(result.findings.summary.blocker, 0);
     assert.equal(result.ok, true);
     assert.equal(result.exitCode, 0);
+  } finally {
+    fs.rmSync(findings.dir, { recursive: true, force: true });
+  }
+});
+
+test('full default suite exits 0 when all five products pass', async () => {
+  const findings = tempFindingsPaths();
+  try {
+    const order: string[] = [];
+    const result = await runOrchestrator({
+      repoRoot,
+      demosRoot: fixturesDemos,
+      env: {
+        headless: true,
+        projects: [],
+        keep: false,
+        findingsOnly: false,
+      },
+      findingsPaths: {
+        markdownPath: findings.markdownPath,
+        jsonPath: findings.jsonPath,
+      },
+      platformPreflight: async () => undefined,
+      hostPreflight: async () => undefined,
+      runPlaywright: async (project) => {
+        order.push(project.id);
+        return 0;
+      },
+      skipResultWrite: true,
+      timeoutMs: 10_000,
+    });
+
+    assert.deepEqual(order, [
+      '01-alpha',
+      '02-beta',
+      '03-gamma',
+      '04-delta',
+      '05-epsilon',
+    ]);
+    assert.equal(result.products.length, 5);
+    assert.ok(result.products.every((p) => p.outcome === 'passed'));
+    assert.equal(result.findings.summary.blocker, 0);
+    assert.equal(result.ok, true);
+    assert.equal(result.exitCode, 0);
+  } finally {
+    fs.rmSync(findings.dir, { recursive: true, force: true });
+  }
+});
+
+test('full default suite exits non-zero when a product blocks', async () => {
+  const findings = tempFindingsPaths();
+  try {
+    const result = await runOrchestrator({
+      repoRoot,
+      demosRoot: fixturesDemos,
+      env: {
+        headless: true,
+        projects: [],
+        keep: false,
+        findingsOnly: false,
+      },
+      findingsPaths: {
+        markdownPath: findings.markdownPath,
+        jsonPath: findings.jsonPath,
+      },
+      platformPreflight: async () => undefined,
+      hostPreflight: async () => undefined,
+      runPlaywright: async (project) => (project.id === '03-gamma' ? 1 : 0),
+      skipResultWrite: true,
+      timeoutMs: 10_000,
+    });
+
+    assert.equal(result.products.length, 5);
+    assert.equal(result.products[2].project.id, '03-gamma');
+    assert.equal(result.products[2].outcome, 'failed');
+    assert.equal(result.ok, false);
+    assert.equal(result.exitCode, 1);
+    // Continue-on-fail for aggregate rollup: later products still ran.
+    assert.equal(result.products[4].project.id, '05-epsilon');
+    assert.equal(result.products[4].outcome, 'passed');
   } finally {
     fs.rmSync(findings.dir, { recursive: true, force: true });
   }

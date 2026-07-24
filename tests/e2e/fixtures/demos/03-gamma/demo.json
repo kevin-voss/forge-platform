@@ -1,0 +1,17 @@
+{
+  "id": "03-gamma",
+  "title": "Gamma Fixture",
+  "epic": "53",
+  "deploy": "tests/e2e/fixtures/demos/03-gamma/deploy.sh",
+  "hosts": [
+    {
+      "host": "app.gamma.localhost",
+      "path": "/",
+      "expect": 200
+    }
+  ],
+  "baseURL": "http://app.gamma.localhost:4000",
+  "spec": "tests/e2e/projects/smoke/spec.ts",
+  "services": ["control", "gateway"],
+  "teardown": "tests/e2e/fixtures/demos/03-gamma/teardown.sh"
+}

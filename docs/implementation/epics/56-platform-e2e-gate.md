@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning
+In progress
 
 ## Goal
 
@@ -52,7 +52,7 @@ findings, and leaves a consolidated report + `PLATFORM_FINDINGS.md`.
 
 | Step | Title | Status | Notes |
 |---|---|---|---|
-| 56.01 | Full-suite orchestration | Not started | run all products in order; per-product pass/degraded/fail; aggregate exit code |
+| 56.01 | Full-suite orchestration | Complete | default `PROJECTS` = 01–05; aggregate pass/degraded/fail + exit code |
 | 56.02 | Coverage verification gate | Not started | union of `demo.json.services` must cover the matrix; fail if any service uncovered |
 | 56.03 | Findings consolidation + triage | Not started | dedupe, rank by severity, group by service; summary/by-service/by-demo tables |
 | 56.04 | Headless/CI mode + artifacts | Not started | `HEADLESS=1`/`CI=1`, `CI_SUBSET`, upload traces/videos/report/findings.json |

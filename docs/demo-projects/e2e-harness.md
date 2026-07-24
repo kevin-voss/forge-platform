@@ -181,12 +181,12 @@ increments per-service counters used by the final report. Findings are **append-
 `orchestrator.ts` (invoked by the Make target) does:
 
 ```text
-parse env: HEADLESS, PROJECTS=01,02.. (default all), KEEP, FINDINGS_ONLY
+parse env: HEADLESS, PROJECTS=01,02.. (default 01–05), KEEP, FINDINGS_ONLY
 platform preflight (fail fast if platform can't come up → single blocker finding)
 for each selected product in numeric order:
     run lifecycle (§3); capture pass/degraded/fail + findings + artifacts
 write run report (report.ts) + coverage rollup (§ matrix)
-exit 0 iff: all selected products passed AND zero blocker findings
+print aggregate rollup; exit 0 iff all selected products passed/degraded AND zero blocker findings
 ```
 
 ### 50.05 outcome — orchestrator + Make targets
@@ -195,6 +195,14 @@ exit 0 iff: all selected products passed AND zero blocker findings
 honors `HEADLESS`/`CI`, `PROJECTS=01,50…`, `KEEP`, and `FINDINGS_ONLY`, runs platform preflight
 then each product lifecycle, writes `artifacts/orchestrator-result.json`, and exits 0 iff all
 selected products passed with zero blocker findings.
+
+### 56.01 outcome — full-suite orchestration
+
+**Landed:** Default (no `PROJECTS`) runs the five demo products `01`→`05` in order (harness
+self-test `50` is opt-in). Per-product pass/degraded/fail continues on degraded; a failed or
+blocker product makes the aggregate exit non-zero (stop-eligible) while remaining products still
+run for a complete rollup. `make test-platform-e2e` prints one aggregate line and uses the
+PulseBoard deploy timeout for the full suite.
 
 ### 50.06 outcome — run report + coverage rollup
 

@@ -1,0 +1,17 @@
+{
+  "id": "05-epsilon",
+  "title": "Epsilon Fixture",
+  "epic": "55",
+  "deploy": "tests/e2e/fixtures/demos/05-epsilon/deploy.sh",
+  "hosts": [
+    {
+      "host": "app.epsilon.localhost",
+      "path": "/",
+      "expect": 200
+    }
+  ],
+  "baseURL": "http://app.epsilon.localhost:4000",
+  "spec": "tests/e2e/projects/smoke/spec.ts",
+  "services": ["control", "gateway"],
+  "teardown": "tests/e2e/fixtures/demos/05-epsilon/teardown.sh"
+}

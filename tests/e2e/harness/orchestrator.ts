@@ -28,11 +28,19 @@ import { writeReport } from './report';
  * in numeric order, aggregates pass/degraded/fail + findings, and exits 0 iff
  * every selected product passed or degraded (non-blocker findings) and there are
  * zero blocker findings.
+ *
+ * Default (no PROJECTS) runs the five demo products `01`–`05` in order. The
+ * harness self-test (`50`) is opt-in via PROJECTS. Degraded (non-blocker) products
+ * continue the suite; a failed/blocker product makes the aggregate exit non-zero
+ * (stop-eligible) while remaining products still run for a complete rollup.
  */
+
+/** Default suite: demos 1→5 (epics 51–55). Harness self-test (50) is opt-in. */
+export const DEFAULT_SUITE_SELECTORS = ['01', '02', '03', '04', '05'] as const;
 
 export interface OrchestratorEnv {
   headless: boolean;
-  /** Selectors like "01", "50", "01-taskflow". Empty = all discovered. */
+  /** Selectors like "01", "50", "01-taskflow". Empty = default suite 01–05. */
   projects: string[];
   keep: boolean;
   /** Skip Playwright browser specs; still run deploy -> seed -> host -> teardown. */
@@ -185,12 +193,22 @@ export function discoverProducts(demosRoot: string): DiscoveredProduct[] {
   return found;
 }
 
-/** Filter discovered products by PROJECTS selectors (empty = all). */
+/**
+ * Resolve PROJECTS selectors. Empty / unset → default suite `01,02,03,04,05`.
+ * Explicit PROJECTS (including `50`) overrides the default set.
+ */
+export function resolveProjectSelectors(projects: string[]): string[] {
+  return projects.length > 0 ? [...projects] : [...DEFAULT_SUITE_SELECTORS];
+}
+
+/** Filter discovered products by PROJECTS selectors (empty resolved by caller). */
 export function selectProducts(
   discovered: DiscoveredProduct[],
   selectors: string[],
 ): DiscoveredProduct[] {
-  if (selectors.length === 0) return discovered;
+  if (selectors.length === 0) {
+    return selectProducts(discovered, [...DEFAULT_SUITE_SELECTORS]);
+  }
   const selected: DiscoveredProduct[] = [];
   const missing: string[] = [];
 
@@ -441,7 +459,8 @@ export async function runOrchestrator(
     : parseEnv((options.env as NodeJS.ProcessEnv | undefined) ?? process.env);
 
   const discovered = discoverProducts(demosRoot);
-  const selected = selectProducts(discovered, env.projects);
+  const selectors = resolveProjectSelectors(env.projects);
+  const selected = selectProducts(discovered, selectors);
 
   const platformPreflight =
     options.platformPreflight ?? (() => preflight({ repoRoot }));
@@ -492,6 +511,11 @@ export async function runOrchestrator(
     return result;
   }
 
+  process.stdout.write(
+    `[orchestrator] suite: ${selected.map((p) => p.project.id).join(', ')}` +
+      ` (selectors=${selectors.join(',')})\n`,
+  );
+
   const products: ProductRunResult[] = [];
   for (const product of selected) {
     const run = await runOneProduct(product, env, options, repoRoot);
@@ -507,6 +531,9 @@ export async function runOrchestrator(
         (run.error ? ` - ${run.error.split('\n')[0]}` : '') +
         ` (${run.durationMs}ms)\n`,
     );
+    // Continue on degraded; keep running after fail so the aggregate rollup is
+    // complete. Aggregate exit below is stop-eligible when any product fails
+    // or blocker findings remain.
   }
 
   const findings = loadFindings(options.findingsPaths ?? {});
@@ -517,15 +544,30 @@ export async function runOrchestrator(
   );
   const noBlockers = findings.summary.blocker === 0;
   const ok = productsSucceeded && noBlockers && products.length > 0;
-  // No products selected with empty PROJECTS (nothing discovered) -> exit 0 (noop).
-  const noopOk = products.length === 0 && env.projects.length === 0;
   const result: OrchestratorResult = {
     env,
     products,
     findings,
-    ok: ok || noopOk,
-    exitCode: ok || noopOk ? 0 : 1,
+    ok,
+    exitCode: ok ? 0 : 1,
   };
+
+  const rollup = products
+    .map((p) => {
+      const tag =
+        p.outcome === 'passed'
+          ? 'PASS'
+          : p.outcome === 'degraded'
+            ? 'DEGRADED'
+            : 'FAIL';
+      return `${p.project.id}=${tag}`;
+    })
+    .join(' ');
+  process.stdout.write(
+    `[orchestrator] aggregate: ${rollup || '(none)'}` +
+      ` blockers=${findings.summary.blocker} exit=${result.exitCode}\n`,
+  );
+
   writeResultArtifact(result, options);
   return result;
 }

@@ -65,7 +65,7 @@ help:
 	@echo "  make service-test SERVICE= Run tests for one service"
 	@echo "  make service-run SERVICE=  Run one service locally"
 	@echo "  make e2e-install           Install Playwright browsers for tests/e2e"
-	@echo "  make test-platform-e2e     Run platform E2E orchestrator (HEADLESS/PROJECTS/KEEP)"
+	@echo "  make test-platform-e2e     Full suite 01–05 (PROJECTS=… to subset; HEADLESS/KEEP)"
 	@echo "  make e2e-report            Open the last platform E2E HTML report"
 	@echo "  make demo DEMO=5X          Demo product (demo.json → orchestrator lifecycle)"
 
@@ -155,12 +155,15 @@ e2e-install:
 	@cd tests/e2e && npm ci --no-audit --no-fund
 	@cd tests/e2e && npx playwright install --with-deps
 
-# Headed by default; HEADLESS=1 (or CI=1) for CI. PROJECTS=01,50 subsets; KEEP=1 skips teardown.
-# PulseBoard (PROJECTS=05 / 55) needs a longer deploy timeout for HTTP+node scale legs.
+# Headed by default; HEADLESS=1 (or CI=1) for CI. No PROJECTS = full suite 01–05 in order.
+# PROJECTS=01,03 (or 50) subsets; KEEP=1 skips teardown.
+# Full suite and PulseBoard (PROJECTS=05 / 55) need a longer deploy timeout for scale legs.
 test-platform-e2e:
 	@demo_timeout="$(DEMO_TIMEOUT_MS)"; \
-	if [[ -z "$${demo_timeout}" ]] && echo ",$(PROJECTS)," | grep -Eq ',0?5,|,55,'; then \
-		demo_timeout=900000; \
+	if [[ -z "$${demo_timeout}" ]]; then \
+		if [[ -z "$(PROJECTS)" ]] || echo ",$(PROJECTS)," | grep -Eq ',0?5,|,55,'; then \
+			demo_timeout=900000; \
+		fi; \
 	fi; \
 	cd tests/e2e && npm ci --no-audit --no-fund && npm run build && \
 		HEADLESS="$(HEADLESS)" PROJECTS="$(PROJECTS)" KEEP="$(KEEP)" FINDINGS_ONLY="$(FINDINGS_ONLY)" \
