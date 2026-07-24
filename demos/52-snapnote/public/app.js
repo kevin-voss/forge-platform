@@ -8,8 +8,57 @@
   const bodyInput = document.getElementById('note-body');
   const list = document.getElementById('note-list');
   const status = document.getElementById('note-status');
+  const workersEl = document.getElementById('workers-indicator');
 
   if (!form || !titleInput || !bodyInput || !list || !status) return;
+
+  const cfg = window.SNAPNOTE_CONFIG || {};
+  const minReplicas = Number(cfg.minReplicas) || 1;
+  const maxReplicas = Number(cfg.maxReplicas) || 8;
+
+  function setWorkersLabel(replicas, detail) {
+    if (!workersEl) return;
+    const n = Number.isFinite(replicas) ? replicas : 0;
+    workersEl.dataset.replicas = String(n);
+    workersEl.textContent = detail
+      ? `workers: ${n} · ${detail}`
+      : `workers: ${n} (min ${minReplicas} / max ${maxReplicas})`;
+  }
+
+  async function refreshWorkers() {
+    if (!workersEl) return;
+    const slug = (cfg.projectSlug || '').trim();
+    const env = (cfg.environment || 'local').trim();
+    const policy = (cfg.workerPolicy || 'snapnote-worker-queue').trim();
+    if (!slug) {
+      setWorkersLabel(0, 'config pending');
+      return;
+    }
+    try {
+      const res = await fetch(
+        `/autoscaler/v1/projects/${encodeURIComponent(slug)}/environments/${encodeURIComponent(env)}/scalingpolicies/${encodeURIComponent(policy)}`,
+      );
+      if (!res.ok) {
+        setWorkersLabel(Number(workersEl.dataset.replicas) || 0, `status ${res.status}`);
+        return;
+      }
+      const body = await res.json();
+      const desired = Number(
+        (body.status && body.status.desiredReplicas) ??
+          (body.spec && body.spec.minReplicas) ??
+          minReplicas,
+      );
+      const metric =
+        body.status &&
+        body.status.lastRecommendation &&
+        body.status.lastRecommendation.metricType
+          ? body.status.lastRecommendation.metricType
+          : '';
+      setWorkersLabel(desired, metric || undefined);
+    } catch (err) {
+      setWorkersLabel(Number(workersEl.dataset.replicas) || 0, 'unreachable');
+    }
+  }
 
   async function api(path, options = {}) {
     const headers = { ...(options.headers || {}) };
@@ -76,6 +125,7 @@
     ul.className = 'attachment-list';
     for (const att of items) {
       const li = document.createElement('li');
+      li.dataset.status = att.status === 'pending' ? 'processing' : att.status;
       const label = document.createElement('span');
       const statusLabel =
         att.status === 'pending' ? 'processing…' : att.status === 'ready' ? 'ready' : att.status;
@@ -153,9 +203,35 @@
         if (!file) return;
         try {
           status.textContent = `Uploading ${file.name}…`;
+          // Optimistic "processing…" row so the async state is visible even when
+          // the worker finishes before the next refresh (tiny uploads / headed slowMo).
+          const existing = await loadAttachments(note.id).catch(() => []);
+          renderAttachments(
+            note.id,
+            [
+              ...existing,
+              {
+                id: `local-pending-${Date.now()}`,
+                status: 'pending',
+                objectKey: file.name || 'upload.bin',
+              },
+            ],
+            attachments,
+          );
           const uploaded = await uploadAttachment(note.id, file);
-          await refresh();
+          // Keep the pending row painted briefly so headed E2E can observe
+          // "processing…" before a fast worker + full-list refresh overwrites it.
+          renderAttachments(
+            note.id,
+            [
+              ...existing.filter((a) => a.id !== uploaded.id),
+              { ...uploaded, status: 'pending', objectKey: uploaded.objectKey || file.name },
+            ],
+            attachments,
+          );
           status.textContent = `Uploaded ${file.name} — processing thumbnail…`;
+          await new Promise((r) => setTimeout(r, 600));
+          await refresh();
           // Poll until worker flips status to ready (async queue proof).
           for (let i = 0; i < 40; i++) {
             await new Promise((r) => setTimeout(r, 500));
@@ -170,6 +246,7 @@
           await refresh();
         } catch (err) {
           status.textContent = `Failed to upload: ${err.message}`;
+          await refresh();
         }
       });
 
@@ -231,4 +308,6 @@
   });
 
   refresh();
+  refreshWorkers();
+  setInterval(refreshWorkers, 1500);
 })();

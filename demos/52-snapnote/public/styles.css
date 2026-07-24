@@ -51,6 +51,18 @@ h1 {
   line-height: 1.5;
 }
 
+.workers {
+  margin: 0 0 1.25rem;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  padding: 0.55rem 0.75rem;
+  display: inline-block;
+}
+
 form,
 section {
   background: var(--surface);

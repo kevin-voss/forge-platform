@@ -1,11 +1,11 @@
 # Demo 52 — SnapNote
 
-Epic **52** step `52.04`: notes with file attachments in Forge Storage, published to a
+Epic **52** through `52.05`: notes with file attachments in Forge Storage, published to a
 durable Events queue, processed by an idempotent background worker, with **queueDepth
 autoscaling** that raises and lowers worker replicas within bounds (retry pressure blocks
-unsafe scale-down).
+unsafe scale-down). Browser E2E proves upload → async thumbnail and burst → scale up/down.
 
-## What it proves (52.04)
+## What it proves (52.04–52.05)
 
 1. Deploy SnapNote onto Forge (`forge build` + `forge apply` + managed DB + Storage + Events + Autoscaler).
 2. Gateway hosts `app` / `api` / `worker.snapnote.localhost` return 200.
@@ -20,6 +20,10 @@ unsafe scale-down).
    * `status.lastRecommendation.metricType=queueDepth`.
    * `retryRate` above target blocks scale-down (`RetryPressureBlocksScaleDown`).
    * After drain, replicas fall back to `minReplicas`.
+7. Playwright E2E (`tests/e2e/projects/02-snapnote`): headed + headless browser path for
+   create → attach → `processing…` → thumbnail; burst → workers indicator rises → all
+   `ready` → scale-down; platform.expect covers restart-mid-burst idempotency, ScalingPolicy
+   bounds/queueDepth, and thumbnail retrieval from Storage.
 
 ## Layout
 
@@ -31,8 +35,8 @@ unsafe scale-down).
 | `scripts/burst.sh` | Burst enqueue helper (N attachments + metrics depth) |
 | `scripts/test_queue_scaling.py` | Unit tests for queueDepth math + bounds + retry hold |
 | `migrations/` | Idempotent Postgres schema (`notes`, `attachments`) |
-| `public/` | SPA: create notes, attach files, poll until thumbnail ready |
-| `nginx.conf` | Static files + `/storage/` same-origin proxy to forge-storage |
+| `public/` | SPA: notes, attach + thumbnail poll, workers indicator |
+| `nginx.conf` | Static files + `/storage/` + `/autoscaler/` same-origin proxies |
 | `forge.yaml` | Portable manifests + `dependencies.database|storage|queue` + worker Application |
 | `run.sh` | Deploy / teardown; DB + storage + queue/worker + autoscaling proofs |
 | `seed.sh` | Idempotent two starter notes |
@@ -61,8 +65,9 @@ cd demos/52-snapnote/worker && go test ./...
 
 ./demos/52-snapnote/run.sh --down
 
-# Browser smoke (product must already be up via run.sh or KEEP=1)
+# Browser E2E (product must already be up via run.sh or KEEP=1)
 cd tests/e2e && npx playwright test projects/02-snapnote
+HEADLESS=1 npx playwright test projects/02-snapnote
 ```
 
 ## Host routing

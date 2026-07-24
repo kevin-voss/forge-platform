@@ -568,6 +568,41 @@ worker_container_id() {
   docker ps -q --filter "label=forge.managed=true" --filter "name=forge-worker-${short}-" | head -n1
 }
 
+web_container_id() {
+  local cid
+  cid="$(docker ps -q \
+    --filter "label=forge.deployment_id=${WEB_DEPLOYMENT_ID}" \
+    --filter "label=forge.managed=true" | head -n1)"
+  if [[ -n "${cid}" ]]; then
+    echo "${cid}"
+    return 0
+  fi
+  local short
+  short="$(python3 -c 'import sys; print(sys.argv[1].replace("-", "")[:8])' "${WEB_DEPLOYMENT_ID}")"
+  docker ps -q --filter "label=forge.managed=true" --filter "name=forge-app-${short}-" | head -n1
+}
+
+inject_web_config() {
+  # Project slug is unique per deploy; bake it into the SPA so the workers
+  # indicator can poll ScalingPolicy status via the same-origin /autoscaler/ proxy.
+  local cid config
+  cid="$(web_container_id)"
+  [[ -n "${cid}" ]] || fail "web container missing; cannot inject config.js"
+  config="${TMP_DIR}/snapnote-config.js"
+  cat >"${config}" <<EOF
+window.SNAPNOTE_CONFIG = {
+  projectSlug: '${PROJECT_SLUG}',
+  environment: '${ENV_NAME}',
+  workerPolicy: '${WORKER_POLICY}',
+  minReplicas: ${MIN_REPLICAS},
+  maxReplicas: ${MAX_REPLICAS},
+};
+EOF
+  docker cp "${config}" "${cid}:/usr/share/nginx/html/config.js" ||
+    fail "docker cp config.js into web container failed"
+  echo "  injected SPA config.js project=${PROJECT_SLUG} into ${cid:0:12}"
+}
+
 wait_database_url_injected_worker() {
   local cid="" url="" i
   echo "Waiting for DATABASE_URL injection into worker container..."
@@ -1304,6 +1339,7 @@ for p in json.load(sys.stdin):
   wait_host_http "${API_HOST}" "/health/ready" 200 90
   wait_host_http "${WORKER_HOST}" "/health/ready" 200 90
   wait_host_http "${APP_HOST}" "/" 200 60
+  inject_web_config
 
   # Optional: forge wait Ready when CLI supports it.
   if "${FORGE_BIN}" wait --help >/dev/null 2>&1; then
