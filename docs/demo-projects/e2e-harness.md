@@ -236,6 +236,16 @@ teardown into the orchestrator. `make demo DEMO=51` (and `HEADLESS=1`) plus
 asserts. Orchestrator exit treats **degraded** (non-blocker findings) as success so recorded
 platform gaps (`F-001`–`F-003`) do not fail the gate. Epic 51 marked Complete.
 
+### 52.06 outcome — SnapNote demo + epic gate
+
+**Landed:** `demos/52-snapnote/demo.json` (`id: 02-snapnote`) wires deploy/seed/hosts/spec/services/
+teardown into the orchestrator. `make demo DEMO=52` (and `HEADLESS=1`) plus
+`make test-platform-e2e PROJECTS=02` run the full lifecycle; Playwright
+`tests/e2e/projects/02-snapnote/spec.ts` covers upload→async thumbnail→burst→workers
+scale/drain and soft platform asserts (autoscaler queueDepth, events idempotency, storage
+thumbnail). Non-blocker finding `F-005` (forge-events lacks queueDepth admin metrics; demo uses
+`demo52-metrics` sidecar) does not fail the gate. Epic 52 marked Complete.
+
 ## 9. Determinism
 
 * AI backends use fakes: `FORGE_MODELS_BACKEND=fake`, `FORGE_AGENTS_TOOLS_MODE=fake` (same knobs the

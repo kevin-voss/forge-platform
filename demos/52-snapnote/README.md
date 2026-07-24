@@ -1,11 +1,15 @@
 # Demo 52 — SnapNote
 
-Epic **52** through `52.05`: notes with file attachments in Forge Storage, published to a
-durable Events queue, processed by an idempotent background worker, with **queueDepth
-autoscaling** that raises and lowers worker replicas within bounds (retry pressure blocks
-unsafe scale-down). Browser E2E proves upload → async thumbnail and burst → scale up/down.
+Epic **52** gate: notes with file attachments in Forge Storage, published to a
+durable Events queue, processed by an idempotent background worker, with
+**queueDepth autoscaling** that raises and lowers worker replicas within bounds
+(retry pressure blocks unsafe scale-down) — verified end-to-end via the platform
+E2E harness.
 
-## What it proves (52.04–52.05)
+`make demo DEMO=52` (and `HEADLESS=1`) is the epic 52 acceptance gate. Product
+browser E2E lives at `tests/e2e/projects/02-snapnote/spec.ts`.
+
+## What it proves
 
 1. Deploy SnapNote onto Forge (`forge build` + `forge apply` + managed DB + Storage + Events + Autoscaler).
 2. Gateway hosts `app` / `api` / `worker.snapnote.localhost` return 200.
@@ -24,6 +28,7 @@ unsafe scale-down). Browser E2E proves upload → async thumbnail and burst → 
    create → attach → `processing…` → thumbnail; burst → workers indicator rises → all
    `ready` → scale-down; platform.expect covers restart-mid-burst idempotency, ScalingPolicy
    bounds/queueDepth, and thumbnail retrieval from Storage.
+8. Tear down product resources (unless `KEEP=1`).
 
 ## Layout
 
@@ -46,9 +51,13 @@ unsafe scale-down). Browser E2E proves upload → async thumbnail and burst → 
 ## Commands
 
 ```bash
-# Full lifecycle via orchestrator
+# Full lifecycle via orchestrator (preferred / epic gate)
 make demo DEMO=52
 make demo DEMO=52 HEADLESS=1
+
+# Same product via PROJECTS filter (demo.json id prefix)
+make test-platform-e2e PROJECTS=02
+make test-platform-e2e HEADLESS=1 PROJECTS=02
 
 # Manual product deploy only (leave running for curl / browser checks)
 ./demos/52-snapnote/run.sh
@@ -63,6 +72,7 @@ python3 demos/52-snapnote/scripts/test_queue_scaling.py
 cd demos/52-snapnote/api && go test ./...
 cd demos/52-snapnote/worker && go test ./...
 
+./demos/52-snapnote/seed.sh   # idempotent
 ./demos/52-snapnote/run.sh --down
 
 # Browser E2E (product must already be up via run.sh or KEEP=1)
@@ -96,8 +106,12 @@ and durable consumer `snapnote-attachments`. Portable `kind: Worker` doc lives a
 
 QueueDepth for the autoscaler is published via `demo52-metrics` (`/admin/metrics?queue=`)
 because forge-events does not yet expose that admin surface (same approach as demo 24).
+Recorded as finding `F-005` in
+[`PLATFORM_FINDINGS.md`](../../docs/demo-projects/PLATFORM_FINDINGS.md).
 
-## Out of scope (later steps)
+## Platform findings (recorded, not patched)
 
-* Full headed browser E2E (`52.05`) and epic gate (`52.06`)
-* Optional Infrastructure node pressure under capacity (PulseBoard / epic 55 owns the full path)
+Epic 52 surfaces non-blocker findings in
+[`docs/demo-projects/PLATFORM_FINDINGS.md`](../../docs/demo-projects/PLATFORM_FINDINGS.md)
+(`F-005` forge-events queueDepth metrics). The orchestrator marks the product
+**degraded** and still exits 0 when blockers are zero.

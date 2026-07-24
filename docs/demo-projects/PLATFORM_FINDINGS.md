@@ -18,11 +18,11 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 
 | Metric | Count |
 |---|---|
-| Total findings | 4 |
-| Open | 4 |
+| Total findings | 5 |
+| Open | 5 |
 | Blocker | 0 |
 | Major | 2 |
-| Minor | 2 |
+| Minor | 3 |
 
 ## By service
 
@@ -32,13 +32,14 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 | forge-observe | 1 | 0 | 1 | 0 |
 | forge-secrets / forge-control | 1 | 0 | 0 | 1 |
 | platform | 1 | 0 | 1 | 0 |
+| forge-events | 1 | 0 | 0 | 1 |
 
 ## By demo
 
 | Demo | Findings |
 |---|--:|
 | 01-taskflow | 4 |
-| 02-snapnote | 0 |
+| 02-snapnote | 1 |
 | 03-askdocs | 0 |
 | 04-orderpipe | 0 |
 | 05-pulseboard | 0 |
@@ -205,3 +206,47 @@ curl -H Host:api.taskflow.localhost -H "Authorization: Bearer $PAT" http://127.0
 
 **Impact on demo**
 Demo marked **degraded**; run continues.
+
+### F-005 — forge-events has no queueDepth admin metrics for autoscaler
+
+| Field | Value |
+|---|---|
+| Status | Open |
+| Severity | minor |
+| Service | forge-events |
+| Area / contract | queueDepth MetricSource / `/admin/metrics?queue=` (24.04 / 52.04) |
+| Found by demo | 02-snapnote |
+| First seen | 2026-07-24 |
+| Reproducible | always |
+
+**What we tested**
+Worker `ScalingPolicy` with `metrics: [{ type: queueDepth, queue: snapnote-attachments }]`
+during burst → scale-up → drain.
+
+**Expected (per spec/contract)**
+Autoscaler QueueSource reads durable-queue depth (and retryRate) from forge-events so
+worker autoscaling reflects the real backlog without a demo sidecar.
+
+**Actual**
+forge-events does not expose an admin queue-depth / retryRate surface the autoscaler can
+poll. SnapNote (like demo 24) publishes synthetic depth via `demo52-metrics` and points
+`FORGE_EVENTS_URL` at that sidecar so queueDepth recommendations still fire.
+
+**Evidence**
+- `demos/52-snapnote/docker-compose.yml` sets autoscaler `FORGE_EVENTS_URL=http://demo52-metrics:4198`
+- `demos/52-snapnote/run.sh` `publish_queue_metrics` → `PUT /demo/queue/snapnote-attachments`
+- README documents the gap (same approach as `demos/24-autoscaling`)
+
+**Reproduce**
+```bash
+make demo DEMO=52 KEEP=1
+curl -s "http://127.0.0.1:4105/admin/metrics?queue=snapnote-attachments"   # missing / not depth
+curl -s "http://127.0.0.1:4198/admin/metrics?queue=snapnote-attachments"   # sidecar depth
+```
+
+**Impact on demo**
+Demo marked **degraded**; run continues. Product path (upload → thumbnail → scale bounds)
+still passes; only the metrics source is a platform gap (future forge-queue / epic 28).
+
+**Suspected component / notes**
+Related to epic 28 (forge-queue). Workaround is intentional for the verification track.

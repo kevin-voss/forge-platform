@@ -64,6 +64,11 @@ service misbehaves), so a red service maps to a specific demo to debug first.
   from `demos/51-taskflow/demo.json` (`control`, `cli`, `runtime`, `gateway`, `build`, `identity`,
   `secrets`, `managed-postgresql`, `observe`, `apply`). Non-blocker findings `F-001`–`F-004` remain
   open in [`PLATFORM_FINDINGS.md`](PLATFORM_FINDINGS.md); zero blockers.
+* **Epic 52 (SnapNote) Complete:** column **2 SnapNote** exercised end-to-end via
+  `make demo DEMO=52` / `make test-platform-e2e PROJECTS=02` (headed + headless). Coverage tokens
+  from `demos/52-snapnote/demo.json` (`control`, `cli`, `runtime`, `gateway`, `build`,
+  `managed-postgresql`, `storage`, `events`, `autoscaler`). Non-blocker finding `F-005` remains
+  open in [`PLATFORM_FINDINGS.md`](PLATFORM_FINDINGS.md); zero blockers.
 
 ## Deliberate gaps (recorded, not accidental)
 

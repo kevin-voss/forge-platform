@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Goal
 
@@ -57,12 +57,12 @@ processing is exactly-once across a worker restart.
 | 52.03 | Events queue + worker + idempotency | Complete | publish `attachment.uploaded`; durable consume + ack; exactly-once thumbnailing |
 | 52.04 | Worker autoscaling (+ optional node pressure) | Complete | `ScalingPolicy queueDepth`; burst load; scale up/down; retry blocks scale-down; optional infra node |
 | 52.05 | E2E browser spec | Complete | upload→async thumbnail→burst→watch replicas→drain; restart-mid-burst idempotency |
-| 52.06 | Demo + epic gate | Not started | `demos/52-snapnote`; `make demo DEMO=52`; wired into test-platform-e2e |
+| 52.06 | Demo + epic gate | Complete | `demos/52-snapnote`; `make demo DEMO=52`; wired into test-platform-e2e |
 
 Ordering + `N`: [`../steps/52-demo-snapnote/README.md`](../steps/52-demo-snapnote/README.md).
 
 ## Open questions
 
-* Which durable-queue surface (forge-events durable subject vs a future forge-queue, epic 28) is
-  the intended worker source today? Use forge-events; if semantics are insufficient, record a
-  finding referencing epic 28.
+* ~~Which durable-queue surface (forge-events durable subject vs a future forge-queue, epic 28) is
+  the intended worker source today?~~ **Resolved in 52.06:** use forge-events durable subjects
+  today; missing queueDepth admin metrics recorded as `F-005` (points at epic 28).
