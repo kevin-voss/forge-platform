@@ -7,8 +7,9 @@
 #
 # httpRequests metrics for forge-autoscaler + Observe PromQL for /stats are
 # served by demo55-metrics (Gateway has no /admin/metrics yet; forge-observe
-# does not proxy PromQL — same FORGE_OBSERVE_URL → Prometheus-compatible pattern
-# as forge-autoscaler).
+# does not proxy PromQL — same Prometheus-compatible pattern as forge-autoscaler).
+# Autoscaler reaches demo55-metrics:8080 on the compose network; PulseBoard API
+# workloads use host.docker.internal:4197 (bridge has no compose DNS).
 #
 # Node path: least-allocated scheduler + Docker NodePool (pulseboard-pool).
 # forge-runtime is observe-only (no Control registration); Infrastructure

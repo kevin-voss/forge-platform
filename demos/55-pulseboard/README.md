@@ -56,9 +56,12 @@ python3 demos/55-pulseboard/scripts/test_observe_surfacing.py
 
 * API emits OTEL traces/metrics when `FORGE_OTEL_ENABLED=true` and always queries
   `FORGE_OBSERVE_URL` for `/stats` (replicas / RPS / p95).
+* Workload pods use `FORGE_OBSERVE_URL=http://host.docker.internal:4197` (host-
+  published demo55-metrics port) because they sit on Docker bridge without
+  compose DNS; platform services still reach `demo55-metrics:8080` in-net.
 * `demo55-metrics` is the Prometheus-compatible Observe metrics backend
   (`/api/v1/query`, `/v1/metrics/query`, `/metrics`) — same pattern autoscaler
-  uses when `FORGE_OBSERVE_URL` points at a PromQL endpoint.
+  uses when pointed at a PromQL endpoint.
 * Control→Deployment sync publishes `replicas` into the sidecar; loadgen publishes
   RPS/p95; Prometheus scrapes `/metrics` for Grafana at `http://127.0.0.1:3000`.
 * `run.sh` asserts dashboard `/stats` matches Observe (and Prometheus when ready)

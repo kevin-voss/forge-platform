@@ -41,10 +41,12 @@ spec:
     maxReplicas: 10
     desiredReplicas: 1
   # Observe metrics backend = demo55-metrics Prometheus-compatible API (55.04).
+  # Workloads are on Docker bridge (no compose DNS), so use the host-published
+  # port via host.docker.internal — same pattern as demos 51–54.
   # OTEL export is optional; dashboard /stats always queries FORGE_OBSERVE_URL.
   env:
     - name: FORGE_OBSERVE_URL
-      value: http://demo55-metrics:8080
+      value: http://host.docker.internal:4197
     - name: PULSEBOARD_APPLICATION
       value: pulseboard-api
     - name: FORGE_SERVICE_NAME

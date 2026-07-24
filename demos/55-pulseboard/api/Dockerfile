@@ -15,8 +15,9 @@ COPY --from=build /out/pulseboard-api /pulseboard-api
 USER nonroot:nonroot
 EXPOSE 8080
 ENV PORT=8080
-# Demo default: Prometheus-compatible Observe metrics sidecar on the cluster net.
-ENV FORGE_OBSERVE_URL=http://demo55-metrics:8080
+# Workload containers run on Docker bridge (not compose DNS). Reach the
+# published demo55-metrics port via the host gateway — same pattern as demos 51–54.
+ENV FORGE_OBSERVE_URL=http://host.docker.internal:4197
 ENV PULSEBOARD_APPLICATION=pulseboard-api
 ENV FORGE_SERVICE_NAME=pulseboard-api
 ENV FORGE_OTEL_ENABLED=false
