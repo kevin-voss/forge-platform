@@ -227,6 +227,15 @@ Related targets: `make e2e-install` (Playwright browsers), `make e2e-report`,
 `platform.expect`, then restores `PLATFORM_FINDINGS.md` / `findings.json` so the gate exits 0.
 `make demo DEMO=50` (and `HEADLESS=1`) is the epic 50 acceptance gate.
 
+### 51.06 outcome — TaskFlow demo + epic gate
+
+**Landed:** `demos/51-taskflow/demo.json` (`id: 01-taskflow`) wires deploy/seed/hosts/spec/services/
+teardown into the orchestrator. `make demo DEMO=51` (and `HEADLESS=1`) plus
+`make test-platform-e2e PROJECTS=01` run the full lifecycle; Playwright
+`tests/e2e/projects/01-taskflow/spec.ts` covers signup→login→tasks→role gating and soft platform
+asserts. Orchestrator exit treats **degraded** (non-blocker findings) as success so recorded
+platform gaps (`F-001`–`F-003`) do not fail the gate. Epic 51 marked Complete.
+
 ## 9. Determinism
 
 * AI backends use fakes: `FORGE_MODELS_BACKEND=fake`, `FORGE_AGENTS_TOOLS_MODE=fake` (same knobs the

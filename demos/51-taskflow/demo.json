@@ -25,10 +25,11 @@
     "runtime",
     "gateway",
     "build",
-    "managed-postgresql",
     "identity",
     "secrets",
-    "observe"
+    "managed-postgresql",
+    "observe",
+    "apply"
   ],
   "teardown": "demos/51-taskflow/run.sh --down"
 }

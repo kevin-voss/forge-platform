@@ -13,6 +13,7 @@ import {
   selectProducts,
 } from './orchestrator';
 import { load } from './demo';
+import { record } from './findings';
 
 const e2eRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(e2eRoot, '../..');
@@ -259,6 +260,54 @@ test('orchestrator exits non-zero when Playwright fails', async () => {
 
     assert.equal(result.exitCode, 1);
     assert.equal(result.products[0].outcome, 'failed');
+  } finally {
+    fs.rmSync(findings.dir, { recursive: true, force: true });
+  }
+});
+
+test('orchestrator exits 0 when product is degraded by non-blocker findings', async () => {
+  const findings = tempFindingsPaths();
+  try {
+    // Seed a major finding for the fixture product id (markdown-only rebuild uses demo=unknown).
+    record(
+      {
+        service: 'forge-observe',
+        demo: '01-alpha',
+        severity: 'major',
+        title: 'orchestrator degraded-exit self-test finding',
+        tested: 'unit test seed',
+        expected: 'n/a',
+        actual: 'n/a',
+      },
+      {
+        markdownPath: findings.markdownPath,
+        jsonPath: findings.jsonPath,
+      },
+    );
+
+    const result = await runOrchestrator({
+      repoRoot,
+      demosRoot: fixturesDemos,
+      env: {
+        headless: true,
+        projects: ['01'],
+        keep: false,
+        findingsOnly: true,
+      },
+      findingsPaths: {
+        markdownPath: findings.markdownPath,
+        jsonPath: findings.jsonPath,
+      },
+      platformPreflight: async () => undefined,
+      hostPreflight: async () => undefined,
+      skipResultWrite: true,
+      timeoutMs: 10_000,
+    });
+
+    assert.equal(result.products[0].outcome, 'degraded');
+    assert.equal(result.findings.summary.blocker, 0);
+    assert.equal(result.ok, true);
+    assert.equal(result.exitCode, 0);
   } finally {
     fs.rmSync(findings.dir, { recursive: true, force: true });
   }

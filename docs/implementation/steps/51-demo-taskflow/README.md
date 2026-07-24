@@ -12,6 +12,6 @@ Atomic steps for [Demo 1 — TaskFlow](../../epics/51-demo-taskflow.md). Product
 | **183** | `51.03` | [51.03-identity-auth-and-roles.md](51.03-identity-auth-and-roles.md) | Complete |
 | **184** | `51.04` | [51.04-secrets-injection.md](51.04-secrets-injection.md) | Complete |
 | **185** | `51.05` | [51.05-e2e-browser-spec.md](51.05-e2e-browser-spec.md) | Complete |
-| **186** | `51.06` | [51.06-demo-and-gate.md](51.06-demo-and-gate.md) | Not started |
+| **186** | `51.06` | [51.06-demo-and-gate.md](51.06-demo-and-gate.md) | Complete |
 
 Implement with [`../../IMPLEMENT_STEP.md`](../../IMPLEMENT_STEP.md) (`N = 181` first).

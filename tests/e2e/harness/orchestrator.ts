@@ -26,7 +26,8 @@ import { writeReport } from './report';
  *
  * Discovers demos/<id>/demo.json, runs each selected product through the lifecycle
  * in numeric order, aggregates pass/degraded/fail + findings, and exits 0 iff
- * every selected product passed and there are zero blocker findings.
+ * every selected product passed or degraded (non-blocker findings) and there are
+ * zero blocker findings.
  */
 
 export interface OrchestratorEnv {
@@ -509,9 +510,13 @@ export async function runOrchestrator(
   }
 
   const findings = loadFindings(options.findingsPaths ?? {});
-  const allPassed = products.every((p) => p.outcome === 'passed');
+  // Non-blocker findings mark a product degraded but must not fail the suite
+  // (e2e-harness.md §3). Only failed outcomes / blocker findings exit non-zero.
+  const productsSucceeded = products.every(
+    (p) => p.outcome === 'passed' || p.outcome === 'degraded',
+  );
   const noBlockers = findings.summary.blocker === 0;
-  const ok = allPassed && noBlockers && products.length > 0;
+  const ok = productsSucceeded && noBlockers && products.length > 0;
   // No products selected with empty PROJECTS (nothing discovered) -> exit 0 (noop).
   const noopOk = products.length === 0 && env.projects.length === 0;
   const result: OrchestratorResult = {

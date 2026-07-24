@@ -57,6 +57,14 @@ service misbehaves), so a red service maps to a specific demo to debug first.
 | Network | OrderPipe | — |
 | Control / CLI / Runtime | all | — |
 
+## Verification notes
+
+* **Epic 51 (TaskFlow) Complete:** column **1 TaskFlow** exercised end-to-end via
+  `make demo DEMO=51` / `make test-platform-e2e PROJECTS=01` (headed + headless). Coverage tokens
+  from `demos/51-taskflow/demo.json` (`control`, `cli`, `runtime`, `gateway`, `build`, `identity`,
+  `secrets`, `managed-postgresql`, `observe`, `apply`). Non-blocker findings `F-001`–`F-004` remain
+  open in [`PLATFORM_FINDINGS.md`](PLATFORM_FINDINGS.md); zero blockers.
+
 ## Deliberate gaps (recorded, not accidental)
 
 * **Hetzner/AWS/Azure infrastructure providers** are covered by the platform's own epic-23 demo,

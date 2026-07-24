@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 186`** (verification track; epic 51 TaskFlow).
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 187`** (verification track; epic 52 SnapNote).
 
 ## Epics
 
@@ -265,22 +265,22 @@ Per-step rows live in each epic's steps README; the global lookup is
 
 ## Verification & demo-projects track (epics 50–56, `N = 174`–`216`)
 
-In progress (epic 50 Complete). Deploys small real-world demo products onto the shipped platform
-and proves them end-to-end with visible browser automation; platform bugs it surfaces are recorded
-in [`../demo-projects/PLATFORM_FINDINGS.md`](../demo-projects/PLATFORM_FINDINGS.md), not patched.
+In progress (epics 50–51 Complete). Deploys small real-world demo products onto the shipped
+platform and proves them end-to-end with visible browser automation; platform bugs it surfaces are
+recorded in [`../demo-projects/PLATFORM_FINDINGS.md`](../demo-projects/PLATFORM_FINDINGS.md), not patched.
 Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global lookup:
 [`STEPS.md`](STEPS.md#verification--demo-projects-queue-epics-5056).
 
-> Continues the global `N` queue after the platform queue (`N ≤ 173`). Epic 50 harness is Complete;
-> next are demos 51→55 (any order), then 56. Entry point: `make test-platform-e2e` (headed) /
-> `make test-platform-e2e HEADLESS=1` (CI); self-test gate: `make demo DEMO=50`.
+> Continues the global `N` queue after the platform queue (`N ≤ 173`). Epics 50–51 Complete;
+> next are demos 52→55 (any order), then 56. Entry point: `make test-platform-e2e` (headed) /
+> `make test-platform-e2e HEADLESS=1` (CI); gates: `make demo DEMO=50` / `DEMO=51`.
 
 ### Epics
 
 | Epic | Title | Status | Steps (N) |
 |---|---|---|---|
 | [50](epics/50-e2e-harness.md) | Platform E2E harness & orchestrator | Complete | `174`–`180` |
-| [51](epics/51-demo-taskflow.md) | Demo 1 — TaskFlow (auth + DB + secrets) | In progress | `181`–`186`; 51.05 E2E browser spec |
+| [51](epics/51-demo-taskflow.md) | Demo 1 — TaskFlow (auth + DB + secrets) | Complete | `181`–`186`; `make demo DEMO=51` gate |
 | [52](epics/52-demo-snapnote.md) | Demo 2 — SnapNote (storage + queue + worker autoscaling) | Planning | `187`–`192` |
 | [53](epics/53-demo-askdocs.md) | Demo 3 — AskDocs (models + memory + agents) | Planning | `193`–`198` |
 | [54](epics/54-demo-orderpipe.md) | Demo 4 — OrderPipe (workflows + events + discovery + network) | Planning | `199`–`205` |
@@ -303,7 +303,7 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 | **183** | Identity auth + roles | 51 | Complete |
 | **184** | Secrets injection | 51 | Complete |
 | **185** | E2E browser spec | 51 | Complete |
-| **186** | Demo + epic gate | 51 | Not started |
+| **186** | Demo + epic gate | 51 | Complete |
 | **187** | Product scaffold + notes CRUD + Postgres | 52 | Not started |
 | **188** | Object storage integration | 52 | Not started |
 | **189** | Events queue + worker + idempotency | 52 | Not started |

@@ -18,10 +18,10 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 
 | Metric | Count |
 |---|---|
-| Total findings | 3 |
-| Open | 3 |
+| Total findings | 4 |
+| Open | 4 |
 | Blocker | 0 |
-| Major | 1 |
+| Major | 2 |
 | Minor | 2 |
 
 ## By service
@@ -31,12 +31,13 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 | forge-identity | 1 | 0 | 0 | 1 |
 | forge-observe | 1 | 0 | 1 | 0 |
 | forge-secrets / forge-control | 1 | 0 | 0 | 1 |
+| platform | 1 | 0 | 1 | 0 |
 
 ## By demo
 
 | Demo | Findings |
 |---|--:|
-| 01-taskflow | 3 |
+| 01-taskflow | 4 |
 | 02-snapnote | 0 |
 | 03-askdocs | 0 |
 | 04-orderpipe | 0 |
@@ -163,6 +164,43 @@ no OTEL trace evidence for POST /tasks (tempo search returned zero traces; obser
 make demo DEMO=51 KEEP=1
 curl -s "http://127.0.0.1:3002/api/search?limit=20"
 curl -s "http://127.0.0.1:4106/v1/logs?limit=50"
+```
+
+**Impact on demo**
+Demo marked **degraded**; run continues.
+
+### F-004 — Managed Postgres task data must survive API container restart
+
+| Field | Value |
+|---|---|
+| Status | Open |
+| Severity | major |
+| Service | platform |
+| Area / contract | managed PostgreSQL durability (51.02/51.05) |
+| Found by demo | 01-taskflow |
+| First seen | 2026-07-24 |
+| Reproducible | intermittent |
+
+**What we tested**
+create+complete Buy milk, docker restart API container, GET /tasks
+
+**Expected (per spec/contract)**
+same task id/title/done=true still present via managed Database
+
+**Actual**
+After `docker restart` of the API container, Gateway sometimes returns HTTP 502
+`upstream connection error` on member login / `/tasks` before the upstream is healthy
+again (race vs readiness). Example:
+`{"error":{"code":"bad_gateway","message":"upstream connection error","requestId":"req_2cdbb3ecb61d0ad1327439d1b5980273"}}`
+
+**Evidence**
+- _(none captured)_
+
+**Reproduce**
+```bash
+make demo DEMO=51 KEEP=1
+docker restart $(docker ps -q --filter label=forge.managed=true | head -1)
+curl -H Host:api.taskflow.localhost -H "Authorization: Bearer $PAT" http://127.0.0.1:4000/tasks
 ```
 
 **Impact on demo**
