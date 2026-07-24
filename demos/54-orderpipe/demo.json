@@ -35,7 +35,8 @@
     "runtime",
     "gateway",
     "build",
-    "managed-postgresql"
+    "managed-postgresql",
+    "discovery"
   ],
   "teardown": "demos/54-orderpipe/run.sh --down"
 }

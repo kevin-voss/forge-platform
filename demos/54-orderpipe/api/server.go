@@ -10,10 +10,11 @@ import (
 
 type server struct {
 	store OrderStore
+	peers PeerCaller
 }
 
-func newServer(store OrderStore) *server {
-	return &server{store: store}
+func newServer(store OrderStore, peers PeerCaller) *server {
+	return &server{store: store, peers: peers}
 }
 
 func (s *server) routes() http.Handler {
@@ -49,8 +50,9 @@ func (s *server) handleRoot(w http.ResponseWriter, _ *http.Request) {
 		"service":  "orderpipe-api",
 		"language": "go",
 		"status":   "running",
-		"orders":   "POST /orders (sync place-order stub until 54.04/54.05)",
+		"orders":   "POST /orders (peers via fulfillment/notify.svc.forge; saga in 54.04/54.05)",
 		"catalog":  "GET /catalog",
+		"peers":    "FULFILLMENT_URL / NOTIFY_URL → Discovery Ready endpoints",
 	})
 }
 
@@ -91,6 +93,26 @@ func (s *server) handlePlaceOrder(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "place order failed"})
 		return
+	}
+	if s.peers != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		defer cancel()
+		if err := s.peers.Fulfill(ctx, order.ID); err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{
+				"error":   "fulfillment peer call failed",
+				"detail":  err.Error(),
+				"orderId": order.ID,
+			})
+			return
+		}
+		if err := s.peers.Notify(ctx, order.ID, email); err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{
+				"error":   "notify peer call failed",
+				"detail":  err.Error(),
+				"orderId": order.ID,
+			})
+			return
+		}
 	}
 	writeJSON(w, http.StatusCreated, order)
 }

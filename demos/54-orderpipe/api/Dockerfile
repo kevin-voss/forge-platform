@@ -21,4 +21,10 @@ USER nonroot:nonroot
 EXPOSE 8080
 ENV PORT=8080
 ENV MIGRATIONS_DIR=/migrations
+# Peer addressing via Forge Discovery (54.02) — never compose DNS.
+ENV FULFILLMENT_URL=http://fulfillment.svc.forge:8080
+ENV NOTIFY_URL=http://notify.svc.forge:8080
+ENV FORGE_DISCOVERY_URL=http://host.docker.internal:4109
+ENV FORGE_DISCOVERY_PROJECT=orderpipe
+ENV FORGE_DISCOVERY_ENVIRONMENT=local
 ENTRYPOINT ["/orderpipe-api"]

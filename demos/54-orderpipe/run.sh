@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Demo 54: OrderPipe multi-service + managed Postgres (epic 54.01).
+# Demo 54: OrderPipe multi-service + Discovery peers (epic 54.02).
 # Usage:
-#   demos/54-orderpipe/run.sh          # build → apply → DB → Ready → seed → place-order proof
+#   demos/54-orderpipe/run.sh          # build → apply → DB → Discovery → place-order proof
 #   demos/54-orderpipe/run.sh --down   # tear down product resources only
 set -euo pipefail
 
@@ -27,6 +27,9 @@ export FORGE_DB_PROVISIONER="${FORGE_DB_PROVISIONER:-local}"
 export FORGE_DB_ENDPOINT_HOST="${FORGE_DB_ENDPOINT_HOST:-host.docker.internal}"
 export FORGE_DB_MANAGED_NETWORK="${FORGE_DB_MANAGED_NETWORK:-forge-net}"
 export FORGE_INJECT_MASK_IN_LOGS="${FORGE_INJECT_MASK_IN_LOGS:-true}"
+export FORGE_DISCOVERY_DEFAULT_PROJECT="${FORGE_DISCOVERY_DEFAULT_PROJECT:-orderpipe}"
+export FORGE_DISCOVERY_DEFAULT_ENVIRONMENT="${FORGE_DISCOVERY_DEFAULT_ENVIRONMENT:-local}"
+export FORGE_NETWORK_DNS_SEARCH="${FORGE_NETWORK_DNS_SEARCH:-local.orderpipe.svc.forge}"
 export DOCKER_GID="${DOCKER_GID:-$(stat -f '%g' /var/run/docker.sock 2>/dev/null || stat -c '%g' /var/run/docker.sock 2>/dev/null || echo 0)}"
 export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"
 
@@ -40,12 +43,17 @@ CONTROL_URL="${FORGE_CONTROL_URL:-http://127.0.0.1:4001}"
 RUNTIME_URL="${FORGE_RUNTIME_URL:-http://127.0.0.1:4102}"
 GATEWAY_URL="${FORGE_GATEWAY_URL:-http://127.0.0.1:4000}"
 BUILD_URL="${FORGE_BUILD_URL:-http://127.0.0.1:4103}"
+DISCOVERY_URL="${FORGE_DISCOVERY_HOST_URL:-http://127.0.0.1:4109}"
 CONTROL_SERVICE="forge-control"
 RUNTIME_SERVICE="forge-runtime"
 GATEWAY_SERVICE="forge-gateway"
 BUILD_SERVICE="forge-build"
+DISCOVERY_SERVICE="forge-discovery"
 POSTGRES_SERVICE="postgres"
 REGISTRY_SERVICE="registry"
+DISC_PROJECT="${FORGE_DISCOVERY_DEFAULT_PROJECT}"
+DISC_ENV="${FORGE_DISCOVERY_DEFAULT_ENVIRONMENT}"
+DISC_NODE="${FORGE_SCHEDULER_LOCAL_NODE_ID}"
 CLI_DIR="${ROOT_DIR}/tools/forge-cli"
 FORGE_BIN="${CLI_DIR}/forge"
 REGISTRY="${FORGE_REGISTRY:-localhost:5000}"
@@ -171,7 +179,7 @@ teardown() {
 }
 
 ensure_platform() {
-  echo "Ensuring Postgres, registry, Control, Runtime, Gateway, Build..."
+  echo "Ensuring Postgres, registry, Discovery, Control, Runtime, Gateway, Build..."
   "${COMPOSE[@]}" up -d "${POSTGRES_SERVICE}" "${REGISTRY_SERVICE}"
   for _ in $(seq 1 60); do
     if "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" pg_isready -U forge >/dev/null 2>&1; then
@@ -183,12 +191,14 @@ ensure_platform() {
     fail "Postgres not ready"
 
   local need_recreate=0
-  local auth_mode pattern strategy provisioner secrets_url
+  local auth_mode pattern strategy provisioner secrets_url disc_project dns_search
   auth_mode="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_AUTH_MODE 2>/dev/null || true)"
   pattern="$(docker exec "${GATEWAY_SERVICE}" printenv FORGE_HOST_PATTERN 2>/dev/null || true)"
   strategy="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_SCHEDULER_STRATEGY 2>/dev/null || true)"
   provisioner="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_DB_PROVISIONER 2>/dev/null || true)"
   secrets_url="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_SECRETS_URL 2>/dev/null || true)"
+  disc_project="$(docker exec "${RUNTIME_SERVICE}" printenv FORGE_DISCOVERY_DEFAULT_PROJECT 2>/dev/null || true)"
+  dns_search="$(docker exec "${RUNTIME_SERVICE}" printenv FORGE_NETWORK_DNS_SEARCH 2>/dev/null || true)"
   if [[ "${auth_mode}" != "dev" ]]; then
     need_recreate=1
   fi
@@ -204,12 +214,19 @@ ensure_platform() {
   if [[ "${secrets_url}" != "disabled" ]]; then
     need_recreate=1
   fi
+  if [[ "${disc_project}" != "${DISC_PROJECT}" ]]; then
+    need_recreate=1
+  fi
+  if [[ "${dns_search}" != *'orderpipe.svc.forge'* ]]; then
+    need_recreate=1
+  fi
   if ! docker exec "${CONTROL_SERVICE}" test -S /var/run/docker.sock 2>/dev/null; then
     need_recreate=1
   fi
 
+  "${COMPOSE[@]}" up -d "${DISCOVERY_SERVICE}"
   if [[ "${need_recreate}" -eq 1 ]]; then
-    echo "Recreating Control/Runtime/Gateway with demo 54 managed-DB overlay..."
+    echo "Recreating Control/Runtime/Gateway with demo 54 Discovery + managed-DB overlay..."
     "${COMPOSE[@]}" up -d --force-recreate \
       "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}"
   else
@@ -219,6 +236,7 @@ ensure_platform() {
   "${COMPOSE[@]}" up -d "${BUILD_SERVICE}"
 
   wait_http "${CONTROL_URL}/health/ready" "Control"
+  wait_http "${DISCOVERY_URL}/health/ready" "Discovery"
   wait_http "${RUNTIME_URL}/health/ready" "Runtime"
   wait_http "${GATEWAY_URL}/health/ready" "Gateway"
   wait_http "${BUILD_URL}/health/ready" "Build" 60 || true
@@ -229,6 +247,9 @@ ensure_platform() {
   provisioner="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_DB_PROVISIONER 2>/dev/null || true)"
   [[ "${provisioner}" == "local" ]] ||
     fail "control FORGE_DB_PROVISIONER must be local (got: ${provisioner})"
+  disc_project="$(docker exec "${RUNTIME_SERVICE}" printenv FORGE_DISCOVERY_DEFAULT_PROJECT 2>/dev/null || true)"
+  [[ "${disc_project}" == "${DISC_PROJECT}" ]] ||
+    fail "runtime FORGE_DISCOVERY_DEFAULT_PROJECT must be ${DISC_PROJECT} (got: ${disc_project})"
 }
 
 ensure_images() {
@@ -414,18 +435,126 @@ print(f"  attached DATABASE_URL secretRef={ref}")
 PY
 }
 
-api_container_id() {
+deployment_container_id() {
+  local dep_id="$1" slug="$2"
   local cid
   cid="$(docker ps -q \
-    --filter "label=forge.deployment_id=${API_DEPLOYMENT_ID}" \
+    --filter "label=forge.deployment_id=${dep_id}" \
     --filter "label=forge.managed=true" | head -n1)"
   if [[ -n "${cid}" ]]; then
     echo "${cid}"
     return 0
   fi
   local short
-  short="$(python3 -c 'import sys; print(sys.argv[1].replace("-", "")[:8])' "${API_DEPLOYMENT_ID}")"
-  docker ps -q --filter "label=forge.managed=true" --filter "name=forge-api-${short}-" | head -n1
+  short="$(python3 -c 'import sys; print(sys.argv[1].replace("-", "")[:8])' "${dep_id}")"
+  docker ps -q --filter "label=forge.managed=true" --filter "name=forge-${slug}-${short}-" | head -n1
+}
+
+api_container_id() {
+  deployment_container_id "${API_DEPLOYMENT_ID}" "api"
+}
+
+fulfillment_container_id() {
+  deployment_container_id "${FULFILLMENT_DEPLOYMENT_ID}" "fulfillment"
+}
+
+notify_container_id() {
+  deployment_container_id "${NOTIFY_DEPLOYMENT_ID}" "notify"
+}
+
+container_ip() {
+  local cid="$1"
+  docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "${cid}" 2>/dev/null |
+    awk 'NF{print; exit}' || true
+}
+
+reset_discovery_ledger() {
+  echo "Resetting Discovery endpoint ledger for demo 54..."
+  "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" psql -U forge -d forge -v ON_ERROR_STOP=1 <<'SQL' >/dev/null \
+    || fail "could not reset discovery ledger"
+DELETE FROM discovery.endpoints;
+DELETE FROM discovery.services;
+SQL
+}
+
+register_discovery_endpoint() {
+  local service="$1" id="$2" ip="$3" lease="${4:-30}"
+  [[ -n "${ip}" ]] || fail "register ${service}: empty IP"
+  curl --fail --silent --show-error \
+    -X POST "${DISCOVERY_URL}/v1/projects/${DISC_PROJECT}/environments/${DISC_ENV}/services/${service}/endpoints" \
+    -H 'content-type: application/json' \
+    -d "{\"id\":\"${id}\",\"node\":\"${DISC_NODE}\",\"address\":{\"ip\":\"${ip}\",\"port\":8080},\"protocol\":\"http\",\"revision\":\"v1\",\"leaseSeconds\":${lease}}" \
+    >"${TMP_DIR}/reg-${id}.json" || fail "register ${id} failed"
+  curl --fail --silent --show-error \
+    -X POST "${DISCOVERY_URL}/v1/projects/${DISC_PROJECT}/environments/${DISC_ENV}/endpoints/${id}/renew" \
+    -H 'content-type: application/json' \
+    -d "{\"ready\":true,\"leaseSeconds\":${lease}}" \
+    >"${TMP_DIR}/renew-${id}.json" || fail "renew ${id} failed"
+  python3 -c 'import json,sys; assert json.load(open(sys.argv[1])).get("phase")=="Ready", open(sys.argv[1]).read()' \
+    "${TMP_DIR}/renew-${id}.json" || fail "endpoint ${id} not Ready after renew"
+  echo "  registered ${service} id=${id} ip=${ip} phase=Ready"
+}
+
+assert_discovery_ready() {
+  local service="$1"
+  curl --fail --silent --show-error \
+    "${DISCOVERY_URL}/v1/projects/${DISC_PROJECT}/environments/${DISC_ENV}/services/${service}/endpoints" \
+    >"${TMP_DIR}/ready-${service}.json" || fail "list Ready ${service} failed"
+  python3 - <<'PY' "${TMP_DIR}/ready-${service}.json" "${service}" || fail "no Ready endpoints for ${service}"
+import json, sys
+items, svc = json.load(open(sys.argv[1])), sys.argv[2]
+assert isinstance(items, list) and items, items
+for it in items:
+    assert it.get("phase") == "Ready" and it.get("ready") is True, it
+    assert (it.get("address") or {}).get("ip"), it
+print(f"  {svc}: {len(items)} Ready endpoint(s)")
+PY
+}
+
+assert_dns_a() {
+  local name="$1" attempts="${2:-45}"
+  local out=""
+  echo "Waiting for DNS A ${name} ..."
+  for _ in $(seq 1 "${attempts}"); do
+    out="$(dig @"127.0.0.1" -p 5053 "${name}" A +short 2>/dev/null | head -n1 || true)"
+    if [[ -n "${out}" ]]; then
+      echo "  ${name} → ${out}"
+      return 0
+    fi
+    sleep 1
+  done
+  fail "DNS A ${name} timed out (no answer on 127.0.0.1:5053)"
+}
+
+wire_discovery_peers() {
+  local api_cid ff_cid nt_cid api_ip ff_ip nt_ip
+  echo "Wiring Discovery peers (project=${DISC_PROJECT} env=${DISC_ENV})..."
+  reset_discovery_ledger
+
+  api_cid="$(api_container_id)"
+  ff_cid="$(fulfillment_container_id)"
+  nt_cid="$(notify_container_id)"
+  [[ -n "${api_cid}" ]] || fail "api container missing for discovery register"
+  [[ -n "${ff_cid}" ]] || fail "fulfillment container missing for discovery register"
+  [[ -n "${nt_cid}" ]] || fail "notify container missing for discovery register"
+
+  api_ip="$(container_ip "${api_cid}")"
+  ff_ip="$(container_ip "${ff_cid}")"
+  nt_ip="$(container_ip "${nt_cid}")"
+  [[ -n "${api_ip}" && -n "${ff_ip}" && -n "${nt_ip}" ]] ||
+    fail "missing container IPs api=${api_ip} fulfillment=${ff_ip} notify=${nt_ip}"
+
+  register_discovery_endpoint "api" "api-${PROJECT_SLUG}-0" "${api_ip}"
+  register_discovery_endpoint "fulfillment" "fulfillment-${PROJECT_SLUG}-0" "${ff_ip}"
+  register_discovery_endpoint "notify" "notify-${PROJECT_SLUG}-0" "${nt_ip}"
+
+  assert_discovery_ready "api"
+  assert_discovery_ready "fulfillment"
+  assert_discovery_ready "notify"
+
+  assert_dns_a "fulfillment.${DISC_ENV}.${DISC_PROJECT}.svc.forge"
+  assert_dns_a "notify.${DISC_ENV}.${DISC_PROJECT}.svc.forge"
+  assert_dns_a "api.${DISC_ENV}.${DISC_PROJECT}.svc.forge"
 }
 
 container_env() {
@@ -454,7 +583,7 @@ wait_database_url_injected() {
 prove_place_order() {
   local email="buyer-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:8])')@example.com"
   local code order_id cid
-  echo "Proving place-order creates a persisted orders row..."
+  echo "Proving place-order reaches peers via Discovery (*.svc.forge)..."
   code="$(curl --silent --show-error -o "${TMP_DIR}/place-order.json" -w '%{http_code}' \
     -H "Host: ${API_HOST}" -H 'content-type: application/json' \
     -d "{\"customerEmail\":\"${email}\",\"items\":[{\"sku\":\"mug\",\"qty\":1}]}" \
@@ -472,12 +601,65 @@ assert body.get("items"), body
 print(f"  created order id={os.environ['ORDER_ID']} status=placed")
 PY
 
+  echo "  verifying fulfillment accepted order via Discovery peer call..."
+  code="000"
+  for _ in $(seq 1 30); do
+    code="$(curl --silent --show-error -o "${TMP_DIR}/fulfillments.json" -w '%{http_code}' \
+      -H "Host: ${FULFILLMENT_HOST}" "${GATEWAY_URL}/fulfillments" || echo "000")"
+    if [[ "${code}" == "200" ]] && ORDER_ID="${order_id}" python3 - <<'PY' "${TMP_DIR}/fulfillments.json"
+import json, os, sys
+body = json.load(open(sys.argv[1]))
+items = body.get("items") or []
+sys.exit(0 if any(i.get("orderId") == os.environ["ORDER_ID"] for i in items) else 1)
+PY
+    then
+      echo "  fulfillment recorded orderId=${order_id}"
+      break
+    fi
+    sleep 1
+  done
+  [[ "${code}" == "200" ]] || fail "fulfillments list HTTP ${code}"
+  ORDER_ID="${order_id}" python3 - <<'PY' "${TMP_DIR}/fulfillments.json" || fail "fulfillment missing order after Discovery peer call"
+import json, os, sys
+body = json.load(open(sys.argv[1]))
+items = body.get("items") or []
+assert any(i.get("orderId") == os.environ["ORDER_ID"] for i in items), body
+PY
+
+  echo "  verifying notify queued order via Discovery peer call..."
+  code="000"
+  for _ in $(seq 1 30); do
+    code="$(curl --silent --show-error -o "${TMP_DIR}/notifications.json" -w '%{http_code}' \
+      -H "Host: ${NOTIFY_HOST}" "${GATEWAY_URL}/notifications" || echo "000")"
+    if [[ "${code}" == "200" ]] && ORDER_ID="${order_id}" python3 - <<'PY' "${TMP_DIR}/notifications.json"
+import json, os, sys
+body = json.load(open(sys.argv[1]))
+items = body.get("items") or []
+sys.exit(0 if any(i.get("orderId") == os.environ["ORDER_ID"] for i in items) else 1)
+PY
+    then
+      echo "  notify recorded orderId=${order_id}"
+      break
+    fi
+    sleep 1
+  done
+  [[ "${code}" == "200" ]] || fail "notifications list HTTP ${code}"
+  ORDER_ID="${order_id}" python3 - <<'PY' "${TMP_DIR}/notifications.json" || fail "notify missing order after Discovery peer call"
+import json, os, sys
+body = json.load(open(sys.argv[1]))
+items = body.get("items") or []
+assert any(i.get("orderId") == os.environ["ORDER_ID"] for i in items), body
+PY
+
   cid="$(api_container_id)"
   [[ -n "${cid}" ]] || fail "API container missing before restart"
   echo "  restarting API container ${cid:0:12}..."
   docker restart "${cid}" >/dev/null || fail "docker restart api failed"
   wait_host_http "${API_HOST}" "/health/ready" 200 120
   refresh_routes
+  # Re-register api endpoint after restart (container IP may change).
+  api_ip="$(container_ip "$(api_container_id)")"
+  register_discovery_endpoint "api" "api-${PROJECT_SLUG}-0" "${api_ip}"
 
   code="000"
   for _ in $(seq 1 60); do
@@ -581,14 +763,18 @@ for p in json.load(sys.stdin):
 
   write_state
   bash "${DEMO_DIR}/seed.sh" || fail "seed.sh failed"
+  wire_discovery_peers
+  bash "${DEMO_DIR}/check-discovery.sh" || fail "discovery contract check failed"
   prove_place_order
 
   echo
-  echo "demo 54 deploy READY (OrderPipe multi-service + Postgres scaffold)"
+  echo "demo 54 deploy READY (OrderPipe Discovery peer wiring)"
   echo "  Shop:         http://${SHOP_HOST}:4000/"
   echo "  API:          http://${API_HOST}:4000/health/ready"
   echo "  Fulfillment:  http://${FULFILLMENT_HOST}:4000/health/ready"
   echo "  Notify:       http://${NOTIFY_HOST}:4000/health/ready"
+  echo "  Discovery:    ${DISC_PROJECT}/${DISC_ENV} (*.svc.forge)"
+  echo "  DNS:          fulfillment/notify/api.${DISC_ENV}.${DISC_PROJECT}.svc.forge"
   echo "  API image:    ${API_IMAGE}"
   echo "  Shop image:   ${WEB_IMAGE}"
   echo "  Fulfillment:  ${FULFILLMENT_IMAGE}"

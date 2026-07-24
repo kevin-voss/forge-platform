@@ -1,4 +1,4 @@
-# Demo 54 overlay — OrderPipe + managed Postgres (epic 54.01).
+# Demo 54 overlay — OrderPipe + managed Postgres + Discovery (epic 54.02).
 # Used with the root compose file:
 #   docker compose -f compose.yaml -f demos/54-orderpipe/docker-compose.yml up -d ...
 #
@@ -6,6 +6,10 @@
 # named `shop`, `api`, `fulfillment`, and `notify`. LocalProvisioner starts isolated
 # product Postgres containers; DATABASE_URL is injected via Control's in-memory
 # secrets client while FORGE_SECRETS_URL=disabled.
+#
+# Discovery: Runtime registers leases; run.sh also registers canonical service
+# names (fulfillment/notify/api) under project=orderpipe so peers resolve via
+# *.svc.forge (Ready-aware).
 
 services:
   forge-control:
@@ -40,9 +44,28 @@ services:
     group_add:
       - "${DOCKER_GID:-0}"
 
+  forge-discovery:
+    environment:
+      FORGE_DISCOVERY_LEASE_SECONDS_DEFAULT: ${FORGE_DISCOVERY_LEASE_SECONDS_DEFAULT:-20}
+      FORGE_DISCOVERY_SWEEP_INTERVAL_SECONDS: ${FORGE_DISCOVERY_SWEEP_INTERVAL_SECONDS:-5}
+      FORGE_DISCOVERY_DNS_TTL_SECONDS: ${FORGE_DISCOVERY_DNS_TTL_SECONDS:-5}
+      FORGE_DISCOVERY_DNS_NEGATIVE_TTL_SECONDS: ${FORGE_DISCOVERY_DNS_NEGATIVE_TTL_SECONDS:-2}
+      # Docker IPs are fine for single-node OrderPipe; leave overlay filter off.
+      FORGE_NETWORK_URL: ${FORGE_DISCOVERY_NETWORK_URL:-}
+      FORGE_OTEL_ENABLED: ${FORGE_OTEL_ENABLED:-false}
+
   forge-runtime:
+    environment:
+      FORGE_DISCOVERY_URL: ${FORGE_DISCOVERY_URL:-http://forge-discovery:8080}
+      FORGE_DISCOVERY_REGISTER_ENABLED: ${FORGE_DISCOVERY_REGISTER_ENABLED:-true}
+      FORGE_DISCOVERY_LEASE_SECONDS: ${FORGE_DISCOVERY_LEASE_SECONDS:-20}
+      FORGE_DISCOVERY_DEFAULT_PROJECT: ${FORGE_DISCOVERY_DEFAULT_PROJECT:-orderpipe}
+      FORGE_DISCOVERY_DEFAULT_ENVIRONMENT: ${FORGE_DISCOVERY_DEFAULT_ENVIRONMENT:-local}
+      FORGE_NETWORK_DNS_SEARCH: ${FORGE_NETWORK_DNS_SEARCH:-local.orderpipe.svc.forge}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    dns:
+      - 172.30.0.53
 
   forge-gateway:
     environment:

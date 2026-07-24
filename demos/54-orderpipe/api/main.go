@@ -30,7 +30,12 @@ func main() {
 	}
 	log.Printf("orderpipe-api migrations applied from %s", migrationsDir)
 
-	srv := newServer(store)
+	peers := newDiscoveryPeers(loadPeerConfig())
+	log.Printf("orderpipe-api peers fulfillment=%s notify=%s discovery=%s project=%s/%s",
+		peers.cfg.FulfillmentURL, peers.cfg.NotifyURL, peers.cfg.DiscoveryURL,
+		peers.cfg.Project, peers.cfg.Environment)
+
+	srv := newServer(store, peers)
 	log.Printf("orderpipe-api listening on %s", addr)
 	if err := http.ListenAndServe(addr, srv.routes()); err != nil {
 		log.Fatal(err)

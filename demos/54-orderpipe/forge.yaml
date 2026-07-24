@@ -44,6 +44,18 @@ spec:
       type: postgres
       plan: standard
       name: orderpipe-db
+  # Peer Discovery names (54.02). Defaults also baked into the API image.
+  env:
+    - name: FULFILLMENT_URL
+      value: http://fulfillment.svc.forge:8080
+    - name: NOTIFY_URL
+      value: http://notify.svc.forge:8080
+    - name: FORGE_DISCOVERY_URL
+      value: http://host.docker.internal:4109
+    - name: FORGE_DISCOVERY_PROJECT
+      value: orderpipe
+    - name: FORGE_DISCOVERY_ENVIRONMENT
+      value: local
 ---
 apiVersion: forge.dev/v1
 kind: Service
