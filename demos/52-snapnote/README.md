@@ -1,18 +1,25 @@
 # Demo 52 — SnapNote
 
-Epic **52** step `52.03`: notes with file attachments in Forge Storage, published to a
-durable Events queue, processed by an idempotent background worker that writes a
-thumbnail and flips `status` to `ready`.
+Epic **52** step `52.04`: notes with file attachments in Forge Storage, published to a
+durable Events queue, processed by an idempotent background worker, with **queueDepth
+autoscaling** that raises and lowers worker replicas within bounds (retry pressure blocks
+unsafe scale-down).
 
-## What it proves (52.03)
+## What it proves (52.04)
 
-1. Deploy SnapNote onto Forge (`forge build` + `forge apply` + managed DB + Storage + Events).
+1. Deploy SnapNote onto Forge (`forge build` + `forge apply` + managed DB + Storage + Events + Autoscaler).
 2. Gateway hosts `app` / `api` / `worker.snapnote.localhost` return 200.
 3. Notes CRUD persists in managed Postgres across an API container restart.
 4. Attachments: presigned PUT → `POST …/complete` publishes `attachment.uploaded`
    (Idempotency-Key = `attachment_id`) to queue `snapnote-attachments`.
 5. `snapnote-worker` consumes with ack + `POST /v1/processed`; thumbnail object appears;
    metadata reaches `status=ready`. Restart-safe (exactly-once side effects).
+6. `ScalingPolicy` `{ type: queueDepth, queue: snapnote-attachments, targetPerReplica: 20 }`
+   on Worker `snapnote-worker` (`minReplicas=1`, `maxReplicas=8`):
+   * Burst uploads enqueue backlog → `desiredReplicas` rises within bounds.
+   * `status.lastRecommendation.metricType=queueDepth`.
+   * `retryRate` above target blocks scale-down (`RetryPressureBlocksScaleDown`).
+   * After drain, replicas fall back to `minReplicas`.
 
 ## Layout
 
@@ -20,14 +27,17 @@ thumbnail and flips `status` to `ready`.
 |---|---|
 | `api/` | Go API (notes CRUD + attachment presign/complete/download/stream + events publish) |
 | `worker/` | Go worker (durable consume → thumbnail → mark ready); `worker.yaml` Worker resource doc |
+| `fixtures/scaling-policy.yaml` | ScalingPolicy resource doc (queueDepth + retryRate) |
+| `scripts/burst.sh` | Burst enqueue helper (N attachments + metrics depth) |
+| `scripts/test_queue_scaling.py` | Unit tests for queueDepth math + bounds + retry hold |
 | `migrations/` | Idempotent Postgres schema (`notes`, `attachments`) |
 | `public/` | SPA: create notes, attach files, poll until thumbnail ready |
 | `nginx.conf` | Static files + `/storage/` same-origin proxy to forge-storage |
 | `forge.yaml` | Portable manifests + `dependencies.database|storage|queue` + worker Application |
-| `run.sh` | Deploy / teardown; DB + storage + queue/worker proofs |
+| `run.sh` | Deploy / teardown; DB + storage + queue/worker + autoscaling proofs |
 | `seed.sh` | Idempotent two starter notes |
 | `demo.json` | Harness `DemoProject` contract (`id: 02-snapnote`) |
-| `docker-compose.yml` | Overlay: Control LocalProvisioner, Gateway hosts, Events `attachment` stream |
+| `docker-compose.yml` | Overlay: Control LocalProvisioner, Gateway hosts, Events, Autoscaler + metrics |
 
 ## Commands
 
@@ -41,24 +51,18 @@ make demo DEMO=52 HEADLESS=1
 curl -fsS -H 'Host: api.snapnote.localhost' http://127.0.0.1:4000/health/ready
 curl -fsS -H 'Host: worker.snapnote.localhost' http://127.0.0.1:4000/health/ready
 
-# Presign → PUT → complete (API)
-NOTE_ID=... # from POST /notes
-ATT=$(curl -fsS -H 'Host: api.snapnote.localhost' -H 'content-type: application/json' \
-  -d '{"filename":"lake.jpg","contentType":"image/jpeg"}' \
-  http://127.0.0.1:4000/notes/$NOTE_ID/attachments)
-# PUT bytes to uploadUrl, then:
-curl -fsS -H 'Host: api.snapnote.localhost' -X POST \
-  http://127.0.0.1:4000/notes/$NOTE_ID/attachments/$ATT_ID/complete
-# poll GET …/attachments/$ATT_ID until status=ready
+# Burst enqueue (product must already be up)
+./demos/52-snapnote/scripts/burst.sh --count 40 --depth 80
+
+# Unit tests
+python3 demos/52-snapnote/scripts/test_queue_scaling.py
+cd demos/52-snapnote/api && go test ./...
+cd demos/52-snapnote/worker && go test ./...
 
 ./demos/52-snapnote/run.sh --down
 
 # Browser smoke (product must already be up via run.sh or KEEP=1)
 cd tests/e2e && npx playwright test projects/02-snapnote
-
-# Unit tests
-cd demos/52-snapnote/api && go test ./...
-cd demos/52-snapnote/worker && go test ./...
 ```
 
 ## Host routing
@@ -81,10 +85,14 @@ dependencies:
 
 Logical queue `snapnote-attachments` maps to forge-events subject `attachment.uploaded`
 and durable consumer `snapnote-attachments`. Portable `kind: Worker` doc lives at
-`worker/worker.yaml`; Control deploys the runnable form as Application/Service/Deployment
-`snapnote-worker` until Worker is a first-class controller.
+`worker/worker.yaml`; Control hosts the Worker resource while Application/Service/Deployment
+`snapnote-worker` runs the containers. Autoscaler patches Worker `desiredReplicas`;
+`run.sh` syncs that onto the Deployment.
+
+QueueDepth for the autoscaler is published via `demo52-metrics` (`/admin/metrics?queue=`)
+because forge-events does not yet expose that admin surface (same approach as demo 24).
 
 ## Out of scope (later steps)
 
-* Worker autoscaling (`52.04`)
 * Full headed browser E2E (`52.05`) and epic gate (`52.06`)
+* Optional Infrastructure node pressure under capacity (PulseBoard / epic 55 owns the full path)

@@ -1,4 +1,4 @@
-# Demo 52 overlay — SnapNote + managed Postgres + Events (epic 52.03).
+# Demo 52 overlay — SnapNote + managed Postgres + Events + Autoscaler (epic 52.04).
 # Used with the root compose file:
 #   docker compose -f compose.yaml -f demos/52-snapnote/docker-compose.yml up -d ...
 #
@@ -6,8 +6,26 @@
 # `api`, `app`, and `worker`. LocalProvisioner starts isolated product Postgres
 # containers; DATABASE_URL is injected via Control's in-memory secrets client
 # while FORGE_SECRETS_URL=disabled.
+#
+# QueueDepth metrics for forge-autoscaler are served by demo52-metrics (same
+# shape as demo 24's sidecar) because forge-events does not yet expose
+# /admin/metrics?queue=.
 
 services:
+  demo52-metrics:
+    build:
+      context: ./demos/24-autoscaling/metrics
+    image: forge/demo24-metrics:local
+    container_name: demo52-metrics
+    ports:
+      - "4198:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/live')\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
   forge-events:
     environment:
       FORGE_AUTH_MODE: ${FORGE_EVENTS_AUTH_MODE:-dev}
@@ -66,6 +84,27 @@ services:
       FORGE_UPSTREAM_FAILURE_THRESHOLD: ${FORGE_UPSTREAM_FAILURE_THRESHOLD:-1}
       FORGE_UPSTREAM_SUCCESS_THRESHOLD: ${FORGE_UPSTREAM_SUCCESS_THRESHOLD:-1}
       FORGE_UPSTREAM_TRUST_RUNTIME_STATUS: "true"
+
+  forge-autoscaler:
+    environment:
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+      FORGE_AUTOSCALER_EVAL_INTERVAL_MS: ${FORGE_AUTOSCALER_EVAL_INTERVAL_MS:-1000}
+      FORGE_AUTOSCALER_METRIC_SOURCE: ${FORGE_AUTOSCALER_METRIC_SOURCE:-auto}
+      FORGE_OBSERVE_URL: ""
+      # QueueDepth via demo metrics sidecar (Events has no /admin/metrics yet).
+      FORGE_GATEWAY_ADMIN_URL: http://demo52-metrics:8080
+      FORGE_EVENTS_URL: http://demo52-metrics:8080
+      FORGE_RUNTIME_URL: http://forge-runtime:8080
+      FORGE_CONTROL_URL: http://forge-control:8080
+      # Node pressure optional for 52.04; PulseBoard (55) owns the full node path.
+      FORGE_AUTOSCALER_NODE_SCALE_UP_ENABLED: "false"
+      FORGE_AUTOSCALER_NODE_SCALE_DOWN_ENABLED: "false"
+      FORGE_OTEL_ENABLED: ${FORGE_OTEL_ENABLED:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      demo52-metrics:
+        condition: service_healthy
 
 volumes:
   forge-demo52-db-backups:

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Demo 52: SnapNote + managed Postgres + object storage + events worker (epic 52.03).
+# Demo 52: SnapNote + storage + events worker + queueDepth autoscaling (epic 52.04).
 # Usage:
-#   demos/52-snapnote/run.sh          # build → apply → DB → storage → events → Ready → seed → proofs
+#   demos/52-snapnote/run.sh          # build → apply → DB → storage → events → autoscaler → proofs
 #   demos/52-snapnote/run.sh --down   # tear down product resources only
 set -euo pipefail
 
@@ -30,6 +30,7 @@ export FORGE_INJECT_MASK_IN_LOGS="${FORGE_INJECT_MASK_IN_LOGS:-true}"
 export FORGE_EVENTS_STREAMS="${FORGE_EVENTS_STREAMS:-build,deployment,runtime,application,agent,attachment}"
 export FORGE_EVENTS_AUTH_MODE="${FORGE_EVENTS_AUTH_MODE:-dev}"
 export FORGE_DEFAULT_ACK_WAIT_S="${FORGE_DEFAULT_ACK_WAIT_S:-10}"
+export FORGE_AUTOSCALER_EVAL_INTERVAL_MS="${FORGE_AUTOSCALER_EVAL_INTERVAL_MS:-1000}"
 export DOCKER_GID="${DOCKER_GID:-$(stat -f '%g' /var/run/docker.sock 2>/dev/null || stat -c '%g' /var/run/docker.sock 2>/dev/null || echo 0)}"
 export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"
 
@@ -43,12 +44,16 @@ CONTROL_URL="${FORGE_CONTROL_URL:-http://127.0.0.1:4001}"
 RUNTIME_URL="${FORGE_RUNTIME_URL:-http://127.0.0.1:4102}"
 GATEWAY_URL="${FORGE_GATEWAY_URL:-http://127.0.0.1:4000}"
 BUILD_URL="${FORGE_BUILD_URL:-http://127.0.0.1:4103}"
+AUTOSCALER_URL="${FORGE_AUTOSCALER_URL:-http://127.0.0.1:4112}"
+METRICS_URL="${FORGE_DEMO52_METRICS_URL:-http://127.0.0.1:4198}"
 CONTROL_SERVICE="forge-control"
 RUNTIME_SERVICE="forge-runtime"
 GATEWAY_SERVICE="forge-gateway"
 BUILD_SERVICE="forge-build"
 STORAGE_SERVICE="forge-storage"
 EVENTS_SERVICE="forge-events"
+AUTOSCALER_SERVICE="forge-autoscaler"
+METRICS_SERVICE="demo52-metrics"
 NATS_SERVICE="nats"
 POSTGRES_SERVICE="postgres"
 REGISTRY_SERVICE="registry"
@@ -56,6 +61,10 @@ STORAGE_URL="${FORGE_STORAGE_HOST_URL:-http://127.0.0.1:4107}"
 EVENTS_URL="${FORGE_EVENTS_HOST_URL:-http://127.0.0.1:4105}"
 STORAGE_BUCKET="${FORGE_STORAGE_BUCKET:-snapnote-attachments}"
 STORAGE_PROJECT="${FORGE_STORAGE_PROJECT:-snapnote}"
+QUEUE_NAME="snapnote-attachments"
+WORKER_NAME="snapnote-worker"
+WORKER_POLICY="snapnote-worker-queue"
+ENV_NAME="local"
 CLI_DIR="${ROOT_DIR}/tools/forge-cli"
 FORGE_BIN="${CLI_DIR}/forge"
 REGISTRY="${FORGE_REGISTRY:-localhost:5000}"
@@ -67,6 +76,12 @@ APP_HOST="app.snapnote.localhost"
 WORKER_HOST="worker.snapnote.localhost"
 DB_NAME="snapnote-db"          # instance / dependency name (may contain '-')
 DB_LOGICAL_NAME="snapnote_db"  # Postgres DB name ([a-z_][a-z0-9_]*)
+SYNC_PID=""
+MIN_REPLICAS=1
+MAX_REPLICAS=8
+TARGET_PER_REPLICA=20
+BURST_COUNT="${BURST_COUNT:-40}"
+BURST_DEPTH="${BURST_DEPTH:-80}"
 
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/forge-demo-52.XXXXXX")"
 CONFIG_HOME="${TMP_DIR}/xdg-config"
@@ -81,6 +96,19 @@ fail() {
   echo "--- ${GATEWAY_SERVICE} /admin/routes ---" >&2
   curl --silent --show-error "${GATEWAY_URL}/admin/routes" >&2 || true
   echo >&2
+  if [[ -n "${PROJECT_SLUG:-}" ]]; then
+    echo "--- ScalingPolicy ${WORKER_POLICY} ---" >&2
+    curl --silent --show-error \
+      "${AUTOSCALER_URL}/v1/projects/${PROJECT_SLUG}/environments/${ENV_NAME}/scalingpolicies/${WORKER_POLICY}" >&2 || true
+    echo >&2
+    echo "--- Worker ${WORKER_NAME} ---" >&2
+    curl --silent --show-error \
+      "${CONTROL_URL}/v1/projects/${PROJECT_SLUG}/environments/${ENV_NAME}/workers/${WORKER_NAME}" >&2 || true
+    echo >&2
+  fi
+  echo "--- ${METRICS_SERVICE} queue metrics ---" >&2
+  curl --silent --show-error "${METRICS_URL}/admin/metrics?queue=${QUEUE_NAME}" >&2 || true
+  echo >&2
   echo "--- ${CONTROL_SERVICE} logs (tail) ---" >&2
   "${COMPOSE[@]}" logs --tail=80 "${CONTROL_SERVICE}" >&2 || true
   echo "--- ${RUNTIME_SERVICE} logs (tail) ---" >&2
@@ -93,10 +121,17 @@ fail() {
   "${COMPOSE[@]}" logs --tail=60 "${STORAGE_SERVICE}" >&2 || true
   echo "--- ${EVENTS_SERVICE} logs (tail) ---" >&2
   "${COMPOSE[@]}" logs --tail=60 "${EVENTS_SERVICE}" >&2 || true
+  echo "--- ${AUTOSCALER_SERVICE} logs (tail) ---" >&2
+  "${COMPOSE[@]}" logs --tail=80 "${AUTOSCALER_SERVICE}" >&2 || true
   exit 1
 }
 
 cleanup_tmp() {
+  if [[ -n "${SYNC_PID}" ]]; then
+    kill "${SYNC_PID}" >/dev/null 2>&1 || true
+    wait "${SYNC_PID}" 2>/dev/null || true
+    SYNC_PID=""
+  fi
   rm -rf "${TMP_DIR}"
 }
 trap cleanup_tmp EXIT
@@ -181,7 +216,7 @@ teardown() {
 }
 
 ensure_platform() {
-  echo "Ensuring Postgres, registry, NATS, Events, Storage, Control, Runtime, Gateway, Build..."
+  echo "Ensuring Postgres, registry, NATS, Events, Storage, Autoscaler, Control, Runtime, Gateway, Build..."
   "${COMPOSE[@]}" up -d "${POSTGRES_SERVICE}" "${REGISTRY_SERVICE}" "${NATS_SERVICE}"
   for _ in $(seq 1 60); do
     if "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" pg_isready -U forge >/dev/null 2>&1; then
@@ -192,14 +227,22 @@ ensure_platform() {
   "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" pg_isready -U forge >/dev/null 2>&1 ||
     fail "Postgres not ready"
 
+  # Autoscaler DB (shared with demo 24).
+  docker exec -i forge-postgres psql -U forge -d postgres -v ON_ERROR_STOP=1 <<'SQL' >/dev/null \
+    || fail "could not ensure forge_autoscaler database"
+SELECT 'CREATE DATABASE forge_autoscaler'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'forge_autoscaler')\gexec
+SQL
+
   local need_recreate=0
-  local auth_mode pattern strategy provisioner secrets_url streams
+  local auth_mode pattern strategy provisioner secrets_url streams events_url
   auth_mode="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_AUTH_MODE 2>/dev/null || true)"
   pattern="$(docker exec "${GATEWAY_SERVICE}" printenv FORGE_HOST_PATTERN 2>/dev/null || true)"
   strategy="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_SCHEDULER_STRATEGY 2>/dev/null || true)"
   provisioner="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_DB_PROVISIONER 2>/dev/null || true)"
   secrets_url="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_SECRETS_URL 2>/dev/null || true)"
   streams="$(docker exec "${EVENTS_SERVICE}" printenv FORGE_EVENTS_STREAMS 2>/dev/null || true)"
+  events_url="$(docker exec "${AUTOSCALER_SERVICE}" printenv FORGE_EVENTS_URL 2>/dev/null || true)"
   if [[ "${auth_mode}" != "dev" ]]; then
     need_recreate=1
   fi
@@ -218,17 +261,28 @@ ensure_platform() {
   if [[ "${streams}" != *attachment* ]]; then
     need_recreate=1
   fi
+  if [[ "${events_url}" != *"demo52-metrics"* ]]; then
+    need_recreate=1
+  fi
   if ! docker exec "${CONTROL_SERVICE}" test -S /var/run/docker.sock 2>/dev/null; then
     need_recreate=1
   fi
 
+  echo "Starting demo52-metrics sidecar..."
+  docker rm -f demo52-metrics >/dev/null 2>&1 || true
+  "${COMPOSE[@]}" up -d --build --force-recreate "${METRICS_SERVICE}" ||
+    fail "compose up ${METRICS_SERVICE} failed"
+  wait_http "${METRICS_URL}/health/live" "demo52-metrics" 60
+
   if [[ "${need_recreate}" -eq 1 ]]; then
-    echo "Recreating Control/Runtime/Gateway/Events with demo 52 overlay..."
+    echo "Recreating Control/Runtime/Gateway/Events/Autoscaler with demo 52 overlay..."
     "${COMPOSE[@]}" up -d --force-recreate \
-      "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}" "${EVENTS_SERVICE}"
+      "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}" "${EVENTS_SERVICE}" \
+      "${AUTOSCALER_SERVICE}"
   else
-    echo "Control/Gateway/Events already configured for demo 52; ensuring they are up..."
-    "${COMPOSE[@]}" up -d "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}" "${EVENTS_SERVICE}"
+    echo "Control/Gateway/Events/Autoscaler already configured for demo 52; ensuring they are up..."
+    "${COMPOSE[@]}" up -d "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}" \
+      "${EVENTS_SERVICE}" "${AUTOSCALER_SERVICE}"
   fi
   "${COMPOSE[@]}" up -d "${BUILD_SERVICE}" "${STORAGE_SERVICE}"
 
@@ -238,6 +292,7 @@ ensure_platform() {
   wait_http "${BUILD_URL}/health/ready" "Build" 60 || true
   wait_http "${STORAGE_URL}/health/ready" "Storage" 90
   wait_http "${EVENTS_URL}/health/ready" "Events" 90
+  wait_http "${AUTOSCALER_URL}/health/ready" "Autoscaler" 120
 
   pattern="$(docker exec "${GATEWAY_SERVICE}" printenv FORGE_HOST_PATTERN 2>/dev/null || true)"
   [[ "${pattern}" == *'{service}.snapnote.localhost'* ]] ||
@@ -248,6 +303,9 @@ ensure_platform() {
   streams="$(docker exec "${EVENTS_SERVICE}" printenv FORGE_EVENTS_STREAMS 2>/dev/null || true)"
   [[ "${streams}" == *attachment* ]] ||
     fail "events FORGE_EVENTS_STREAMS must include attachment (got: ${streams})"
+  events_url="$(docker exec "${AUTOSCALER_SERVICE}" printenv FORGE_EVENTS_URL 2>/dev/null || true)"
+  [[ "${events_url}" == *"demo52-metrics"* ]] ||
+    fail "autoscaler FORGE_EVENTS_URL must point at demo52-metrics (got: ${events_url})"
 
   # Confirm attachment.uploaded schema is loaded.
   curl --fail --silent --show-error "${EVENTS_URL}/v1/schemas" >"${TMP_DIR}/schemas.json" ||
@@ -858,6 +916,331 @@ prove_worker_restart_exactly_once() {
   echo "  restart-safe exactly-once ok id=${att_id} thumbnailKey=${thumb_key}"
 }
 
+publish_queue_metrics() {
+  local depth="$1" retry="${2:-0}"
+  curl --fail --silent --show-error -X PUT "${METRICS_URL}/demo/queue/${QUEUE_NAME}" \
+    -H 'content-type: application/json' \
+    -d "{\"depth\":${depth},\"oldestAgeSeconds\":15,\"consumerLag\":${depth},\"retryRate\":${retry}}" \
+    >/dev/null || fail "publish queue metrics failed"
+  echo "  queue metrics: depth=${depth} retryRate=${retry}"
+}
+
+clear_queue_metrics() {
+  curl --silent --show-error -X DELETE "${METRICS_URL}/demo/queue/${QUEUE_NAME}" >/dev/null || true
+}
+
+ensure_worker_kind() {
+  local code
+  code="$(curl -s -o "${TMP_DIR}/kind.json" -w '%{http_code}' -X POST "${CONTROL_URL}/v1/kinds" \
+    -H 'content-type: application/json' \
+    -d '{"kind":"Worker","plural":"workers","scope":"environment","controller":"worker-controller","idPrefix":"wrk"}')"
+  if [[ "${code}" == "201" || "${code}" == "200" || "${code}" == "409" ]]; then
+    echo "  Worker kind ready (HTTP ${code})"
+    return 0
+  fi
+  fail "register Worker kind HTTP ${code}: $(cat "${TMP_DIR}/kind.json")"
+}
+
+create_worker_resource() {
+  local code
+  code="$(curl -s -o "${TMP_DIR}/worker.json" -w '%{http_code}' -X POST \
+    "${CONTROL_URL}/v1/projects/${PROJECT_SLUG}/environments/${ENV_NAME}/workers" \
+    -H 'content-type: application/json' \
+    -d "{\"metadata\":{\"name\":\"${WORKER_NAME}\"},\"spec\":{\"queue\":\"${QUEUE_NAME}\",\"scaling\":{\"desiredReplicas\":${MIN_REPLICAS},\"minReplicas\":${MIN_REPLICAS},\"maxReplicas\":${MAX_REPLICAS}}}}")"
+  if [[ "${code}" == "201" || "${code}" == "200" ]]; then
+    echo "  Worker ${WORKER_NAME} created"
+    return 0
+  fi
+  if [[ "${code}" == "409" ]]; then
+    code="$(curl -s -o "${TMP_DIR}/worker-patch.json" -w '%{http_code}' -X PATCH \
+      "${CONTROL_URL}/v1/projects/${PROJECT_SLUG}/environments/${ENV_NAME}/workers/${WORKER_NAME}" \
+      -H 'content-type: application/json' \
+      -d "{\"spec\":{\"scaling\":{\"desiredReplicas\":${MIN_REPLICAS},\"minReplicas\":${MIN_REPLICAS},\"maxReplicas\":${MAX_REPLICAS}}}}")"
+    [[ "${code}" == "200" || "${code}" == "201" ]] ||
+      fail "patch Worker HTTP ${code}: $(cat "${TMP_DIR}/worker-patch.json")"
+    echo "  Worker ${WORKER_NAME} already exists (patched bounds)"
+    return 0
+  fi
+  fail "create Worker HTTP ${code}: $(cat "${TMP_DIR}/worker.json")"
+}
+
+worker_policy_spec() {
+  # $1 = include_retry (1|0). retryRate is only armed during the hold proof —
+  # permanently including it blocks drain because HoldRetryHealthy returns the
+  # current replica count and wins the max-recommendation merge.
+  local include_retry="${1:-0}"
+  local metrics
+  if [[ "${include_retry}" == "1" ]]; then
+    metrics="$(cat <<EOF
+[
+  {"type": "queueDepth", "targetValue": ${TARGET_PER_REPLICA}, "queue": "${QUEUE_NAME}"},
+  {"type": "retryRate", "targetValue": 0.05, "queue": "${QUEUE_NAME}"}
+]
+EOF
+)"
+  else
+    metrics="$(cat <<EOF
+[
+  {"type": "queueDepth", "targetValue": ${TARGET_PER_REPLICA}, "queue": "${QUEUE_NAME}"}
+]
+EOF
+)"
+  fi
+  cat <<EOF
+{
+  "targetRef": {"kind": "Worker", "name": "${WORKER_NAME}"},
+  "minReplicas": ${MIN_REPLICAS},
+  "maxReplicas": ${MAX_REPLICAS},
+  "metrics": ${metrics},
+  "behavior": {
+    "scaleUp": {"stabilizationWindowSeconds": 0, "maxReplicasPerMinute": ${MAX_REPLICAS}},
+    "scaleDown": {"stabilizationWindowSeconds": 0, "maxReplicasPerMinute": ${MAX_REPLICAS}}
+  },
+  "metricOutageFallback": {"mode": "hold"}
+}
+EOF
+}
+
+replace_worker_scaling_policy() {
+  local include_retry="${1:-0}"
+  local spec rv code
+  spec="$(worker_policy_spec "${include_retry}")"
+  curl --fail --silent --show-error \
+    "${AUTOSCALER_URL}/v1/projects/${PROJECT_SLUG}/environments/${ENV_NAME}/scalingpolicies/${WORKER_POLICY}" \
+    >"${TMP_DIR}/sp-get.json" || fail "GET ${WORKER_POLICY} before replace failed"
+  rv="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["metadata"]["resourceVersion"])' "${TMP_DIR}/sp-get.json")"
+  code="$(curl -s -o "${TMP_DIR}/sp-put.json" -w '%{http_code}' -X PUT \
+    "${AUTOSCALER_URL}/v1/projects/${PROJECT_SLUG}/environments/${ENV_NAME}/scalingpolicies/${WORKER_POLICY}" \
+    -H 'content-type: application/json' \
+    -d "{\"metadata\":{\"resourceVersion\":\"${rv}\"},\"spec\":${spec}}")"
+  [[ "${code}" == "200" ]] ||
+    fail "replace ${WORKER_POLICY} HTTP ${code}: $(cat "${TMP_DIR}/sp-put.json")"
+  echo "  ScalingPolicy ${WORKER_POLICY} replaced (retryRate=${include_retry})"
+}
+
+apply_worker_scaling_policy() {
+  local spec code
+  spec="$(worker_policy_spec 0)"
+  code="$(curl -s -o "${TMP_DIR}/sp-worker.json" -w '%{http_code}' -X POST \
+    "${AUTOSCALER_URL}/v1/projects/${PROJECT_SLUG}/environments/${ENV_NAME}/scalingpolicies" \
+    -H 'content-type: application/json' \
+    -H "Idempotency-Key: demo52-${PROJECT_SLUG}-${WORKER_POLICY}" \
+    -d "{\"metadata\":{\"name\":\"${WORKER_POLICY}\"},\"spec\":${spec}}")"
+  if [[ "${code}" == "201" || "${code}" == "200" ]]; then
+    echo "  ScalingPolicy ${WORKER_POLICY} created"
+  elif [[ "${code}" == "409" ]]; then
+    replace_worker_scaling_policy 0
+  else
+    fail "create ${WORKER_POLICY} HTTP ${code}: $(cat "${TMP_DIR}/sp-worker.json")"
+  fi
+  curl --fail --silent --show-error \
+    "${AUTOSCALER_URL}/v1/projects/${PROJECT_SLUG}/environments/${ENV_NAME}/scalingpolicies/${WORKER_POLICY}" \
+    >"${TMP_DIR}/sp-get.json" || fail "GET ${WORKER_POLICY} failed after create"
+  echo "  ScalingPolicy readable project=${PROJECT_SLUG}"
+}
+
+policy_desired() {
+  curl --fail --silent --show-error \
+    "${AUTOSCALER_URL}/v1/projects/${PROJECT_SLUG}/environments/${ENV_NAME}/scalingpolicies/${WORKER_POLICY}" |
+    python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("status",{}).get("desiredReplicas") or 0))'
+}
+
+policy_metric_type() {
+  curl --fail --silent --show-error \
+    "${AUTOSCALER_URL}/v1/projects/${PROJECT_SLUG}/environments/${ENV_NAME}/scalingpolicies/${WORKER_POLICY}" |
+    python3 -c 'import json,sys; r=(json.load(sys.stdin).get("status") or {}).get("lastRecommendation") or {}; print(r.get("metricType") or "")'
+}
+
+wait_policy_desired_ge() {
+  local min="$1" attempts="${2:-90}"
+  local cur=0
+  echo "Waiting for ScalingPolicy ${WORKER_POLICY} desiredReplicas >= ${min} ..."
+  for _ in $(seq 1 "${attempts}"); do
+    cur="$(policy_desired 2>/dev/null || echo 0)"
+    if [[ "${cur}" -ge "${min}" ]]; then
+      echo "  ${WORKER_POLICY} desiredReplicas=${cur}"
+      return 0
+    fi
+    sleep 1
+  done
+  fail "timed out waiting for ${WORKER_POLICY} desiredReplicas >= ${min} (got ${cur})"
+}
+
+wait_policy_desired_eq() {
+  local want="$1" attempts="${2:-90}"
+  local cur=0
+  echo "Waiting for ScalingPolicy ${WORKER_POLICY} desiredReplicas == ${want} ..."
+  for _ in $(seq 1 "${attempts}"); do
+    cur="$(policy_desired 2>/dev/null || echo 0)"
+    if [[ "${cur}" -eq "${want}" ]]; then
+      echo "  ${WORKER_POLICY} desiredReplicas=${cur}"
+      return 0
+    fi
+    sleep 1
+  done
+  fail "timed out waiting for ${WORKER_POLICY} desiredReplicas == ${want} (got ${cur})"
+}
+
+assert_replicas_in_bounds() {
+  local cur="$1"
+  [[ "${cur}" -ge "${MIN_REPLICAS}" && "${cur}" -le "${MAX_REPLICAS}" ]] ||
+    fail "desiredReplicas=${cur} outside [${MIN_REPLICAS},${MAX_REPLICAS}]"
+}
+
+sync_worker_to_deployment() {
+  # Bridge Worker.spec.scaling.desiredReplicas → Deployment desiredReplicas
+  # (autoscaler actuates Worker; reconciler reads Deployment).
+  [[ -n "${WORKER_DEPLOYMENT_ID}" ]] || fail "WORKER_DEPLOYMENT_ID required before sync loop"
+  python3 - "${CONTROL_URL}" "${PROJECT_SLUG}" "${ENV_NAME}" "${WORKER_NAME}" "${WORKER_DEPLOYMENT_ID}" <<'PY' &
+import json, time, urllib.request, sys
+base, project, env, worker, dep_id = sys.argv[1:6]
+worker_url = f"{base}/v1/projects/{project}/environments/{env}/workers/{worker}"
+dep_url = f"{base}/v1/deployments/{dep_id}"
+
+def get(url):
+    with urllib.request.urlopen(url, timeout=5) as r:
+        return json.load(r)
+
+def patch(url, body):
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, method="PATCH",
+                                 headers={"content-type": "application/json"})
+    with urllib.request.urlopen(req, timeout=5) as r:
+        return r.status
+
+last = None
+while True:
+    try:
+        w = get(worker_url)
+        desired = (((w.get("spec") or {}).get("scaling") or {}).get("desiredReplicas"))
+        if desired is None:
+            time.sleep(1)
+            continue
+        desired = int(desired)
+        dep = get(dep_url)
+        cur = int(dep.get("desiredReplicas") or 0)
+        if cur != desired:
+            patch(dep_url, {"desiredReplicas": desired})
+            if desired != last:
+                print(f"sync: worker deployment {dep_id} desiredReplicas {cur} -> {desired}", flush=True)
+            last = desired
+    except Exception as exc:
+        print(f"sync: {exc}", flush=True)
+    time.sleep(1)
+PY
+  SYNC_PID=$!
+  echo "  started Worker→Deployment sync pid=${SYNC_PID}"
+}
+
+prove_worker_autoscaling() {
+  local up_desired held_desired down_desired metric_type peak_min
+  echo "Proving worker queueDepth autoscaling (burst → scale-up → retry hold → drain)..."
+  python3 "${DEMO_DIR}/scripts/test_queue_scaling.py" ||
+    fail "queue scaling unit tests failed"
+
+  ensure_worker_kind
+  create_worker_resource
+  apply_worker_scaling_policy
+  publish_queue_metrics 0 0
+  sync_worker_to_deployment
+
+  wait_policy_desired_eq "${MIN_REPLICAS}" 60
+  assert_replicas_in_bounds "$(policy_desired)"
+
+  # ceil(BURST_DEPTH / TARGET_PER_REPLICA); clamp to max. Default 80/20 → 4.
+  peak_min="$(python3 -c "import math; print(min(${MAX_REPLICAS}, max(${MIN_REPLICAS}, math.ceil(${BURST_DEPTH}/${TARGET_PER_REPLICA}))))")"
+
+  echo "  bursting ${BURST_COUNT} attachments (metrics depth=${BURST_DEPTH})..."
+  GATEWAY_URL="${GATEWAY_URL}" API_HOST="${API_HOST}" STORAGE_URL="${STORAGE_URL}" \
+    METRICS_URL="${METRICS_URL}" QUEUE_NAME="${QUEUE_NAME}" PUBLISH_METRICS=1 \
+    bash "${DEMO_DIR}/scripts/burst.sh" --count "${BURST_COUNT}" --depth "${BURST_DEPTH}" \
+    >"${TMP_DIR}/burst.out" || fail "burst.sh failed: $(cat "${TMP_DIR}/burst.out" 2>/dev/null || true)"
+  # Keep depth high while autoscaler evaluates (worker may drain real queue quickly).
+  publish_queue_metrics "${BURST_DEPTH}" 0
+
+  wait_policy_desired_ge "${peak_min}" 90
+  up_desired="$(policy_desired)"
+  assert_replicas_in_bounds "${up_desired}"
+  [[ "${up_desired}" -ge "${peak_min}" ]] ||
+    fail "expected scale-up >= ${peak_min}, got ${up_desired}"
+  [[ "${up_desired}" -le "${MAX_REPLICAS}" ]] ||
+    fail "scale-up exceeded maxReplicas: ${up_desired}"
+  metric_type="$(policy_metric_type)"
+  [[ "${metric_type}" == "queueDepth" ]] ||
+    fail "lastRecommendation.metricType=${metric_type}, want queueDepth"
+  echo "  scale-up ok desiredReplicas=${up_desired} metricType=${metric_type}"
+
+  # Scale-down safety: temporarily arm retryRate on the policy, drop backlog
+  # while retry pressure is high, assert hold, then disarm retryRate so drain
+  # can proceed (HoldRetryHealthy would otherwise keep desired at current).
+  replace_worker_scaling_policy 1
+  publish_queue_metrics "${BURST_DEPTH}" 0.06
+  sleep 2
+  publish_queue_metrics 0 0.06
+  held_desired=0
+  local saw_retry_block=0
+  for _ in $(seq 1 20); do
+    held_desired="$(policy_desired 2>/dev/null || echo 0)"
+    curl --fail --silent --show-error \
+      "${AUTOSCALER_URL}/v1/projects/${PROJECT_SLUG}/environments/${ENV_NAME}/scalingpolicies/${WORKER_POLICY}" \
+      >"${TMP_DIR}/sp-retry.json" || true
+    if python3 - <<'PY' "${TMP_DIR}/sp-retry.json"
+import json, sys
+body = json.load(open(sys.argv[1]))
+conds = (body.get("status") or {}).get("conditions") or []
+sys.exit(0 if any(c.get("reason") == "RetryPressureBlocksScaleDown" for c in conds) else 1)
+PY
+    then
+      saw_retry_block=1
+    fi
+    if [[ "${held_desired}" -ge "${peak_min}" && "${saw_retry_block}" -eq 1 ]]; then
+      break
+    fi
+    publish_queue_metrics 0 0.06
+    sleep 1
+  done
+  assert_replicas_in_bounds "${held_desired}"
+  [[ "${held_desired}" -ge "${peak_min}" ]] ||
+    fail "retry pressure must block scale-down (held=${held_desired}, prior=${up_desired})"
+  [[ "${saw_retry_block}" -eq 1 ]] ||
+    fail "expected RetryPressureBlocksScaleDown condition; status=$(cat "${TMP_DIR}/sp-retry.json")"
+  echo "  scale-down safety ok desiredReplicas=${held_desired} (retry in flight)"
+
+  # Drain: disarm retryRate + clear backlog → minReplicas.
+  replace_worker_scaling_policy 0
+  publish_queue_metrics 0 0
+  wait_policy_desired_eq "${MIN_REPLICAS}" 90
+  down_desired="$(policy_desired)"
+  assert_replicas_in_bounds "${down_desired}"
+  echo "  scale-down ok desiredReplicas=${down_desired}"
+
+  # Real burst backlog should eventually reach ready (worker still running).
+  local note_id pending=0
+  note_id="$(awk -F= '/^BURST_NOTE_ID=/{print $2}' "${TMP_DIR}/burst.out")"
+  if [[ -n "${note_id}" ]]; then
+    echo "  waiting for burst attachments on note ${note_id} to reach ready..."
+    for _ in $(seq 1 180); do
+      curl --fail --silent --show-error -H "Host: ${API_HOST}" \
+        "${GATEWAY_URL}/notes/${note_id}/attachments" >"${TMP_DIR}/burst-atts.json" || true
+      pending="$(python3 -c '
+import json,sys
+items=json.load(open(sys.argv[1]))
+print(sum(1 for a in items if a.get("status")!="ready"))
+' "${TMP_DIR}/burst-atts.json" 2>/dev/null || echo 99)"
+      if [[ "${pending}" -eq 0 ]]; then
+        echo "  burst backlog drained (all ready)"
+        break
+      fi
+      sleep 1
+    done
+    [[ "${pending}" -eq 0 ]] ||
+      echo "  warning: ${pending} burst attachments still pending (non-fatal for scaling proof)" >&2
+  fi
+
+  clear_queue_metrics
+  echo "  worker autoscaling proof complete (bounds [${MIN_REPLICAS},${MAX_REPLICAS}])"
+}
+
 deploy() {
   if [[ -f "${STATE_FILE}" ]]; then
     teardown
@@ -938,9 +1321,10 @@ for p in json.load(sys.stdin):
   prove_storage_roundtrip
   prove_worker_thumbnail
   prove_worker_restart_exactly_once
+  prove_worker_autoscaling
 
   echo
-  echo "demo 52 deploy READY (storage + events queue + idempotent worker)"
+  echo "demo 52 deploy READY (storage + events + queueDepth worker autoscaling)"
   echo "  App:          http://${APP_HOST}:4000/"
   echo "  API:          http://${API_HOST}:4000/health/ready"
   echo "  Worker:       http://${WORKER_HOST}:4000/health/ready"
@@ -949,7 +1333,8 @@ for p in json.load(sys.stdin):
   echo "  Web image:    ${WEB_IMAGE}"
   echo "  Database:     ${DB_NAME} (Ready)"
   echo "  Storage:      ${STORAGE_BUCKET} @ ${STORAGE_URL}"
-  echo "  Events:       ${EVENTS_URL} (queue snapnote-attachments / attachment.uploaded)"
+  echo "  Events:       ${EVENTS_URL} (queue ${QUEUE_NAME} / attachment.uploaded)"
+  echo "  Autoscaler:   ${AUTOSCALER_URL} policy=${WORKER_POLICY} bounds=[${MIN_REPLICAS},${MAX_REPLICAS}]"
   echo "  Deployments:  api=${API_DEPLOYMENT_ID} worker=${WORKER_DEPLOYMENT_ID} web=${WEB_DEPLOYMENT_ID}"
   echo "  Project:      ${PROJECT_SLUG} (${PROJECT_ID})"
 }

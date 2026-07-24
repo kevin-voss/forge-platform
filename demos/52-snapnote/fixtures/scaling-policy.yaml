@@ -1,0 +1,39 @@
+# ScalingPolicy for SnapNote worker (epic 52.04).
+# Applied via forge-autoscaler HTTP API by run.sh (kind is owned by Autoscaler).
+# Placeholders: ${PROJECT_SLUG}
+#
+# Product shape uses targetPerReplica; autoscaler MetricSpec field is targetValue
+# (same semantics: desired = ceil(queueDepth / targetPerReplica)).
+
+apiVersion: forge.dev/v1
+kind: ScalingPolicy
+metadata:
+  name: snapnote-worker-queue
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    app: snapnote-worker
+    demo: "52"
+spec:
+  targetRef:
+    kind: Worker
+    name: snapnote-worker
+  minReplicas: 1
+  maxReplicas: 8
+  metrics:
+    - type: queueDepth
+      # targetPerReplica: 20
+      targetValue: 20
+      queue: snapnote-attachments
+    # retryRate is toggled on only during the scale-down-safety proof in run.sh.
+    # Leaving it permanently armed prevents drain: HoldRetryHealthy returns the
+    # current replica count and wins the max-recommendation merge.
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      maxReplicasPerMinute: 8
+    scaleDown:
+      stabilizationWindowSeconds: 0
+      maxReplicasPerMinute: 8
+  metricOutageFallback:
+    mode: hold

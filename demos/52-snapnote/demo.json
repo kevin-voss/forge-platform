@@ -32,7 +32,8 @@
     "build",
     "managed-postgresql",
     "storage",
-    "events"
+    "events",
+    "autoscaler"
   ],
   "teardown": "demos/52-snapnote/run.sh --down"
 }

@@ -80,7 +80,8 @@ spec:
   replicas: 1
 ---
 # snapnote-worker — Application/Service/Deployment stand-in for kind: Worker
-# (see worker/worker.yaml). Single replica here; autoscaling lands in 52.04.
+# (see worker/worker.yaml). Bounds match ScalingPolicy (52.04); desiredReplicas
+# start at 1 and are driven by forge-autoscaler queueDepth.
 apiVersion: forge.dev/v1
 kind: Application
 metadata:
@@ -97,7 +98,8 @@ spec:
     memory: 64Mi
   scaling:
     minReplicas: 1
-    maxReplicas: 1
+    maxReplicas: 8
+    desiredReplicas: 1
   dependencies:
     database:
       type: postgres
