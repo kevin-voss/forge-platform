@@ -6,7 +6,8 @@ routes). Step **51.04** moves `DATABASE_URL` and `JWT_SIGNING_KEY` into
 forge-secrets (bindings + managed-db attach) with no plaintext in manifests or
 logs.
 
-Later steps add full browser E2E (51.05) and the epic gate (51.06).
+Browser E2E lives at `tests/e2e/projects/01-taskflow/spec.ts` (step **51.05**).
+Epic gate / `make demo DEMO=51` wiring is **51.06**.
 
 ## Layout
 
@@ -41,6 +42,10 @@ curl -fsS -H 'Host: api.taskflow.localhost' -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:4000/tasks
 ./demos/51-taskflow/seed.sh   # idempotent
 ./demos/51-taskflow/run.sh --down
+
+# Browser E2E (product must already be up via run.sh or KEEP=1)
+cd tests/e2e && npx playwright test projects/01-taskflow
+HEADLESS=1 npx playwright test projects/01-taskflow
 
 # API unit + repository tests (repo test starts a Postgres container when Docker is available)
 cd demos/51-taskflow/api && go test ./...

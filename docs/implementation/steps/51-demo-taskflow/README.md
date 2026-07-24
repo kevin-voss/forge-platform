@@ -11,7 +11,7 @@ Atomic steps for [Demo 1 — TaskFlow](../../epics/51-demo-taskflow.md). Product
 | **182** | `51.02` | [51.02-managed-postgres-and-schema.md](51.02-managed-postgres-and-schema.md) | Complete |
 | **183** | `51.03` | [51.03-identity-auth-and-roles.md](51.03-identity-auth-and-roles.md) | Complete |
 | **184** | `51.04` | [51.04-secrets-injection.md](51.04-secrets-injection.md) | Complete |
-| **185** | `51.05` | [51.05-e2e-browser-spec.md](51.05-e2e-browser-spec.md) | Not started |
+| **185** | `51.05` | [51.05-e2e-browser-spec.md](51.05-e2e-browser-spec.md) | Complete |
 | **186** | `51.06` | [51.06-demo-and-gate.md](51.06-demo-and-gate.md) | Not started |
 
 Implement with [`../../IMPLEMENT_STEP.md`](../../IMPLEMENT_STEP.md) (`N = 181` first).

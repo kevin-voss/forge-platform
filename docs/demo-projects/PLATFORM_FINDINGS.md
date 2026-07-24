@@ -18,10 +18,10 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 
 | Metric | Count |
 |---|---|
-| Total findings | 2 |
-| Open | 2 |
+| Total findings | 3 |
+| Open | 3 |
 | Blocker | 0 |
-| Major | 0 |
+| Major | 1 |
 | Minor | 2 |
 
 ## By service
@@ -29,13 +29,14 @@ Machine-readable mirror: `tests/e2e/artifacts/findings.json`.
 | Service | Open | Blocker | Major | Minor |
 |---|--:|--:|--:|--:|
 | forge-identity | 1 | 0 | 0 | 1 |
+| forge-observe | 1 | 0 | 1 | 0 |
 | forge-secrets / forge-control | 1 | 0 | 0 | 1 |
 
 ## By demo
 
 | Demo | Findings |
 |---|--:|
-| 01-taskflow | 2 |
+| 01-taskflow | 3 |
 | 02-snapnote | 0 |
 | 03-askdocs | 0 |
 | 04-orderpipe | 0 |
@@ -132,3 +133,37 @@ service `api`, and relies on managed-db attach for `DATABASE_URL`.
 **Suggested platform fix**
 Either wire apply/`valueFrom.secret` → Secrets bindings, or document that bindings are
 mandatory and restrict product design to valid secret name grammar (no `/`).
+
+### F-003 — Observe should record at least one trace for POST /tasks
+
+| Field | Value |
+|---|---|
+| Status | Open |
+| Severity | major |
+| Service | forge-observe |
+| Area / contract | forge-observe / product OTEL export (51.05) |
+| Found by demo | 01-taskflow |
+| First seen | 2026-07-24 |
+| Reproducible | always |
+
+**What we tested**
+POST /tasks then query Tempo /api/search and Observe /v1/logs
+
+**Expected (per spec/contract)**
+≥1 OTEL trace (or observe log evidence) for POST /tasks
+
+**Actual**
+no OTEL trace evidence for POST /tasks (tempo search returned zero traces; observe HTTP 400)
+
+**Evidence**
+- _(none captured)_
+
+**Reproduce**
+```bash
+make demo DEMO=51 KEEP=1
+curl -s "http://127.0.0.1:3002/api/search?limit=20"
+curl -s "http://127.0.0.1:4106/v1/logs?limit=50"
+```
+
+**Impact on demo**
+Demo marked **degraded**; run continues.

@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 185`** (verification track; epic 51 TaskFlow).
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 186`** (verification track; epic 51 TaskFlow).
 
 ## Epics
 
@@ -280,7 +280,7 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 | Epic | Title | Status | Steps (N) |
 |---|---|---|---|
 | [50](epics/50-e2e-harness.md) | Platform E2E harness & orchestrator | Complete | `174`–`180` |
-| [51](epics/51-demo-taskflow.md) | Demo 1 — TaskFlow (auth + DB + secrets) | In progress | `181`–`186`; 51.04 Secrets injection |
+| [51](epics/51-demo-taskflow.md) | Demo 1 — TaskFlow (auth + DB + secrets) | In progress | `181`–`186`; 51.05 E2E browser spec |
 | [52](epics/52-demo-snapnote.md) | Demo 2 — SnapNote (storage + queue + worker autoscaling) | Planning | `187`–`192` |
 | [53](epics/53-demo-askdocs.md) | Demo 3 — AskDocs (models + memory + agents) | Planning | `193`–`198` |
 | [54](epics/54-demo-orderpipe.md) | Demo 4 — OrderPipe (workflows + events + discovery + network) | Planning | `199`–`205` |
@@ -302,7 +302,7 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 | **182** | Managed Postgres + schema | 51 | Complete |
 | **183** | Identity auth + roles | 51 | Complete |
 | **184** | Secrets injection | 51 | Complete |
-| **185** | E2E browser spec | 51 | Not started |
+| **185** | E2E browser spec | 51 | Complete |
 | **186** | Demo + epic gate | 51 | Not started |
 | **187** | Product scaffold + notes CRUD + Postgres | 52 | Not started |
 | **188** | Object storage integration | 52 | Not started |
