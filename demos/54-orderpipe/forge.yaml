@@ -1,0 +1,204 @@
+# OrderPipe build manifests + portable resource docs (epic 54.01).
+#
+# Build (read by `forge build` when available; run.sh also docker-builds locally):
+#   api/forge.yaml           → orderpipe-api
+#   fulfillment/forge.yaml   → orderpipe-fulfillment
+#   notify/forge.yaml        → orderpipe-notify
+#   web.forge.yaml           → orderpipe-shop
+#
+# Applied by run.sh via `forge apply -f` (placeholders filled at deploy time).
+
+apiVersion: forge.dev/v1
+kind: Project
+metadata:
+  name: ${PROJECT_NAME}
+spec:
+  slug: ${PROJECT_SLUG}
+---
+apiVersion: forge.dev/v1
+kind: Environment
+metadata:
+  name: local
+  project: ${PROJECT_SLUG}
+spec: {}
+---
+apiVersion: forge.dev/v1
+kind: Application
+metadata:
+  name: orderpipe-api
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    app: orderpipe-api
+    demo: "54"
+spec:
+  image: ${API_IMAGE}
+  resources:
+    cpu: 50m
+    memory: 128Mi
+  scaling:
+    minReplicas: 1
+    maxReplicas: 1
+  dependencies:
+    database:
+      type: postgres
+      plan: standard
+      name: orderpipe-db
+---
+apiVersion: forge.dev/v1
+kind: Service
+metadata:
+  name: api
+  project: ${PROJECT_SLUG}
+  annotations:
+    forge.dev/parent: orderpipe-api
+spec:
+  port: 8080
+---
+apiVersion: forge.dev/v1
+kind: Deployment
+metadata:
+  name: orderpipe-api
+  project: ${PROJECT_SLUG}
+  environment: local
+  annotations:
+    forge.dev/parent: orderpipe-api
+  labels:
+    app: orderpipe-api
+    demo: "54"
+spec:
+  service: api
+  image: ${API_IMAGE}
+  replicas: 1
+---
+apiVersion: forge.dev/v1
+kind: Application
+metadata:
+  name: orderpipe-fulfillment
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    app: orderpipe-fulfillment
+    demo: "54"
+spec:
+  image: ${FULFILLMENT_IMAGE}
+  resources:
+    cpu: 50m
+    memory: 64Mi
+  scaling:
+    minReplicas: 1
+    maxReplicas: 1
+---
+apiVersion: forge.dev/v1
+kind: Service
+metadata:
+  name: fulfillment
+  project: ${PROJECT_SLUG}
+  annotations:
+    forge.dev/parent: orderpipe-fulfillment
+spec:
+  port: 8080
+---
+apiVersion: forge.dev/v1
+kind: Deployment
+metadata:
+  name: orderpipe-fulfillment
+  project: ${PROJECT_SLUG}
+  environment: local
+  annotations:
+    forge.dev/parent: orderpipe-fulfillment
+  labels:
+    app: orderpipe-fulfillment
+    demo: "54"
+spec:
+  service: fulfillment
+  image: ${FULFILLMENT_IMAGE}
+  replicas: 1
+---
+apiVersion: forge.dev/v1
+kind: Application
+metadata:
+  name: orderpipe-notify
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    app: orderpipe-notify
+    demo: "54"
+spec:
+  image: ${NOTIFY_IMAGE}
+  resources:
+    cpu: 50m
+    memory: 128Mi
+  scaling:
+    minReplicas: 1
+    maxReplicas: 1
+---
+apiVersion: forge.dev/v1
+kind: Service
+metadata:
+  name: notify
+  project: ${PROJECT_SLUG}
+  annotations:
+    forge.dev/parent: orderpipe-notify
+spec:
+  port: 8080
+---
+apiVersion: forge.dev/v1
+kind: Deployment
+metadata:
+  name: orderpipe-notify
+  project: ${PROJECT_SLUG}
+  environment: local
+  annotations:
+    forge.dev/parent: orderpipe-notify
+  labels:
+    app: orderpipe-notify
+    demo: "54"
+spec:
+  service: notify
+  image: ${NOTIFY_IMAGE}
+  replicas: 1
+---
+apiVersion: forge.dev/v1
+kind: Application
+metadata:
+  name: orderpipe-shop
+  project: ${PROJECT_SLUG}
+  environment: local
+  labels:
+    app: orderpipe-shop
+    demo: "54"
+spec:
+  image: ${WEB_IMAGE}
+  resources:
+    cpu: 50m
+    memory: 64Mi
+  scaling:
+    minReplicas: 1
+    maxReplicas: 1
+---
+apiVersion: forge.dev/v1
+kind: Service
+metadata:
+  name: shop
+  project: ${PROJECT_SLUG}
+  annotations:
+    forge.dev/parent: orderpipe-shop
+spec:
+  port: 8080
+---
+apiVersion: forge.dev/v1
+kind: Deployment
+metadata:
+  name: orderpipe-shop
+  project: ${PROJECT_SLUG}
+  environment: local
+  annotations:
+    forge.dev/parent: orderpipe-shop
+  labels:
+    app: orderpipe-shop
+    demo: "54"
+spec:
+  service: shop
+  image: ${WEB_IMAGE}
+  replicas: 1

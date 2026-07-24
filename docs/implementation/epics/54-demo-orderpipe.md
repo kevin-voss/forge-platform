@@ -2,7 +2,7 @@
 
 ## Status
 
-Planning
+In progress
 
 ## Goal
 
@@ -55,7 +55,7 @@ service-to-service pair is blocked while allowed pairs succeed; no hard-coded pe
 
 | Step | Title | Status | Notes |
 |---|---|---|---|
-| 54.01 | Multi-service scaffold + Postgres | Not started | order-api + fulfillment + notify + storefront; orders/items schema; baseline deploy |
+| 54.01 | Multi-service scaffold + Postgres | Complete | order-api + fulfillment + notify + storefront; orders/items schema; baseline deploy |
 | 54.02 | Service discovery wiring | Not started | peers resolved via `*.svc.forge`; contract check: no hard-coded DNS |
 | 54.03 | Network policy | Not started | overlay + NetworkPolicy allow/deny; denied pair blocked, allowed pairs work |
 | 54.04 | Event choreography | Not started | `order.*` events emitted/consumed; status advances via events |

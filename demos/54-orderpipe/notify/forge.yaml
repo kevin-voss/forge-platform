@@ -1,0 +1,8 @@
+# Build manifest for orderpipe-notify.
+# Paths are relative to this file's directory (notify/); context is demo root.
+service:
+  name: notify
+  port: 8080
+build:
+  dockerfile: Dockerfile
+  context: ..

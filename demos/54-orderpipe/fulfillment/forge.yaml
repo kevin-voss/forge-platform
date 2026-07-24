@@ -1,0 +1,7 @@
+# Build manifest for orderpipe-fulfillment.
+service:
+  name: fulfillment
+  port: 8080
+build:
+  dockerfile: fulfillment/Dockerfile
+  context: ..

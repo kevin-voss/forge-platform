@@ -1,0 +1,7 @@
+# Build manifest for orderpipe-shop (`forge build` when multi-service build lands).
+service:
+  name: shop
+  port: 8080
+build:
+  dockerfile: Dockerfile.web
+  context: .

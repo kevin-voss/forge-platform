@@ -1,0 +1,7 @@
+.demo-state
+__pycache__/
+*.pyc
+.pytest_cache/
+notify/_build/
+notify/deps/
+api/orderpipe-api

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OrderPipe</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="brand">OrderPipe</p>
+        <h1>Shop</h1>
+        <p class="lede">
+          Pick items from the catalog and place an order. Status starts at
+          <em>placed</em> — saga / events land in later steps.
+        </p>
+      </header>
+
+      <section aria-labelledby="catalog-heading">
+        <h2 id="catalog-heading">Catalog</h2>
+        <p id="catalog-status" role="status"></p>
+        <ul id="catalog-list" aria-live="polite"></ul>
+      </section>
+
+      <section aria-labelledby="order-heading">
+        <h2 id="order-heading">Place order</h2>
+        <p id="order-status" role="status"></p>
+        <form id="order-form" aria-label="Place order">
+          <label for="customer-email">Email</label>
+          <input
+            id="customer-email"
+            name="email"
+            type="email"
+            required
+            autocomplete="email"
+            placeholder="buyer@example.com"
+          />
+          <fieldset>
+            <legend>Items</legend>
+            <label for="sku">SKU</label>
+            <select id="sku" name="sku" required></select>
+            <label for="qty">Qty</label>
+            <input id="qty" name="qty" type="number" min="1" value="1" required />
+          </fieldset>
+          <button type="submit">Place order</button>
+        </form>
+        <div id="order-result" hidden>
+          <h3>Last order</h3>
+          <p id="order-summary"></p>
+        </div>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

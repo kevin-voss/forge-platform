@@ -1,0 +1,41 @@
+{
+  "id": "04-orderpipe",
+  "title": "OrderPipe",
+  "epic": "54",
+  "compose": "demos/54-orderpipe/docker-compose.yml",
+  "deploy": "demos/54-orderpipe/run.sh",
+  "seed": "demos/54-orderpipe/seed.sh",
+  "hosts": [
+    {
+      "host": "shop.orderpipe.localhost",
+      "path": "/",
+      "expect": 200
+    },
+    {
+      "host": "api.orderpipe.localhost",
+      "path": "/health/ready",
+      "expect": 200
+    },
+    {
+      "host": "fulfillment.orderpipe.localhost",
+      "path": "/health/ready",
+      "expect": 200
+    },
+    {
+      "host": "notify.orderpipe.localhost",
+      "path": "/health/ready",
+      "expect": 200
+    }
+  ],
+  "baseURL": "http://shop.orderpipe.localhost:4000",
+  "spec": "tests/e2e/projects/04-orderpipe/spec.ts",
+  "services": [
+    "control",
+    "cli",
+    "runtime",
+    "gateway",
+    "build",
+    "managed-postgresql"
+  ],
+  "teardown": "demos/54-orderpipe/run.sh --down"
+}

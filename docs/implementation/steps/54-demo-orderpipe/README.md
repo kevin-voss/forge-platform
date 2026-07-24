@@ -7,7 +7,7 @@ Atomic steps for [Demo 4 — OrderPipe](../../epics/54-demo-orderpipe.md). Produ
 
 | N | Step | File | Status |
 |---:|---|---|---|
-| **199** | `54.01` | [54.01-multi-service-scaffold.md](54.01-multi-service-scaffold.md) | Not started |
+| **199** | `54.01` | [54.01-multi-service-scaffold.md](54.01-multi-service-scaffold.md) | Complete |
 | **200** | `54.02` | [54.02-service-discovery-wiring.md](54.02-service-discovery-wiring.md) | Not started |
 | **201** | `54.03` | [54.03-network-policy.md](54.03-network-policy.md) | Not started |
 | **202** | `54.04` | [54.04-event-choreography.md](54.04-event-choreography.md) | Not started |
