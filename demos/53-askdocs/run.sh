@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Demo 53: AskDocs + grounded Agent answerer (epic 53.04).
+# Demo 53: AskDocs epic gate (53.06) — Models + Memory + Agents RAG product.
 # Usage:
 #   demos/53-askdocs/run.sh          # build → apply → DB → Ready → seed → proofs
 #   demos/53-askdocs/run.sh --down   # tear down product resources only
@@ -934,7 +934,7 @@ for p in json.load(sys.stdin):
   prove_refusal
 
   echo
-  echo "demo 53 deploy READY (grounded Agent answerer)"
+  echo "demo 53 deploy READY (AskDocs epic gate)"
   echo "  App:          http://${APP_HOST}:4000/"
   echo "  API:          http://${API_HOST}:4000/health/ready"
   echo "  Worker:       http://${WORKER_HOST}:4000/health/ready"

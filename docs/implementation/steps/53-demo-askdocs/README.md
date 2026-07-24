@@ -12,6 +12,6 @@ Atomic steps for [Demo 3 — AskDocs](../../epics/53-demo-askdocs.md). Product d
 | **195** | `53.03` | [53.03-embeddings-and-memory.md](53.03-embeddings-and-memory.md) | Complete |
 | **196** | `53.04` | [53.04-agent-grounded-answerer.md](53.04-agent-grounded-answerer.md) | Complete |
 | **197** | `53.05` | [53.05-e2e-browser-spec.md](53.05-e2e-browser-spec.md) | Complete |
-| **198** | `53.06` | [53.06-demo-and-gate.md](53.06-demo-and-gate.md) | Not started |
+| **198** | `53.06` | [53.06-demo-and-gate.md](53.06-demo-and-gate.md) | Complete |
 
 Implement with [`../../IMPLEMENT_STEP.md`](../../IMPLEMENT_STEP.md) (`N = 193` first).

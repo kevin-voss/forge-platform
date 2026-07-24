@@ -1,18 +1,17 @@
 # Demo 53 — AskDocs
 
-Epic **53** (through 53.05): document Q&A product with a Python API + chat SPA,
+Epic **53** gate: document Q&A product with a Python API + chat SPA,
 managed Postgres (`documents` / `chunks` / `messages`), Forge Storage uploads, an
 ingest worker that chunks on `document.uploaded`, **Forge Models** embeddings
 (`local-embed-small`, dim **384**), **Forge Memory** collection `askdocs-chunks`,
 and a tool-using **Forge Agent** (`askdocs-answerer`) that produces grounded,
-cited answers — or refuses when retrieval is empty/weak. Browser E2E proves
-upload → ready → cited grounded answer, out-of-corpus refusal, and chat history
-persistence.
+cited answers — or refuses when retrieval is empty/weak — verified end-to-end
+via the platform E2E harness.
 
-`make demo DEMO=53` runs the platform E2E lifecycle via `demo.json`. Gate wiring
-lands in `53.06`.
+`make demo DEMO=53` (and `HEADLESS=1`) is the epic 53 acceptance gate. Product
+browser E2E lives at `tests/e2e/projects/03-askdocs/spec.ts`.
 
-## What it proves (53.04–53.05)
+## What it proves
 
 1. Deploy AskDocs onto Forge (API + worker + web, managed DB, Storage, Events,
    Models, Memory, Agents).
@@ -44,6 +43,7 @@ lands in `53.06`.
 | `worker/` | Ingest worker (`document.uploaded` → chunk → embed → upsert) |
 | `fixtures/company-handbook.txt` | Planted-fact handbook |
 | `run.sh` | Deploy / teardown; persistence + ingest + grounded/refusal proofs |
+| `seed.sh` | Idempotent welcome chat seed |
 | `demo.json` | Harness contract (`id: 03-askdocs`, `spec` + `services` incl. agents/observe) |
 | `docker-compose.yml` | Overlay: Agents mount + LocalProvisioner + Gateway hosts |
 | `../../tests/e2e/projects/03-askdocs/` | Browser E2E spec + fixed handbook fixture |
@@ -51,11 +51,15 @@ lands in `53.06`.
 ## Commands
 
 ```bash
-# Full lifecycle via orchestrator
+# Full lifecycle via orchestrator (preferred / epic gate)
 make demo DEMO=53
 make demo DEMO=53 HEADLESS=1
 
-# Manual product deploy only
+# Same product via PROJECTS filter (demo.json id prefix)
+make test-platform-e2e PROJECTS=03
+make test-platform-e2e HEADLESS=1 PROJECTS=03
+
+# Manual product deploy only (leave running for curl / browser checks)
 ./demos/53-askdocs/run.sh
 curl -fsS -H 'Host: api.askdocs.localhost' http://127.0.0.1:4000/health/ready
 curl -fsS -H 'Host: api.askdocs.localhost' -H 'content-type: application/json' \
@@ -66,6 +70,7 @@ curl -fsS -H 'Host: api.askdocs.localhost' -H 'content-type: application/json' \
 cd demos/53-askdocs/api && python3 -m unittest -v \
   test_chunking.py test_embeddings.py test_store.py test_answer.py
 
+./demos/53-askdocs/seed.sh   # idempotent (requires .demo-state from run.sh)
 ./demos/53-askdocs/run.sh --down
 
 # Browser E2E (product must already be up via run.sh or KEEP=1)
@@ -93,13 +98,15 @@ dependencies:
 #   FORGE_AGENTS_URL  → askdocs-answerer (FORGE_AGENTS_TOOLS_MODE=fake)
 ```
 
-## Platform finding (53.04)
+## Platform findings (recorded, not patched)
 
-Product design names the tool `retrieve` bound to a Memory collection and a
-Control-applied `kind: Agent` resource. Platform today exposes `memory.search`
-(collection as an argument) and loads agent YAML from `FORGE_AGENTS_DEFS_DIR`
-only — see [`PLATFORM_FINDINGS.md`](../../docs/demo-projects/PLATFORM_FINDINGS.md)
-**F-006**. AskDocs mounts `askdocs-answerer.yaml` and uses a deterministic dry-run
-plan; grounding uses product retrieval (lexical boost for fake embeddings).
+Epic 53 surfaces non-blocker findings in
+[`docs/demo-projects/PLATFORM_FINDINGS.md`](../../docs/demo-projects/PLATFORM_FINDINGS.md):
 
-Browser E2E is `53.05` (`tests/e2e/projects/03-askdocs/spec.ts`).
+* `F-006` — no `retrieve` tool alias / Control-applied `kind: Agent` (uses
+  `memory.search` + defs-dir mount)
+* `F-007` — Observe lacks connected AskDocs → Models/Memory/Agents evidence
+
+The orchestrator marks the product **degraded** and still exits 0 when blockers
+are zero. Fake backends (`FORGE_MODELS_BACKEND=fake`,
+`FORGE_AGENTS_TOOLS_MODE=fake`) keep answers deterministic.

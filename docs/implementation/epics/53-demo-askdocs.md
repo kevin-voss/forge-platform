@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress
+Complete
 
 ## Goal
 
@@ -58,7 +58,7 @@ chat history persists.
 | 53.03 | Embeddings (Models) + Memory upsert/query | Complete | fake embeddings; collection `askdocs-chunks`; dim 384; kNN + query |
 | 53.04 | Agent grounded answerer | Complete | Agent `askdocs-answerer` (`memory.search` stand-in for `retrieve`); grounded + refusal; F-006 |
 | 53.05 | E2E browser spec | Complete | upload→ready→ask→cited answer; out-of-corpus refusal; history persists |
-| 53.06 | Demo + epic gate | Not started | `demos/53-askdocs`; `make demo DEMO=53`; wired into test-platform-e2e |
+| 53.06 | Demo + epic gate | Complete | `demos/53-askdocs`; `make demo DEMO=53`; wired into test-platform-e2e |
 
 Ordering + `N`: [`../steps/53-demo-askdocs/README.md`](../steps/53-demo-askdocs/README.md).
 
@@ -66,4 +66,7 @@ Ordering + `N`: [`../steps/53-demo-askdocs/README.md`](../steps/53-demo-askdocs/
 
 * ~~Exact embedding vector format/dimension contract between Models and Memory~~ — pinned in
   `53.03`: `local-embed-small`, dim **384**, L2-normalized floats, Memory collection
-  `askdocs-chunks` (cosine). Mismatch remains a Models↔Memory finding.
+  `askdocs-chunks` (cosine). **Resolved in 53.06:** contract verified by demo proofs + E2E
+  `platform.expect`; non-blocker findings `F-006` (retrieve/`kind: Agent`) and `F-007`
+  (Observe AI-stack evidence) remain open in
+  [`PLATFORM_FINDINGS.md`](../../demo-projects/PLATFORM_FINDINGS.md).

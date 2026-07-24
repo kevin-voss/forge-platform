@@ -246,6 +246,17 @@ scale/drain and soft platform asserts (autoscaler queueDepth, events idempotency
 thumbnail). Non-blocker finding `F-005` (forge-events lacks queueDepth admin metrics; demo uses
 `demo52-metrics` sidecar) does not fail the gate. Epic 52 marked Complete.
 
+### 53.06 outcome — AskDocs demo + epic gate
+
+**Landed:** `demos/53-askdocs/demo.json` (`id: 03-askdocs`) wires deploy/seed/hosts/spec/services/
+teardown into the orchestrator. `make demo DEMO=53` (and `HEADLESS=1`) plus
+`make test-platform-e2e PROJECTS=03` run the full lifecycle; Playwright
+`tests/e2e/projects/03-askdocs/spec.ts` covers upload→ready→cited grounded answer→out-of-corpus
+refusal→history persist and soft platform asserts (Models↔Memory dim, Memory top-k, Agent
+`memory.search` run, Observe evidence). Non-blocker findings `F-006` (no `retrieve` /
+Control-applied `kind: Agent`) and `F-007` (Observe AI-stack evidence) do not fail the gate.
+Epic 53 marked Complete.
+
 ## 9. Determinism
 
 * AI backends use fakes: `FORGE_MODELS_BACKEND=fake`, `FORGE_AGENTS_TOOLS_MODE=fake` (same knobs the
