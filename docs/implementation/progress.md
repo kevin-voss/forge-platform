@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 210`** (verification track; epic 55 PulseBoard).
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 211`** (verification track; epic 55 PulseBoard).
 
 ## Epics
 
@@ -285,7 +285,7 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 | [52](epics/52-demo-snapnote.md) | Demo 2 — SnapNote (storage + queue + worker autoscaling) | Complete | `187`–`192`; `make demo DEMO=52` gate |
 | [53](epics/53-demo-askdocs.md) | Demo 3 — AskDocs (models + memory + agents) | Complete | `193`–`198`; `make demo DEMO=53` gate |
 | [54](epics/54-demo-orderpipe.md) | Demo 4 — OrderPipe (workflows + events + discovery + network) | Complete | `199`–`205`; `make demo DEMO=54` gate |
-| [55](epics/55-demo-pulseboard.md) | Demo 5 — PulseBoard (autoscaler + infra + observe) | In progress | `206`–`211` |
+| [55](epics/55-demo-pulseboard.md) | Demo 5 — PulseBoard (autoscaler + infra + observe) | In progress | `206`–`211`; `55.01`–`55.05` complete |
 | [56](epics/56-platform-e2e-gate.md) | Platform E2E gate & findings consolidation | Planning | `212`–`216` |
 
 ### Steps
@@ -328,7 +328,7 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 | **207** | HTTP request-rate autoscaling + load gen | 55 | Complete |
 | **208** | Node autoscaling (Infrastructure) | 55 | Complete |
 | **209** | Observe surfacing | 55 | Complete |
-| **210** | E2E browser spec | 55 | Not started |
+| **210** | E2E browser spec | 55 | Complete |
 | **211** | Demo + epic gate | 55 | Not started |
 | **212** | Full-suite orchestration | 56 | Not started |
 | **213** | Coverage verification gate | 56 | Not started |

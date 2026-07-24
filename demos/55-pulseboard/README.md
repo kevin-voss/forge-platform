@@ -1,8 +1,8 @@
 # Demo 55 — PulseBoard
 
 Epic **55** product: a live metrics dashboard that proves autoscaling under load
-and observability surfacing. Step **55.04** wires the dashboard to Forge Observe
-so replica count, RPS, and p95 match Grafana’s Prometheus series.
+and observability surfacing. Step **55.05** adds the headed/headless browser E2E
+that watches replicas climb under load (UI + Observe/Grafana) and scale back down.
 
 ## Layout
 
@@ -38,10 +38,16 @@ curl -fsS -H 'Host: api.pulseboard.localhost' http://127.0.0.1:4000/health/ready
 curl -fsS -H 'Host: api.pulseboard.localhost' http://127.0.0.1:4000/stats
 curl -fsS -H 'Host: board.pulseboard.localhost' http://127.0.0.1:4000/
 
-# Load generator (also used by run.sh / future E2E)
+# Load generator (also used by run.sh / E2E)
 ./demos/55-pulseboard/scripts/loadgen.sh start --rps 250
 ./demos/55-pulseboard/scripts/loadgen.sh status
 ./demos/55-pulseboard/scripts/loadgen.sh stop
+
+# Browser E2E (55.05) — requires deploy above; node leg optional for CI
+cd tests/e2e && npx playwright test projects/05-pulseboard
+HEADLESS=1 npx playwright test projects/05-pulseboard
+# Optional capacity leg (Docker node add/drain):
+PULSEBOARD_E2E_NODE_LEG=1 npx playwright test projects/05-pulseboard
 
 ./demos/55-pulseboard/run.sh --down
 
@@ -98,4 +104,14 @@ are named `api` and `board`, so the product is reachable at:
 deployments are active (Ready). No database is provisioned — PulseBoard is
 intentionally stateless.
 
-Later steps add full browser E2E (55.05) and the epic gate (55.06).
+## Browser E2E (55.05)
+
+`tests/e2e/projects/05-pulseboard/spec.ts` drives the dashboard through loadgen:
+baseline replicas=1 → start load → UI + Observe/Grafana replica climb within
+`[1,10]` → stop load → scale back to min. Soft `platform.expect` covers
+autoscaler httpRequests status, Control Application→Deployment actuation, and
+Observe/Grafana consistency. Set `PULSEBOARD_E2E_NODE_LEG=1` (default headed)
+to also assert NodePool scale-up/drain; headless/CI defaults the node leg off
+for speed.
+
+Next: epic gate wiring (55.06).

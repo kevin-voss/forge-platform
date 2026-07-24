@@ -58,7 +58,7 @@ added node scale back down.
 | 55.02 | HTTP request-rate autoscaling + load gen | Complete | `ScalingPolicy httpRequests`; harness load generator; replicas rise/fall within bounds |
 | 55.03 | Node autoscaling (Infrastructure) | Complete | exceed capacity → Docker node provisioned → replicas Running; drain after |
 | 55.04 | Observe surfacing | Complete | dashboard reads replica count/RPS/p95 from Observe; matches Grafana |
-| 55.05 | E2E browser spec | Not started | watch replicas up under load (UI+Grafana), optional node leg, scale down after stop |
+| 55.05 | E2E browser spec | Complete | watch replicas up under load (UI+Grafana), optional node leg, scale down after stop |
 | 55.06 | Demo + epic gate | Not started | `demos/55-pulseboard`; `make demo DEMO=55`; wired into test-platform-e2e |
 
 Ordering + `N`: [`../steps/55-demo-pulseboard/README.md`](../steps/55-demo-pulseboard/README.md).

@@ -104,9 +104,12 @@ start_load() {
   publish_rps "${LOADGEN_RPS}"
 
   # Background worker: refresh metrics + generate real Gateway traffic.
+  # Redirect stdio so callers (execFile/Playwright) are not blocked waiting on
+  # the long-lived python child's inherited pipes.
+  LOADGEN_LOG="${LOADGEN_LOG:-${DEMO_DIR}/.loadgen.log}"
   GATEWAY_URL="${GATEWAY_URL}" API_HOST="${API_HOST}" METRICS_URL="${METRICS_URL}" \
   APPLICATION="${APPLICATION}" LOADGEN_RPS="${LOADGEN_RPS}" HIT_PATH="${HIT_PATH}" \
-  PUBLISH_METRICS="${PUBLISH_METRICS}" python3 - <<'PY' &
+  PUBLISH_METRICS="${PUBLISH_METRICS}" python3 - <<'PY' >"${LOADGEN_LOG}" 2>&1 &
 import json, os, time, urllib.error, urllib.request
 
 gateway = os.environ["GATEWAY_URL"].rstrip("/")
