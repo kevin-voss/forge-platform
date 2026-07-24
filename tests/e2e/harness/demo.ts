@@ -64,6 +64,17 @@ export interface DemoLifecycleOptions {
 
 const DEFAULT_TIMEOUT_MS = 300_000;
 
+function resolveTimeoutMs(explicit?: number): number {
+  if (typeof explicit === 'number' && Number.isFinite(explicit) && explicit > 0) {
+    return explicit;
+  }
+  const fromEnv = Number.parseInt(process.env.DEMO_TIMEOUT_MS ?? '', 10);
+  if (Number.isFinite(fromEnv) && fromEnv > 0) {
+    return fromEnv;
+  }
+  return DEFAULT_TIMEOUT_MS;
+}
+
 const SCHEMA_PATH = path.join(__dirname, 'demo.schema.json');
 
 type JsonSchema = {
@@ -121,7 +132,7 @@ export class DemoLifecycle {
     this.project = project;
     this.repoRoot =
       options.repoRoot ?? path.resolve(__dirname, '../../..');
-    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.timeoutMs = resolveTimeoutMs(options.timeoutMs);
     this.env = { ...process.env, ...options.env };
     this.keep = options.keep ?? process.env.KEEP === '1';
   }

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Demo 55: PulseBoard + HTTP request-rate autoscaling (epic 55.02).
+# Demo 55: PulseBoard + HTTP + node autoscaling (epic 55.03).
 # Usage:
-#   demos/55-pulseboard/run.sh          # build → apply → ScalingPolicy → load up/down proof
-#   demos/55-pulseboard/run.sh --down   # tear down product resources only
+#   demos/55-pulseboard/run.sh          # build → apply → NodePool → load up/down + node proof
+#   demos/55-pulseboard/run.sh --down   # tear down product resources + NodePool
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -19,13 +19,23 @@ export FORGE_READINESS_MAX_WAIT_S="${FORGE_READINESS_MAX_WAIT_S:-90}"
 export FORGE_RESOURCE_API_ENABLED="${FORGE_RESOURCE_API_ENABLED:-true}"
 export FORGE_SECRETS_URL="${FORGE_SECRETS_URL:-disabled}"
 export FORGE_OTEL_ENABLED="${FORGE_OTEL_ENABLED:-false}"
-export FORGE_SCHEDULER_STRATEGY="${FORGE_SCHEDULER_STRATEGY:-single-node}"
-export FORGE_SCHEDULER_LOCAL_NODE_ID="${FORGE_SCHEDULER_LOCAL_NODE_ID:-node-local}"
+export FORGE_SCHEDULER_STRATEGY="${FORGE_SCHEDULER_STRATEGY:-least-allocated}"
+export FORGE_ANTI_AFFINITY_DEFAULT="${FORGE_ANTI_AFFINITY_DEFAULT:-soft}"
+export FORGE_NODE_HEARTBEAT_TIMEOUT_S="${FORGE_NODE_HEARTBEAT_TIMEOUT_S:-8}"
+export FORGE_RESCHEDULE_GRACE_S="${FORGE_RESCHEDULE_GRACE_S:-3}"
+export FORGE_LIVENESS_INTERVAL_MS="${FORGE_LIVENESS_INTERVAL_MS:-2000}"
+export FORGE_INFRA_RECONCILE_INTERVAL_MS="${FORGE_INFRA_RECONCILE_INTERVAL_MS:-1000}"
 export FORGE_ROUTE_SYNC_INTERVAL_SECONDS="${FORGE_ROUTE_SYNC_INTERVAL_SECONDS:-2}"
 export FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS="${FORGE_UPSTREAM_PROBE_INTERVAL_SECONDS:-2}"
 export FORGE_UPSTREAM_FAILURE_THRESHOLD="${FORGE_UPSTREAM_FAILURE_THRESHOLD:-1}"
 export FORGE_UPSTREAM_SUCCESS_THRESHOLD="${FORGE_UPSTREAM_SUCCESS_THRESHOLD:-1}"
 export FORGE_AUTOSCALER_EVAL_INTERVAL_MS="${FORGE_AUTOSCALER_EVAL_INTERVAL_MS:-1000}"
+export FORGE_AUTOSCALER_NODE_SCALE_UP_COOLDOWN_SECONDS="${FORGE_AUTOSCALER_NODE_SCALE_UP_COOLDOWN_SECONDS:-0}"
+export FORGE_AUTOSCALER_NODE_SCALE_DOWN_COOLDOWN_SECONDS="${FORGE_AUTOSCALER_NODE_SCALE_DOWN_COOLDOWN_SECONDS:-0}"
+# Keep long enough that a just-provisioned node is not drained during capacity absorb.
+# 20s is enough to avoid drain-during-absorb races while keeping the gate under
+# the harness lifecycle timeout (300s default; override via DEMO_TIMEOUT_MS).
+export FORGE_AUTOSCALER_NODE_UNDERUTILIZATION_WINDOW_SECONDS="${FORGE_AUTOSCALER_NODE_UNDERUTILIZATION_WINDOW_SECONDS:-20}"
 export COMPOSE_PARALLEL_LIMIT="${COMPOSE_PARALLEL_LIMIT:-1}"
 
 COMPOSE=(
@@ -39,12 +49,17 @@ RUNTIME_URL="${FORGE_RUNTIME_URL:-http://127.0.0.1:4102}"
 GATEWAY_URL="${FORGE_GATEWAY_URL:-http://127.0.0.1:4000}"
 BUILD_URL="${FORGE_BUILD_URL:-http://127.0.0.1:4103}"
 AUTOSCALER_URL="${FORGE_AUTOSCALER_URL:-http://127.0.0.1:4112}"
+INFRA_URL="${FORGE_INFRA_URL:-http://127.0.0.1:4111}"
+NETWORK_URL="${FORGE_NETWORK_URL:-http://127.0.0.1:4110}"
 METRICS_URL="${FORGE_DEMO55_METRICS_URL:-http://127.0.0.1:4197}"
+NETWORK_NAME="${FORGE_NETWORK_NAME:-cluster-overlay}"
 CONTROL_SERVICE="forge-control"
 RUNTIME_SERVICE="forge-runtime"
 GATEWAY_SERVICE="forge-gateway"
 BUILD_SERVICE="forge-build"
 AUTOSCALER_SERVICE="forge-autoscaler"
+INFRA_SERVICE="forge-infrastructure"
+NETWORK_SERVICE="forge-network"
 METRICS_SERVICE="demo55-metrics"
 POSTGRES_SERVICE="postgres"
 REGISTRY_SERVICE="registry"
@@ -57,11 +72,15 @@ API_HOST="api.pulseboard.localhost"
 BOARD_HOST="board.pulseboard.localhost"
 API_NAME="pulseboard-api"
 API_POLICY="pulseboard-api-http"
+POOL_NAME="pulseboard-pool"
 ENV_NAME="local"
 SYNC_PID=""
 MIN_REPLICAS=1
 MAX_REPLICAS=10
+MIN_NODES=2
+MAX_NODES=3
 TARGET_RPS=50
+# ceil(250/50)=5 api + 1 web = 6 slots → 3 docker-small nodes (min=2 → +1).
 LOAD_RPS="${LOAD_RPS:-250}"
 IDLE_RPS="${IDLE_RPS:-20}"
 
@@ -84,6 +103,12 @@ fail() {
       "${AUTOSCALER_URL}/v1/projects/${PROJECT_SLUG}/environments/${ENV_NAME}/scalingpolicies/${API_POLICY}" >&2 || true
     echo >&2
   fi
+  echo "--- NodePool ${POOL_NAME} ---" >&2
+  curl --silent --show-error "${CONTROL_URL}/v1/nodepools/${POOL_NAME}" >&2 || true
+  echo >&2
+  echo "--- /v1/forgenodes ---" >&2
+  curl --silent --show-error "${CONTROL_URL}/v1/forgenodes" >&2 || true
+  echo >&2
   echo "--- demo55-metrics application ---" >&2
   curl --silent --show-error "${METRICS_URL}/admin/metrics?application=${API_NAME}" >&2 || true
   echo >&2
@@ -95,6 +120,8 @@ fail() {
   "${COMPOSE[@]}" logs --tail=60 "${GATEWAY_SERVICE}" >&2 || true
   echo "--- ${AUTOSCALER_SERVICE} logs (tail) ---" >&2
   "${COMPOSE[@]}" logs --tail=80 "${AUTOSCALER_SERVICE}" >&2 || true
+  echo "--- ${INFRA_SERVICE} logs (tail) ---" >&2
+  "${COMPOSE[@]}" logs --tail=80 "${INFRA_SERVICE}" >&2 || true
   exit 1
 }
 
@@ -147,8 +174,11 @@ API_IMAGE=${API_IMAGE}
 WEB_IMAGE=${WEB_IMAGE}
 API_POLICY=${API_POLICY}
 API_NAME=${API_NAME}
+POOL_NAME=${POOL_NAME}
 MIN_REPLICAS=${MIN_REPLICAS}
 MAX_REPLICAS=${MAX_REPLICAS}
+MIN_NODES=${MIN_NODES}
+MAX_NODES=${MAX_NODES}
 TARGET_RPS=${TARGET_RPS}
 METRICS_URL=${METRICS_URL}
 EOF
@@ -171,6 +201,13 @@ delete_deployment() {
       [[ -n "${cid}" ]] || continue
       docker rm -f "${cid}" >/dev/null 2>&1 || true
     done
+}
+
+purge_pool_containers() {
+  docker ps -aq --filter "label=forge.pool=${POOL_NAME}" | while read -r cid; do
+    [[ -n "${cid}" ]] || continue
+    docker rm -f "${cid}" >/dev/null 2>&1 || true
+  done
 }
 
 teardown() {
@@ -200,11 +237,216 @@ teardown() {
         docker rm -f "${cid}" >/dev/null 2>&1 || true
       done
   fi
+  curl --silent --show-error -X DELETE "${CONTROL_URL}/v1/nodepools/${POOL_NAME}" >/dev/null 2>&1 || true
+  sleep 2
+  purge_pool_containers
   echo "Teardown complete."
 }
 
+count_managed_pool_containers() {
+  docker ps -q --filter "label=forge.pool=${POOL_NAME}" | wc -l | tr -d ' '
+}
+
+count_ready_forgenodes() {
+  curl --fail --silent --show-error "${CONTROL_URL}/v1/forgenodes" |
+    python3 -c '
+import json,sys
+body=json.load(sys.stdin)
+items=body.get("items") if isinstance(body,dict) else body
+print(sum(1 for it in items or [] if (it.get("status") or {}).get("phase")=="Ready"))
+'
+}
+
+count_online_fleet() {
+  curl --fail --silent --show-error "${CONTROL_URL}/v1/nodes" |
+    python3 -c '
+import json,sys
+nodes=json.load(sys.stdin)
+print(sum(1 for n in nodes if str(n.get("status","")).lower()=="online"))
+'
+}
+
+wait_ready_nodes() {
+  local want="$1" attempts="${2:-180}" exact="${3:-0}"
+  local ready online managed
+  if [[ "${exact}" == "1" ]]; then
+    echo "Waiting for exactly ${want} Ready forgenodes + online fleet ..."
+  else
+    echo "Waiting for ${want}+ Ready forgenodes + online fleet ..."
+  fi
+  for _ in $(seq 1 "${attempts}"); do
+    ready="$(count_ready_forgenodes 2>/dev/null || echo 0)"
+    online="$(count_online_fleet 2>/dev/null || echo 0)"
+    managed="$(count_managed_pool_containers 2>/dev/null || echo 0)"
+    if [[ "${exact}" == "1" ]]; then
+      if [[ "${ready}" -eq "${want}" && "${online}" -eq "${want}" && "${managed}" -eq "${want}" ]]; then
+        echo "  ready=${ready} online=${online} managed=${managed}"
+        return 0
+      fi
+    elif [[ "${ready}" -ge "${want}" && "${online}" -ge "${want}" && "${managed}" -ge "${want}" ]]; then
+      echo "  ready=${ready} online=${online} managed=${managed}"
+      return 0
+    fi
+    sleep 1
+  done
+  fail "timed out waiting for ${want} Ready nodes (ready=${ready:-?} online=${online:-?} managed=${managed:-?})"
+}
+
+assert_nodes_in_bounds() {
+  local cur="$1"
+  [[ "${cur}" -ge "${MIN_NODES}" && "${cur}" -le "${MAX_NODES}" ]] ||
+    fail "readyNodes=${cur} outside [${MIN_NODES},${MAX_NODES}]"
+}
+
+pool_status_ints() {
+  curl --fail --silent --show-error "${CONTROL_URL}/v1/nodepools/${POOL_NAME}" |
+    python3 -c '
+import json,sys
+st=(json.load(sys.stdin).get("status") or {})
+print(int(st.get("readyNodes") or 0), int(st.get("desiredNodes") or 0), int(st.get("creatingNodes") or 0))
+'
+}
+
+wait_pool_caught_up() {
+  local attempts="${1:-90}"
+  local ready desired creating
+  echo "Waiting for NodePool ${POOL_NAME} readyNodes >= desiredNodes ..."
+  for _ in $(seq 1 "${attempts}"); do
+    read -r ready desired creating <<<"$(pool_status_ints 2>/dev/null || echo "0 99 99")"
+    if [[ "${ready}" -ge "${desired}" && "${desired}" -gt 0 ]]; then
+      echo "  readyNodes=${ready} desiredNodes=${desired} creatingNodes=${creating}"
+      return 0
+    fi
+    sleep 1
+  done
+  fail "timed out waiting for pool catch-up (ready=${ready:-?} desired=${desired:-?} creating=${creating:-?})"
+}
+
+wait_no_pending() {
+  local attempts="${1:-120}"
+  local pending=999
+  echo "Waiting for zero pending placements ..."
+  for _ in $(seq 1 "${attempts}"); do
+    pending="$(curl --fail --silent --show-error "${CONTROL_URL}/v1/placements?status=pending" |
+      python3 -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null || echo 99)"
+    if [[ "${pending}" -eq 0 ]]; then
+      echo "  pending=0"
+      return 0
+    fi
+    sleep 1
+  done
+  fail "timed out waiting for pending=0 (got ${pending})"
+}
+
+compose_up_retry() {
+  local attempt
+  for attempt in 1 2 3; do
+    if "${COMPOSE[@]}" up -d --remove-orphans --no-build "$@"; then
+      return 0
+    fi
+    echo "compose up attempt ${attempt} failed; retrying..." >&2
+    sleep 3
+  done
+  return 1
+}
+
+reset_platform_ledgers() {
+  echo "Resetting control/network/infra/autoscaler state for clean NodePool..."
+  docker exec -i forge-postgres psql -U forge -d forge -v ON_ERROR_STOP=1 <<'SQL' >/dev/null \
+    || fail "could not purge stale control/network/infra state"
+BEGIN;
+TRUNCATE infrastructure.provider_operations RESTART IDENTITY CASCADE;
+TRUNCATE infrastructure.node_bootstrap_timers RESTART IDENTITY CASCADE;
+TRUNCATE infrastructure.ssh_inventory_claims RESTART IDENTITY CASCADE;
+DELETE FROM control.placements;
+DELETE FROM control.reconcile_status;
+DELETE FROM control.deployment_events;
+DELETE FROM control.deployments;
+DELETE FROM control.nodes;
+DELETE FROM control.bootstrap_tokens;
+DELETE FROM control.resource_events;
+DELETE FROM control.resources;
+DELETE FROM network.network_policies;
+DELETE FROM network.environment_network_defaults;
+DELETE FROM network.workload_placements;
+DELETE FROM network.workload_leases;
+DELETE FROM network.node_leases;
+DELETE FROM network.wireguard_peers;
+DELETE FROM network.network_routes;
+DELETE FROM network.nodes;
+DELETE FROM network.networks;
+UPDATE network.policy_rule_generation SET generation = 0 WHERE id = 1;
+INSERT INTO network.policy_rule_generation (id, generation) VALUES (1, 0)
+ON CONFLICT (id) DO NOTHING;
+COMMIT;
+SQL
+  docker exec -i forge-postgres psql -U forge -d postgres -v ON_ERROR_STOP=1 <<'SQL' >/dev/null \
+    || fail "could not ensure forge_autoscaler database"
+SELECT 'CREATE DATABASE forge_autoscaler'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'forge_autoscaler')\gexec
+SQL
+  docker exec -i forge-postgres psql -U forge -d forge_autoscaler -v ON_ERROR_STOP=1 <<'SQL' >/dev/null \
+    || echo "autoscaler DB purge skipped (tables may not exist yet)" >&2
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'scaling_policies') THEN
+    TRUNCATE TABLE scaling_policy_events RESTART IDENTITY CASCADE;
+    TRUNCATE TABLE idempotency_keys RESTART IDENTITY CASCADE;
+    TRUNCATE TABLE scaling_policies RESTART IDENTITY CASCADE;
+  END IF;
+END $$;
+SQL
+  purge_pool_containers
+  docker ps -aq --filter "label=forge.managed=true" | while read -r cid; do
+    [[ -n "${cid}" ]] || continue
+    docker rm -f "${cid}" >/dev/null 2>&1 || true
+  done
+}
+
+ensure_overlay_network() {
+  local net_code="" attempt
+  echo "Ensuring overlay Network ${NETWORK_NAME}..."
+  for attempt in 1 2 3 4 5; do
+    net_code="$(curl -s -o "${TMP_DIR}/net-create.json" -w '%{http_code}' -X POST "${NETWORK_URL}/v1/networks" \
+      -H 'content-type: application/json' \
+      -d "{\"name\":\"${NETWORK_NAME}\",\"spec\":{\"clusterCidr\":\"10.100.0.0/16\",\"nodePrefixLength\":24}}" \
+      || echo "000")"
+    if [[ "${net_code}" == "201" || "${net_code}" == "409" ]]; then
+      break
+    fi
+    echo "  network create attempt ${attempt} HTTP ${net_code}; retrying..." >&2
+    sleep 2
+  done
+  if [[ "${net_code}" == "201" ]]; then
+    echo "  created ${NETWORK_NAME}"
+  elif [[ "${net_code}" == "409" ]]; then
+    echo "  reused ${NETWORK_NAME}"
+  else
+    fail "create network HTTP ${net_code}: $(cat "${TMP_DIR}/net-create.json" 2>/dev/null || true)"
+  fi
+}
+
+apply_nodepool() {
+  local apply_ok=0 attempt
+  echo "Applying Docker InfrastructureProvider + NodePool..."
+  for attempt in 1 2 3; do
+    if forge --output json apply -f "${DEMO_DIR}/fixtures/nodepool-docker.yaml" \
+        >"${TMP_DIR}/apply-pool.json" 2>"${TMP_DIR}/apply-pool.err"; then
+      apply_ok=1
+      break
+    fi
+    echo "forge apply attempt ${attempt} failed: $(cat "${TMP_DIR}/apply-pool.err")" >&2
+    sleep 2
+  done
+  [[ "${apply_ok}" -eq 1 ]] || fail "forge apply nodepool failed"
+  wait_ready_nodes "${MIN_NODES}" 180
+  assert_nodes_in_bounds "$(count_ready_forgenodes)"
+  wait_pool_caught_up 90
+  echo "  NodePool ${POOL_NAME} ready (minNodes=${MIN_NODES} maxNodes=${MAX_NODES})"
+}
+
 ensure_platform() {
-  echo "Ensuring Postgres, registry, Autoscaler, Control, Runtime, Gateway, Build..."
+  echo "Ensuring Postgres, registry, Network, Infrastructure, Autoscaler, Control, Runtime, Gateway, Build..."
   "${COMPOSE[@]}" up -d "${POSTGRES_SERVICE}" "${REGISTRY_SERVICE}"
   for _ in $(seq 1 60); do
     if "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" pg_isready -U forge >/dev/null 2>&1; then
@@ -215,61 +457,56 @@ ensure_platform() {
   "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" pg_isready -U forge >/dev/null 2>&1 ||
     fail "Postgres not ready"
 
-  # Autoscaler DB (shared with demos 24/52).
-  docker exec -i forge-postgres psql -U forge -d postgres -v ON_ERROR_STOP=1 <<'SQL' >/dev/null \
-    || fail "could not ensure forge_autoscaler database"
-SELECT 'CREATE DATABASE forge_autoscaler'
-WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'forge_autoscaler')\gexec
-SQL
-
-  local need_recreate=0
-  local auth_mode pattern strategy gateway_admin
-  auth_mode="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_AUTH_MODE 2>/dev/null || true)"
-  pattern="$(docker exec "${GATEWAY_SERVICE}" printenv FORGE_HOST_PATTERN 2>/dev/null || true)"
-  strategy="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_SCHEDULER_STRATEGY 2>/dev/null || true)"
-  gateway_admin="$(docker exec "${AUTOSCALER_SERVICE}" printenv FORGE_GATEWAY_ADMIN_URL 2>/dev/null || true)"
-  if [[ "${auth_mode}" != "dev" ]]; then
-    need_recreate=1
-  fi
-  if [[ "${pattern}" != *'{service}.pulseboard.localhost'* ]]; then
-    need_recreate=1
-  fi
-  if [[ "${strategy}" != "single-node" ]]; then
-    need_recreate=1
-  fi
-  if [[ "${gateway_admin}" != *"demo55-metrics"* ]]; then
-    need_recreate=1
-  fi
-
   echo "Starting demo55-metrics sidecar..."
   docker rm -f demo55-metrics >/dev/null 2>&1 || true
   "${COMPOSE[@]}" up -d --build --force-recreate "${METRICS_SERVICE}" ||
     fail "compose up ${METRICS_SERVICE} failed"
   wait_http "${METRICS_URL}/health/live" "demo55-metrics" 60
 
-  if [[ "${need_recreate}" -eq 1 ]]; then
-    echo "Recreating Control/Runtime/Gateway/Autoscaler with demo 55 overlay..."
-    "${COMPOSE[@]}" up -d --force-recreate \
-      "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}" "${AUTOSCALER_SERVICE}"
-  else
-    echo "Control/Gateway/Autoscaler already configured for demo 55; ensuring they are up..."
-    "${COMPOSE[@]}" up -d "${CONTROL_SERVICE}" "${RUNTIME_SERVICE}" "${GATEWAY_SERVICE}" \
-      "${AUTOSCALER_SERVICE}"
-  fi
-  "${COMPOSE[@]}" up -d "${BUILD_SERVICE}"
+  echo "Stopping control/infra/runtime/autoscaler for clean ledger reset..."
+  docker rm -f forge-control forge-infrastructure forge-runtime forge-autoscaler >/dev/null 2>&1 || true
+  purge_pool_containers
+  reset_platform_ledgers
 
-  wait_http "${CONTROL_URL}/health/ready" "Control"
-  wait_http "${RUNTIME_URL}/health/ready" "Runtime"
+  echo "Starting forge-network..."
+  compose_up_retry "${NETWORK_SERVICE}" || fail "compose up network failed"
+  wait_http "${NETWORK_URL}/health/live" "forge-network" 120
+
+  echo "Starting forge-control + observe runtime + forge-infrastructure..."
+  compose_up_retry --no-deps "${CONTROL_SERVICE}" || fail "compose up control failed"
+  wait_http "${CONTROL_URL}/health/ready" "forge-control" 180
+  compose_up_retry --no-deps "${RUNTIME_SERVICE}" || fail "compose up observe runtime failed"
+  wait_http "${RUNTIME_URL}/health/ready" "forge-runtime (observe)" 120
+  compose_up_retry --no-deps "${INFRA_SERVICE}" || fail "compose up infra failed"
+  wait_http "${INFRA_URL}/health/ready" "forge-infrastructure" 180
+
+  echo "Restarting forge-network after ledger reset..."
+  docker rm -f forge-network >/dev/null 2>&1 || true
+  compose_up_retry --no-deps --force-recreate "${NETWORK_SERVICE}" || fail "compose up network failed"
+  wait_http "${NETWORK_URL}/health/live" "forge-network" 120
+  ensure_overlay_network
+
+  echo "Waiting for infrastructure kinds..."
+  for _ in $(seq 1 60); do
+    if curl --fail --silent --show-error "${CONTROL_URL}/v1/kinds" |
+      python3 -c 'import json,sys; ks=json.load(sys.stdin); assert any(k.get("plural")=="nodepools" for k in ks)'; then
+      break
+    fi
+    sleep 1
+  done
+
+  echo "Starting Gateway + Build..."
+  compose_up_retry "${GATEWAY_SERVICE}" "${BUILD_SERVICE}" || fail "compose up gateway/build failed"
   wait_http "${GATEWAY_URL}/health/ready" "Gateway"
   wait_http "${BUILD_URL}/health/ready" "Build" 60 || true
-  wait_http "${AUTOSCALER_URL}/health/ready" "Autoscaler" 120
 
+  local pattern strategy node_up gateway_admin
   pattern="$(docker exec "${GATEWAY_SERVICE}" printenv FORGE_HOST_PATTERN 2>/dev/null || true)"
   [[ "${pattern}" == *'{service}.pulseboard.localhost'* ]] ||
     fail "gateway FORGE_HOST_PATTERN must be '{service}.pulseboard.localhost' (got: ${pattern})"
-  gateway_admin="$(docker exec "${AUTOSCALER_SERVICE}" printenv FORGE_GATEWAY_ADMIN_URL 2>/dev/null || true)"
-  [[ "${gateway_admin}" == *"demo55-metrics"* ]] ||
-    fail "autoscaler FORGE_GATEWAY_ADMIN_URL must point at demo55-metrics (got: ${gateway_admin})"
+  strategy="$(docker exec "${CONTROL_SERVICE}" printenv FORGE_SCHEDULER_STRATEGY 2>/dev/null || true)"
+  [[ "${strategy}" == "least-allocated" ]] ||
+    fail "control FORGE_SCHEDULER_STRATEGY must be least-allocated (got: ${strategy})"
 }
 
 # Prefer `forge build` when the CLI subcommand exists; otherwise docker build+push
@@ -302,25 +539,6 @@ ensure_cli() {
   [[ -x "${FORGE_BIN}" ]] || fail "forge binary missing at ${FORGE_BIN}"
   forge config set endpoint "${FORGE_ENDPOINT}" --profile "${FORGE_PROFILE}"
   forge config use "${FORGE_PROFILE}"
-}
-
-purge_stale_workloads() {
-  # Leftover desired-state from prior demos leaves multiple Gateway upstreams.
-  echo "Purging leftover Control deployments + managed containers..."
-  "${COMPOSE[@]}" exec -T "${POSTGRES_SERVICE}" psql -U forge -d forge -v ON_ERROR_STOP=1 <<'SQL' >/dev/null \
-    || fail "could not purge stale Control deployment state"
-BEGIN;
-DELETE FROM control.placements;
-DELETE FROM control.reconcile_status;
-DELETE FROM control.deployment_events;
-DELETE FROM control.deployments;
-COMMIT;
-SQL
-  docker ps -aq --filter "label=forge.managed=true" | while read -r cid; do
-    [[ -n "${cid}" ]] || continue
-    docker rm -f "${cid}" >/dev/null 2>&1 || true
-  done
-  echo "  purged Control desired-state + managed containers"
 }
 
 wait_deployment_status() {
@@ -409,16 +627,26 @@ assert_applications_ready() {
 }
 
 assert_baseline_stats() {
+  local code
   echo "Checking /stats baseline replicas=1 ..."
-  curl --fail --silent --show-error -H "Host: ${API_HOST}" "${GATEWAY_URL}/stats" \
-    >"${TMP_DIR}/stats.json" || fail "GET /stats failed"
-  python3 - "${TMP_DIR}/stats.json" <<'PY' || fail "/stats baseline assertion failed"
+  # Routes can briefly flap while Control recreates placements; retry with refresh.
+  for _ in $(seq 1 60); do
+    refresh_routes
+    code="$(curl --silent --show-error -o "${TMP_DIR}/stats.json" -w '%{http_code}' \
+      -H "Host: ${API_HOST}" "${GATEWAY_URL}/stats" || echo "000")"
+    if [[ "${code}" == "200" ]] && python3 - "${TMP_DIR}/stats.json" <<'PY'
 import json, sys
 stats = json.load(open(sys.argv[1]))
 assert stats.get("replicas") == 1, stats
 assert "counter" in stats, stats
 print(f"  /stats replicas={stats['replicas']} counter={stats.get('counter')}")
 PY
+    then
+      return 0
+    fi
+    sleep 1
+  done
+  fail "GET /stats baseline failed (last HTTP ${code:-000}; body=$(cat "${TMP_DIR}/stats.json" 2>/dev/null || true))"
 }
 
 ensure_application_resource() {
@@ -617,11 +845,28 @@ PY
   echo "  started Application→Deployment sync pid=${SYNC_PID}"
 }
 
-prove_http_autoscaling() {
+start_autoscaler() {
+  echo "Starting forge-autoscaler after NodePool + baseline deploy..."
+  docker rm -f forge-autoscaler >/dev/null 2>&1 || true
+  compose_up_retry --no-deps --force-recreate "${AUTOSCALER_SERVICE}" || fail "compose up autoscaler failed"
+  wait_http "${AUTOSCALER_URL}/health/ready" "forge-autoscaler" 120
+  local gateway_admin node_up
+  gateway_admin="$(docker exec "${AUTOSCALER_SERVICE}" printenv FORGE_GATEWAY_ADMIN_URL 2>/dev/null || true)"
+  [[ "${gateway_admin}" == *"demo55-metrics"* ]] ||
+    fail "autoscaler FORGE_GATEWAY_ADMIN_URL must point at demo55-metrics (got: ${gateway_admin})"
+  node_up="$(docker exec "${AUTOSCALER_SERVICE}" printenv FORGE_AUTOSCALER_NODE_SCALE_UP_ENABLED 2>/dev/null || true)"
+  [[ "${node_up}" == "true" ]] ||
+    fail "autoscaler node scale-up must be enabled (got: ${node_up})"
+}
+
+prove_http_and_node_autoscaling() {
   local up_desired down_desired metric_type metric_value peak_min
-  echo "Proving API httpRequests autoscaling (load → scale-up → stop → scale-down)..."
+  local nodes_before nodes_after_up nodes_after_down
+  echo "Proving HTTP request-rate + node autoscaling (capacity → Docker node → drain)..."
   python3 "${DEMO_DIR}/scripts/test_http_scaling.py" ||
     fail "http scaling unit tests failed"
+  python3 "${DEMO_DIR}/scripts/test_node_scaling.py" ||
+    fail "node scaling unit tests failed"
 
   ensure_application_resource
   apply_api_scaling_policy
@@ -630,8 +875,13 @@ prove_http_autoscaling() {
 
   wait_policy_desired_eq "${MIN_REPLICAS}" 60
   assert_replicas_in_bounds "$(policy_desired)"
+  nodes_before="$(count_ready_forgenodes)"
+  assert_nodes_in_bounds "${nodes_before}"
+  [[ "${nodes_before}" -eq "${MIN_NODES}" ]] ||
+    fail "baseline readyNodes=${nodes_before}, want ${MIN_NODES}"
 
   # ceil(LOAD_RPS / TARGET_RPS); clamp to max. Default 250/50 → 5.
+  # 5 api + 1 web = 6 slots on docker-small (2 slots) → needs 3 nodes.
   peak_min="$(python3 -c "import math; print(min(${MAX_REPLICAS}, max(${MIN_REPLICAS}, math.ceil(${LOAD_RPS}/${TARGET_RPS}))))")"
 
   echo "  starting loadgen rps=${LOAD_RPS} (peak_min=${peak_min}) against ${API_HOST}..."
@@ -658,7 +908,36 @@ assert float(v) >= ${TARGET_RPS}, (v, ${TARGET_RPS})
 print('  policy status reflects RPS metricValue=%s type=%s' % (v, '${metric_type}'))
 " || fail "ScalingPolicy status does not reflect elevated RPS"
 
-  echo "  scale-up ok desiredReplicas=${up_desired} metricType=${metric_type} metricValue=${metric_value}"
+  echo "  HTTP scale-up ok desiredReplicas=${up_desired}; waiting for node scale-up on unschedulability..."
+  # Wait until sync raises Deployment desiredReplicas and either pending appears
+  # or the node autoscaler already grew the pool past minNodes.
+  for _ in $(seq 1 60); do
+    nodes_after_up="$(count_ready_forgenodes 2>/dev/null || echo 0)"
+    pending="$(curl --fail --silent --show-error "${CONTROL_URL}/v1/placements?status=pending" |
+      python3 -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null || echo 0)"
+    dep_desired="$(curl --fail --silent --show-error "${CONTROL_URL}/v1/deployments/${API_DEPLOYMENT_ID}" |
+      python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("desiredReplicas") or 0))' 2>/dev/null || echo 0)"
+    echo "  wait capacity: dep_desired=${dep_desired} pending=${pending} ready=${nodes_after_up}"
+    if [[ "${nodes_after_up}" -gt "${nodes_before}" ]]; then
+      break
+    fi
+    if [[ "${dep_desired}" -gt 2 && "${pending}" -gt 0 ]]; then
+      break
+    fi
+    sleep 1
+  done
+
+  wait_ready_nodes $((nodes_before + 1)) 180
+  nodes_after_up="$(count_ready_forgenodes)"
+  assert_nodes_in_bounds "${nodes_after_up}"
+  [[ "${nodes_after_up}" -gt "${nodes_before}" ]] ||
+    fail "node scale-up did not increase readyNodes (before=${nodes_before} after=${nodes_after_up})"
+  [[ "${nodes_after_up}" -le "${MAX_NODES}" ]] ||
+    fail "readyNodes=${nodes_after_up} exceeds maxNodes=${MAX_NODES}"
+  wait_no_pending 180
+  wait_deployment_status "${API_DEPLOYMENT_ID}" "deployed" 150
+  wait_pool_caught_up 90
+  echo "  node scale-up ok readyNodes=${nodes_after_up} (was ${nodes_before}) within [${MIN_NODES},${MAX_NODES}]"
 
   echo "  stopping loadgen → idle rps=${IDLE_RPS}..."
   GATEWAY_URL="${GATEWAY_URL}" API_HOST="${API_HOST}" METRICS_URL="${METRICS_URL}" \
@@ -673,7 +952,28 @@ print('  policy status reflects RPS metricValue=%s type=%s' % (v, '${metric_type
     fail "scale-down desiredReplicas=${down_desired}, want ${MIN_REPLICAS}"
   [[ "${down_desired}" -lt "${up_desired}" ]] ||
     fail "scale-down did not decrease (up=${up_desired} down=${down_desired})"
-  echo "  scale-down ok desiredReplicas=${down_desired}"
+  echo "  HTTP scale-down ok desiredReplicas=${down_desired}"
+
+  # Let reconcile drop replicas before the node autoscaler scores underutilized nodes.
+  for _ in $(seq 1 60); do
+    actual="$(curl --fail --silent --show-error \
+      "${CONTROL_URL}/v1/deployments/${API_DEPLOYMENT_ID}/reconcile" |
+      python3 -c 'import json,sys; d=json.load(sys.stdin); print(int(d.get("actualReplicas") or d.get("updatedReplicas") or 0))' 2>/dev/null || echo 99)"
+    if [[ "${actual}" -le "${MIN_REPLICAS}" ]]; then
+      echo "  deployment actualReplicas=${actual}"
+      break
+    fi
+    sleep 1
+  done
+  wait_deployment_status "${API_DEPLOYMENT_ID}" "deployed" 150
+  wait_ready_nodes "${MIN_NODES}" 240 1
+  nodes_after_down="$(count_ready_forgenodes)"
+  assert_nodes_in_bounds "${nodes_after_down}"
+  [[ "${nodes_after_down}" -eq "${MIN_NODES}" ]] ||
+    fail "node scale-down readyNodes=${nodes_after_down}, want ${MIN_NODES}"
+  [[ "${nodes_after_down}" -lt "${nodes_after_up}" ]] ||
+    fail "node scale-down did not decrease (up=${nodes_after_up} down=${nodes_after_down})"
+  echo "  node scale-down ok readyNodes=${nodes_after_down} (drain respected bounds)"
 }
 
 deploy() {
@@ -684,7 +984,7 @@ deploy() {
   ensure_platform
   ensure_cli
   ensure_images
-  purge_stale_workloads
+  apply_nodepool
 
   SUFFIX="$(python3 -c 'import uuid; print(uuid.uuid4().hex[:8])')"
   PROJECT_NAME="PulseBoard ${SUFFIX}"
@@ -712,6 +1012,7 @@ deploy() {
   echo "Deployments api=${API_DEPLOYMENT_ID} web=${WEB_DEPLOYMENT_ID}"
 
   assert_applications_ready
+  wait_no_pending 120
   wait_route_host "${API_HOST}" 90
   wait_route_host "${BOARD_HOST}" 90
   wait_host_http "${API_HOST}" "/health/ready" 200 60
@@ -726,7 +1027,8 @@ deploy() {
       fail "forge wait pulseboard-web failed"
   fi
 
-  prove_http_autoscaling
+  start_autoscaler
+  prove_http_and_node_autoscaling
 
   write_state
   echo
@@ -735,6 +1037,7 @@ deploy() {
   echo "  API:          http://${API_HOST}:4000/health/ready"
   echo "  Stats:        http://${API_HOST}:4000/stats"
   echo "  Autoscaler:   ${AUTOSCALER_URL} policy=${API_POLICY} bounds=[${MIN_REPLICAS},${MAX_REPLICAS}] targetRPS=${TARGET_RPS}"
+  echo "  NodePool:     ${POOL_NAME} bounds=[${MIN_NODES},${MAX_NODES}] provider=docker"
   echo "  Loadgen:      ${LOADGEN_SCRIPT} start|stop (against ${API_HOST})"
   echo "  Metrics:      ${METRICS_URL}"
   echo "  API image:    ${API_IMAGE}"

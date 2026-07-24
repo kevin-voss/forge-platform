@@ -160,6 +160,7 @@ test-platform-e2e:
 	@cd tests/e2e && npm ci --no-audit --no-fund
 	@cd tests/e2e && npm run build
 	@cd tests/e2e && HEADLESS="$(HEADLESS)" PROJECTS="$(PROJECTS)" KEEP="$(KEEP)" FINDINGS_ONLY="$(FINDINGS_ONLY)" \
+		DEMO_TIMEOUT_MS="$(DEMO_TIMEOUT_MS)" \
 		node harness/orchestrator.js
 
 # Open artifacts/report.html from the last orchestrator run (written by report.ts).
@@ -215,7 +216,9 @@ demo:
 	demo_json=(demos/$${demo_num}-*/demo.json); \
 	if [[ -f "$${demo_json[0]}" ]]; then \
 		echo "Running platform E2E lifecycle for DEMO=$(DEMO) via $${demo_json[0]}"; \
-		$(MAKE) test-platform-e2e PROJECTS="$${demo_num}" HEADLESS="$(HEADLESS)" KEEP="$(KEEP)" FINDINGS_ONLY="$(FINDINGS_ONLY)"; \
+		demo_timeout="$(DEMO_TIMEOUT_MS)"; \
+		if [[ "$(DEMO)" == "55" && -z "$${demo_timeout}" ]]; then demo_timeout=900000; fi; \
+		$(MAKE) test-platform-e2e PROJECTS="$${demo_num}" HEADLESS="$(HEADLESS)" KEEP="$(KEEP)" FINDINGS_ONLY="$(FINDINGS_ONLY)" DEMO_TIMEOUT_MS="$${demo_timeout}"; \
 		exit $$?; \
 	fi; \
 	matches=(demos/$${demo_num}-*/run.sh); \

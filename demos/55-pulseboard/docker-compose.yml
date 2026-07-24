@@ -1,4 +1,4 @@
-# Demo 55 overlay — PulseBoard + HTTP request-rate autoscaling (epic 55.02).
+# Demo 55 overlay — PulseBoard + HTTP + node autoscaling (epic 55.03).
 # Used with the root compose file:
 #   docker compose -f compose.yaml -f demos/55-pulseboard/docker-compose.yml up -d ...
 #
@@ -8,6 +8,10 @@
 # httpRequests metrics for forge-autoscaler are served by demo55-metrics (same
 # shape as demo 24's sidecar) because forge-gateway does not yet expose
 # /admin/metrics?application=.
+#
+# Node path: least-allocated scheduler + Docker NodePool (pulseboard-pool).
+# forge-runtime is observe-only (no Control registration); Infrastructure
+# provisions forge-node-* agents that place workloads.
 
 services:
   demo55-metrics:
@@ -26,17 +30,71 @@ services:
 
   forge-control:
     environment:
+      # Keep Control lean — demo peaks at 3 Docker runtime nodes on ~8Gi Docker Desktop.
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--Xmx384m -XX:+ExitOnOutOfMemoryError}
       FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
       FORGE_LIFECYCLE_OWNER: ${FORGE_LIFECYCLE_OWNER:-control}
       FORGE_RECONCILE_INTERVAL_MS: ${FORGE_RECONCILE_INTERVAL_MS:-1000}
       FORGE_READINESS_POLL_MS: ${FORGE_READINESS_POLL_MS:-500}
       FORGE_READINESS_MAX_WAIT_S: ${FORGE_READINESS_MAX_WAIT_S:-90}
+      FORGE_ROLLOUT_TIMEOUT_S: ${FORGE_ROLLOUT_TIMEOUT_S:-180}
       FORGE_RESOURCE_API_ENABLED: ${FORGE_RESOURCE_API_ENABLED:-true}
       FORGE_SECRETS_URL: ${FORGE_SECRETS_URL:-disabled}
       FORGE_OTEL_ENABLED: ${FORGE_OTEL_ENABLED:-false}
-      # Pin to local runtime so leftover offline HA nodes (demo 25) cannot steal placement.
-      FORGE_SCHEDULER_STRATEGY: ${FORGE_SCHEDULER_STRATEGY:-single-node}
-      FORGE_SCHEDULER_LOCAL_NODE_ID: ${FORGE_SCHEDULER_LOCAL_NODE_ID:-node-local}
+      FORGE_SCHEDULER_STRATEGY: ${FORGE_SCHEDULER_STRATEGY:-least-allocated}
+      FORGE_ANTI_AFFINITY_DEFAULT: ${FORGE_ANTI_AFFINITY_DEFAULT:-soft}
+      FORGE_SCHEDULER_ENABLED: "true"
+      FORGE_RESCHEDULE_ENABLED: "true"
+      FORGE_NODE_HEARTBEAT_TIMEOUT_S: ${FORGE_NODE_HEARTBEAT_TIMEOUT_S:-8}
+      FORGE_RESCHEDULE_GRACE_S: ${FORGE_RESCHEDULE_GRACE_S:-3}
+      FORGE_LIVENESS_INTERVAL_MS: ${FORGE_LIVENESS_INTERVAL_MS:-2000}
+      FORGE_NETWORK_URL: ${FORGE_CONTROL_NETWORK_URL:-http://forge-network:8080}
+      FORGE_NETWORK_NAME: ${FORGE_NETWORK_NAME:-cluster-overlay}
+      FORGE_RUNTIME_URL: ${FORGE_RUNTIME_URL:-http://forge-runtime:8080}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      forge-network:
+        condition: service_healthy
+
+  forge-network:
+    environment:
+      FORGE_NETWORK_MODE_DEFAULT: ${FORGE_NETWORK_MODE_DEFAULT:-wireguard}
+      FORGE_OTEL_ENABLED: ${FORGE_OTEL_ENABLED:-false}
+
+  forge-infrastructure:
+    environment:
+      FORGE_AUTH_MODE: ${FORGE_AUTH_MODE:-dev}
+      FORGE_INFRA_RECONCILE_INTERVAL_MS: ${FORGE_INFRA_RECONCILE_INTERVAL_MS:-1000}
+      # Workload containers also use forge.managed=true; a short orphan sweep can
+      # delete API/web mid-deploy. Keep the scan long for this product gate.
+      FORGE_INFRA_ORPHAN_SCAN_INTERVAL_S: ${FORGE_INFRA_ORPHAN_SCAN_INTERVAL_S:-3600}
+      FORGE_INFRA_DOCKER_NETWORK: ${FORGE_INFRA_DOCKER_NETWORK:-forge-platform_default}
+      FORGE_INFRA_DOCKER_IMAGE: ${FORGE_INFRA_DOCKER_IMAGE:-forge/forge-runtime:local}
+      FORGE_NODE_PROVISION_TIMEOUT_SECONDS: ${FORGE_NODE_PROVISION_TIMEOUT_SECONDS:-120}
+      FORGE_NODE_BOOTSTRAP_TIMEOUT_SECONDS: ${FORGE_NODE_BOOTSTRAP_TIMEOUT_SECONDS:-120}
+      FORGE_NODE_JOIN_TIMEOUT_SECONDS: ${FORGE_NODE_JOIN_TIMEOUT_SECONDS:-120}
+      FORGE_NODE_DRAIN_TIMEOUT_SECONDS: ${FORGE_NODE_DRAIN_TIMEOUT_SECONDS:-90}
+      FORGE_OTEL_ENABLED: ${FORGE_OTEL_ENABLED:-false}
+
+  forge-runtime:
+    environment:
+      FORGE_NODE_ID: observe-local
+      FORGE_NODE_SLOTS: "1"
+      FORGE_NODE_ADDRESS: http://forge-runtime:8080
+      FORGE_CONTROL_URL: ""
+      FORGE_DISCOVERY_REGISTER_ENABLED: "false"
+      FORGE_NETWORK_OVERLAY_REGISTER: "false"
+      FORGE_LIFECYCLE_OWNER: ${FORGE_LIFECYCLE_OWNER:-control}
+      FORGE_NODE_DOCKER_COLOCATED: "true"
+      FORGE_NETWORK_WG_BACKEND: fake
+      FORGE_NETWORK_ROUTE_BACKEND: fake
+      FORGE_NETWORK_POLICY_BACKEND: fake
+      FORGE_NETWORK_DNS_BACKEND: fake
+      FORGE_OTEL_ENABLED: ${FORGE_OTEL_ENABLED:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   forge-gateway:
     environment:
@@ -59,9 +117,15 @@ services:
       FORGE_EVENTS_URL: http://demo55-metrics:8080
       FORGE_RUNTIME_URL: http://forge-runtime:8080
       FORGE_CONTROL_URL: http://forge-control:8080
-      # Node path lands in 55.03; keep workload-only for this step.
-      FORGE_AUTOSCALER_NODE_SCALE_UP_ENABLED: "false"
-      FORGE_AUTOSCALER_NODE_SCALE_DOWN_ENABLED: "false"
+      FORGE_AUTOSCALER_NODE_SCALE_UP_ENABLED: "true"
+      FORGE_AUTOSCALER_NODE_SCALE_DOWN_ENABLED: "true"
+      FORGE_AUTOSCALER_NODE_SCALE_UP_COOLDOWN_SECONDS: ${FORGE_AUTOSCALER_NODE_SCALE_UP_COOLDOWN_SECONDS:-0}
+      FORGE_AUTOSCALER_NODE_SCALE_DOWN_COOLDOWN_SECONDS: ${FORGE_AUTOSCALER_NODE_SCALE_DOWN_COOLDOWN_SECONDS:-0}
+      FORGE_AUTOSCALER_NODE_UNDERUTILIZATION_THRESHOLD: ${FORGE_AUTOSCALER_NODE_UNDERUTILIZATION_THRESHOLD:-0.25}
+      # Keep long enough that a just-provisioned node is not drained during capacity absorb.
+      FORGE_AUTOSCALER_NODE_UNDERUTILIZATION_WINDOW_SECONDS: ${FORGE_AUTOSCALER_NODE_UNDERUTILIZATION_WINDOW_SECONDS:-20}
+      FORGE_AUTOSCALER_NODE_MAX_DELETES_PER_WINDOW: ${FORGE_AUTOSCALER_NODE_MAX_DELETES_PER_WINDOW:-1}
+      FORGE_AUTOSCALER_RESERVATION_THRESHOLD: ${FORGE_AUTOSCALER_RESERVATION_THRESHOLD:-1.0}
       FORGE_OTEL_ENABLED: ${FORGE_OTEL_ENABLED:-false}
     depends_on:
       postgres:

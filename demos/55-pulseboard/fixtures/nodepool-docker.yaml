@@ -1,0 +1,27 @@
+# Operator-owned Docker pool for PulseBoard (epic 55.03).
+# Autoscaler owns status.desiredNodes; Infrastructure owns Node lifecycle.
+# Product manifests never name providers.
+apiVersion: forge.dev/v1
+kind: InfrastructureProvider
+metadata:
+  name: docker-local
+spec:
+  type: docker
+---
+apiVersion: forge.dev/v1
+kind: NodePool
+metadata:
+  name: pulseboard-pool
+  labels:
+    demo: "55"
+spec:
+  providerRef: docker-local
+  # minNodes=2: with soft anti-affinity, api+web pack across two nodes at
+  # idle; minNodes=1 can never drain (each node stays 50% utilized).
+  replicas: 2
+  machineType: docker-small
+  region: local
+  priority: 10
+  scaling:
+    minNodes: 2
+    maxNodes: 3

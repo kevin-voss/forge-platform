@@ -2,7 +2,7 @@
 
 Statuses: `Not started` · `Planning` · `In progress` · `Blocked` · `Complete`
 
-**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 208`** (verification track; epic 55 PulseBoard).
+**Use `N` (1, 2, 3, …)** — see [`STEPS.md`](STEPS.md). Next: **`N = 209`** (verification track; epic 55 PulseBoard).
 
 ## Epics
 
@@ -326,7 +326,7 @@ Design home: [`../demo-projects/README.md`](../demo-projects/README.md). Global 
 | **205** | Demo + epic gate | 54 | Complete |
 | **206** | Product scaffold + baseline deploy | 55 | Complete |
 | **207** | HTTP request-rate autoscaling + load gen | 55 | Complete |
-| **208** | Node autoscaling (Infrastructure) | 55 | Not started |
+| **208** | Node autoscaling (Infrastructure) | 55 | Complete |
 | **209** | Observe surfacing | 55 | Not started |
 | **210** | E2E browser spec | 55 | Not started |
 | **211** | Demo + epic gate | 55 | Not started |
